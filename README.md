@@ -45,6 +45,7 @@ This is the v1 scaffold. No real agents or skills yet — just a `placeholder` a
 
 ## Docs
 
+- [`CLAUDE.md`](./CLAUDE.md) — contributor-facing orientation (repo layout, dev loop, config conventions, contribution rules).
 - [`documentation/vision.md`](./documentation/vision.md) — what this is, who it's for, principles.
 - [`documentation/architecture.md`](./documentation/architecture.md) — plugin shape, customization model, credentials.
 - [`documentation/roadmap.md`](./documentation/roadmap.md) — milestones M0 → M6 + parking lot.
