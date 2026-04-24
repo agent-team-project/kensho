@@ -33,6 +33,25 @@ TICKET_PREFIX=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_squa
 
 If `.agent_squad/config.toml` is missing, fail early with a clear message rather than hardcoding fallbacks — consumers must configure the squad before this skill will work. The Python one-liner raises `FileNotFoundError` on the `open` call, which produces a clear stderr message.
 
+## Preflight: confirm Linear is the configured PM tool
+
+Before any Linear call, run this check. It enforces that `[squad] pm_tool = "linear"` is set in `.agent_squad/config.toml` — so a consumer who wired up the wrong PM tool (or forgot to) gets a loud failure here instead of silently corrupting tickets in whichever system this skill assumes. Fail and stop if the check errors — do not proceed to any other bash in this skill.
+
+```bash
+python3 - <<'PY'
+import sys, tomllib
+try:
+    cfg = tomllib.load(open(".agent_squad/config.toml", "rb"))
+except FileNotFoundError:
+    sys.exit("preflight: .agent_squad/config.toml not found in $PWD — this skill requires a configured squad.")
+pm = cfg.get("squad", {}).get("pm_tool")
+if pm is None:
+    sys.exit('preflight: [squad].pm_tool is not set in .agent_squad/config.toml. The linear skill requires pm_tool = "linear". Jira and GitHub Issues adapters are planned for v1.1+ (see documentation/roadmap.md § parking lot "PM tool adapter pattern").')
+if pm != "linear":
+    sys.exit(f'preflight: [squad].pm_tool = "{pm}" but the linear skill only supports "linear". Other PM tools are planned for v1.1+ (see documentation/roadmap.md § parking lot "PM tool adapter pattern") — for now, do not invoke this skill from a repo configured for another PM tool.')
+PY
+```
+
 ## The helper
 
 `${CLAUDE_PLUGIN_ROOT}/scripts/linear-graphql.sh` loads a Linear API key (prefers `LINEAR_API_KEY`, falls back to `LINEAR_USER_API_KEY`) from env or `$PWD/.env`, builds the request body with `jq`, and POSTs to `https://api.linear.app/graphql`. The raw response streams to stdout — pipe through `jq` to pretty-print or filter.
@@ -187,6 +206,7 @@ query($teamId: ID!) {
 
 ## Failure modes
 
+- **`preflight: ...` error on `[squad].pm_tool`** — the consumer repo either has no `pm_tool` set or has it set to something other than `"linear"`. Fix `.agent_squad/config.toml`; the linear skill will refuse to run until it reads `[squad] pm_tool = "linear"`. Do not comment out the preflight.
 - **`.agent_squad/config.toml` not found** (or `KeyError` for `linear.team_id`) — the consumer repo is not configured for squirtle-squad. Create the file with at least `[linear].team_id` and `[linear].ticket_prefix`.
 - **`linear-graphql.sh: no Linear API key found`** — the helper couldn't locate a key. Ensure `LINEAR_API_KEY` or `LINEAR_USER_API_KEY` is exported, or present in `$PWD/.env`.
 - **`AuthenticationError` from Linear** — key is present but rejected. Regenerate it.

@@ -4,6 +4,9 @@
 # Committed so teammates share the same config.
 # No secrets here — API keys live in .env.
 
+[squad]
+pm_tool = "linear"   # only "linear" supported in v1; adapter pattern is v1.1+ (see documentation/roadmap.md § parking lot)
+
 [linear]
 team_id       = "72986798-f8b4-4f57-afe2-c76d4868db0f"   # SquirtleSquad team (key: SQU)
 ticket_prefix = "SQU"
