@@ -147,7 +147,7 @@ mutation($id: String!, $input: IssueUpdateInput!) {
 State IDs are team-scoped. Look them up once per team:
 
 ```graphql
-query($teamId: String!) {
+query($teamId: ID!) {
   workflowStates(filter: { team: { id: { eq: $teamId } } }) {
     nodes { id name }
   }
@@ -178,7 +178,7 @@ VARIABLES="$(jq -n \
 To apply labels, resolve their UUIDs once per team:
 
 ```graphql
-query($teamId: String!) {
+query($teamId: ID!) {
   issueLabels(filter: { team: { id: { eq: $teamId } } }) {
     nodes { id name }
   }
@@ -191,4 +191,7 @@ query($teamId: String!) {
 - **`linear-graphql.sh: no Linear API key found`** — the helper couldn't locate a key. Ensure `LINEAR_API_KEY` or `LINEAR_USER_API_KEY` is exported, or present in `$PWD/.env`.
 - **`AuthenticationError` from Linear** — key is present but rejected. Regenerate it.
 - **`Entity not found` on a mutation** — you passed the identifier (e.g. `BENCH-166`) where a UUID was required. Resolve the UUID first via `issue(id: "<identifier>") { id }`.
-- **GraphQL validation error about `$viewerId: ID!`** — the `id` field returns an `ID!` scalar, but `issue(id: ...)` takes a `String!`. Use `ID!` for `viewer.id` filters, `String!` for `issue(id:)` lookups.
+- **GraphQL validation error about `String!` vs `ID!`.** Linear's schema is strict about scalar types. Two rules:
+  - **`ID!` when filtering on an `id` field** — e.g. `filter: { team: { id: { eq: $teamId } } }` or `filter: { assignee: { id: { eq: $viewerId } } }`. The `id` field returns `ID!`, and the filter's `eq` must match.
+  - **`String!` when used as an `issue(id: ...)` argument** — the top-level `issue(id:)` takes `String!`, which accepts both the identifier (`BENCH-166`) and the UUID. Same for `issueUpdate(id:)`.
+  Mnemonic: *filtering by id → `ID!`; looking up by id → `String!`*.
