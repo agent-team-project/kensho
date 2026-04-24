@@ -89,7 +89,9 @@ fi
 
 # Resolve an API key. Prefer LINEAR_API_KEY; fall back to LINEAR_USER_API_KEY.
 # If neither is set in the shell, try to source $PWD/.env (consumer repo convention)
-# or the consumer repo root's .env if inside a git tree.
+# or the main working tree's .env if inside a git tree. `git worktree list
+# --porcelain` is used instead of `git rev-parse --show-toplevel` so that calls
+# from inside a linked worktree still find the primary repo's .env.
 resolve_api_key() {
     if [ -n "${LINEAR_API_KEY:-}" ]; then
         return 0
@@ -103,7 +105,7 @@ resolve_api_key() {
     [ -f "$PWD/.env" ] && env_files+=("$PWD/.env")
     if command -v git >/dev/null 2>&1; then
         local repo_root
-        repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+        repo_root="$(git worktree list --porcelain 2>/dev/null | awk '/^worktree/ {print $2; exit}')"
         if [ -n "$repo_root" ] && [ "$repo_root" != "$PWD" ] && [ -f "$repo_root/.env" ]; then
             env_files+=("$repo_root/.env")
         fi
