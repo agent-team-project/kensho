@@ -94,11 +94,13 @@ branch_prefix = "worker/"
 
 ## Customization model
 
-Three layers, in precedence order (later wins):
+Three layers:
 
-1. **Plugin defaults.** The `agents/` and `skills/` that ship in this repo. The template workflow.
+1. **Plugin defaults.** The agents and skills that ship in the plugin. The template workflow.
 2. **Consumer TOML** (`.agent_squad/config.toml` in the consumer repo). Overrides scalars: team IDs, paths, labels, ticket prefixes, project UUIDs. Substitution mechanism TBD (`open-questions.md` Q2).
-3. **Consumer local files.** Claude Code's native layering: a consumer repo's own `.claude/skills/<name>/` or `.claude/agents/<name>.md` can replace or supplement plugin-provided ones, and new agents/skills are simply additive. Exact override semantics are TBD (Q7).
+3. **Consumer local files** — with a skill-vs-agent asymmetry validated in Q7:
+   - **Skills.** Plugin and local skills coexist cleanly as distinct, namespaced commands. Plugin skills invoke as `/<plugin>:<skill>` (e.g. `/squirtle-squad:linear`); local skills at `<consumer>/.claude/skills/<name>/SKILL.md` invoke unnamespaced as `/<name>`. No precedence rule — different invocation names.
+   - **Agents.** Local `.claude/agents/*.md` files do **not** automatically register as Agent-tool subagent_types via `/reload-plugins`. Plugin agents do. For v1 this is not blocking because the squad ships all the agents it needs; for consumer-authored agents, the activation path is unresolved (see `open-questions.md` Q8).
 
 What v1 does *not* ship: named extension slots, append/prepend semantics, or merge-based prompt overlays. If a consumer needs to tweak a plugin prompt beyond what TOML covers, they fork the file into their repo's `.claude/`. Simple mental model; we accept the drift cost in v1 and revisit if it causes real pain.
 

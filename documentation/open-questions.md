@@ -17,10 +17,13 @@ Research tasks and decisions not yet committed. Each has an owner, a blocker rel
 5. **Hooks in plugins**: Supported via `hooks/hooks.json` at plugin root. SessionStart hooks supported as `type: "command"`; can write files and set env vars via `$CLAUDE_ENV_FILE`.
 6. **Versioning**: `version` field in `plugin.json` is optional; without it, version is the commit SHA. Consumers pin via `#ref` on `marketplace add`. `/plugin update` refreshes marketplaces and updates installed plugins. Marketplace-level version-range constraints are not documented — for v1 we pin by ref or SHA.
 
-**Remaining gaps to validate in M1:**
+**Remaining gaps after M1 smoke test:**
 
-- **Timing of plugin-shipped SessionStart hooks relative to agent-prompt loading.** Not explicitly documented. Verify at M1 smoke test ([SQU-9](https://linear.app/squirtlesquad/issue/SQU-9)) — this is the single most important open input for Q2 option (a).
-- **Install command shape when marketplace and plugin share a name** (`/plugin install squirtle-squad` vs. `/plugin install squirtle-squad@squirtle-squad`). Verify at M1 smoke test.
+- **Timing of plugin-shipped SessionStart hooks relative to agent-prompt loading.** Still not directly validated — we don't ship a hook yet. Tracked as a verification item for [SQU-6](https://linear.app/squirtlesquad/issue/SQU-6) (Q2 spike), which will ship a test hook for this purpose. This is the single most important open input for Q2 option (a).
+
+**Resolved by M1 smoke test ([SQU-9](https://linear.app/squirtlesquad/issue/SQU-9)):**
+
+- ✅ **Install command shape**: the short form `/plugin install squirtle-squad` works without the `@squirtle-squad` suffix when marketplace and plugin share a name. The suffix is only needed to disambiguate when a plugin name exists in multiple marketplaces.
 
 **Next action**: Q1 done. Unblocks [SQU-6](https://linear.app/squirtlesquad/issue/SQU-6) (Q2 spike), [SQU-7](https://linear.app/squirtlesquad/issue/SQU-7) (Q3 dev install), [SQU-8](https://linear.app/squirtlesquad/issue/SQU-8) (M1 scaffold).
 
@@ -126,15 +129,48 @@ Directions to explore: Linear OAuth apps, Linear admin API tokens, per-repo serv
 
 ## Q7 — Plugin vs. consumer-local resolution semantics
 
-**Status**: unverified.
-**Blocks**: nothing directly; informs the customization model in `architecture.md`.
+**Status**: RESOLVED 2026-04-24 via [SQU-9](https://linear.app/squirtlesquad/issue/SQU-9). Mixed results — skills and agents behave differently.
 
-When a consumer repo has `.claude/skills/foo/SKILL.md` locally AND the plugin also provides `skills/foo/`, what does Claude Code actually do?
+**Test setup**: the plugin ships `plugins/squirtle-squad/skills/placeholder/SKILL.md` (responds "pong") and `plugins/squirtle-squad/agents/placeholder.md` (greeting). We created local fixtures at `.claude/skills/placeholder/SKILL.md` and `.claude/agents/placeholder.md` with intentionally distinct content. Ran `/reload-plugins`, invoked each form.
 
-- Does the local file fully replace the plugin's?
-- Does the agent see both and choose?
-- Is there a defined precedence order?
+**Skills — coexist cleanly as distinct namespaced commands.**
 
-This determines how we describe "customization" to consumers. If local files cleanly supersede plugin content, we have a simple and honest escape hatch. If they coexist or conflict, we need to document a precedence rule or avoid name collisions by convention.
+| Invocation | Which ran |
+|---|---|
+| `/placeholder` | Local skill (`.claude/skills/placeholder/SKILL.md`) |
+| `/squirtle-squad:placeholder` | Plugin skill (`plugins/squirtle-squad/skills/placeholder/SKILL.md`) |
 
-**Next action**: test during M1 with a deliberate name collision (trivial plugin skill + identically-named consumer local skill; see which runs).
+Both appear as separate entries in Claude Code's available-skills list (the local one unnamespaced, the plugin one as `squirtle-squad:placeholder`). No shadowing, no precedence needed — different invocation names.
+
+**Agents — local `.claude/agents/*.md` does NOT automatically register as a subagent.**
+
+| `subagent_type` | Result |
+|---|---|
+| `"squirtle-squad:placeholder"` | Plugin agent runs; returns expected greeting |
+| `"placeholder"` | **"Agent type 'placeholder' not found"** |
+
+The local agent file existed on disk and `/reload-plugins` ran, but the Agent tool's available-subagent list did not include the local agent. Plugin agents did register (namespaced as `<plugin>:<name>`).
+
+**Implication for `architecture.md` customization model**: skills layer cleanly via Claude Code's native mechanism, but agents have a different (and currently unknown) activation path. See Q8.
+
+**Next action**: Q7 resolved. `architecture.md` customization model updated to reflect the skill/agent split. Local-agent activation tracked in Q8.
+
+---
+
+## Q8 — Local agent activation mechanism
+
+**Status**: NEW — surfaced by Q7 testing on 2026-04-24.
+**Blocks**: nothing in v1 (the squad ships all the agents it needs). Becomes relevant when consumers want to add their own custom agents — a v1.1+ concern.
+
+Q7 established that local `.claude/agents/<name>.md` files do NOT automatically register as Agent-tool subagent_types via `/reload-plugins`, even though local `.claude/skills/<name>/SKILL.md` files DO register as skills. Plugin agents register cleanly (namespaced as `<plugin>:<name>`).
+
+So there's an asymmetry: skills have both a plugin path and a local path; agents currently only seem to have a plugin path (via the subagent invocation surface).
+
+**Candidates to investigate when a consumer agent need arises:**
+
+- Explicit enablement via `.claude/settings.json` (maybe an `"agents"` array, mirroring `"enabledPlugins"`).
+- A separate `/agent enable <name>` command.
+- Local agents activated through a different invocation path (direct prompting, Task tool with an explicit file reference, etc.) rather than the Agent tool's subagent_type list.
+- Maybe local agents require being defined via a plugin (which would imply consumers wrap their local agents in a trivial plugin of their own — viable but heavy).
+
+**Next action**: No v1 work. Investigate when we first need consumer-authored agents — likely v1.1+.

@@ -192,9 +192,11 @@ Tracked as a verification item in [SQU-9](https://linear.app/squirtlesquad/issue
 
 ## Known gaps in official docs
 
-1. **Hook timing vs. agent prompt loading** — not explicitly documented; integration test required.
+1. **Hook timing vs. agent prompt loading** — not explicitly documented; integration test required during Q2 spike ([SQU-6](https://linear.app/squirtlesquad/issue/SQU-6)).
 2. **Marketplace-level version constraints** (e.g. `^1.0`, `>=1.2`) — not documented. For v1 we pin by git ref or SHA.
-3. **Install command disambiguation** when marketplace and plugin share a name — behavior is not documented; verify in M1 smoke test.
+3. **Install command disambiguation** — validated in M1 smoke test: `/plugin install squirtle-squad` works *without* the `@squirtle-squad` suffix when marketplace and plugin share a name. Suffix only needed to disambiguate across marketplaces.
+4. **Local agent activation path** — surfaced in Q7: local `.claude/agents/<name>.md` does NOT register as an Agent-tool subagent via `/reload-plugins`, unlike local skills. Tracked as Q8.
+5. **`/reload-plugins` skill count display.** After an install, the reload status line read `4 plugins · 0 skills · 6 agents · 0 hooks` even though the plugin skill WAS loaded and invokable. Likely a delta-vs-total display quirk; not a functional issue, just minor UI noise worth remembering if it ever becomes confusing during debugging.
 
 ## Last verified
 
