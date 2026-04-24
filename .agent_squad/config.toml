@@ -1,0 +1,19 @@
+# squirtle-squad config for squirtle-squad itself (self-dogfooding).
+#
+# Read at runtime by plugins/squirtle-squad/skills/*/SKILL.md via inline Python.
+# Committed so teammates share the same config.
+# No secrets here — API keys live in .env.
+
+[linear]
+team_id       = "72986798-f8b4-4f57-afe2-c76d4868db0f"   # SquirtleSquad team (key: SQU)
+ticket_prefix = "SQU"
+initiative_id = "b4266442-de88-4000-82ba-0d24054d827c"   # Version 1.0
+labels        = []                                         # no label conventions yet
+
+# Projects under Version 1.0.
+# Used by ticket-manager for routing new tickets (to be added in M5).
+[linear.projects]
+foundation         = "3d07030a-a372-41a2-b01e-1b4116d0f151"   # plugin scaffolding & research (Completed)
+skill_extraction   = "50b6cd55-5760-4fd3-9bbe-acb17e544aa2"   # pull-request & linear
+agent_extraction   = "d51edd22-00be-4a24-b9a8-01d27187717b"   # worker, assign-worker, ticket-manager
+self_dogfooding    = "f8a115f9-dea7-4927-a214-c0da54c6a7c0"   # v1 sign-off
