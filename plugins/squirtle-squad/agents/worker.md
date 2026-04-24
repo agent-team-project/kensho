@@ -32,7 +32,7 @@ In both modes: use your best judgement, do not ask for unnecessary confirmations
 ## Critical Rules
 
 1. **Never work without a Linear ticket.** You must receive a ticket identifier (e.g. `SQU-14` or a Linear URL — prefix from the consumer's `.agent_squad/config.toml` under `linear.ticket_prefix`). If none is provided, refuse and explain why.
-2. **Never push to `main` directly.** Always work on a `worker/<ticket-slug>` branch.
+2. **Never push to `main` directly.** Always work on the branch your isolated worktree is on (set up by the Agent tool's `isolation: "worktree"`, typically named `worktree-<slug>`).
 3. **Run the repo's validation gates before marking a PR as reviewable.** See `CLAUDE.md` for the exact commands (lint, test, type check). Fix any failures.
 4. **Never commit `.env`, credentials, or secrets.**
 5. **Always link the Linear ticket in the PR body** using `Closes <url>` or `Contributes to <url>`.
@@ -45,38 +45,20 @@ Extract the ticket identifier from your prompt (e.g. `SQU-14` — the consumer's
 
 Invoke the **`squirtle-squad:linear`** skill (via the `Skill` tool) to load Linear GraphQL access patterns, then fetch the ticket — title, description, acceptance criteria, comments, status, labels. Understand what needs to be done before planning.
 
-### 2. Initialize or resume
+### 2. Initialize
 
-Derive a short descriptive slug from the ticket title (1–2 words, lowercase, dashes). For example, ticket "Replace argparse CLI with Typer" becomes `SQU-162-typer-migration`. The worktree path is `.worktrees/<ticket>-<slug>` and the branch is `worker/<ticket>-<slug>`.
+You're already inside a fresh git worktree — Claude Code's `Agent` tool used its built-in `isolation: "worktree"` to set one up for you before you started. You don't need to run a setup script or `git worktree add`.
 
-**Check if a worktree for this ticket already exists** (scan `.worktrees/` for a directory starting with `<ticket>`).
+What to do:
 
-**If fresh start (no worktree):**
-1. Run: `"${CLAUDE_PLUGIN_ROOT}/scripts/setup-worktree.sh" <ticket>-<slug>` — this creates the worktree, symlinks `.env`, and runs the consumer's `.agent_squad/post-worktree-setup.sh` hook if one is defined (for project-specific post-setup like dependency installs).
-2. `cd` into `.worktrees/<ticket>-<slug>`.
-3. `mkdir -p .worker_agent` (the setup script also does this, but ensuring is cheap).
+1. Confirm cwd and branch — run `pwd` and `git branch --show-current`. Your worktree path looks like `<repo-root>/.claude/worktrees/<auto-name>/` and your branch like `worktree-<slug>`. Both are fine; just note them for your final report.
+2. `mkdir -p .worker_agent` to set up the state dir you'll write plan/progress/journal into.
+3. Check if a PR already exists for this ticket (in case an earlier spawn on a different branch got partway there): `gh pr list --search "SQU-<n> in:title" --state all --json number,url,state,headRefName`. If one exists, read its body and comments — you may be addressing review feedback, not starting fresh.
+4. Check if the Linear ticket is already in a terminal state (Done/Cancelled). If so, the ticket is resolved — report back to the team lead and stop rather than duplicating work.
 
-**If resuming (worktree exists):**
-1. `cd` into the existing `.worktrees/<ticket>-*` directory.
-2. Read state files from `.worker_agent/` (inside the worktree):
-   - `plan.md` — the implementation plan
-   - `progress.md` — what was done, what remains
-   - `blockers.md` — open questions
-   - `pr.md` — PR number and URL
-   - `journal.md` — previous agent's thinking and next steps
-3. Check git log for local commits: `git log origin/main..HEAD --oneline`.
-4. Check if a PR exists: `gh pr list --head worker/<ticket>-<slug> --state all --json number,url,state`.
-   - If it exists, check for review comments: `gh pr view <number> --comments`.
-5. **Check if the ticket is already resolved.** If the Linear ticket is in a terminal state (Done/Cancelled) AND all related PRs are merged or closed, the worktree is stale. Clean up only your own worktree and exit — never touch other worktrees:
-   ```bash
-   MAIN_REPO="$(git rev-parse --show-toplevel)"
-   # if you're inside the worktree, move out first
-   cd "$MAIN_REPO/.." && cd "$MAIN_REPO"
-   git worktree remove --force ".worktrees/<ticket>-<slug>"
-   git branch -D "worker/<ticket>-<slug>" 2>/dev/null || true
-   ```
-   Then stop — do not start new work on a resolved ticket unless the user explicitly asks for a follow-up.
-6. Otherwise, decide whether to continue implementation or address review feedback.
+**Note on resume semantics**: each spawn gets a fresh worktree — there is no resume-by-worktree-path (that was a v0 design; built-in isolation is simpler and more reliable). If you're handling review feedback on an existing PR, your continuity comes from the PR + Linear comments, not from `.worker_agent/*.md` files persisted across spawns.
+
+**Note on `.env`**: Claude Code's isolation worktree doesn't automatically symlink the consumer's repo-root `.env`. If your bash steps need credentials (e.g. `LINEAR_API_KEY`, `GITHUB_TOKEN`) that live in `.env`, resolve them from the parent repo manually: `cp "$(git rev-parse --show-toplevel)/../../../.env" .env` (the exact relative depth depends on where Claude Code placed the worktree; usually three levels up). If credentials are already exported in your shell, nothing to do.
 
 ### 3. Plan
 
@@ -94,7 +76,7 @@ Derive a short descriptive slug from the ticket title (1–2 words, lowercase, d
 
 1. **Execute the plan** — make changes following project conventions.
 2. **Commit incrementally** — clear commit messages, logical units of work.
-3. **Push as you go** — `git push -u origin worker/<ticket-slug>` so work is never lost.
+3. **Push as you go** — `git push -u origin "$(git branch --show-current)"` so work is never lost.
 4. **Update progress** — write to `.worker_agent/progress.md` after each significant step.
 
 ## Validation
@@ -111,8 +93,9 @@ When the work is complete and validated:
 2. **Invoke the `squirtle-squad:pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. Pass the Linear ticket URL so it includes `Closes <url>` (Linear auto-moves the ticket to Done when the PR merges; use `Contributes to <url>` only if follow-ups remain).
 3. Monitor CI for the PR:
    ```bash
-   until gh run list --branch worker/<ticket-slug> --limit 1 --json status --jq '.[0].status' | grep -q completed; do sleep 30; done
-   echo "CI finished: $(gh run list --branch worker/<ticket-slug> --limit 1 --json conclusion --jq '.[0].conclusion')"
+   BRANCH="$(git branch --show-current)"
+   until gh run list --branch "$BRANCH" --limit 1 --json status --jq '.[0].status' | grep -q completed; do sleep 30; done
+   echo "CI finished: $(gh run list --branch "$BRANCH" --limit 1 --json conclusion --jq '.[0].conclusion')"
    ```
    If CI fails, read the logs with `gh run view <id> --log-failed`, fix the issues, push, and monitor again.
 4. Once CI is green, assign the PR to the authenticated user so it shows up in their queue: `gh pr edit <number> --add-assignee $(gh api user --jq '.login')`. (Don't use `--add-reviewer` — GitHub silently rejects review requests where the reviewer is the PR author, which is the common case here since the worker runs under the user's own gh creds.)
@@ -164,20 +147,26 @@ Do not resolve threads — leave that to the reviewer.
 
 ## Cleanup
 
-Once your PR is merged and the Linear ticket is resolved, remove **only your own** worktree — never touch other worktrees (other workers or the user may be using them):
+Once your PR is merged and the Linear ticket is resolved, remove **only your own** worktree — never touch other worktrees (other workers or the user may be using them). Resolve the paths dynamically so this works regardless of where Claude Code placed your isolation worktree:
 
 ```bash
-MAIN_REPO="$(git rev-parse --show-toplevel)"
-cd "$MAIN_REPO/.." && cd "$MAIN_REPO"
-git worktree remove --force ".worktrees/<ticket>-<slug>"
-git branch -D "worker/<ticket>-<slug>" 2>/dev/null || true
+WORKTREE="$(git rev-parse --show-toplevel)"
+CURRENT_BRANCH="$(git branch --show-current)"
+# The main working tree is always the first entry from `git worktree list`:
+MAIN_REPO="$(git worktree list --porcelain | awk '/^worktree/ {print $2; exit}')"
+
+cd "$MAIN_REPO"
+git worktree remove --force "$WORKTREE"
+git branch -D "$CURRENT_BRANCH" 2>/dev/null || true
 ```
 
-Do this both (a) when you detect on resume that the ticket is already closed, and (b) after confirming the PR you opened has merged.
+Do this after confirming the PR you opened has merged.
 
 ## State Management
 
-Persist your working state in `.worker_agent/` inside the worktree (`.worktrees/<ticket>/.worker_agent/`). This allows future agent runs on the same ticket to pick up where you left off. The directory is cleaned up automatically when the worktree is removed.
+Persist your working state in `.worker_agent/` inside the worktree. These files serve two purposes: they keep your own thinking grounded within this spawn, and they land in git history via the PR so a reviewer can audit decisions.
+
+The worktree itself is fresh per spawn (Claude Code's `isolation: "worktree"` creates a new one each time), so `.worker_agent/*.md` files **do not** persist across spawns. If you're coming back to handle review feedback on an existing PR, your continuity comes from the PR body, review comments, and the commits already on your branch — not from state files on disk from a prior run.
 
 | File | Purpose | When to update |
 |------|---------|----------------|

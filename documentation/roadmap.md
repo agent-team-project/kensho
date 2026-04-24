@@ -76,6 +76,7 @@ Largest prompt and most coral-specific (initiative + 5 project UUIDs for routing
 Ordered roughly by expected value:
 
 - **PR-review-comment polling loop** (BENCH-209). Closes the feedback loop; the single biggest UX gap after v1.
+- **Consumer worktree setup hook.** We shipped `setup-worktree.sh` + `.agent_squad/post-worktree-setup.sh` in M4a, then dropped them once we learned the Agent tool's built-in `isolation: "worktree"` already handles worktree creation + auto-cleanup. Re-introduce a hook mechanism when the coral canary lands — coral's flow needs project-specific post-setup (`uv sync`, symlinking `benchmarks/<suite>/profiles.local.yaml`, etc.) that the built-in isolation doesn't run. Likely form: post-isolation hook the worker invokes before it starts work, conditionally sourcing `.agent_squad/post-worktree-setup.sh`.
 - **`code-writing` as a customizable template skill.** Ship a minimal scaffold describing structure (language conventions, type-system use, CLI patterns, test conventions). Each consumer forks into their repo and fills in repo-specific patterns. Evolves as we learn what's common across repos.
 - **`squirtle-squad doctor` / `squirtle-squad show <agent>`.** Print resolved prompts with provenance ("lines 1–40 plugin, 41–52 local override"). Mandatory once we support overrides beyond plain fork-editing.
 - **Non-user auth tokens.** App / bot / OAuth-based credentials so the squad isn't tied to a specific human. Prerequisite for scheduled agents and remote execution.
