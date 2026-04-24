@@ -121,6 +121,31 @@ Location: `.claude-plugin/marketplace.json`.
 
 **Open**: when marketplace and plugin share the name `squirtle-squad`, is the install command `/plugin install squirtle-squad` or `/plugin install squirtle-squad@squirtle-squad`? Claude Code docs suggest the `@<marketplace>` suffix is needed only to disambiguate when a plugin name exists in multiple marketplaces. For a single marketplace, the short form should work. **Validate in M1 smoke test ([SQU-9](https://linear.app/squirtlesquad/issue/SQU-9)).**
 
+## Local dev install & reload loop
+
+For developing the plugin against its own source tree (including self-dogfooding at M6), Claude Code supports local-path marketplaces as a first-class source — no symlinks or env vars needed.
+
+```shell
+# Add this repo as a marketplace (uses .claude-plugin/marketplace.json):
+/plugin marketplace add /Users/jamesaud/projects/squirtle-squad
+
+# Install the plugin from it:
+/plugin install squirtle-squad@squirtle-squad
+
+# After editing plugin source in this repo, refresh:
+/plugin marketplace update squirtle-squad
+/reload-plugins
+```
+
+**Key behaviors:**
+
+- Plugins are **copied** to `~/.claude/plugins/cache/` on install (not symlinked). Edits to the source tree are invisible until the next `/plugin marketplace update`.
+- Local-development marketplaces have **auto-update disabled by default** — the correct default for iteration, but it means the `update` step is never skippable.
+- `/reload-plugins` applies changes in the current session without a Claude Code restart. Use it after every `/plugin marketplace update`.
+- If things get weird after a refactor, `rm -rf ~/.claude/plugins/cache` + reinstall is the documented clean-slate reset.
+
+Source: [Discover and install prebuilt plugins](https://code.claude.com/docs/en/discover-plugins.md).
+
 ## Field summary
 
 | Field | Required | Location | Notes |

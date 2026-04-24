@@ -50,16 +50,32 @@ Research tasks and decisions not yet committed. Each has an owner, a blocker rel
 
 ## Q3 — Local dev install loop
 
-**Status**: unverified.
-**Blocks**: M6 (dogfooding) but also nice to have for M1 so we don't need a throwaway repo.
+**Status**: RESOLVED 2026-04-24 via [SQU-7](https://linear.app/squirtlesquad/issue/SQU-7). Worked instructions live in [`notes/plugin-schema.md`](notes/plugin-schema.md) under "Local dev install & reload loop."
 
-Candidates for using the plugin from its own source tree:
+**Decision**: Claude Code supports local-path marketplaces as a first-class source. We use that — no symlinks, no env-var hacks.
 
-- Symlink `~/.claude/plugins/<marketplace>/squirtle-squad` → this working tree.
-- `/plugin install` against a `file://` or local git URL if Claude Code supports it.
-- Env-var toggle (`CLAUDE_PLUGIN_DEV_MODE` or similar) that points at a local path.
+**Dev loop:**
 
-**Next action**: test during M1 once we have a skeleton to install.
+```shell
+# One-time setup (from any cwd):
+/plugin marketplace add /Users/jamesaud/projects/squirtle-squad
+/plugin install squirtle-squad@squirtle-squad
+
+# After editing plugin source in this repo:
+/plugin marketplace update squirtle-squad
+/reload-plugins
+```
+
+**Behavior we rely on:**
+
+- `/plugin marketplace add <local-path>` accepts a directory containing `.claude-plugin/marketplace.json`, or a direct path to a `marketplace.json` file.
+- Plugins are *copied* into `~/.claude/plugins/cache/` on install — not symlinked. Edits to the source tree are invisible until the marketplace is refreshed.
+- Local-development marketplaces have **auto-update disabled by default**, so we always explicitly run `/plugin marketplace update` when iterating. This is the correct default; we don't want auto-refresh clobbering an in-progress edit.
+- `/reload-plugins` applies loaded plugin changes in the current session without a Claude Code restart.
+
+**Self-dogfooding note**: when running Claude Code inside this repo, plugin-provided agents operate on `$PWD` (this repo). The cached plugin files live in `~/.claude/plugins/cache/`, but skills that read `.agent_squad/config.toml` read from `$PWD` — exactly what we want.
+
+**Next action**: Q3 done. Ready for M1 scaffold ([SQU-8](https://linear.app/squirtlesquad/issue/SQU-8)) and smoke test ([SQU-9](https://linear.app/squirtlesquad/issue/SQU-9)).
 
 ---
 
