@@ -2,21 +2,39 @@
 
 ## Distribution model
 
-Claude Code plugin + self-hosted marketplace, both in this repo:
+Claude Code plugin + self-hosted marketplace, both in this repo. We follow the canonical layout from Claude Code's plugin-marketplaces docs: marketplace manifest at the repo root; the plugin lives in a `plugins/<name>/` subdirectory with its own `.claude-plugin/plugin.json`.
 
-- `.claude-plugin/plugin.json` — plugin manifest
-- `.claude-plugin/marketplace.json` — marketplace manifest
+- `.claude-plugin/marketplace.json` — marketplace manifest (at repo root)
+- `plugins/squirtle-squad/.claude-plugin/plugin.json` — plugin manifest
+- `plugins/squirtle-squad/{agents,skills,hooks}/` — plugin content
 
 Consumers install via:
 
 ```
 /plugin marketplace add jamesaud/squirtle-squad
-/plugin install squirtle-squad
+/plugin install squirtle-squad@squirtle-squad
 ```
 
-Private repo; consumers need GitHub access to `jamesaud/squirtle-squad`.
+Private repo; consumers need GitHub access to `jamesaud/squirtle-squad`. Schema + layout details: [`notes/plugin-schema.md`](notes/plugin-schema.md).
 
-Schema details for `plugin.json` / `marketplace.json` are not yet verified against current Claude Code docs — see `open-questions.md` Q1. The scaffolding PR is blocked on that research.
+## Repo layout
+
+```
+squirtle-squad/                           # repo root — also marketplace root
+├── .claude-plugin/
+│   └── marketplace.json                  # marketplace manifest
+├── plugins/
+│   └── squirtle-squad/                   # the plugin itself
+│       ├── .claude-plugin/
+│       │   └── plugin.json               # plugin manifest
+│       ├── agents/                       # auto-discovered agent prompts
+│       ├── skills/                       # auto-discovered skill dirs
+│       └── hooks/                        # optional — hooks.json
+├── documentation/                        # NOT part of the plugin
+└── .agent_squad/                         # only when self-dogfooding: consumer TOML
+```
+
+Paths in this doc are written **relative to the plugin root** (`plugins/squirtle-squad/`) — when you see `agents/worker.md`, the full path is `plugins/squirtle-squad/agents/worker.md`.
 
 ## What ships in the plugin
 
@@ -119,13 +137,19 @@ One level of agency. Workers don't talk to each other. Ticket-manager does not s
 
 ## Dev loop — running squirtle-squad on itself
 
-Squirtle-squad dogfoods itself, which means running Claude Code inside the squirtle-squad repo must use the plugin from this working tree (not a stale installed copy). Mechanism candidates:
+Squirtle-squad dogfoods itself, which means running Claude Code inside the squirtle-squad repo must use the plugin from this working tree. Claude Code supports local-path marketplaces as a first-class source, so no symlinks or env-var hacks are needed:
 
-- Symlink `~/.claude/plugins/squirtle-squad-marketplace/squirtle-squad` → this repo
-- `/plugin install` against a `file://` or local-git URL if supported
-- A dev-mode env var
+```shell
+# One-time — add this repo as a marketplace and install the plugin:
+/plugin marketplace add /Users/jamesaud/projects/squirtle-squad
+/plugin install squirtle-squad@squirtle-squad
 
-TBD in M1 as part of the skeleton milestone (`open-questions.md` Q3).
+# After editing plugin source in this repo:
+/plugin marketplace update squirtle-squad
+/reload-plugins
+```
+
+Plugins are *copied* to `~/.claude/plugins/cache/` on install — not symlinked — so the `/plugin marketplace update` step is never skippable. Local-dev marketplaces have auto-update disabled by default, which is the correct default for iteration. Full rationale: [`notes/plugin-schema.md`](notes/plugin-schema.md) § "Local dev install & reload loop."
 
 ## Boundary with consumer repos
 

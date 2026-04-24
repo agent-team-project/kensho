@@ -1,0 +1,24 @@
+{
+  "name": "squirtle-squad",
+  "owner": {
+    "name": "James Audretsch",
+    "email": "james.audretsch@phoebe.ai"
+  },
+  "metadata": {
+    "description": "Self-hosted marketplace for the squirtle-squad plugin.",
+    "version": "0.0.1"
+  },
+  "plugins": [
+    {
+      "name": "squirtle-squad",
+      "source": "./plugins/squirtle-squad",
+      "description": "Reusable agents and skills for driving a software-engineering workflow (ticket-manager + worker pool) end-to-end against Linear and git.",
+      "version": "0.0.1",
+      "author": {
+        "name": "James Audretsch",
+        "email": "james.audretsch@phoebe.ai"
+      },
+      "homepage": "https://github.com/jamesaud/squirtle-squad"
+    }
+  ]
+}
