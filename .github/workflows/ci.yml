@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install --no-cache-dir pyyaml==6.0.2
+
+      - name: Validate JSON manifests
+        run: python3 scripts/ci/validate_json.py
+
+      - name: Validate TOML config
+        run: python3 scripts/ci/validate_toml.py
+
+      - name: Validate agent & skill frontmatter
+        run: python3 scripts/ci/validate_frontmatter.py
+
+      - name: Shellcheck plugin scripts
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: plugins/squirtle-squad/scripts
+          severity: warning

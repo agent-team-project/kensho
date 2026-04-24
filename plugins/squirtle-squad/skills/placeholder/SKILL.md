@@ -1,4 +1,5 @@
 ---
+name: placeholder
 description: Smoke-test skill shipped with squirtle-squad. Verifies the plugin installed and loaded correctly. Returns "pong".
 ---
 

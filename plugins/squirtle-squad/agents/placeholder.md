@@ -1,4 +1,5 @@
 ---
+name: placeholder
 description: Smoke-test agent shipped with squirtle-squad. Verifies the plugin installed and loaded correctly. Returns a greeting and exits.
 tools: Bash
 ---
