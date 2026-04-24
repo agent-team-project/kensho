@@ -104,15 +104,26 @@ Three layers:
 
 What v1 does *not* ship: named extension slots, append/prepend semantics, or merge-based prompt overlays. If a consumer needs to tweak a plugin prompt beyond what TOML covers, they fork the file into their repo's `.claude/`. Simple mental model; we accept the drift cost in v1 and revisit if it causes real pain.
 
-## How TOML values reach the prompts
+## How TOML values reach the logic
 
-**Open — see `open-questions.md` Q2.** Three candidates, one to be chosen after a spike:
+Skills and agents consult `.agent_squad/config.toml` at runtime as ordinary config I/O — via their existing Bash / Read tool access. **No session-level prompt-template substitution mechanism.** Resolved in [Q2](open-questions.md).
 
-1. **SessionStart hook** renders prompts with `{{team_id}}`-style placeholders into a cache dir before agents load.
-2. **`squirtle-squad configure` CLI** that the user runs after editing TOML.
-3. **Runtime LLM read** — prompts instruct the agent to read TOML at the start of each session.
+- **Agent prompts reference capabilities, not IDs.** `"use the linear skill to fetch tickets by label"` — no UUIDs in prompt text.
+- **Skills own config-dependent behavior.** The `linear` skill parses TOML inside its bash blocks to get team/project/label IDs and builds its own GraphQL queries. Routing rules (which label maps to which project) also live in TOML and get resolved by the skill.
+- **Agents with direct config needs** (worker reading worktree path, etc.) use Bash too — same pattern.
+- **The LLM never parses TOML.** Only deterministic bash does. No instruction-following risk.
 
-Decision blocks M3.
+Canonical read pattern:
+
+```bash
+TEAM_ID=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_squad/config.toml","rb"))["linear"]["team_id"])')
+```
+
+Likely factored into a `plugins/squirtle-squad/scripts/squad-config` helper once we have a second caller.
+
+### Why this works (short version)
+
+The original Q2 framing assumed prompts had `{{team_id}}` placeholders that needed pre-LLM substitution. Working backwards from the actual coral use case, nothing in any prompt requires pre-substitution — IDs only appear in skill invocations and bash commands, both of which can read config at runtime. The three original candidates (SessionStart hook, CLI, runtime-read) are optimizations of a problem we don't have. See [`open-questions.md` Q2](open-questions.md) for the full reasoning.
 
 ## Hierarchy and control flow
 

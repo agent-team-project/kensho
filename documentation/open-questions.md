@@ -31,23 +31,48 @@ Research tasks and decisions not yet committed. Each has an owner, a blocker rel
 
 ## Q2 — Config substitution mechanism
 
-**Status**: three candidates, none tested.
-**Blocks**: M3 (linear skill needs parameterized IDs).
+**Status**: RESOLVED 2026-04-24 via [SQU-6](https://linear.app/squirtlesquad/issue/SQU-6).
 
-| Option | Pros | Cons | Unknowns |
-|---|---|---|---|
-| (a) SessionStart hook renders templates | Transparent to user; no runtime token cost; user edits TOML and next session picks it up | Depends on hook reliability and timing; hook must run before agents load | Can plugin-shipped hooks write to `~/.claude/plugins/.../resolved/`? Do SessionStart hooks fire before agent prompts are cached? Can they fail gracefully? |
-| (b) `squirtle-squad configure` CLI | Predictable; no hook magic; easy to debug (user can read the generated files) | User must re-run on every TOML change; one more tool to distribute and version | How does the CLI get installed alongside the plugin — same install or separate? |
-| (c) Runtime LLM read of TOML | Zero machinery; agents just read the file each invocation | Token overhead per invocation; depends on LLM following instructions consistently across 10+ config keys | Token cost on a realistic coral-sized config? Instruction-following reliability for nested keys? |
+**Decision**: **None of (a), (b), or (c) as originally framed.** Skills and agents read `.agent_squad/config.toml` at runtime as normal config I/O via their existing Bash / Read tool access. No session-level prompt-template substitution mechanism is needed for v1.
 
-**Recommended spike**:
-1. Write a trivial SessionStart hook that writes a timestamp to a file; verify it fires and agents can read the file.
-2. Estimate (c)'s token cost by measuring a sample TOML rendering.
-3. Sketch (b)'s CLI surface.
+### Why the original framing was wrong
 
-**Decision criteria**: pick (a) if the hook fires reliably and can write files. Fall back to (b) if (a) is flaky. Reserve (c) as an escape hatch if both break.
+Q2 was posed as: *"how do TOML values get into agent prompts?"* — assuming prompts contain `{{team_id}}`-style placeholders that must be resolved before the LLM sees them.
 
-**Next action**: spike during M0.
+Working backwards from the coral use case, I can't find a single place where a prompt MUST have values pre-substituted. Every ID-dependent piece lives somewhere with Bash access:
+
+| Use | Where the config lookup happens |
+|---|---|
+| Linear GraphQL queries (team, projects, labels) | Inside the `linear` skill's bash blocks. Skill reads TOML, builds the query. |
+| Worktree path, branch prefix, ticket prefix | Inside `worker`'s bash blocks. Worker reads TOML at start of its work. |
+| Routing rules like "label X → project Y" | Rules live in TOML; the `linear` skill exposes a `resolve_project(name)` action that reads them. Agent prompt says "use the skill," not "use UUID abc-123." |
+| Team-specific framing ("you're managing the BENCH board…") | Lives in the consumer's `CLAUDE.md`, not the plugin's agent prompt. |
+
+Agent prompts reference **capabilities** (`use the linear skill to fetch by label`), not **IDs**. Skills encapsulate the config-dependent behavior. This is just ordinary software layering — orchestration vs. capability — dressed up as "the config substitution question."
+
+### Implementation pattern (for M3 onwards)
+
+Inside skill / agent bash blocks:
+
+```bash
+TEAM_ID=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_squad/config.toml","rb"))["linear"]["team_id"])')
+```
+
+Or wrap in a tiny helper at `plugins/squirtle-squad/scripts/squad-config` so skills don't repeat the Python call. The LLM never parses TOML — it only invokes skills that do.
+
+### What this means for the three original candidates
+
+- **(a) SessionStart hook that renders templates.** Not needed for v1. Could still become useful if we ever discover prompt content that genuinely requires pre-substitution (none so far). Plugin-shipped hook timing relative to agent-prompt loading remains unvalidated; kept as a deferred research item if/when (a) becomes relevant.
+- **(b) `squirtle-squad configure` CLI.** Deferred. Still attractive as a **diagnostic** tool (`squad doctor`, `squad show <skill>` — print the resolved config, show which TOML keys each skill consumes). Tracked as a parking-lot item, not a v1 requirement.
+- **(c) Runtime LLM read of TOML.** Close to what we're doing, but strictly: the **skill's bash** reads TOML, not the LLM. No instruction-following risk because the bash is deterministic.
+
+### Consequences for architecture
+
+This pushes more responsibility into skills (especially the `linear` skill, which now owns all Linear-config-dependent logic including routing rules). That's the right factoring for portability — consumer repos customize by editing TOML only, agent prompts stay stable across consumers.
+
+`architecture.md` "How TOML values reach..." section updated to reflect this.
+
+**Next action**: Q2 done. Unblocks [SQU-6](https://linear.app/squirtlesquad/issue/SQU-6) (itself) and by extension the entire Skill extraction project (M3 depends on the Q2 decision to know how the linear skill consumes config).
 
 ---
 
