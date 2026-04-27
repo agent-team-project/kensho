@@ -28,8 +28,11 @@ jobs:
       - name: Validate agent & skill frontmatter
         run: python3 scripts/ci/validate_frontmatter.py
 
-      - name: Shellcheck plugin scripts
+      - name: CLI smoke test (init + add manager)
+        run: python3 scripts/ci/smoke_init.py
+
+      - name: Shellcheck template scripts
         uses: ludeeus/action-shellcheck@2.0.0
         with:
-          scandir: plugins/squirtle-squad/scripts
+          scandir: cli/src/agent_squad/template/scripts
           severity: warning

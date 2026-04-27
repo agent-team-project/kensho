@@ -2,7 +2,7 @@
 #
 # Send a GraphQL call to Linear.
 #
-# Bundled with the squirtle-squad plugin. Called by the `linear` skill as
+# Bundled with the agent-squad plugin. Called by the `linear` skill as
 #   ${CLAUDE_PLUGIN_ROOT}/scripts/linear-graphql.sh
 #
 # Loads a Linear API key from env or $PWD/.env. Prefers LINEAR_API_KEY,

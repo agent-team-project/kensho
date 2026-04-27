@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that .agent_squad/config.toml parses cleanly."""
+"""Validate that committed TOML files parse cleanly."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 TOML_FILES = [
     REPO_ROOT / ".agent_squad" / "config.toml",
+    REPO_ROOT / "cli" / "pyproject.toml",
+    REPO_ROOT / "cli" / "src" / "agent_squad" / "template" / "config.toml.example",
 ]
 
 

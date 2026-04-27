@@ -1,0 +1,10 @@
+{
+  "name": "agent-squad",
+  "description": "Vendored agent squad — ticket-manager, manager, worker agents and supporting skills (linear, pull-request, assign-worker).",
+  "version": "0.1.0",
+  "author": {
+    "name": "James Audretsch",
+    "email": "james.audretsch@phoebe.ai"
+  },
+  "homepage": "https://github.com/jamesaud/agent-squad"
+}

@@ -4,8 +4,8 @@ description: |
   Executes Linear tickets end-to-end — reads ticket details, implements in an isolated worktree, creates a reviewable PR. Invoke when the user assigns a Linear ticket for autonomous execution.
 
   **Spawn recipe (default — teammate mode):**
-  1. If no agent team exists this session, first call TeamCreate with team_name set to a generic session-level name (typically the repo name, e.g. "squirtle-squad").
-  2. Spawn via Agent with: subagent_type="squirtle-squad:worker", team_name=<same>, name="worker-<ticket-lowercase>" (e.g. "worker-squ-14"), and DO NOT pass run_in_background.
+  1. If no agent team exists this session, first call TeamCreate with team_name set to a generic session-level name (typically the repo name, e.g. "agent-squad").
+  2. Spawn via Agent with: subagent_type="agent-squad:worker", team_name=<same>, name="worker-<ticket-lowercase>" (e.g. "worker-squ-14"), and DO NOT pass run_in_background.
 
   This makes the worker visible in a tmux pane and addressable via SendMessage. Setting team_name alone without TeamCreate will fail; passing run_in_background=true forces background mode and breaks tmux visibility.
 
@@ -43,7 +43,7 @@ Extract the ticket identifier from your prompt (e.g. `SQU-14` — the consumer's
 
 ### 1. Fetch ticket details
 
-Invoke the **`squirtle-squad:linear`** skill (via the `Skill` tool) to load Linear GraphQL access patterns, then fetch the ticket — title, description, acceptance criteria, comments, status, labels. Understand what needs to be done before planning.
+Invoke the **`agent-squad:linear`** skill (via the `Skill` tool) to load Linear GraphQL access patterns, then fetch the ticket — title, description, acceptance criteria, comments, status, labels. Understand what needs to be done before planning.
 
 ### 2. Initialize
 
@@ -90,7 +90,7 @@ If integration tests are relevant and the needed credentials are available (e.g.
 When the work is complete and validated:
 
 1. Ensure all commits are pushed.
-2. **Invoke the `squirtle-squad:pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. Pass the Linear ticket URL so it includes `Closes <url>` (Linear auto-moves the ticket to Done when the PR merges; use `Contributes to <url>` only if follow-ups remain).
+2. **Invoke the `agent-squad:pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. Pass the Linear ticket URL so it includes `Closes <url>` (Linear auto-moves the ticket to Done when the PR merges; use `Contributes to <url>` only if follow-ups remain).
 3. Monitor CI for the PR:
    ```bash
    BRANCH="$(git branch --show-current)"

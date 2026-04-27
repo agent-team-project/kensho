@@ -18,7 +18,7 @@ You run as a **subagent** — the user cannot answer interactive prompts. Do not
 
 ## Accessing Linear
 
-Access Linear through the **`squirtle-squad:linear`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps the Linear GraphQL API, sources the API key from `.env`, and reads team/prefix values from `.agent_squad/config.toml`.
+Access Linear through the **`agent-squad:linear`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps the Linear GraphQL API, sources the API key from `.env`, and reads team/prefix values from `.agent_squad/config.toml`.
 
 Don't duplicate Linear auth/GraphQL logic in this file — source it from the skill.
 
@@ -31,7 +31,7 @@ Don't duplicate Linear auth/GraphQL logic in this file — source it from the sk
 
 ## Workflow
 
-1. Invoke the `squirtle-squad:linear` skill once to load the GraphQL patterns.
+1. Invoke the `agent-squad:linear` skill once to load the GraphQL patterns.
 2. Read `.agent_squad/config.toml` for `linear.team_id`, `linear.ticket_prefix`, `linear.projects`, and `linear.labels`. These drive every subsequent call.
 3. Read the consumer repo's `CLAUDE.md` if present — look for a section about ticket conventions, project routing rules, or labeling guidance.
 4. Identify yourself: run the `viewer { id name email }` query — cache the `id` locally for filtering.

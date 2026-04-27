@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 MANIFESTS = [
     REPO_ROOT / ".claude-plugin" / "marketplace.json",
-    REPO_ROOT / "plugins" / "squirtle-squad" / ".claude-plugin" / "plugin.json",
+    REPO_ROOT / "cli" / "src" / "agent_squad" / "template" / ".claude-plugin" / "plugin.json",
 ]
 
 

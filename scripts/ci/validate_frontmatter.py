@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Validate YAML frontmatter on every agent and skill definition.
 
-Each `plugins/squirtle-squad/agents/*.md` and
-`plugins/squirtle-squad/skills/*/SKILL.md` must:
+Each `cli/src/agent_squad/template/agents/*.md` and
+`cli/src/agent_squad/template/skills/*/SKILL.md` must:
   1. Start with a YAML frontmatter block delimited by `---`.
   2. Parse as a mapping.
   3. Contain non-empty `name` and `description` string fields.
@@ -16,8 +16,9 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-AGENTS_DIR = REPO_ROOT / "plugins" / "squirtle-squad" / "agents"
-SKILLS_DIR = REPO_ROOT / "plugins" / "squirtle-squad" / "skills"
+TEMPLATE_ROOT = REPO_ROOT / "cli" / "src" / "agent_squad" / "template"
+AGENTS_DIR = TEMPLATE_ROOT / "agents"
+SKILLS_DIR = TEMPLATE_ROOT / "skills"
 
 REQUIRED_FIELDS = ("name", "description")
 
@@ -26,7 +27,6 @@ def extract_frontmatter(path: Path) -> tuple[dict | None, str | None]:
     text = path.read_text()
     if not text.startswith("---\n") and not text.startswith("---\r\n"):
         return None, "missing opening `---` frontmatter delimiter on line 1"
-    # Skip the opening delimiter and look for the closing one.
     lines = text.splitlines()
     try:
         end = next(i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---")

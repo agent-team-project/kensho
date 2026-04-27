@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-squad"
+version = "0.1.0"
+description = "CLI for vendoring and managing an agent-squad — ticket-manager + manager + worker agents and supporting skills — into any repo."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "James Audretsch", email = "james.audretsch@phoebe.ai" }]
+dependencies = []
+
+[project.scripts]
+agent-squad = "agent_squad.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jamesaud/agent-squad"
+Repository = "https://github.com/jamesaud/agent-squad"
+
+[tool.hatch.build]
+include = [
+  "src/agent_squad/**/*.py",
+  "src/agent_squad/template/**",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_squad"]

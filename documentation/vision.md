@@ -1,79 +1,100 @@
-# Squirtle Squad — Product Vision
+# agent-squad — Product Vision
 
 ## What it is
 
-A Claude Code plugin that packages a reusable "software engineering team" — a set of agents and skills that, installed into any repo, lets a human drive a swarm of Claude Code workers to implement Linear tickets end-to-end.
+A CLI that vendors a reusable **software-engineering agent squad** into any repo — a `ticket-manager`, persistent feature/domain `manager`s, ephemeral `worker`s, and supporting skills (`linear`, `pull-request`, `assign-worker`).
 
-The "team" for v1 is the existing coral-benchmarks pattern, extracted:
-
-- **ticket-manager** — an agent that triages Linear tickets and dispatches work
-- **worker** — an agent that implements one ticket in an isolated git worktree and opens a PR
-- Supporting skills: `linear`, `pull-request`, `assign-worker`
-
-Squirtle Squad lifts this pattern out of coral-benchmarks, parameterizes the repo-specific bits via a TOML config, and distributes it as a Claude Code plugin so any repo can run the same loop.
+Run `agent-squad init` in a repo, edit `.agent_squad/config.toml`, and you have a Claude Code-driven team that can triage Linear tickets and ship PRs against that repo. The squad's prompts live in your repo, in `.agent_squad/`, where you can read them, edit them, and commit them like any other code.
 
 ## The frame
 
-Think of it as: *Claude Code's general-purpose coding agent, but wrapped in a workflow that makes it act like a software engineering team with product management and version control built in.* Humans interact with Linear and PRs the way they already do; the squad handles the space between.
+Think of it as: *Claude Code's general-purpose coding agent, wrapped in a workflow that makes it act like a software-engineering team with product management and version control built in.* Humans interact with Linear and PRs the way they already do; the squad handles the space between.
+
+The squad is an **execution engine**: feed it a Linear ticket and it produces a reviewable PR. Feed it a domain and it holds context across sessions, dispatches workers, and tracks progress against goals.
+
+## Squad shape
+
+Three roles, two of them new in v1:
+
+| Role | Lifetime | Owns |
+|---|---|---|
+| **`ticket-manager`** | Ephemeral (per session) | The Linear board: triage, route, comment, create. Picks the right project, applies labels, decides state transitions. |
+| **`manager`** | **Persistent** (across sessions) | One scope — a feature, an initiative, an ongoing responsibility. Holds working memory in `.agent_squad/managers/<slug>/`, dispatches workers within scope, tracks goals. |
+| **`worker`** | Ephemeral (per ticket) | One ticket → one PR, in an isolated git worktree. |
+
+The manager role is what makes the squad more than a ticket-execution loop. Workers are stateless by design (each spawn gets a fresh worktree); managers are the squad's long-term memory for a domain.
+
+## Why a CLI, not a Claude Code plugin
+
+Earlier prototypes shipped as a Claude Code marketplace plugin. We dropped that for three reasons:
+
+1. **Inspectability.** Plugin content lives at `~/.claude/plugins/cache/...` — invisible to the consumer's grep, code review, and CLAUDE.md. The CLI vendors prompts into the consumer's repo, where they're first-class.
+2. **Iteration.** Editing a plugin prompt requires `/plugin marketplace update && /reload-plugins`. Editing a vendored file is just an edit.
+3. **Remote execution.** A scheduled or containerized agent runner needs prompts that ship with the repo, not a plugin install step.
+
+The CLI uses Claude Code's plugin discovery as the *activation mechanism* (it generates a thin `.claude-plugin/` shim pointing at `.agent_squad/`) — but the source of truth lives in your repo, not in a global cache.
 
 ## Who it's for
 
 **V1 audience**: Phoebe teammates. Small startup. Multiple Linear projects. Every early user is someone we can walk through setup in person, so we trade onboarding polish for speed.
 
-**Aspirational**: Open source — any Claude Code user with a Linear workspace. This constrains v1: no Phoebe-specific defaults leak into the plugin (every org/team/project ID lives in the consumer's TOML, not the plugin). But we do not build for strangers yet.
+**Aspirational**: open source — any Claude Code user with a Linear workspace. This constrains v1: no Phoebe-specific defaults leak into the template (every org/team/project ID lives in the consumer's TOML, not the bundled template). But we don't build for strangers yet.
 
 ## What success looks like (v1)
 
 **One primary milestone: self-dogfooding.**
 
-squirtle-squad uses its own installed plugin to work tickets on the squirtlesquad Linear project — close at least one ticket end-to-end via a worker-opened PR against this repo.
+agent-squad uses its own CLI to vendor itself into this repo and works tickets on the squirtlesquad Linear project — closing at least one ticket end-to-end via a worker-opened PR, dispatched through a manager scope.
 
-**Deferred to v1.1+: Coral canary.** Originally v1 required installing the plugin in coral-benchmarks as a second canary. That's been deferred (2026-04-24 pivot). The Q2 config pattern was proven end-to-end via self-dogfooding against the squirtlesquad Linear workspace; what's left for coral is distribution (the plugin is currently private to `jamesaud`) and the repo-specific touchpoints in coral's worker / ticket-manager routing — separate concerns from "does the pattern work." Revisit once the distribution story is settled.
-
-Keeping v1 scoped to self-dogfooding lets us ship the template with one real consumer validated end-to-end, rather than stalling on cross-repo coordination.
+**Deferred to v1.1+: coral canary.** The Q2 config pattern was proven end-to-end via self-dogfooding. What's left for coral is distribution and the repo-specific touchpoints — separate concerns from "does the pattern work."
 
 ## Customization as a principle
 
-Squirtle Squad ships a *template* of a software-engineering workflow — ticket-manager triages, workers implement in parallel, each opens a PR. The template is opinionated so it works out of the box. Every part is meant to be customizable and extendable:
+agent-squad ships a *template* of a software-engineering workflow. The template is opinionated so it works out of the box. Every part is meant to be customizable and extendable:
 
-- **Scalars and IDs.** Team IDs, project UUIDs, labels, ticket prefixes, worktree paths, branch prefixes — all live in the consumer's `.agent_squad/config.toml`. Change repo, change config.
-- **Prompts and skills.** Claude Code's native layering lets a consumer repo ship its own `.claude/skills/<name>/` or `.claude/agents/<name>.md` that supplements or replaces plugin-provided ones. Exact override semantics are TBD (see `open-questions.md` Q7).
-- **New capabilities.** Consumer repos can add entirely new agents and skills alongside the plugin's — the squad is a starting template, not a closed system.
+- **Scalars and IDs.** Team IDs, project UUIDs, labels, ticket prefixes, worktree paths, branch prefixes — all live in the consumer's `.agent_squad/config.toml`.
+- **Prompts.** `.agent_squad/agents/`, `.agent_squad/skills/`, `.agent_squad/managers/<slug>/CLAUDE.md` are checked into the consumer's repo. Edit them like any other code; commit them like any other code.
+- **Manager scopes.** Adding a new manager scope is `agent-squad add manager <slug>` — scaffolds a CLAUDE.md, ready to fill in.
+- **New capabilities.** Consumer repos can add entirely new agents and skills under `.agent_squad/` alongside the template's. The squad is a starting template, not a closed system.
 
-What v1 does *not* build: named extension slots, append/prepend semantics, or merge-based prompt overlays. If a consumer needs control beyond TOML, they fork the plugin's file into their own `.claude/` and edit it. Simple mental model, accepted drift cost in v1; revisit if it causes real pain.
+Upgrades from a newer CLI version are handled by `agent-squad sync` (v0.2 ships diff-aware merge; v0.1 says "rerun init --force, resolve with git").
 
 ## Quality & architecture principles
 
-The squad is agents running agents, and prompts are code. Sloppy compounds fast. We hold the bar high:
+The squad is agents running agents, and prompts are code. Sloppy compounds fast.
 
 - **Minimal surface area.** Every agent, skill, and config key has a reason to exist. Delete-first instinct. Shorter prompts beat longer ones unless the length buys something concrete.
-- **One responsibility per component.** Agents and skills do one thing well. If a prompt grows a second job, split it.
-- **Strong boundaries.** Plugin ↔ TOML ↔ consumer local are three discrete layers. The plugin ships zero IDs; consumer repos don't reach into plugin internals. A consumer that only edited TOML upgrades the plugin with no merge conflicts.
-- **Explicit over clever.** Hardcoded values are fine when the alternative is a knob only one consumer ever turns. Add parameters when there's a second real caller, not before.
-- **No half-finished state.** When a skill is extracted, the coral canary immediately consumes it *and* coral's local copy is deleted. No phantom fallbacks, no "temporary" duplication. Every milestone exits cleanly or we haven't finished it.
-- **Canary against real behavior.** Exit criteria test coral doing its actual work — fetching a real ticket, opening a real PR. Synthetic tests are not sufficient proof.
-- **Own your dependencies.** Runtime deps are Claude Code, bash, `curl`, and the Linear API. No hidden toolchain assumptions in the plugin; consumer repos stack their own tools on top.
-- **Inspectability is a feature.** Resolved prompts, config, and agent hierarchies should be readable by a human in seconds. Any indirection (templating, overrides) must come with a way to see what actually ran — see the future `squad doctor` in the parking lot.
+- **One responsibility per component.** Agents and skills do one thing well. Managers own one scope.
+- **Strong boundaries.** CLI ↔ template ↔ consumer-vendored copy ↔ consumer-edited extensions. Each layer is clearly delineated.
+- **Explicit over clever.** Hardcoded values are fine when the alternative is a knob only one consumer ever turns. Add parameters when there's a second real caller.
+- **No half-finished state.** Each milestone exits cleanly or we haven't finished it.
+- **Inspectability is a feature.** Vendored prompts, resolved config, and agent hierarchies should be readable by a human in seconds. `agent-squad doctor` makes this concrete.
+- **Own your dependencies.** CLI runtime: Python ≥3.11, stdlib only (zero third-party deps). Squad runtime: Claude Code, bash, `curl`, `jq`, `python3`, `gh`, the Linear API. No hidden toolchain assumptions.
 
-This is the bar. If a PR doesn't meet it, it doesn't land — regardless of who opened it.
+## Future: a runner alongside the CLI
+
+The CLI is local-first by design — it scaffolds and validates a vendored squad. A separate **runner** is the v1.1+ direction for remote execution: a long-lived service that supervises workers across repos, watches PRs for review comments, and routes Linear events to manager scopes.
+
+The CLI and the runner are different programs. The CLI is small, file-IO bound, Python-and-stdlib. The runner is concurrency-heavy, long-lived, and is a strong candidate for Go when we build it. Splitting the two keeps each tool the right size; until the runner exists, the CLI is the entire surface area.
 
 ## Non-goals (v1)
 
-- No PM tool other than Linear. Jira/GitHub Issues are v2+.
+- No PM tool other than Linear. Jira/GitHub Issues adapters are v2+.
 - No PR-review-comment polling loop. Humans review; if they want the worker to address feedback they re-invoke manually. (Tracked as BENCH-209; becomes v1.1.)
-- No reviewer subagent, no coordinator role, no cross-ticket dependency scheduling. One level of hierarchy only.
-- User auth only. V1 uses each user's personal Linear API key via env var. App/bot/OAuth tokens — useful when a scheduled or remote agent needs credentials not tied to a specific human — are v1.1+.
-- No remote execution (K8s, scheduled remote agents). Local Claude Code only.
-- No public marketplace listing. Private GitHub repo is the distribution channel.
+- No reviewer subagent, no cross-ticket dependency scheduling. One level of hierarchy below managers.
+- User auth only. V1 uses each user's personal Linear API key. Bot/OAuth tokens are v1.1+.
+- No remote execution. Local Claude Code only. The runner is v1.1+.
+- No public CLI distribution (PyPI, brew). `uvx --from git+...` works today; PyPI listing is v1.1+ once the API stabilizes.
 - No polished onboarding docs for strangers.
 
 ## Timeline & quality
 
-Open-ended. Quality over speed. We would rather spend a week spiking the config-substitution mechanism than ship a runtime-read hack and rewrite in a month. The canary and dogfooding milestones are the forcing functions, not a calendar.
+Open-ended. Quality over speed. The self-dogfooding milestone is the forcing function, not a calendar.
 
 ## Why this shape
 
-Two observations drove the v1 scope:
+Three observations drove v1:
 
-1. **"Reusable skills" is a thinner story than it looks.** Coral's existing skills have hardcoded IDs, team names, and paths woven through the prompts. The value isn't the skill files — it's the *orchestration pattern* (ticket-manager spawns workers spawns PRs) and the pluggable surfaces that let it fit a repo. So we're productizing the pattern, not just relocating files.
-2. **Two consumers is the minimum useful test.** Coral alone doesn't force us to parameterize anything honestly — we'd just move hardcoded IDs from coral to the plugin. The squirtle-squad-on-itself dogfooding forces a second, distinct Linear workspace and a second repo layout, which is the cheapest honest test of "does the config surface actually work."
+1. **Reusable skills is a thinner story than it looks.** Coral's existing skills had hardcoded IDs and team names woven through prompts. The value isn't the skill files — it's the *orchestration pattern* and the pluggable surfaces.
+2. **Plugin distribution hides the prompts.** Once we'd built it as a marketplace plugin, the cost of "I can't see what the agent is reading" became obvious. Vendoring is the fix.
+3. **Persistent managers are what missing-from-coral.** Coral has triage and execution. It doesn't have a persistent owner for an ongoing initiative. That's the gap the manager role fills.

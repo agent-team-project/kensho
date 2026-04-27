@@ -2,115 +2,118 @@
 
 ## Distribution model
 
-Claude Code plugin + self-hosted marketplace, both in this repo. We follow the canonical layout from Claude Code's plugin-marketplaces docs: marketplace manifest at the repo root; the plugin lives in a `plugins/<name>/` subdirectory with its own `.claude-plugin/plugin.json`.
+agent-squad is a Python CLI distributed as a uvx-runnable package from this Git repo.
 
-- `.claude-plugin/marketplace.json` — marketplace manifest (at repo root)
-- `plugins/squirtle-squad/.claude-plugin/plugin.json` — plugin manifest
-- `plugins/squirtle-squad/{agents,skills,hooks}/` — plugin content
-
-Consumers install via:
-
-```
-/plugin marketplace add jamesaud/squirtle-squad
-/plugin install squirtle-squad@squirtle-squad
+```sh
+uvx --from git+https://github.com/jamesaud/agent-squad agent-squad init
 ```
 
-Private repo; consumers need GitHub access to `jamesaud/squirtle-squad`. Schema + layout details: [`notes/plugin-schema.md`](notes/plugin-schema.md).
+Eventually published to PyPI; for v1, Git-URL distribution is sufficient. The CLI bundles the squad template (agents, skills, scripts, manager scaffolding) as package data; `init` copies it into the consumer's repo.
+
+## What the CLI does
+
+| Command | Status | Purpose |
+|---|---|---|
+| `agent-squad init` | shipped | Vendor the bundled template into `<repo>/.agent_squad/`. Generate the Claude Code plugin shim so vendored agents/skills register. Create `config.toml` from the example if absent. |
+| `agent-squad add manager <slug>` | shipped | Scaffold a new manager scope at `.agent_squad/managers/<slug>/CLAUDE.md`. |
+| `agent-squad doctor` | shipped | Sanity-check: required keys present in `config.toml`, plugin manifests in place. |
+| `agent-squad sync` | stub | (v0.2) Three-way merge bundled template with the consumer's vendored copy, preserving local edits. v0.1 falls back to "rerun init --force, resolve with git." |
 
 ## Repo layout
 
 ```
-squirtle-squad/                           # repo root — also marketplace root
-├── .claude-plugin/
-│   └── marketplace.json                  # marketplace manifest
-├── plugins/
-│   └── squirtle-squad/                   # the plugin itself
-│       ├── .claude-plugin/
-│       │   └── plugin.json               # plugin manifest
-│       ├── agents/                       # auto-discovered agent prompts
-│       ├── skills/                       # auto-discovered skill dirs
-│       └── hooks/                        # optional — hooks.json
-├── documentation/                        # NOT part of the plugin
-└── .agent_squad/                         # only when self-dogfooding: consumer TOML
+agent-squad/                                    # this repo
+├── README.md
+├── CLAUDE.md
+├── cli/
+│   ├── pyproject.toml                          # uvx-runnable Python package
+│   └── src/agent_squad/
+│       ├── cli.py                              # argparse entrypoint
+│       ├── commands/                           # init.py, sync.py, add.py, doctor.py
+│       └── template/                           # canonical squad content; bundled with the wheel
+│           ├── .claude-plugin/plugin.json      # plugin manifest (lives inside template)
+│           ├── agents/                         # ticket-manager.md, manager.md, worker.md
+│           ├── skills/                         # linear/, pull-request/, assign-worker/
+│           ├── scripts/                        # linear-graphql.sh
+│           ├── managers/                       # (empty — convention dir for scopes)
+│           └── config.toml.example
+├── documentation/                              # NOT bundled; contributor-facing
+└── .agent_squad/                               # this repo's OWN consumer config (self-dogfood)
+    └── config.toml
 ```
 
-Paths in this doc are written **relative to the plugin root** (`plugins/squirtle-squad/`) — when you see `agents/worker.md`, the full path is `plugins/squirtle-squad/agents/worker.md`.
+Notes on the layout:
 
-## What ships in the plugin
+- **`cli/src/agent_squad/template/` is canonical.** When you edit a prompt, you edit it here. Self-dogfood reads it directly via the marketplace.json shim at the repo root (see "Self-dogfood" below).
+- **`.agent_squad/` in this repo holds only `config.toml`.** Unlike a consumer repo, we don't vendor a copy of the template into `.agent_squad/agents/` etc. — we read from the canonical source so edits are immediately live.
+- **A consumer repo's `.agent_squad/` is fully populated.** `init` copies template content into `agents/`, `skills/`, `scripts/`, `managers/`, plus a `config.toml`.
 
-Three categories:
+## Layers
 
-### Agents (`agents/`)
+Four layers, each with a clear boundary:
 
-| File | One-line purpose | Origin |
-|---|---|---|
-| `ticket-manager.md` | Triage Linear tickets; pick, route, create, comment. Dispatches workers. | Extracted from coral `.claude/agents/ticket-manager.md` (154 lines) |
-| `worker.md` | Implement one ticket end-to-end in a worktree; open a PR. | Extracted from coral `.claude/agents/worker.md` (222 lines) |
+1. **CLI** (Python package, `cli/src/agent_squad/`). Owns the template content and the operations on it (init/sync/add/doctor). Distributed as a wheel; runtime is Python ≥3.11, stdlib only.
 
-### Skills (`skills/`)
+2. **Bundled template** (`cli/src/agent_squad/template/`). The squad's agents, skills, scripts, and manager scaffolding. Canonical source for the squad's prompts. Versioned with the CLI.
 
-| Skill | One-line purpose | Origin |
-|---|---|---|
-| `linear/` | Linear GraphQL wrapper: fetch, search, comment, update, create. | Extracted from coral (175 lines); all hardcoded IDs removed |
-| `pull-request/` | Create a PR with Linear ticket linking. | Extracted from coral (36 lines); most generic of the set |
-| `assign-worker/` | Spawn worker subagent mechanics: team setup, reuse checks, launch. | Extracted from coral (64 lines); worktree path parameterized |
+3. **Consumer-vendored copy** (`<consumer>/.agent_squad/`). The materialised squad in a consumer repo. Copied by `agent-squad init`; committed by the consumer; edits live here. Contains:
+   - `config.toml` — consumer's IDs and conventions.
+   - `agents/`, `skills/`, `scripts/` — vendored from the template; consumer can edit.
+   - `managers/<slug>/` — manager scopes. Created via `agent-squad add manager <slug>`; the scope's `CLAUDE.md` and working-memory files (`journal.md`, `goals.md`, `progress.md`) live here.
+   - `.claude-plugin/plugin.json` — generated; tells Claude Code these files are a plugin.
 
-### Not extracted — stays in consumer repos
+4. **Consumer extensions** (`<consumer>/.claude/...` or new files under `.agent_squad/`). Anything the consumer adds beyond the template — local skills, repo-specific agents, custom hooks. The squad is a starting template, not a closed system.
 
-| Item | Why it stays | Where it lives |
-|---|---|---|
-| `code-writing/` | 625 lines of coral-specific Python-harness conventions. Too coral-shaped to extract as-is. V1.1+ will ship a minimal customizable `code-writing` template that each consumer forks and fills in per repo. | coral-benchmarks only (v1) |
-| `add-benchmark/` | Coral's benchmark-suite scaffolding. Repo-shaped. | coral-benchmarks only |
-| `CLAUDE.md` | Every repo keeps its own. | Consumer repo |
+## How vendored agents and skills register with Claude Code
+
+The CLI uses Claude Code's plugin-discovery mechanism as the activation path, but the source of truth lives in the consumer's repo, not in `~/.claude/plugins/cache/`.
+
+`agent-squad init` generates two manifests:
+
+- `<consumer>/.claude-plugin/marketplace.json` — a single-plugin marketplace pointing at `./.agent_squad`.
+- `<consumer>/.agent_squad/.claude-plugin/plugin.json` — the plugin manifest itself (name `agent-squad`, version 0.1.0).
+
+The consumer runs once, in their Claude Code session:
+
+```
+/plugin marketplace add .
+/plugin install agent-squad
+```
+
+After that, `.agent_squad/agents/*.md` register as `agent-squad:<name>` subagents and `.agent_squad/skills/<name>/SKILL.md` register as `agent-squad:<name>` skills. Subsequent edits are picked up by `/reload-plugins` — no `/plugin marketplace update` step, because Claude Code's plugin loader reads directly from the path on each reload (no copy step, since the manifest source path *is* the consumer's repo).
 
 ## Configuration surface
 
-Every consumer repo gets a `.agent_squad/config.toml`, committed so teammates share a config:
+Every consumer repo gets `.agent_squad/config.toml`, committed so teammates share a config:
 
 ```toml
 [squad]
-pm_tool = "linear"           # fixed for v1; reserves the name
+pm_tool   = "linear"
 local_dir = ".agent_squad"
 
 [linear]
-team_id       = "fa55c86b-6c78-42e0-9e04-c8a6ecf9cbb2"  # coral: BENCH team
-ticket_prefix = "BENCH"
-initiative_id = "77940873-41aa-437f-9823-eb8c8efddd5b"
-labels        = ["eval-harness", "eval-dataset", "eval-coral-improvement"]
+team_id       = "..."
+ticket_prefix = "..."
+initiative_id = "..."
+labels        = ["..."]
 
 [linear.projects]
-calibration = "..."           # Linear project UUIDs for ticket-manager routing
-visibility  = "..."
-local_dev   = "..."
-release     = "..."
-general     = "..."
+# project-name = "<uuid>"
 
 [worktree]
-path          = ".worktrees"
+path          = ".claude/worktrees"
 branch_prefix = "worker/"
 ```
 
-**TOML lives in the consumer repo, not the plugin.** Plugin ships zero IDs.
-
-## Customization model
-
-Three layers:
-
-1. **Plugin defaults.** The agents and skills that ship in the plugin. The template workflow.
-2. **Consumer TOML** (`.agent_squad/config.toml` in the consumer repo). Overrides scalars: team IDs, paths, labels, ticket prefixes, project UUIDs. Substitution mechanism TBD (`open-questions.md` Q2).
-3. **Consumer local files** — with a skill-vs-agent asymmetry validated in Q7:
-   - **Skills.** Plugin and local skills coexist cleanly as distinct, namespaced commands. Plugin skills invoke as `/<plugin>:<skill>` (e.g. `/squirtle-squad:linear`); local skills at `<consumer>/.claude/skills/<name>/SKILL.md` invoke unnamespaced as `/<name>`. No precedence rule — different invocation names.
-   - **Agents.** Local `.claude/agents/*.md` files do **not** automatically register as Agent-tool subagent_types via `/reload-plugins`. Plugin agents do. For v1 this is not blocking because the squad ships all the agents it needs; for consumer-authored agents, the activation path is unresolved (see `open-questions.md` Q8).
-
-What v1 does *not* ship: named extension slots, append/prepend semantics, or merge-based prompt overlays. If a consumer needs to tweak a plugin prompt beyond what TOML covers, they fork the file into their repo's `.claude/`. Simple mental model; we accept the drift cost in v1 and revisit if it causes real pain.
+**Template ships zero IDs.** Every consumer's IDs live in their TOML; the bundled `config.toml.example` has empty strings as placeholders.
 
 ## How TOML values reach the logic
 
-Skills and agents consult `.agent_squad/config.toml` at runtime as ordinary config I/O — via their existing Bash / Read tool access. **No session-level prompt-template substitution mechanism.** Resolved in [Q2](open-questions.md).
+Skills and agents read `.agent_squad/config.toml` at runtime via their existing Bash / Read tool access — no session-level prompt-template substitution.
 
-- **Agent prompts reference capabilities, not IDs.** `"use the linear skill to fetch tickets by label"` — no UUIDs in prompt text.
-- **Skills own config-dependent behavior.** The `linear` skill parses TOML inside its bash blocks to get team/project/label IDs and builds its own GraphQL queries. Routing rules (which label maps to which project) also live in TOML and get resolved by the skill.
-- **Agents with direct config needs** (worker reading worktree path, etc.) use Bash too — same pattern.
+- **Agent prompts reference capabilities, not IDs.** "use the linear skill to fetch tickets by label" — no UUIDs in prompt text.
+- **Skills own config-dependent behavior.** `agent-squad:linear` parses TOML inside its bash blocks to get team/project/label IDs and builds GraphQL queries.
+- **Agents with direct config needs** (worker reading worktree path, manager reading scope name) use Bash too.
 - **The LLM never parses TOML.** Only deterministic bash does. No instruction-following risk.
 
 Canonical read pattern:
@@ -119,61 +122,70 @@ Canonical read pattern:
 TEAM_ID=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_squad/config.toml","rb"))["linear"]["team_id"])')
 ```
 
-Likely factored into a `plugins/squirtle-squad/scripts/squad-config` helper once we have a second caller.
-
-### Why this works (short version)
-
-The original Q2 framing assumed prompts had `{{team_id}}` placeholders that needed pre-LLM substitution. Working backwards from the actual coral use case, nothing in any prompt requires pre-substitution — IDs only appear in skill invocations and bash commands, both of which can read config at runtime. The three original candidates (SessionStart hook, CLI, runtime-read) are optimizations of a problem we don't have. See [`open-questions.md` Q2](open-questions.md) for the full reasoning.
-
 ## Hierarchy and control flow
 
-V1 is the coral pattern, unchanged:
+V1 hierarchy:
 
 ```
 human
   │
-  ▼
-ticket-manager  ─── reads/writes Linear ───▶  Linear workspace
+  ├─▶ ticket-manager  ─── reads/writes Linear ───▶  Linear workspace
   │
-  │ spawns N in parallel (one per ticket)
-  ▼
-worker[0]  worker[1]  ...  worker[N]
-  │          │                │
-  ▼          ▼                ▼
-.worktrees/<ticket>-<slug>    (each in its own worktree)
-  │          │                │
-  ▼          ▼                ▼
-PR opened   PR opened    PR opened   ───▶  human reviews & merges
+  └─▶ manager-<slug>  ─── reads .agent_squad/managers/<slug>/CLAUDE.md
+        │
+        │ spawns N in parallel (one per ticket)
+        ▼
+        worker[0]  worker[1]  ...  worker[N]
+          │          │                │
+          ▼          ▼                ▼
+        .claude/worktrees/<auto>     (fresh worktree per spawn)
+          │          │                │
+          ▼          ▼                ▼
+        PR opened   PR opened    PR opened    ───▶  human reviews & merges
 ```
 
-One level of agency. Workers don't talk to each other. Ticket-manager does not supervise workers once dispatched.
+Two roles can spawn workers: `ticket-manager` (for arbitrary tickets — historical default) and `manager` (for tickets within their scope — the new persistent path). Workers don't talk to each other. A manager persists across sessions; a worker doesn't.
 
-## Dev loop — running squirtle-squad on itself
+Direct human → worker invocation (skipping ticket-manager and managers) is also valid for one-off tickets. The manager pattern matters when the same domain comes back across sessions.
 
-Squirtle-squad dogfoods itself, which means running Claude Code inside the squirtle-squad repo must use the plugin from this working tree. Claude Code supports local-path marketplaces as a first-class source, so no symlinks or env-var hacks are needed:
+## Self-dogfood loop
 
-```shell
-# One-time — add this repo as a marketplace and install the plugin:
-/plugin marketplace add /Users/jamesaud/projects/squirtle-squad
-/plugin install squirtle-squad@squirtle-squad
+This repo runs the squad on itself. Because the canonical squad content lives in `cli/src/agent_squad/template/`, we don't `agent-squad init` here — that would create a redundant copy. Instead, we point Claude Code's plugin discovery directly at the template:
 
-# After editing plugin source in this repo:
-/plugin marketplace update squirtle-squad
+- `<repo>/.claude-plugin/marketplace.json` — points at `./cli/src/agent_squad/template`.
+- `cli/src/agent_squad/template/.claude-plugin/plugin.json` — the plugin manifest, lives inside the template.
+
+After editing any template file:
+
+```
 /reload-plugins
 ```
 
-Plugins are *copied* to `~/.claude/plugins/cache/` on install — not symlinked — so the `/plugin marketplace update` step is never skippable. Local-dev marketplaces have auto-update disabled by default, which is the correct default for iteration. Full rationale: [`notes/plugin-schema.md`](notes/plugin-schema.md) § "Local dev install & reload loop."
+No `/plugin marketplace update` needed — Claude Code's loader reads from the path on each reload.
 
 ## Boundary with consumer repos
 
-The plugin owns: agent prompts, skill content, the TOML *schema* (what keys are expected).
+The CLI owns: the bundled template, the manifest format, the TOML *schema*.
 
-The consumer repo owns: their `.agent_squad/config.toml` values, their `CLAUDE.md`, any repo-specific skills (like coral's `code-writing`), and any fork-edits of plugin files they chose to make.
+The consumer repo owns: their `.agent_squad/config.toml`, their CLAUDE.md, any repo-specific extensions, any edits they made to vendored prompts.
 
-Everything in the plugin is designed to be reinstalled/upgraded without touching consumer state.
+`agent-squad sync` (v0.2+) is the upgrade path. v0.1 = `init --force` + git.
 
 ## Credentials
 
-V1 assumes each user sets personal credentials (`LINEAR_USER_API_KEY`, `GITHUB_TOKEN`, etc.) as environment variables or in a local `.env` file. The plugin documents which env vars it reads; it never ships secrets. No secrets in TOML.
+Each user sets personal credentials (`LINEAR_USER_API_KEY`, `GITHUB_TOKEN`, etc.) as environment variables or in a local `.env` file. The skills document which env vars they read; the template never ships secrets. No secrets in TOML.
 
-Auth model will evolve — tracked in `open-questions.md` Q6. User API keys are fine for interactive local use but break down for scheduled agents, remote execution, and shared-bot scenarios where the credential shouldn't be tied to a specific human. App tokens / bot tokens / OAuth are candidates for v1.1+. Not in v1.
+App tokens / bot tokens / OAuth are candidates for v1.1+ — useful when a scheduled or remote runner needs credentials not tied to a specific human.
+
+## Future runner
+
+A v1.1+ remote runner is a separate program from the CLI:
+
+| | CLI | Runner |
+|---|---|---|
+| Lifetime | One-shot | Long-lived |
+| Workload | File copy, TOML validation | Supervising N workers, watching PRs/Linear events |
+| Best fit | Python (stdlib, fast to iterate) | Go (concurrency, single-binary deploy) |
+| Status | Shipped (v0.1) | Not started |
+
+Splitting the two keeps each tool the right size. The runner consumes the same `.agent_squad/` layout — same agents, same skills, same config — but runs them remotely without a Claude Code session driving them. That's the architectural payoff of vendoring: the squad is portable.

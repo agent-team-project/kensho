@@ -6,7 +6,7 @@ user_invocable: true
 
 # Assign a Worker Agent
 
-The worker itself is fully specified in the `squirtle-squad:worker` agent — don't re-explain its job here. This skill only covers the **launch mechanics** the team-lead is responsible for.
+The worker itself is fully specified in the `agent-squad:worker` agent — don't re-explain its job here. This skill only covers the **launch mechanics** the team-lead is responsible for.
 
 **Reuse is the default, spawn is the fallback.** A running worker has in-memory reasoning about the ticket and an open branch/PR. Re-spawning gets you a fresh worktree (Claude Code's `isolation: "worktree"` always creates new) and forces re-onboarding — so always look for an existing worker before spawning a new one.
 
@@ -30,8 +30,8 @@ Only fall through to **Spawn** when there is no matching worker — i.e. a genui
 
 Exactly one team per session — this is a hard constraint.
 
-- Check `ls ~/.claude/teams/` for a team whose `config.json` has `leadSessionId` matching this session. If none, call `TeamCreate` with a **generic, project-level name** (typically the repo name, e.g. `squirtle-squad`, `my-project`) — never per-ticket, because one team has to hold workers for multiple tickets over the session's lifetime.
-- If a team from another session already occupies the obvious name, pick a suffix (`squirtle-squad-2`). Orphaned teams from prior sessions are fine to leave alone.
+- Check `ls ~/.claude/teams/` for a team whose `config.json` has `leadSessionId` matching this session. If none, call `TeamCreate` with a **generic, project-level name** (typically the repo name, e.g. `agent-squad`, `my-project`) — never per-ticket, because one team has to hold workers for multiple tickets over the session's lifetime.
+- If a team from another session already occupies the obvious name, pick a suffix (`agent-squad-2`). Orphaned teams from prior sessions are fine to leave alone.
 
 ## Spawn (fallback: only when no existing worker matches)
 
@@ -39,7 +39,7 @@ Use the `Agent` tool (not `TeamCreate` alone — that only makes the container).
 
 | Param | Value |
 |-------|-------|
-| `subagent_type` | `"squirtle-squad:worker"` |
+| `subagent_type` | `"agent-squad:worker"` |
 | `team_name` | same name used in `TeamCreate` |
 | `name` | `"worker-<ticket-lowercase>"` e.g. `worker-squ-14` — this is how you and the worker address each other via `SendMessage`, and how future reuse-checks find it |
 | `description` | short, e.g. `"SQU-14 worker extraction"` |

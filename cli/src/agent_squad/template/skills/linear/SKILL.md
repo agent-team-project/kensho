@@ -207,7 +207,7 @@ query($teamId: ID!) {
 ## Failure modes
 
 - **`preflight: ...` error on `[squad].pm_tool`** — the consumer repo either has no `pm_tool` set or has it set to something other than `"linear"`. Fix `.agent_squad/config.toml`; the linear skill will refuse to run until it reads `[squad] pm_tool = "linear"`. Do not comment out the preflight.
-- **`.agent_squad/config.toml` not found** (or `KeyError` for `linear.team_id`) — the consumer repo is not configured for squirtle-squad. Create the file with at least `[linear].team_id` and `[linear].ticket_prefix`.
+- **`.agent_squad/config.toml` not found** (or `KeyError` for `linear.team_id`) — the consumer repo is not configured for agent-squad. Create the file with at least `[linear].team_id` and `[linear].ticket_prefix`.
 - **`linear-graphql.sh: no Linear API key found`** — the helper couldn't locate a key. Ensure `LINEAR_API_KEY` or `LINEAR_USER_API_KEY` is exported, or present in `$PWD/.env`.
 - **`AuthenticationError` from Linear** — key is present but rejected. Regenerate it.
 - **`Entity not found` on a mutation** — you passed the identifier (e.g. `BENCH-166`) where a UUID was required. Resolve the UUID first via `issue(id: "<identifier>") { id }`.

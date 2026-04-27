@@ -1,87 +1,82 @@
 # Roadmap
 
-Open-ended timeline — quality over speed. Milestones are ordered by dependency, not calendar. Each milestone has a concrete exit criterion you can point at.
+Open-ended timeline — quality over speed. Milestones are ordered by dependency, not calendar.
 
-> **2026-04-24 pivot.** v1 is now *self-dogfooding only* — the coral-benchmarks canary is deferred to v1.1+. Milestone exit criteria below still describe "extract from coral" — that's because coral is the source-of-truth for the prompts we're adapting, not because coral is the validation target. Validation runs against the squirtlesquad Linear workspace using squirtle-squad's own `.agent_squad/config.toml`. See [vision.md](./vision.md) for rationale.
+> **2026-04-27 pivot.** v1 dropped the Claude Code marketplace-plugin distribution model. The squad is now distributed as a Python CLI (`agent-squad`) that vendors prompts into the consumer's repo. Past plugin-era milestones (M0–M5) are preserved in [`notes/archive/`](./notes/archive/) for context but are no longer the active plan. The new milestone numbering starts at C1 (CLI 1).
 
-## M0 — Research & decisions (no code)
+## Where we are
 
-Answer the three blocking questions from `open-questions.md`:
+CLI scaffolded and self-hosting:
 
-- **Q1** Plugin manifest schema: fetch current Claude Code docs for `.claude-plugin/plugin.json` and self-hosted marketplace format.
-- **Q2** Config substitution mechanism: spike SessionStart hook, CLI, and runtime-read approaches. Pick one.
-- **Q3** Local dev install loop: verify how a repo can use a plugin whose source lives in that same repo.
+- `agent-squad init` copies the bundled template into a consumer repo and generates the Claude Code plugin shim.
+- `agent-squad add manager <slug>` scaffolds a new manager scope.
+- `agent-squad doctor` validates a vendored squad.
+- `agent-squad sync` is a stub for v0.2.
 
-**Exit criterion**: `open-questions.md` has committed answers for Q1, Q2, Q3.
+The squad's content (ticket-manager, worker, manager, linear, pull-request, assign-worker, linear-graphql.sh) is bundled in `cli/src/agent_squad/template/` and self-dogfooded via a marketplace.json shim at this repo's root.
 
-## M1 — Skeleton
+## C1 — Self-dogfood the new layout
 
-- Scaffold `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` per the Q1 findings.
-- Empty `agents/` and `skills/` directories with one placeholder each.
-- Install into a throwaway test repo; confirm Claude Code picks the plugin up.
+Validate the CLI/vendor model end-to-end on this repo.
 
-**Exit criterion**: `/plugin install squirtle-squad` succeeds in a fresh repo and the placeholder agent is invocable.
+- Reload Claude Code plugins; verify `agent-squad:ticket-manager`, `agent-squad:worker`, `agent-squad:manager` register.
+- Spawn a worker on a real SQU ticket via `agent-squad:assign-worker`. Confirm the worker reads `.agent_squad/config.toml` correctly under the new `${CLAUDE_PLUGIN_ROOT}` resolution.
+- Open a PR against this repo, end-to-end. PR closes a real SQU ticket.
 
-## M2 — Extract `pull-request` skill
+**Exit criterion**: a SQU ticket closed by a worker-opened PR, where the worker was dispatched via the new agent-squad CLI flow (not the old plugin-marketplace path).
 
-Most generic coral skill (36 lines, minimal coupling). First extraction as a forcing function for the install/upgrade loop.
+## C2 — Manager dogfood
 
-- Copy from coral, strip any Linear-specific linking into an optional config block.
-- Install into coral-benchmarks via the plugin.
-- Delete `coral-benchmarks/.claude/skills/pull-request/`.
-- Verify coral's existing PR flow still works.
+Use the new persistent-manager role on real work.
 
-**Exit criterion**: coral still opens correctly formatted PRs, with `pull-request/` no longer in coral's repo.
+- Create one manager scope in this repo: `agent-squad add manager <slug>`. Pick a scope that has multi-session continuity (e.g. `cli-distribution` for ongoing CLI release work, or `coral-canary` for the coral integration).
+- Fill in `CLAUDE.md`, `goals.md`. Run a session where the manager dispatches at least two workers across two tickets within scope.
+- Verify the manager's working-memory files (`journal.md`, `progress.md`) get updated and persist across sessions.
 
-## M3 — Extract `linear` skill + wire up TOML config
+**Exit criterion**: one manager scope has been engaged across ≥2 sessions, dispatched ≥2 workers, and its journal shows continuity (not "fresh start" each session).
 
-Largest single surface. Plugin reads config via the mechanism picked in M0.
+## C3 — Implement `agent-squad sync`
 
-- Extract `linear/SKILL.md`, remove all hardcoded coral IDs (team, initiative, projects, labels).
-- Introduce `.agent_squad/config.toml` in coral-benchmarks with the existing coral IDs.
-- Verify a ticket-manager-style query (fetch BENCH tickets by label) works via the plugin.
-- Delete `coral-benchmarks/.claude/skills/linear/`.
+The v0.1 stub says "rerun init --force, resolve with git." Replace with a real sync that:
 
-**Exit criterion**: coral's linear skill gone; ticket fetches still work; swapping out the TOML to a different Linear workspace would produce a different set of tickets without code changes.
+- Diffs the bundled template against the consumer's vendored copy.
+- Identifies vendored files that have local edits (compare to the template version the consumer last synced from — store a hash file at `.agent_squad/.template-version` or similar).
+- Three-way merges where it can; reports conflicts where it can't.
+- Never touches `config.toml` or `managers/<slug>/` — those are consumer-owned.
 
-## M4 — Extract `worker` agent + `assign-worker` skill
+**Exit criterion**: bumping the CLI version, then `agent-squad sync` in a consumer with a customised vendored prompt, preserves the customisation while applying upstream changes.
 
-Tightly coupled pair; extract together.
+## C4 — Coral canary
 
-- Parameterize worktree path, branch prefix, ticket prefix via TOML.
-- Canary: spawn a worker from coral, have it pick up a real BENCH ticket, open a PR.
-- Delete coral's local copies.
+Install agent-squad in coral-benchmarks; replace coral's existing local skills/agents with the vendored squad. Currently deferred — preserved here as the v1.1+ goal.
 
-**Exit criterion**: coral's worker + assign-worker gone; a spawned worker still opens a valid PR.
+- Run `agent-squad init` in coral.
+- Migrate coral's `.agent_squad/config.toml` (already exists from earlier work).
+- Delete coral's local copies of agents/skills that the squad now provides.
+- Verify a real BENCH ticket can be closed by a worker-opened PR via the vendored squad.
 
-## M5 — Extract `ticket-manager` agent
+**Exit criterion**: coral closes a BENCH ticket via the vendored squad. Coral's local `.claude/agents/` and `.claude/skills/` for the migrated content are empty or deleted.
 
-Largest prompt and most coral-specific (initiative + 5 project UUIDs for routing). Parameterize all of it into TOML under `[linear.projects]`.
+## C5 — PyPI + `pipx` distribution
 
-- Canary: ticket-manager can triage BENCH tickets in coral via the plugin.
-- Delete coral's local copy.
+`uvx --from git+...` works for v0.1, but a real package on PyPI lowers the install bar.
 
-**Exit criterion**: coral's ticket-manager gone. **Coral canary complete** — `coral-benchmarks/.claude/agents/` and `coral-benchmarks/.claude/skills/` are empty or deleted, all behavior preserved.
+- Publish `agent-squad` to PyPI.
+- Verify `pipx install agent-squad && agent-squad init` works in a fresh repo.
+- Update the README install instructions.
 
-## M6 — Squirtle-squad dogfoods itself
-
-- Create `.agent_squad/config.toml` in this repo pointing at the squirtlesquad Linear workspace.
-- Add one or two small real tickets on the squirtlesquad Linear project (e.g. "improve README", "add a `squad doctor` command").
-- Use ticket-manager + worker from the installed plugin to close one ticket end-to-end via a worker-opened PR against this repo.
-
-**Exit criterion**: one squirtlesquad ticket closed by a PR opened by a worker spawned from the plugin, working on the plugin. **V1 complete.**
+**Exit criterion**: `pipx install agent-squad` works against the published package.
 
 ## Parking lot (v1.1+)
 
 Ordered roughly by expected value:
 
-- **PR-review-comment polling loop** (BENCH-209). Closes the feedback loop; the single biggest UX gap after v1.
-- **Consumer worktree setup hook.** We shipped `setup-worktree.sh` + `.agent_squad/post-worktree-setup.sh` in M4a, then dropped them once we learned the Agent tool's built-in `isolation: "worktree"` already handles worktree creation + auto-cleanup. Re-introduce a hook mechanism when the coral canary lands — coral's flow needs project-specific post-setup (`uv sync`, symlinking `benchmarks/<suite>/profiles.local.yaml`, etc.) that the built-in isolation doesn't run. Likely form: post-isolation hook the worker invokes before it starts work, conditionally sourcing `.agent_squad/post-worktree-setup.sh`.
-- **`code-writing` as a customizable template skill.** Ship a minimal scaffold describing structure (language conventions, type-system use, CLI patterns, test conventions). Each consumer forks into their repo and fills in repo-specific patterns. Evolves as we learn what's common across repos.
-- **`squirtle-squad doctor` / `squirtle-squad show <agent>`.** Print resolved prompts with provenance ("lines 1–40 plugin, 41–52 local override"). Mandatory once we support overrides beyond plain fork-editing.
-- **Non-user auth tokens.** App / bot / OAuth-based credentials so the squad isn't tied to a specific human. Prerequisite for scheduled agents and remote execution.
-- **Named extension slots / append/prepend overrides.** Only if multiple consumers diverge enough that fork-editing causes real pain.
-- **PM tool adapter pattern.** `pm-linear`, `pm-jira`, `pm-github`. Agents reference an abstract PM capability; adapter skills implement it. Unlocks non-Linear consumers.
+- **PR-review-comment polling loop** (BENCH-209). The single biggest UX gap after v1. Becomes a strong candidate for the runner program (long-lived, watches many PRs).
+- **Remote runner.** Long-lived service that supervises workers across repos, watches PRs/Linear events, dispatches managers. Likely Go. Consumes the same `.agent_squad/` layout — that's the architectural payoff of the vendor model.
+- **`code-writing` as a customizable template skill.** Ship a minimal scaffold; each consumer fills in repo-specific patterns.
+- **Non-user auth tokens.** App / bot / OAuth credentials so the squad isn't tied to a specific human. Prerequisite for the runner.
+- **Manager-to-manager messaging.** When multiple managers exist in one repo and one's scope touches another's, they should be able to coordinate without going through the human.
+- **`agent-squad show <agent>`** — print the resolved prompt with provenance ("lines 1–40 from template, 41–52 local edit"). Becomes mandatory once `sync` supports overrides beyond fork-editing.
 - **Reviewer subagent.** Reviews worker PRs before they reach humans.
-- **Remote / K8s execution model.** Bake plugin SHA into container images; run workers in remote sandboxes.
-- **Public marketplace listing / open source.** Rename, polish docs, set up contribution guidelines.
+- **PM tool adapter pattern.** `pm-linear`, `pm-jira`, `pm-github`. Agents reference an abstract PM capability; adapter skills implement it. Unlocks non-Linear consumers.
+- **Public open-sourcing.** Polish docs, set up contribution guidelines, drop the "private repo" framing.
