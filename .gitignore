@@ -15,3 +15,6 @@ build/
 
 # Go build output (CI rebuilds; not checked in)
 bin/
+
+# Worker-agent internal state — per-spawn scratch, not for main
+.worker_agent/
