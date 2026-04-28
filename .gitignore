@@ -12,3 +12,6 @@ dist/
 build/
 
 .claude/settings.local.json
+
+# Go build output (CI rebuilds; not checked in)
+bin/
