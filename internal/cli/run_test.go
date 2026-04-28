@@ -60,12 +60,18 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 }
 
 // initInto runs `init` against a tmp dir to produce a real .agent_team/ tree.
+// Required template parameters are passed via --set so the call doesn't block
+// on a prompt — tests that exercise the prompt path build their own init args.
 func initInto(t *testing.T, dir string) {
 	t.Helper()
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"init", "--target", dir})
+	cmd.SetArgs([]string{
+		"init", "--target", dir,
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -218,6 +224,136 @@ func TestRun_MissingTeamDir(t *testing.T) {
 	var ec ExitCode
 	if !errors.As(err, &ec) || int(ec) != 2 {
 		t.Errorf("expected exit 2, got %v", err)
+	}
+}
+
+func TestRun_WritesResolvedConfigToStateDir(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"run", "manager", "--target", tmp,
+		"--set", "linear.team_id=run-override",
+		"--set", "linear.runtime_only=hello",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	stateCfgPath := filepath.Join(tmp, ".agent_team", "state", "manager", "config.toml")
+	body, err := os.ReadFile(stateCfgPath)
+	if err != nil {
+		t.Fatalf("read state config: %v", err)
+	}
+	cfg := string(body)
+	if !strings.Contains(cfg, `team_id = "run-override"`) {
+		t.Errorf("--set override missing in state config: %s", cfg)
+	}
+	if !strings.Contains(cfg, `runtime_only = "hello"`) {
+		t.Errorf("--set new key missing in state config: %s", cfg)
+	}
+	// Repo config values not overridden should still be present in the merge.
+	if !strings.Contains(cfg, `ticket_prefix = "TST"`) {
+		t.Errorf("repo config value missing in merged state config: %s", cfg)
+	}
+}
+
+func TestRun_InstanceConfigLayersBelowSet(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, restore := captureRun(t, nil)
+	defer restore()
+
+	instCfg := filepath.Join(tmp, "instance-config.toml")
+	if err := os.WriteFile(instCfg, []byte(`[linear]
+team_id = "from-instance-file"
+extra = "from-instance-file"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"run", "manager", "--target", tmp,
+		"--instance-config", instCfg,
+		"--set", "linear.team_id=from-cli",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	stateCfgPath := filepath.Join(tmp, ".agent_team", "state", "manager", "config.toml")
+	body, _ := os.ReadFile(stateCfgPath)
+	cfg := string(body)
+	// CLI flag wins over instance file.
+	if !strings.Contains(cfg, `team_id = "from-cli"`) {
+		t.Errorf("CLI --set should beat --instance-config: %s", cfg)
+	}
+	// Instance-file-only key should be present.
+	if !strings.Contains(cfg, `extra = "from-instance-file"`) {
+		t.Errorf("instance-file extra missing: %s", cfg)
+	}
+}
+
+func TestRun_ReRendersTmplFiles(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	// Drop a .tmpl file inside the team tree so run sees something to render.
+	tmplPath := filepath.Join(tmp, ".agent_team", "skills", "linear", "demo.txt.tmpl")
+	if err := os.WriteFile(tmplPath, []byte("team={{ .linear.team_id }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"run", "manager", "--target", tmp,
+		"--set", "linear.team_id=fresh-from-set",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	rendered := filepath.Join(tmp, ".agent_team", "state", "manager", "rendered", "skills", "linear", "demo.txt")
+	body, err := os.ReadFile(rendered)
+	if err != nil {
+		t.Fatalf("re-rendered file missing: %v", err)
+	}
+	if string(body) != "team=fresh-from-set\n" {
+		t.Errorf("rendered body = %q", body)
+	}
+}
+
+func TestRun_NoTmplFilesProducesNoRenderDir(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	renderRoot := filepath.Join(tmp, ".agent_team", "state", "manager", "rendered")
+	if _, err := os.Stat(renderRoot); !os.IsNotExist(err) {
+		t.Errorf("expected no rendered/ dir when no .tmpl files exist, got err=%v", err)
 	}
 }
 

@@ -11,6 +11,17 @@ import (
 	"github.com/jamesaud/agent-team/internal/loader"
 )
 
+// initArgsWithRequired is the canonical "init the bundled template into tmp,
+// non-interactively" arg list. Most tests in this file use this — the prompt
+// path has its own dedicated tests.
+func initArgsWithRequired(target string) []string {
+	return []string{
+		"init", "--target", target,
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+	}
+}
+
 func TestInit_DefaultTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
@@ -18,7 +29,7 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	errOut := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"init", "--target", tmp})
+	cmd.SetArgs(initArgsWithRequired(tmp))
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v\nstderr: %s", err, errOut.String())
@@ -26,7 +37,6 @@ func TestInit_DefaultTemplate(t *testing.T) {
 
 	expected := []string{
 		".agent_team/config.toml",
-		".agent_team/config.toml.example",
 		".agent_team/agents/ticket-manager/agent.md",
 		".agent_team/agents/ticket-manager/config.toml",
 		".agent_team/agents/manager/agent.md",
@@ -45,6 +55,24 @@ func TestInit_DefaultTemplate(t *testing.T) {
 		}
 	}
 
+	// The resolved config.toml must contain the supplied --set values.
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cfg)
+	if !strings.Contains(body, `team_id = "test-team-uuid"`) {
+		t.Errorf("config.toml missing team_id: %s", body)
+	}
+	if !strings.Contains(body, `ticket_prefix = "TST"`) {
+		t.Errorf("config.toml missing ticket_prefix: %s", body)
+	}
+
+	// template.toml itself must NOT land in the consumer's tree.
+	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "template.toml")); !os.IsNotExist(err) {
+		t.Errorf("template.toml leaked into consumer tree (err=%v)", err)
+	}
+
 	stdout := out.String()
 	for _, want := range []string{
 		"Vendoring team into",
@@ -59,13 +87,11 @@ func TestInit_DefaultTemplate(t *testing.T) {
 }
 
 func TestInit_LoaderReadsBundledTemplate(t *testing.T) {
-	// After init, the loader must accept the bundled tree without error.
-	// This is a stronger parity check than just file existence.
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"init", "--target", tmp})
+	cmd.SetArgs(initArgsWithRequired(tmp))
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -80,6 +106,82 @@ func TestInit_LoaderReadsBundledTemplate(t *testing.T) {
 	}
 	if _, err := loader.UnionSkills(agents); err != nil {
 		t.Errorf("UnionSkills: %v", err)
+	}
+}
+
+func TestInit_NoInputFailsListingMissing(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"init", "--target", tmp, "--no-input"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error: required params missing under --no-input")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Errorf("expected exit 2, got %v", err)
+	}
+	combined := errOut.String()
+	for _, want := range []string{
+		"--no-input given but required parameters are missing:",
+		"linear.team_id",
+		"linear.ticket_prefix",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("error output missing %q\nfull:\n%s", want, combined)
+		}
+	}
+}
+
+func TestInit_PatternViolationFails(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init", "--target", tmp,
+		"--set", "linear.team_id=abc",
+		"--set", "linear.ticket_prefix=lowercase-bad",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected pattern-violation error")
+	}
+	if !strings.Contains(errOut.String(), "does not match pattern") {
+		t.Errorf("missing pattern error: %s", errOut.String())
+	}
+}
+
+func TestInit_PromptFlow(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	// Two required params; supply each on its own input line.
+	cmd.SetIn(strings.NewReader("uuid-from-prompt\nABC\n"))
+	cmd.SetArgs([]string{"init", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init: %v\nstderr: %s", err, errOut.String())
+	}
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cfg)
+	if !strings.Contains(body, `team_id = "uuid-from-prompt"`) {
+		t.Errorf("missing team_id from prompt: %s", body)
+	}
+	if !strings.Contains(body, `ticket_prefix = "ABC"`) {
+		t.Errorf("missing ticket_prefix from prompt: %s", body)
+	}
+	// stdout should show the prompts.
+	if !strings.Contains(out.String(), "This template requires the following parameters") {
+		t.Errorf("missing prompt header: %s", out.String())
 	}
 }
 
@@ -152,24 +254,19 @@ func TestInit_BadTarget(t *testing.T) {
 
 func TestInit_SkipsExistingWithoutForce(t *testing.T) {
 	tmp := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "--target", tmp},
-		{"init", "--target", tmp},
-	} {
+	for i := 0; i < 2; i++ {
 		cmd := NewRootCmd()
 		out := &bytes.Buffer{}
 		cmd.SetOut(out)
 		cmd.SetErr(&bytes.Buffer{})
-		cmd.SetArgs(args)
+		cmd.SetArgs(initArgsWithRequired(tmp))
 		if err := cmd.Execute(); err != nil {
-			t.Fatalf("init: %v", err)
+			t.Fatalf("init pass %d: %v", i, err)
 		}
-		// On the second run we expect "skip" lines.
-		if args[0] == "init" && strings.Contains(out.String(), "skip .agent_team/agents") {
-			return // ok on the second pass
+		if i == 1 && !strings.Contains(out.String(), "skip .agent_team/agents") {
+			t.Fatalf("expected skip output on second init, got:\n%s", out.String())
 		}
 	}
-	t.Fatal("expected skip output on second init")
 }
 
 func TestInit_ForceOverwritesDirs(t *testing.T) {
@@ -177,12 +274,11 @@ func TestInit_ForceOverwritesDirs(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"init", "--target", tmp})
+	cmd.SetArgs(initArgsWithRequired(tmp))
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init1: %v", err)
 	}
 
-	// Edit a vendored file. Re-init with --force should restore it.
 	target := filepath.Join(tmp, ".agent_team", "agents", "worker", "agent.md")
 	if err := os.WriteFile(target, []byte("MUTATED"), 0o644); err != nil {
 		t.Fatal(err)
@@ -191,7 +287,8 @@ func TestInit_ForceOverwritesDirs(t *testing.T) {
 	cmd2 := NewRootCmd()
 	cmd2.SetOut(&bytes.Buffer{})
 	cmd2.SetErr(&bytes.Buffer{})
-	cmd2.SetArgs([]string{"init", "--target", tmp, "--force"})
+	args := append(initArgsWithRequired(tmp), "--force")
+	cmd2.SetArgs(args)
 	if err := cmd2.Execute(); err != nil {
 		t.Fatalf("init2: %v", err)
 	}

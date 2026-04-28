@@ -16,6 +16,7 @@ def collect() -> list[Path]:
         REPO_ROOT / ".agent_team" / "config.toml",
         REPO_ROOT / "cli" / "pyproject.toml",
         TEMPLATE_ROOT / "config.toml.example",
+        TEMPLATE_ROOT / "template.toml",
     ]
     paths.extend(sorted(TEMPLATE_ROOT.glob("agents/*/config.toml")))
     return paths

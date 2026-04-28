@@ -4,20 +4,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/spf13/cobra"
 )
 
 // runConfig is the parsed flags for `agent-team run`.
 type runConfig struct {
-	target string
-	name   string
-	prompt string
+	target         string
+	name           string
+	prompt         string
+	setStrings     []string
+	instanceConfig string
 }
 
 func newRunCmd() *cobra.Command {
@@ -42,6 +46,8 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&cfg.target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVarP(&cfg.name, "name", "n", "", "Instance name (defaults to the agent name). State dir: .agent_team/state/<name>/.")
 	cmd.Flags().StringVarP(&cfg.prompt, "prompt", "p", "", "Kickoff message. With this, claude runs in one-shot mode; without, interactive.")
+	cmd.Flags().StringArrayVar(&cfg.setStrings, "set", nil, "Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.")
+	cmd.Flags().StringVar(&cfg.instanceConfig, "instance-config", "", "Path to a per-instance TOML config that layers on top of repo config (below --set).")
 	return cmd
 }
 
@@ -91,6 +97,27 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	stateDir := filepath.Join(teamDir, "state", instance)
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
+	}
+
+	// Resolve the config tree: repo `config.toml` ← per-instance ← --set.
+	// The merged result is written to <stateDir>/config.toml so the spawned
+	// session reads exactly the config its caller intended.
+	resolved, err := resolveRunConfig(teamDir, stateDir, cfg)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+		return exitErr(2)
+	}
+	if err := writeStateConfig(stateDir, resolved); err != nil {
+		return fmt.Errorf("write state config: %w", err)
+	}
+	// Open question #5 (documentation/templates.md): render any `.tmpl`
+	// files in the team tree against the resolved config and drop them
+	// under <stateDir>/rendered/ so a `--set` flag is reflected in the
+	// per-spawn rendered tree even though the in-tree files were rendered
+	// at init time. Skills that need fresh substitution can read from
+	// $AGENT_TEAM_STATE_DIR/rendered/<rel-path>.
+	if err := rerenderTmplFiles(teamDir, stateDir, resolved); err != nil {
+		return fmt.Errorf("re-render .tmpl files: %w", err)
 	}
 
 	tmpdir, err := os.MkdirTemp("", "agent-team-")
@@ -201,5 +228,123 @@ func agentNames(agents []*loader.Agent) string {
 		names[i] = a.Name
 	}
 	return strings.Join(names, ", ")
+}
+
+// resolveRunConfig builds the resolved instance config from layered sources:
+//   1. repo config (`<teamDir>/config.toml`)
+//   2. per-instance config — either `--instance-config <path>` if given, or
+//      the auto-pickup at `<stateDir>/config.toml` from a previous run/edit
+//   3. CLI `--set` flags
+//
+// The merged tree is the single source of truth for the spawned session's
+// skills and bash steps.
+func resolveRunConfig(teamDir, stateDir string, cfg runConfig) (template.Tree, error) {
+	repoCfg, err := template.LoadTOMLFile(filepath.Join(teamDir, "config.toml"))
+	if err != nil {
+		return nil, fmt.Errorf("repo config: %w", err)
+	}
+	var instanceCfg template.Tree
+	switch {
+	case cfg.instanceConfig != "":
+		instanceCfg, err = template.LoadTOMLFile(cfg.instanceConfig)
+		if err != nil {
+			return nil, fmt.Errorf("--instance-config %s: %w", cfg.instanceConfig, err)
+		}
+	default:
+		// Pick up <stateDir>/config.toml if the user has previously committed
+		// per-instance settings there. Missing → empty tree.
+		instanceCfg, err = template.LoadTOMLFile(filepath.Join(stateDir, "config.toml"))
+		if err != nil {
+			return nil, fmt.Errorf("instance config: %w", err)
+		}
+	}
+	merged := template.ResolveLayers(repoCfg, instanceCfg)
+
+	sets, err := template.ParseSetSpecs(cfg.setStrings)
+	if err != nil {
+		return nil, err
+	}
+	// `run` does not have direct access to the template manifest (the consumer
+	// may have edited the resolved config beyond what the manifest declares).
+	// We pass nil here, which means string-only coercion for --set values.
+	withSets, err := template.ApplySets(merged, sets, nil)
+	if err != nil {
+		return nil, err
+	}
+	return withSets, nil
+}
+
+// writeStateConfig writes the resolved tree to <stateDir>/config.toml.
+// Any pre-existing per-instance config has already been folded in at this
+// point, so overwriting is safe.
+func writeStateConfig(stateDir string, resolved template.Tree) error {
+	body, err := template.EncodeTOML(resolved)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(stateDir, "config.toml"), body, 0o644)
+}
+
+// rerenderTmplFiles walks teamDir for any `.tmpl` files and renders each one
+// against `resolved`, writing the output under <stateDir>/rendered/<rel-path>
+// with the suffix stripped. Files without `.tmpl` are ignored (re-render is
+// purely additive — they were already verbatim-copied at init).
+//
+// This is option (a) from `documentation/templates.md` § Open questions #5:
+// the per-spawn render gives `--set` overrides somewhere to land for skills
+// that consume parameter-substituted files.
+func rerenderTmplFiles(teamDir, stateDir string, resolved template.Tree) error {
+	renderRoot := filepath.Join(stateDir, "rendered")
+	// Always recreate so stale renders from a previous spawn don't persist.
+	if err := os.RemoveAll(renderRoot); err != nil {
+		return err
+	}
+	hasTmpl := false
+	err := filepath.WalkDir(teamDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Skip the state tree itself to avoid feedback loops.
+			if p == filepath.Join(teamDir, "state") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, template.TmplSuffix) {
+			return nil
+		}
+		hasTmpl = true
+		rel, err := filepath.Rel(teamDir, p)
+		if err != nil {
+			return err
+		}
+		dstRel := strings.TrimSuffix(rel, template.TmplSuffix)
+		dst := filepath.Join(renderRoot, dstRel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		body, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		out, err := template.RenderBytes(rel, body, resolved)
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(rel, ".sh"+template.TmplSuffix) {
+			mode = 0o755
+		}
+		return os.WriteFile(dst, out, mode)
+	})
+	if err != nil {
+		return err
+	}
+	if !hasTmpl {
+		// No .tmpl files in this repo — leave renderRoot absent.
+		_ = os.RemoveAll(renderRoot)
+	}
+	return nil
 }
 

@@ -1,0 +1,42 @@
+# Manifest for the bundled "default" template — a software-engineering team
+# (manager + worker + ticket-manager) for Linear-tracked work.
+#
+# `agent-team init` reads this file to determine which parameters the consumer
+# must supply; values flow into config.toml.tmpl below to produce the repo's
+# resolved .agent_team/config.toml.
+
+[template]
+name        = "default"
+version     = "1.0.0"
+description = "Manager + worker + ticket-manager team for Linear-tracked engineering work."
+
+[[parameter]]
+key         = "linear.team_id"
+type        = "string"
+required    = true
+description = "Linear team UUID. Find at linear.app/<workspace>/team/<TEAM>/all (UUID is in the URL)."
+
+[[parameter]]
+key         = "linear.ticket_prefix"
+type        = "string"
+required    = true
+pattern     = "^[A-Z]{2,5}$"
+description = "Linear ticket prefix, e.g. SQU."
+
+[[parameter]]
+key         = "linear.initiative_id"
+type        = "string"
+required    = false
+description = "Optional initiative UUID to attach new tickets to."
+
+[[parameter]]
+key         = "linear.labels"
+type        = "list<string>"
+default     = []
+description = "Labels to apply to all created tickets."
+
+[[parameter]]
+key         = "team.pm_tool"
+type        = "string"
+default     = "linear"
+description = "Which PM tool the team talks to. v1 only supports linear."

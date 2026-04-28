@@ -13,6 +13,19 @@ func TestDoctor_FailsOnEmptyLinearKeys(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
+	// Wipe the resolved Linear keys to simulate a freshly-init'd repo where
+	// the user hasn't yet supplied real values.
+	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(`[team]
+pm_tool = "linear"
+
+[linear]
+team_id = ""
+ticket_prefix = ""
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -20,7 +33,7 @@ func TestDoctor_FailsOnEmptyLinearKeys(t *testing.T) {
 	cmd.SetArgs([]string{"doctor", "--target", tmp})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected error: bundled config has empty Linear team_id/ticket_prefix")
+		t.Fatal("expected error: empty Linear team_id/ticket_prefix")
 	}
 	var ec ExitCode
 	if !errors.As(err, &ec) || int(ec) != 1 {
@@ -33,18 +46,9 @@ func TestDoctor_FailsOnEmptyLinearKeys(t *testing.T) {
 
 func TestDoctor_PassesWithFilledLinearKeys(t *testing.T) {
 	tmp := t.TempDir()
+	// initInto supplies linear.team_id and linear.ticket_prefix via --set, so
+	// doctor should be happy out of the box.
 	initInto(t, tmp)
-
-	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
-	body, err := os.ReadFile(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	patched := strings.Replace(string(body), `team_id       = ""`, `team_id       = "abc-123"`, 1)
-	patched = strings.Replace(patched, `ticket_prefix = ""`, `ticket_prefix = "SMK"`, 1)
-	if err := os.WriteFile(cfgPath, []byte(patched), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
