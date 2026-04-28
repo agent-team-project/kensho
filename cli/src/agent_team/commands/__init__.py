@@ -1,3 +1,3 @@
-from agent_team.commands import add, doctor, init, run, spawn
+from agent_team.commands import agent, doctor, init, instance, run, skill
 
-__all__ = ["add", "doctor", "init", "run", "spawn"]
+__all__ = ["agent", "doctor", "init", "instance", "run", "skill"]

@@ -40,31 +40,47 @@ uvx --from "git+https://github.com/jamesaud/agent-team#subdirectory=cli" agent-t
 Edit anything you like, then:
 
 ```sh
-agent-team run
+agent-team run manager     # or any other agent name from .agent_team/agents/
 ```
 
-…and you're in a Claude Code session with your agents and skills loaded.
+…and you're in a Claude Code session as that agent, with the rest of the team available as subagents it can dispatch.
 
 ## Commands
 
-| Command | Purpose |
-|---|---|
-| `agent-team init [--template default\|empty]` | Vendor a starter `.agent_team/` into the current repo. |
-| `agent-team add agent <name>` | Scaffold a new agent definition. |
-| `agent-team add skill <name> [--agent <a>]` | Scaffold a new skill (shared by default; `--agent` scopes it under one agent). |
-| `agent-team run [-- claude-args…]` | Launch a Claude Code session with all agents registered as subagents. You operate as the orchestrator. |
-| `agent-team spawn <agent> [--name <instance>] [-p "<kickoff>"]` | Launch a Claude Code session that *is* one named agent. Creates `.agent_team/state/<instance>/` if missing, prepends a kickoff naming the instance and its state dir. All other agents are still registered as subagents (so a spawned `manager` can dispatch a `worker`). |
-| `agent-team doctor` | Sanity-check the team layout and config. |
+The CLI groups commands by the resource they manage (Docker / kubectl style):
+
+```sh
+agent-team init [--template default|empty]       # bootstrap .agent_team/
+agent-team doctor                                # validate layout + config
+agent-team run <agent> [--name <instance>] [-p "..."]   # launch Claude Code as <agent>
+
+agent-team agent create <name>                   # scaffold a new agent
+agent-team agent ls                              # list agents
+agent-team agent show <name>                     # show one agent's metadata + resolved skills
+agent-team agent rm <name>                       # delete an agent definition
+
+agent-team skill create <name> [--agent <a>]     # scaffold a skill (shared, or agent-private)
+agent-team skill ls [--agent <a>]                # list skills
+agent-team skill rm <name> [--agent <a>]         # delete a skill
+
+agent-team instance ls                           # list instances (.agent_team/state/*)
+agent-team instance show <name>                  # show one instance's state files
+agent-team instance rm <name>                    # delete an instance's state
+```
 
 ## How it works
 
-`agent-team run` reads each `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/` plus `[skills].extra` in `agents/<name>/config.toml`, builds a tmpdir of symlinks satisfying Claude Code's `--add-dir` skill discovery, and exec's:
+`agent-team run <agent>` reads every `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/` plus `[skills].extra` in `agents/<name>/config.toml`, builds a tmpdir of symlinks satisfying Claude Code's `--add-dir` skill discovery, and exec's:
 
 ```sh
-claude --agents '<json>' --add-dir <tmpdir> <forwarded-args>
+claude --agents '<json>' --add-dir <tmpdir> --append-system-prompt-file <kickoff> <forwarded-args>
 ```
 
-The launcher exports `AGENT_TEAM_ROOT=<absolute path to .agent_team/>` so skills can locate their bundled assets regardless of the current working directory.
+The named agent's prompt becomes the session's system prompt (via `--append-system-prompt-file`); all other agents stay registered as subagents so the named agent can dispatch them via the Task tool. The launcher also creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports:
+
+- `AGENT_TEAM_ROOT` — absolute path to `.agent_team/`
+- `AGENT_TEAM_INSTANCE` — the instance name
+- `AGENT_TEAM_STATE_DIR` — absolute path to `.agent_team/state/<instance>/`
 
 Subagents are session-scoped — they exist only for the duration of the spawned `claude` process. Nothing is written into `.claude/agents/`. No plugin install, no marketplace, no global state.
 

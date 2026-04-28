@@ -5,11 +5,12 @@ from __future__ import annotations
 import typer
 
 from agent_team import __version__
-from agent_team.commands import add as add_cmd
+from agent_team.commands import agent as agent_cmd
 from agent_team.commands import doctor as doctor_cmd
 from agent_team.commands import init as init_cmd
+from agent_team.commands import instance as instance_cmd
 from agent_team.commands import run as run_cmd
-from agent_team.commands import spawn as spawn_cmd
+from agent_team.commands import skill as skill_cmd
 
 app = typer.Typer(
     name="agent-team",
@@ -40,9 +41,10 @@ def _main(
 
 init_cmd.register(app)
 run_cmd.register(app)
-spawn_cmd.register(app)
 doctor_cmd.register(app)
-app.add_typer(add_cmd.app, name="add")
+app.add_typer(agent_cmd.app, name="agent")
+app.add_typer(skill_cmd.app, name="skill")
+app.add_typer(instance_cmd.app, name="instance")
 
 
 def main() -> None:

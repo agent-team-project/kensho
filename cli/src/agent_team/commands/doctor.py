@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from agent_team.commands.run import AgentLoadError, _union_skills, load_agent
+from agent_team.loader import AgentLoadError, TEAM_DIR_NAME, load_agent, union_skills
 
 
 def register(app: typer.Typer) -> None:
@@ -22,7 +22,7 @@ def register(app: typer.Typer) -> None:
         target: Annotated[Path, typer.Option(help="Repo root.")] = Path.cwd(),
     ) -> None:
         target = target.resolve()
-        team_dir = target / ".agent_team"
+        team_dir = target / TEAM_DIR_NAME
         problems: list[str] = []
 
         if not team_dir.is_dir():
@@ -52,7 +52,7 @@ def register(app: typer.Typer) -> None:
         else:
             agent_dirs = [d for d in agents_dir.iterdir() if d.is_dir()]
             if not agent_dirs:
-                problems.append(f"no agents under {agents_dir} — `agent-team add agent <name>` to scaffold one.")
+                problems.append(f"no agents under {agents_dir} — `agent-team agent create <name>` to scaffold one.")
             else:
                 loaded = []
                 for d in sorted(agent_dirs):
@@ -62,7 +62,7 @@ def register(app: typer.Typer) -> None:
                         problems.append(str(e))
                 if loaded:
                     try:
-                        _union_skills(loaded)
+                        union_skills(loaded)
                     except AgentLoadError as e:
                         problems.append(str(e))
 
