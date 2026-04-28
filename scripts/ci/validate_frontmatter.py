@@ -2,9 +2,9 @@
 """Validate YAML frontmatter on every bundled agent and skill.
 
 Walks the bundled template and checks:
-  - Each `cli/src/agent_team/template/agents/<name>/agent.md`
-  - Each `cli/src/agent_team/template/skills/<name>/SKILL.md` (shared)
-  - Each `cli/src/agent_team/template/agents/<name>/skills/<name>/SKILL.md` (agent-private)
+  - Each `template/agents/<name>/agent.md`
+  - Each `template/skills/<name>/SKILL.md` (shared)
+  - Each `template/agents/<name>/skills/<name>/SKILL.md` (agent-private)
 
 Each file must:
   1. Start with a YAML frontmatter block delimited by `---`.
@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_ROOT = REPO_ROOT / "cli" / "src" / "agent_team" / "template"
+TEMPLATE_ROOT = REPO_ROOT / "template"
 
 
 def extract_frontmatter(path: Path) -> tuple[dict | None, str | None]:

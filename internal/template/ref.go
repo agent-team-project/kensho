@@ -38,7 +38,7 @@ type Resolver struct {
 	// BundledFS holds the binary-embedded "default" template tree.
 	BundledFS fs.FS
 	// BundledRoot is the path inside BundledFS the template begins at
-	// (e.g. "cli/src/agent_team/template").
+	// (e.g. "template").
 	BundledRoot string
 	// CacheRoot is the on-disk directory where pulled templates live
 	// (e.g. ~/.agent-team/cache).

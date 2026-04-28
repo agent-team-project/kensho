@@ -1,6 +1,5 @@
 // Package loader parses agent definitions and resolves skills under a
-// `.agent_team/` tree. Mirrors the Python loader at
-// `cli/src/agent_team/loader.py` — semantics must match exactly.
+// `.agent_team/` tree.
 package loader
 
 import (

@@ -1,8 +1,8 @@
 # agent-team config for agent-team itself (self-dogfooding).
 #
-# Read at runtime by skills under cli/src/agent_team/template/skills/*/ via
-# inline Python. Committed so teammates share the same config. No secrets
-# here — API keys live in .env.
+# Read at runtime by skills under template/skills/*/ via inline Python.
+# Committed so teammates share the same config. No secrets here — API keys
+# live in .env.
 
 [team]
 pm_tool = "linear"   # only "linear" supported in v1

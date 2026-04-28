@@ -8,13 +8,12 @@ import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_ROOT = REPO_ROOT / "cli" / "src" / "agent_team" / "template"
+TEMPLATE_ROOT = REPO_ROOT / "template"
 
 
 def collect() -> list[Path]:
     paths: list[Path] = [
         REPO_ROOT / ".agent_team" / "config.toml",
-        REPO_ROOT / "cli" / "pyproject.toml",
         TEMPLATE_ROOT / "config.toml.example",
         TEMPLATE_ROOT / "template.toml",
     ]

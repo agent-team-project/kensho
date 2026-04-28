@@ -38,7 +38,7 @@ func RenderTreeFromOS(srcRoot, dstRoot string, data Tree, skipNames map[string]b
 }
 
 // RenderTreeFromFS is the embed.FS variant. The `srcRoot` should already be a
-// path inside the FS (e.g. "cli/src/agent_team/template").
+// path inside the FS (e.g. "template").
 func RenderTreeFromFS(srcFS fs.FS, srcRoot, dstRoot string, data Tree, skipNames map[string]bool) ([]RenderResult, error) {
 	return renderTree(srcFS, dstRoot, srcRoot, data, skipNames)
 }
