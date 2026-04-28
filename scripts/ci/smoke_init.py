@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test for the installed agent-team CLI.
+"""End-to-end smoke test for the agent-team binary.
 
-Assumes `agent-team` is on PATH (CI step `pip install ./cli` runs first).
-Exercises:
-  - `init` against a tmp dir → expected per-agent dirs and shared skills exist
-  - `agent create <name>` → scaffolds new agent dir
-  - `agent ls` → returns the new agent
-  - `skill create <name>` → scaffolds shared skill
-  - `skill create <name> --agent <agent>` → scaffolds agent-private skill
-  - `skill ls` → returns shared skills
-  - `doctor` fails when Linear keys empty, passes once filled in
+The binary ships `init`, `run`, `doctor`, `instance`, and `template`. This
+smoke exercises the `init` and `template show` paths plus the bundled
+template's parameter substitution, without requiring `claude` on PATH.
+
+Usage:
+    smoke_init.py <path-to-agent-team-binary>
 """
 
 from __future__ import annotations
@@ -22,7 +19,6 @@ from pathlib import Path
 
 EXPECTED_AFTER_INIT = [
     ".agent_team/config.toml",
-    ".agent_team/config.toml.example",
     ".agent_team/agents/ticket-manager/agent.md",
     ".agent_team/agents/ticket-manager/config.toml",
     ".agent_team/agents/manager/agent.md",
@@ -36,74 +32,109 @@ EXPECTED_AFTER_INIT = [
 ]
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(f"usage: {argv[0]} <path-to-agent-team-binary>", file=sys.stderr)
+        return 2
+    binary = Path(argv[1]).resolve()
+    if not binary.is_file():
+        print(f"binary not found: {binary}", file=sys.stderr)
+        return 2
+
     problems: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         target = Path(tmp)
 
-        run(["agent-team", "init", "--target", str(target)])
+        # --- init with --set, the templates-as-images path ---
+        run([
+            str(binary), "init", "--target", str(target),
+            "--set", "linear.team_id=smoke-team-uuid",
+            "--set", "linear.ticket_prefix=SMK",
+        ])
         for rel in EXPECTED_AFTER_INIT:
             if not (target / rel).exists():
                 problems.append(f"missing after init: {rel}")
 
+        # The init-time template manifest must NOT leak into the consumer tree.
+        if (target / ".agent_team" / "template.toml").exists():
+            problems.append("template.toml leaked into .agent_team/")
+
+        # Resolved config must contain --set values.
+        cfg_text = (target / ".agent_team" / "config.toml").read_text()
+        if 'team_id = "smoke-team-uuid"' not in cfg_text:
+            problems.append(f"--set linear.team_id missing from config.toml: {cfg_text}")
+        if 'ticket_prefix = "SMK"' not in cfg_text:
+            problems.append(f"--set linear.ticket_prefix missing from config.toml: {cfg_text}")
         try:
-            tomllib.loads((target / ".agent_team" / "config.toml").read_text())
+            tomllib.loads(cfg_text)
         except Exception as e:  # noqa: BLE001
             problems.append(f"config.toml not valid TOML: {e}")
 
-        # agent create + ls
-        run(["agent-team", "agent", "create", "smoke-agent", "--target", str(target)])
-        if not (target / ".agent_team/agents/smoke-agent/agent.md").exists():
-            problems.append("agent create didn't scaffold agent.md")
-        if not (target / ".agent_team/agents/smoke-agent/config.toml").exists():
-            problems.append("agent create didn't scaffold config.toml")
+        # The bundled linear-graphql.sh must remain executable after init.
+        sh = target / ".agent_team/skills/linear/scripts/linear-graphql.sh"
+        if sh.exists() and not (sh.stat().st_mode & 0o111):
+            problems.append(f"{sh} is not executable after init")
 
-        ls_out = check_output(["agent-team", "agent", "ls", "--target", str(target)])
-        if "smoke-agent" not in ls_out:
-            problems.append(f"agent ls did not list smoke-agent (got: {ls_out!r})")
-
-        # skill create (shared) + ls
-        run(["agent-team", "skill", "create", "smoke-skill", "--target", str(target)])
-        if not (target / ".agent_team/skills/smoke-skill/SKILL.md").exists():
-            problems.append("skill create didn't scaffold SKILL.md")
-
-        skill_ls = check_output(["agent-team", "skill", "ls", "--target", str(target)])
-        if "smoke-skill" not in skill_ls:
-            problems.append(f"skill ls did not list smoke-skill (got: {skill_ls!r})")
-
-        # skill create --agent (private)
-        run(["agent-team", "skill", "create", "private-skill",
-             "--agent", "smoke-agent", "--target", str(target)])
-        if not (target / ".agent_team/agents/smoke-agent/skills/private-skill/SKILL.md").exists():
-            problems.append("skill create --agent didn't scaffold SKILL.md")
-
-        # doctor — should fail because Linear keys empty
-        rc = subprocess.run(
-            ["agent-team", "doctor", "--target", str(target)],
-            capture_output=True, text=True,
-        ).returncode
-        if rc == 0:
-            problems.append("doctor passed with empty Linear keys (should have failed)")
-
-        # fill keys, doctor again
+        # Re-init without --force should keep the user-edited config.toml.
         cfg_path = target / ".agent_team" / "config.toml"
-        cfg = cfg_path.read_text()
-        cfg = cfg.replace('team_id       = ""', 'team_id       = "smoke-team"')
-        cfg = cfg.replace('ticket_prefix = ""', 'ticket_prefix = "SMK"')
-        cfg_path.write_text(cfg)
-        rc = subprocess.run(
-            ["agent-team", "doctor", "--target", str(target)],
+        cfg_path.write_text("# user-edited\n")
+        run([
+            str(binary), "init", "--target", str(target),
+            "--set", "linear.team_id=should-not-overwrite",
+            "--set", "linear.ticket_prefix=NOP",
+        ])
+        if cfg_path.read_text() != "# user-edited\n":
+            problems.append("re-init overwrote a user-edited config.toml (must be untouched)")
+
+        # --- --no-input fails clearly when required params missing ---
+        with tempfile.TemporaryDirectory() as tmp2:
+            r = subprocess.run(
+                [str(binary), "init", "--target", tmp2, "--no-input"],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                problems.append("--no-input init succeeded but should have failed")
+            elif "missing" not in r.stderr.lower():
+                problems.append(f"--no-input error message missing 'missing': {r.stderr}")
+
+        # --- template show on the bundled template prints the manifest ---
+        r = subprocess.run(
+            [str(binary), "template", "show"],
             capture_output=True, text=True,
-        ).returncode
-        if rc != 0:
-            problems.append("doctor failed with valid Linear keys")
+        )
+        if r.returncode != 0:
+            problems.append(f"template show failed: {r.stderr}")
+        for needle in ("Template: default v", "linear.team_id", "linear.ticket_prefix"):
+            if needle not in r.stdout:
+                problems.append(f"template show missing {needle!r} in stdout: {r.stdout!r}")
+
+        # --- template ls includes bundled ---
+        r = subprocess.run(
+            [str(binary), "template", "ls"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            problems.append(f"template ls failed: {r.stderr}")
+        if "bundled" not in r.stdout:
+            problems.append(f"template ls missing 'bundled': {r.stdout!r}")
+
+        # --- doctor on the freshly-initialised tree should pass ---
+        # The user-edited config.toml from the earlier step won't have the
+        # required keys; rewrite a valid one for this check.
+        cfg_path.write_text(cfg_text)
+        r = subprocess.run(
+            [str(binary), "doctor", "--target", str(target)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            problems.append(f"doctor failed on a healthy tree: rc={r.returncode}\nstdout: {r.stdout}\nstderr: {r.stderr}")
 
     if problems:
-        print("smoke_init failed:", file=sys.stderr)
+        print("smoke_init_go failed:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
-    print("OK  agent-team init + agent/skill create + ls + doctor")
+    print("OK  agent-team init + template + doctor")
     return 0
 
 
@@ -116,15 +147,5 @@ def run(cmd: list[str]) -> None:
         sys.exit(1)
 
 
-def check_output(cmd: list[str]) -> str:
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        print(f"command failed: {' '.join(cmd)}", file=sys.stderr)
-        print(r.stdout, file=sys.stderr)
-        print(r.stderr, file=sys.stderr)
-        sys.exit(1)
-    return r.stdout
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

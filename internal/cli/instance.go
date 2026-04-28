@@ -190,8 +190,7 @@ func resolveTeamDir(cmd *cobra.Command, target string) (string, error) {
 }
 
 // confirm reads a yes/no answer from cmd.InOrStdin(). Returns true on y/yes
-// (case-insensitive), false on n/no/empty/EOF. Matches Typer's `confirm`
-// default-no behaviour.
+// (case-insensitive), false on n/no/empty/EOF. Default-no.
 func confirm(cmd *cobra.Command, prompt string) (bool, error) {
 	fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N]: ", prompt)
 	r := bufio.NewReader(cmd.InOrStdin())
