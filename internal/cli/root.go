@@ -19,15 +19,18 @@ func (e ExitCode) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 // NewRootCmd builds the root `agent-team` command with all subcommands attached.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "agent-team",
-		Short: "Declare and launch a custom set of Claude Code subagents and skills, vendored into any repo.",
-		Long: "agent-team — declare and launch Claude Code subagents and skills, vendored into any repo.\n\n" +
-			"This is the Go port; only `init` is implemented today. Use the Python `agent-team` CLI for `run`, `doctor`, etc.",
+		Use:           "agent-team",
+		Short:         "Declare and launch a custom set of Claude Code subagents and skills, vendored into any repo.",
+		Long:          "agent-team — declare and launch Claude Code subagents and skills, vendored into any repo.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,
 	}
 	root.SetVersionTemplate("agent-team " + Version + "\n")
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newRunCmd())
+	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newInstanceCmd())
+	root.AddCommand(newTemplateCmd())
 	return root
 }
