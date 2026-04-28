@@ -6,37 +6,6 @@ on:
   pull_request:
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dev deps (pyyaml for frontmatter validator)
-        run: pip install --no-cache-dir pyyaml==6.0.2
-
-      - name: Validate TOML files
-        run: python3 scripts/ci/validate_toml.py
-
-      - name: Validate agent & skill frontmatter
-        run: python3 scripts/ci/validate_frontmatter.py
-
-      - name: Install agent-team CLI
-        run: pip install --quiet ./cli
-
-      - name: CLI smoke test (init + add + doctor)
-        run: python3 scripts/ci/smoke_init.py
-
-      - name: Shellcheck template scripts
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          scandir: cli/src/agent_team/template/skills/linear/scripts
-          severity: warning
-
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -48,9 +17,22 @@ jobs:
           go-version: "1.22"
           cache: true
 
+      # Python 3.11 is preinstalled on ubuntu-latest. The validators and the
+      # smoke harness use stdlib only (`tomllib` from 3.11+, `pathlib`,
+      # `subprocess`) — pyyaml is the lone third-party dep, used only by the
+      # frontmatter validator.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install pyyaml (frontmatter validator)
+        run: pip install --no-cache-dir pyyaml==6.0.2
+
+      - name: Validate TOML files
+        run: python3 scripts/ci/validate_toml.py
+
+      - name: Validate agent & skill frontmatter
+        run: python3 scripts/ci/validate_frontmatter.py
 
       - name: go vet
         run: go vet ./...
@@ -59,7 +41,13 @@ jobs:
         run: go test ./...
 
       - name: go build
-        run: go build -o bin/agent-team-go ./cmd/agent-team
+        run: go build -o bin/agent-team ./cmd/agent-team
 
-      - name: CLI smoke test (Go init)
-        run: python3 scripts/ci/smoke_init_go.py bin/agent-team-go
+      - name: CLI smoke test (init + template + doctor)
+        run: python3 scripts/ci/smoke_init.py bin/agent-team
+
+      - name: Shellcheck template scripts
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: template/skills/linear/scripts
+          severity: warning
