@@ -1,40 +1,79 @@
 # agent-team
 
-A CLI for declaring and launching a custom set of Claude Code subagents and skills. Each **agent** is a directory under `.agent_team/agents/`. Run `agent-team run` and the CLI launches Claude Code with your team registered for that session.
+A CLI for declaring teams of Claude Code subagents and skills, then instantiating them into any repo from a parameterized template. Each **agent** is a directory under `.agent_team/agents/`; `agent-team run <agent>` launches Claude Code with the team registered for that session.
 
-A starter "software engineering team" template (a `ticket-manager`, a `manager`, ephemeral `worker`s, plus Linear / PR / assign-worker skills) is bundled as one example. Use it as-is, edit it, or throw it away and write your own.
+The model is templates-as-images: a template is a versioned, parameterized directory of agents + skills. You pull it (or use the one bundled in the binary), supply parameters once at `init`, and the resolved tree lands in `.agent_team/`. Multiple repos share the same template with different parameters; one repo can host multiple instances of the same agent.
+
+A starter "software engineering team" template (a `ticket-manager`, a `manager`, ephemeral `worker`s, plus Linear / PR / assign-worker skills) is bundled as the default. Use it as-is, parameterize it, or write your own template and point `init` at it.
 
 **Status**: pre-v1. Public API is unstable.
 
 ## Vocabulary
 
+- **template** — a versioned, parameterized directory of agents + skills with a `template.toml` manifest. Bundled in the binary, or fetched from a local path / git URL into a cache.
 - **agent** — a definition. A directory at `.agent_team/agents/<name>/` containing `agent.md` (frontmatter + prompt) and `config.toml` (skill assignment). Authored, static, reusable.
-- **instance** — a named runtime spawn of an agent. Identified by the `name=` parameter at spawn time. One agent can have many instances; each instance has its own state.
+- **instance** — a named runtime spawn of an agent. Identified by the `--name=` flag at spawn time. One agent can have many instances; each has its own state dir.
 - **workspace** — the working directory an instance operates in. For code-writing agents (the bundled `worker`): a fresh git worktree per spawn. For others: the repo root.
-- **state** — persistent per-instance files (journal, goals, progress) at `.agent_team/state/<instance-name>/`. Survives across sessions for long-lived instances; ephemeral instances (workers) keep their state inside their worktree.
+- **state** — persistent per-instance files (journal, goals, progress) at `.agent_team/state/<instance-name>/`.
 
 ## Install
 
+`agent-team` is a single Go binary. Install it with:
+
 ```sh
-uvx --from "git+https://github.com/jamesaud/agent-team#subdirectory=cli" agent-team init
+go install github.com/jamesaud/agent-team/cmd/agent-team@latest
 ```
+
+This drops `agent-team` into `$(go env GOPATH)/bin` (typically `~/go/bin`). Make sure that directory is on your `PATH`.
+
+Verify:
+
+```sh
+agent-team --version
+```
+
+> Prebuilt binaries via `goreleaser` / Homebrew are tracked as a follow-up; for now `go install` is the v1.0 path.
+
+## Lifecycle
+
+```
+template pull  →  init  →  run  →  upgrade
+```
+
+1. **(Optional) `template pull`** — fetch a template into the local cache. Skip this for the bundled default.
+2. **`init`** — instantiate a template into the current repo. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered.
+3. **`run`** — launch a Claude Code session as one of the agents.
+4. **`upgrade`** *(future)* — re-resolve the repo against a newer template version with three-way merge for user-edited files.
+
+The full design is in [`documentation/templates.md`](./documentation/templates.md).
+
+## Quickstart
+
+```sh
+mkdir my-app && cd my-app
+agent-team init \
+    --set linear.team_id=<your-team-uuid> \
+    --set linear.ticket_prefix=APP
+```
+
+(Required parameters are prompted for if you omit them; pass `--no-input` to fail-fast in CI.)
 
 `init` writes a starter `.agent_team/` into the current repo:
 
 ```
 .agent_team/
-├── config.toml                              # consumer-specific runtime values (team IDs, etc.)
+├── config.toml                # resolved parameter values, repo-wide
 ├── agents/
 │   ├── <name>/
-│   │   ├── agent.md                         # frontmatter + prompt body
-│   │   ├── config.toml                      # [skills].extra: which skills this agent uses
-│   │   └── skills/                          # optional agent-private skills
+│   │   ├── agent.md           # frontmatter + prompt body
+│   │   ├── config.toml        # [skills].extra: which skills this agent uses
+│   │   └── skills/            # optional agent-private skills
 │   └── ...
 ├── skills/
-│   ├── <name>/SKILL.md                      # shared skills (referenced by any agent)
+│   ├── <name>/SKILL.md        # shared skills (referenced by any agent)
 │   └── ...
-└── state/                                   # per-instance state, written at runtime
-    └── <instance-name>/                     # journal.md, goals.md, etc. (created on first spawn)
+└── state/                     # per-instance state, written at runtime
+    └── <instance-name>/       # journal.md, goals.md, etc.
 ```
 
 Edit anything you like, then:
@@ -47,28 +86,33 @@ agent-team run manager     # or any other agent name from .agent_team/agents/
 
 ## Commands
 
-The CLI groups commands by the resource they manage (Docker / kubectl style):
-
 ```sh
-agent-team init [--template default|empty]       # bootstrap .agent_team/
-agent-team doctor                                # validate layout + config
-agent-team run <agent> [--name <instance>] [-p "..."]   # launch Claude Code as <agent>
+agent-team init [<ref>] [--set k=v]... [--no-input] [--force]
+                                                # instantiate a template into the current repo
+agent-team run <agent> [-n <instance>] [--set k=v]... [-p "..."]
+                                                # launch Claude Code as <agent>
+agent-team doctor                               # validate layout + config
+agent-team --version                            # print version
 
-agent-team agent create <name>                   # scaffold a new agent
-agent-team agent ls                              # list agents
-agent-team agent show <name>                     # show one agent's metadata + resolved skills
-agent-team agent rm <name>                       # delete an agent definition
+agent-team template ls                          # list bundled + cached templates
+agent-team template show [<ref>]                # print manifest (default: bundled)
+agent-team template pull <path> [--name <n>]    # copy a local template into the cache
+agent-team template rm <ref>                    # remove a cached template
 
-agent-team skill create <name> [--agent <a>]     # scaffold a skill (shared, or agent-private)
-agent-team skill ls [--agent <a>]                # list skills
-agent-team skill rm <name> [--agent <a>]         # delete a skill
-
-agent-team instance ls                           # list instances (.agent_team/state/*)
-agent-team instance show <name>                  # show one instance's state files
-agent-team instance rm <name>                    # delete an instance's state
+agent-team instance ls                          # list instances (.agent_team/state/*)
+agent-team instance show <name>                 # show an instance's state files
+agent-team instance rm <name>                   # delete an instance's state
 ```
 
-## How it works
+`<ref>` for `init` and `template show` accepts:
+
+- **empty / `bundled`** — the default template embedded in the binary.
+- **a local path** (`./eng-team`, `/abs/path`) — useful when authoring a template.
+- **a cached name** — anything previously `template pull`'d.
+
+Git URL refs (`github.com/foo/bar@v0.1.0`) are tracked as a follow-up — see [`documentation/templates.md`](./documentation/templates.md) § Refs.
+
+## How `run` works
 
 `agent-team run <agent>` reads every `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/` plus `[skills].extra` in `agents/<name>/config.toml`, builds a tmpdir of symlinks satisfying Claude Code's `--add-dir` skill discovery, and exec's:
 
@@ -76,7 +120,7 @@ agent-team instance rm <name>                    # delete an instance's state
 claude --agents '<json>' --add-dir <tmpdir> --append-system-prompt-file <kickoff> <forwarded-args>
 ```
 
-The named agent's prompt becomes the session's system prompt (via `--append-system-prompt-file`); all other agents stay registered as subagents so the named agent can dispatch them via the Task tool. The launcher also creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports:
+The named agent's prompt becomes the session's system prompt; all other agents stay registered as subagents so the named agent can dispatch them via the Task tool. The launcher creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports:
 
 - `AGENT_TEAM_ROOT` — absolute path to `.agent_team/`
 - `AGENT_TEAM_INSTANCE` — the instance name
@@ -84,39 +128,24 @@ The named agent's prompt becomes the session's system prompt (via `--append-syst
 
 Subagents are session-scoped — they exist only for the duration of the spawned `claude` process. Nothing is written into `.claude/agents/`. No plugin install, no marketplace, no global state.
 
-## The bundled starter
+## The bundled default template
 
-`agent-team init` (default template) drops in a software-engineering team:
+`agent-team init` (no ref) uses the default template baked into the binary — a software-engineering team:
 
 - **`ticket-manager`** — searches, creates, routes, and transitions Linear tickets.
-- **`manager`** — persistent agent. Tracks goals and dispatches workers. State lives at `.agent_team/state/<instance-name>/`. Multiple instances of the manager agent can run side-by-side (e.g. `name=manager-billing`, `name=manager-release`), each with their own state directory.
+- **`manager`** — persistent agent. Tracks goals and dispatches workers. State lives at `.agent_team/state/<instance-name>/`. Multiple instances can run side-by-side (e.g. `--name=manager-billing`, `--name=manager-release`), each with their own state directory.
 - **`worker`** — ephemeral. One instance per ticket, each in a fresh git worktree, each delivers a PR. No persistent state — the worktree is the workspace.
 - **Skills**: `linear` (GraphQL wrapper), `pull-request` (gh CLI wrapper), `assign-worker` (worker-spawn mechanics, agent-private to the manager).
 
+Required parameters: `linear.team_id`, `linear.ticket_prefix`. Run `agent-team template show` for the full manifest.
+
 `agent-team init --template empty` skips the bundled content and gives you just the directory scaffold + a stub `config.toml`.
 
+## Forward-looking design
+
+- [`documentation/templates.md`](./documentation/templates.md) — full templates-as-images model: parameter declarations, layered config resolution, `upgrade` semantics, worked example.
+- [`documentation/orchestrator.md`](./documentation/orchestrator.md) — v1.1+ `agent-teamd` daemon: persistent instance lifecycle, runtime-agnostic execution, replacement of in-session dispatch primitives.
+
 ## Working on agent-team itself
-
-This repo dogfoods itself — its own `.agent_team/agents` and `.agent_team/skills` are symlinks into the bundled template at `cli/src/agent_team/template/`, so edits to template content are immediately live for the next `agent-team run`.
-
-CLI dev loop:
-
-```sh
-cd cli
-uv run --with-editable . agent-team --help
-```
-
-Or install editably:
-
-```sh
-cd cli && uv pip install -e .
-agent-team --help
-```
-
-Smoke-test against a tmp dir:
-
-```sh
-agent-team init --target /tmp/team-smoke
-```
 
 Contributor orientation: [`CLAUDE.md`](./CLAUDE.md).

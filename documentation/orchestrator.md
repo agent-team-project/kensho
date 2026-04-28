@@ -143,9 +143,7 @@ agent-team stop <instance>       # graceful stop, keep state
 
 ## Implementation language
 
-The whole CLI + daemon is Go. The current Python CLI (`agent-team init` / `run` / `doctor`, one Typer module per command) is a v1 stopgap and gets replaced — there's nothing in it that benefits from Python. It parses frontmatter, parses TOML, copies template files, assembles JSON, and exec's `claude`; all stdlib in Go (`gopkg.in/yaml.v3`, `BurntSushi/toml`, `os/exec`).
-
-End state: a single Go codebase shipping static binaries with no Python runtime dependency anywhere. Distribution is `brew install agent-team` / `go install` / release tarball.
+The whole CLI + daemon is Go. The CLI ports landed in SQU-21 / SQU-22 / SQU-23; what remains is the daemon itself. End state: a single Go codebase shipping static binaries with no other runtime dependency. Distribution is `go install` today, `brew install agent-team` / release tarballs as a follow-up.
 
 Two reasonable shapes for the binary split, both fine:
 
@@ -153,13 +151,6 @@ Two reasonable shapes for the binary split, both fine:
 - **Two binaries.** `agent-team` (user-facing CLI) + `agent-teamd` (daemon). Same pattern as `docker` vs `dockerd`. Cleaner separation, marginally more to ship.
 
 Decide at implementation time; either keeps the public surface identical.
-
-### Sequencing
-
-1. Build `agent-teamd` in Go alongside the existing Python CLI. The Python `agent-team run` learns to POST to the daemon socket if it's there, falls back to direct exec if not.
-2. Once the daemon API has settled, rewrite `init` / `run` / `doctor` / `agent` / `skill` / `instance` in Go and retire the Python.
-
-Daemon-first because the daemon API is the harder design problem; the CLI surface is small and well-shaped, so rewriting it last lets us shape it against a real interface instead of a guessed one. The Python CLI keeps working through the transition — no flag day.
 
 ## Persistence
 
