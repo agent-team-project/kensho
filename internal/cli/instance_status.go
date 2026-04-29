@@ -47,13 +47,15 @@ type blockingSection struct {
 // with a state dir produces one row, even those without a status.toml — the
 // design says we render a placeholder rather than hiding them.
 type instanceRow struct {
-	Instance string
-	Agent    string // best-effort guess; "—" if unknown
-	Phase    string
-	Age      string
-	Summary  string
-	Stale    bool
-	HasFile  bool // false → row was inferred from the empty state dir
+	Instance  string
+	Agent     string // best-effort guess; "—" if unknown
+	Phase     string
+	Age       string
+	Summary   string
+	Stale     bool
+	HasFile   bool   // false → row was inferred from the empty state dir
+	Lifecycle string // daemon-reported (running/stopped/exited/crashed); empty when no daemon
+	PID       int    // daemon-reported; 0 when no daemon
 }
 
 // staleAfter is the threshold past which a non-idle/non-done instance is

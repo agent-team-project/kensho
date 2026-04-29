@@ -153,7 +153,7 @@ agent-team start <instance>      # resume a stopped persistent instance
 agent-team stop <instance>       # graceful stop, keep state
 ```
 
-`agent-team run <agent>` becomes daemon-aware: if a daemon is running for this repo, it routes through the daemon. If not, it falls back to the today-style direct claude exec.
+`agent-team run <agent>` is daemon-aware (SQU-29): when `--prompt` is set (one-shot mode) AND the daemon is running, the CLI POSTs to `/v1/dispatch` with the full claude argv (so agent / skill resolution stays in the CLI). Without `--prompt` (interactive mode), or with `--no-daemon`, or when no daemon is running, the CLI exec's claude directly. Interactive sessions stay direct because the daemon spawns claude headless against a log file.
 
 ## Implementation language
 

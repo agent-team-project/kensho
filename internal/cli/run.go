@@ -22,6 +22,7 @@ type runConfig struct {
 	prompt         string
 	setStrings     []string
 	instanceConfig string
+	noDaemon       bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -48,6 +49,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.prompt, "prompt", "p", "", "Kickoff message. With this, claude runs in one-shot mode; without, interactive.")
 	cmd.Flags().StringArrayVar(&cfg.setStrings, "set", nil, "Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.")
 	cmd.Flags().StringVar(&cfg.instanceConfig, "instance-config", "", "Path to a per-instance TOML config that layers on top of repo config (below --set).")
+	cmd.Flags().BoolVar(&cfg.noDaemon, "no-daemon", false, "Bypass the daemon: exec claude directly even if the daemon is running. Useful for debugging.")
 	return cmd
 }
 
@@ -170,11 +172,43 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	}
 	claudeArgs = append(claudeArgs, forwarded...)
 
-	env := append(os.Environ(),
-		"AGENT_TEAM_ROOT="+teamDir,
-		"AGENT_TEAM_INSTANCE="+instance,
-		"AGENT_TEAM_STATE_DIR="+stateDir,
-	)
+	teamEnv := []string{
+		"AGENT_TEAM_ROOT=" + teamDir,
+		"AGENT_TEAM_INSTANCE=" + instance,
+		"AGENT_TEAM_STATE_DIR=" + stateDir,
+	}
+	env := append(os.Environ(), teamEnv...)
+
+	// Daemon-aware routing: for one-shot dispatches (--prompt given), route
+	// through the daemon when one is running. Interactive sessions stay
+	// direct — the daemon spawns claude headless against a log file, which
+	// is incompatible with an attached terminal.
+	if !cfg.noDaemon && cfg.prompt != "" {
+		if dc, err := newDaemonClient(teamDir); err == nil {
+			// claudeArgs already starts with --agents/--add-dir/.../-p; the
+			// daemon prepends `claude --session-id <uuid>` so we strip nothing
+			// — the daemon's spawn surface accepts arbitrary trailing argv
+			// via DispatchInput.Args.
+			disp, derr := dc.Dispatch(dispatchPayload{
+				Agent:     agentName,
+				Name:      instance,
+				Prompt:    cfg.prompt,
+				Workspace: target,
+				Args:      claudeArgs,
+				Env:       teamEnv,
+			})
+			if derr != nil {
+				return fmt.Errorf("daemon dispatch: %w", derr)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"agent-team: dispatched %s via daemon (pid=%d, session=%s)\n",
+				disp.InstanceID, disp.PID, disp.SessionID)
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"  follow: agent-team logs %s --follow\n", disp.InstanceID)
+			return nil
+		}
+		// Daemon not running → fall through to direct exec.
+	}
 
 	return execClaude(cmd, claudeArgs, env, target)
 }
