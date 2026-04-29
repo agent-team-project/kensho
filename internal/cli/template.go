@@ -44,6 +44,7 @@ func newTemplateCmd() *cobra.Command {
 	cmd.AddCommand(newTemplateShowCmd())
 	cmd.AddCommand(newTemplatePullCmd())
 	cmd.AddCommand(newTemplateRmCmd())
+	cmd.AddCommand(newTemplateRunCmd())
 	return cmd
 }
 
