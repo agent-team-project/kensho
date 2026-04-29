@@ -1,6 +1,6 @@
 # Custom Orchestrator (design sketch)
 
-**Status**: design sketch, not yet built. This document captures the direction for v1.1+ runtime architecture so the next implementer doesn't have to re-derive it. Open questions are flagged at the bottom.
+**Status**: scaffolding + lifecycle endpoints landed in SQU-28 (`cmd/agent-teamd/` + `internal/daemon/`). Message routing and log streaming come in SQU-29. Resolved Open Questions are noted inline; the rest of this document captures the design as written.
 
 ## What it is
 
@@ -60,11 +60,12 @@ ephemeral: true     # default: false
                      │  socket: .agent_team/daemon.sock    │
                      │                                     │
                      │  ┌─ HTTP-over-unix-socket API ───┐  │
-                     │  │ POST /dispatch                │  │
-                     │  │ POST /message                 │  │
-                     │  │ POST /stop                    │  │
-                     │  │ GET  /instances               │  │
-                     │  │ GET  /logs/{id} (stream)      │  │
+                     │  │ POST /v1/dispatch (SQU-28)    │  │
+                     │  │ POST /v1/stop     (SQU-28)    │  │
+                     │  │ POST /v1/start    (SQU-28)    │  │
+                     │  │ GET  /v1/instances (SQU-28)   │  │
+                     │  │ POST /v1/message  (SQU-29)    │  │
+                     │  │ GET  /v1/logs/{id} (SQU-29)   │  │
                      │  └───────────────────────────────┘  │
                      │                                     │
                      │  ┌─ instance manager ────────────┐  │
@@ -90,31 +91,38 @@ ephemeral: true     # default: false
 - **Agent processes** — each instance is a `claude` subprocess. Long-lived persistent instances use `--resume <session-id>` on restart; ephemeral instances run with `--print` and exit.
 - **Orchestrator skill** — a bundled skill (`dispatch`, replacing today's `assign-worker`) that wraps the daemon API. Any agent can invoke it; not tied to the manager+worker shape.
 
-## Daemon API (rough)
+## Daemon API
 
-All endpoints over Unix socket at `.agent_team/daemon.sock`. JSON request/response.
+All endpoints over Unix socket at `.agent_team/daemon.sock`. JSON request/response. Versioned `/v1/...` from day one.
+
+**Live in SQU-28:**
 
 ```
-POST /dispatch
-  { "agent": "worker", "name": "worker-squ-14", "prompt": "<task>", "context": {...} }
-  → { "instance_id": "...", "started_at": "..." }
+POST /v1/dispatch
+  { "agent": "worker", "name": "worker-squ-14", "prompt": "<task>", "workspace": "<abs-path>" }
+  → { "instance_id": "...", "started_at": "...", "pid": <int>, "session_id": "<uuid>" }
 
-POST /message
-  { "to": "worker-squ-14", "body": "<message>" }
-  → { "delivered": true }
-
-POST /stop
+POST /v1/stop
   { "instance": "worker-squ-14" }
   → { "stopped": true }
 
-POST /start
-  { "instance": "manager-billing" }     # resumes a stopped instance
-  → { "instance_id": "...", "session_resumed": true }
+POST /v1/start
+  { "instance": "manager-billing" }     # resumes a stopped instance via --resume
+  → { "instance_id": "...", "session_resumed": true, "pid": <int> }
 
-GET /instances
-  → [{ "name": "...", "agent": "...", "status": "running|stopped|exited|crashed", ... }]
+GET /v1/instances
+  → [{ "instance": "...", "agent": "...", "status": "running|stopped|exited|crashed",
+       "pid": <int>, "session_id": "...", "workspace": "...", "started_at": "...", ... }]
+```
 
-GET /logs/{instance}
+**Coming in SQU-29:**
+
+```
+POST /v1/message
+  { "to": "worker-squ-14", "body": "<message>" }
+  → { "delivered": true }
+
+GET /v1/logs/{instance}
   → stream of conversation log lines (server-sent events or chunked text)
 ```
 
@@ -157,6 +165,26 @@ Decide at implementation time; either keeps the public surface identical.
 - **Definitions** (committed): `.agent_team/agents/`, `.agent_team/skills/`.
 - **Per-instance state** (committed by default): `.agent_team/state/<instance>/` — journal, goals, progress, anything the agent writes.
 - **Daemon-owned runtime metadata** (gitignored): `.agent_team/daemon/<instance>/` — claude session ID, process ID, log files, message queue. Recreated/repaired on daemon restart.
+
+### SQU-28 layout (concrete paths)
+
+| Path | Owner | Purpose |
+|---|---|---|
+| `.agent_team/daemon.sock` | daemon (gitignored) | Unix socket. Removed on graceful shutdown; recreated on next start. |
+| `.agent_team/daemon.pid` | daemon (gitignored) | Pidfile. Read by `agent-team daemon status/stop`. |
+| `.agent_team/daemon/agent-teamd.log` | daemon (gitignored) | Stdout/stderr from a `--detach`'d daemon. Distinct from per-instance child logs. |
+| `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |
+| `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the claude subprocess for this instance. (`/v1/logs/{id}` in SQU-29 will stream this.) |
+
+### SQU-28 spawn surface (intentionally minimal)
+
+The daemon spawns claude with the bare-minimum args: `claude --session-id <uuid> [-p <prompt>]`. The session UUID is generated by the daemon on `/v1/dispatch`, persisted, and reused on `/v1/start` via `claude --resume <uuid>` — so resume is deterministic without parsing claude's own output.
+
+Agent resolution (loading `.agent_team/agents/<name>/agent.md`, building the `--agents` JSON, writing the kickoff prompt file, `--add-dir`'ing the skills tmpdir, exporting `AGENT_TEAM_*` env) stays in `agent-team run` for SQU-28. Wiring `agent-team run` into `/v1/dispatch` is SQU-29's job.
+
+### Daemonization mechanism
+
+`agent-team daemon start --detach` spawns `agent-teamd` via `os.StartProcess` with `&syscall.SysProcAttr{Setsid: true}`, redirecting stdin to `/dev/null` and stdout/stderr to `.agent_team/daemon/agent-teamd.log`. The launcher calls `proc.Release()` so it doesn't become the daemon's reaper. We chose `setsid` over a full POSIX double-fork because the parent CLI exits immediately; the daemon ends up reparented to PID 1 either way. Foreground mode (`agent-team daemon start` without `--detach`) just exec's `agent-teamd` directly for live debugging.
 
 ## Instance status / observability
 
@@ -238,6 +266,8 @@ Instances that have a state dir but no `status.toml` (declared but never spawned
    - The user kills the daemon while instances run — same as crash, ideally.
    Crash-only design (no graceful shutdown logic) is simplest if metadata is durable on disk.
 
+   **Resolved (SQU-28)**: crash-only design adopted. Per-instance metadata is fsync'd to `.agent_team/daemon/<instance>/meta.json` before /v1/dispatch returns. On daemon startup, `Reconcile()` walks the daemon root, probes each running-status PID with `kill(pid, 0)`, and marks dead processes as `exited`. Live processes are adopted (status preserved) — but the daemon cannot `Wait()` on a process it didn't fork, so the eventual exit of an adopted child is observed only by subsequent reconciliation passes. We do not auto-restart anything; surfacing accurate state via `/v1/instances` is the contract. Notification of dispatch parents is deferred to SQU-29 alongside `/v1/message`.
+
 4. **Backward compat with `assign-worker` skill**. Two paths:
    - Keep `assign-worker` working in no-daemon mode; ship a new `dispatch` skill for daemon mode; agents detect which mode they're in via env var (`AGENT_TEAM_DAEMON_SOCKET=...`).
    - Migrate everything to the orchestrator API; require the daemon for any multi-agent work.
@@ -248,6 +278,8 @@ Instances that have a state dir but no `status.toml` (declared but never spawned
 6. **Multi-runtime support**. The whole motivation of #1 above. Does the orchestrator have a clean abstraction for "spawn an agent" that could swap claude for `openai-cli` or a local model? Probably a runtime adapter interface that takes (system prompt, skills dir, kickoff) and returns a process handle. Defer the actual non-claude adapter to v1.2.
 
 7. **API surface stability**. Once agents are calling `curl --unix-socket .agent_team/daemon.sock /dispatch`, that's a contract. Versioning the API from day one (`/v1/dispatch`) is cheap insurance.
+
+   **Resolved (SQU-28)**: all routes versioned `/v1/...` from day one. `POST /v1/dispatch`, `POST /v1/stop`, `POST /v1/start`, `GET /v1/instances`. `POST /v1/message` and `GET /v1/logs/{id}` ship in SQU-29 under the same `/v1/` prefix.
 
 ## What this doesn't change
 
