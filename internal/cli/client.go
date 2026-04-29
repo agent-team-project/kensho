@@ -317,6 +317,105 @@ func (c *daemonClient) ChannelList() ([]*channelInfo, error) {
 	return out, nil
 }
 
+// --- topology / event client helpers ------------------------------------
+
+// eventOutcome mirrors the matched/dispatched/queued/messaged/rejected lists
+// returned by POST /v1/event.
+type eventResponse struct {
+	Matched    []string                 `json:"matched"`
+	Dispatched []map[string]interface{} `json:"dispatched"`
+	Queued     []string                 `json:"queued"`
+	Messaged   []string                 `json:"messaged"`
+	Rejected   []map[string]interface{} `json:"rejected"`
+}
+
+// PublishEvent posts an event to the daemon's resolver and returns the
+// per-instance outcomes. payload may be nil — the daemon treats absent
+// payload as an empty match scope (matches triggers with an empty `match`
+// table).
+func (c *daemonClient) PublishEvent(eventType string, payload map[string]any) (*eventResponse, error) {
+	body, err := json.Marshal(map[string]any{"type": eventType, "payload": payload})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Post(c.baseURL+"/v1/event", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: event: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: event: %s", readErrorBody(resp))
+	}
+	var out eventResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: event decode: %w", err)
+	}
+	return &out, nil
+}
+
+// topologyResponse mirrors the wire shape of /v1/topology.
+type topologyResponse struct {
+	Instances []topologyInstance `json:"instances"`
+}
+
+type topologyInstance struct {
+	Name        string                   `json:"name"`
+	Agent       string                   `json:"agent"`
+	Ephemeral   bool                     `json:"ephemeral"`
+	Description string                   `json:"description"`
+	Replicas    int                      `json:"replicas"`
+	Config      map[string]interface{}   `json:"config"`
+	Triggers    []map[string]interface{} `json:"triggers"`
+	Running     int                      `json:"running"`
+	Queued      int                      `json:"queued"`
+}
+
+func (c *daemonClient) Topology() (*topologyResponse, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/topology")
+	if err != nil {
+		return nil, fmt.Errorf("daemon: topology: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: topology: %s", readErrorBody(resp))
+	}
+	var out topologyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: topology decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) TopologyReload() (*topologyResponse, error) {
+	resp, err := c.hc.Post(c.baseURL+"/v1/topology/reload", "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: topology reload: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: topology reload: %s", readErrorBody(resp))
+	}
+	var out topologyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: topology reload decode: %w", err)
+	}
+	return &out, nil
+}
+
+// StopInstance hits POST /v1/stop. Used by `instance down`.
+func (c *daemonClient) StopInstance(instance string) error {
+	body, _ := json.Marshal(map[string]string{"instance": instance})
+	resp, err := c.hc.Post(c.baseURL+"/v1/stop", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("daemon: stop: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("daemon: stop: %s", readErrorBody(resp))
+	}
+	return nil
+}
+
 func (c *daemonClient) ChannelDelete(name string) error {
 	req, err := http.NewRequest(http.MethodDelete, c.channelURL(name, ""), nil)
 	if err != nil {
