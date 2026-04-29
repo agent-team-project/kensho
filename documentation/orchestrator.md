@@ -34,6 +34,7 @@ Think Docker containers:
 | **create + start** | `agent-team run <agent>` (exec claude directly) | `agent-team run <agent>` → POST /dispatch → daemon spawns claude as a child |
 | **stop** | Ctrl-C the claude session | `agent-team stop <instance>` → daemon SIGTERMs the child, persists session ID |
 | **start (resume)** | (not possible — session ends with claude) | `agent-team start <instance>` → daemon spawns claude with `--resume <session-id>`, conversation continues |
+| **attach (interactive resume)** | (not possible) | `agent-team attach <instance>` → daemon SIGTERMs the child, then the CLI exec's `claude --resume <session-id>` directly in the user's terminal. On exit, the daemon `start`s the instance back up unless `--no-resume` was passed. Brief downtime by design (Shape A); state files / channel cursors / mailbox cursor are untouched across the handoff. Ephemeral instances cannot be attached — use `agent-team logs --follow` to watch their output. |
 | **list running** | (none) | `agent-team ps` (or `instance ls --running`) |
 | **list all** | `agent-team instance ls` | `agent-team ps -a` (or current `instance ls`) |
 | **remove** | `agent-team instance rm` | `agent-team instance rm` (daemon ensures the process is stopped first) |
@@ -151,6 +152,7 @@ agent-team ps                    # list running instances (alias: instance ls --
 agent-team logs <instance>
 agent-team start <instance>      # resume a stopped persistent instance
 agent-team stop <instance>       # graceful stop, keep state
+agent-team attach <instance>     # stop + interactive `claude --resume` + restart on exit
 ```
 
 `agent-team run <agent>` is daemon-aware (SQU-29): when `--prompt` is set (one-shot mode) AND the daemon is running, the CLI POSTs to `/v1/dispatch` with the full claude argv (so agent / skill resolution stays in the CLI). Without `--prompt` (interactive mode), or with `--no-daemon`, or when no daemon is running, the CLI exec's claude directly. Interactive sessions stay direct because the daemon spawns claude headless against a log file.
