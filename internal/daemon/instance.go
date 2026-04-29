@@ -60,11 +60,24 @@ func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPa
 }
 
 // DispatchInput is the validated form of POST /v1/dispatch.
+//
+// Args, if set, is the additional argv passed to claude after `claude
+// --session-id <uuid>`. This lets the CLI hand off the full
+// `--agents/--add-dir/--append-system-prompt-file` machinery without the
+// daemon needing to re-derive agent / skill resolution. When Args is empty,
+// the daemon falls back to appending `[-p <Prompt>]` only — the SQU-28
+// minimal form, used by clients (CTRL hooks, tests) that just want to spawn
+// a one-shot claude.
+//
+// Env, if set, is appended to os.Environ() for the spawned process. The CLI
+// uses this to export AGENT_TEAM_ROOT / AGENT_TEAM_INSTANCE / AGENT_TEAM_STATE_DIR.
 type DispatchInput struct {
 	Agent     string
 	Name      string
 	Prompt    string
 	Workspace string
+	Args      []string
+	Env       []string
 }
 
 // InstanceManager owns spawn / track / stop for claude children. Concurrency:
@@ -133,11 +146,17 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
 
 	args := []string{"claude", "--session-id", sessionID}
-	if in.Prompt != "" {
+	if len(in.Args) > 0 {
+		args = append(args, in.Args...)
+	} else if in.Prompt != "" {
 		args = append(args, "-p", in.Prompt)
 	}
 
-	proc, err := m.spawner(args, os.Environ(), in.Workspace, logPath, logPath)
+	env := os.Environ()
+	if len(in.Env) > 0 {
+		env = append(env, in.Env...)
+	}
+	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: spawn: %w", err)
 	}

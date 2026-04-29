@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Handler builds the daemon's http.Handler. Routes are explicit (no library
@@ -19,10 +20,12 @@ func Handler(m *InstanceManager) http.Handler {
 			return
 		}
 		var body struct {
-			Agent     string `json:"agent"`
-			Name      string `json:"name"`
-			Prompt    string `json:"prompt"`
-			Workspace string `json:"workspace"`
+			Agent     string   `json:"agent"`
+			Name      string   `json:"name"`
+			Prompt    string   `json:"prompt"`
+			Workspace string   `json:"workspace"`
+			Args      []string `json:"args"`
+			Env       []string `json:"env"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -41,6 +44,8 @@ func Handler(m *InstanceManager) http.Handler {
 			Name:      body.Name,
 			Prompt:    body.Prompt,
 			Workspace: body.Workspace,
+			Args:      body.Args,
+			Env:       body.Env,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -117,6 +122,78 @@ func Handler(m *InstanceManager) http.Handler {
 			list = []*Metadata{}
 		}
 		writeJSON(w, http.StatusOK, list)
+	})
+
+	mux.HandleFunc("/v1/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			To   string `json:"to"`
+			From string `json:"from"`
+			Body string `json:"body"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.TrimSpace(body.To) == "" {
+			writeError(w, http.StatusBadRequest, "`to` is required")
+			return
+		}
+		if strings.TrimSpace(body.Body) == "" {
+			writeError(w, http.StatusBadRequest, "`body` is required")
+			return
+		}
+		msg := &Message{From: body.From, To: body.To, Body: body.Body, TS: time.Now().UTC()}
+		if err := AppendMessage(m.daemonRoot, body.To, msg); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"delivered": true,
+			"id":        msg.ID,
+			"ts":        msg.TS,
+		})
+	})
+
+	// `/v1/logs/{instance}` — chunked text stream of the instance's child.log.
+	// Pattern matched as a prefix; the suffix after `/v1/logs/` is the
+	// instance name.
+	mux.HandleFunc("/v1/logs/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		instance := strings.TrimPrefix(r.URL.Path, "/v1/logs/")
+		instance = strings.Trim(instance, "/")
+		if instance == "" {
+			writeError(w, http.StatusBadRequest, "instance name missing")
+			return
+		}
+		exists, err := logsExist(m.daemonRoot, instance)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !exists {
+			writeError(w, http.StatusNotFound, "no log for instance "+instance)
+			return
+		}
+		follow := r.URL.Query().Get("follow") == "true"
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		// `Transfer-Encoding: chunked` is set automatically by net/http when
+		// we don't set Content-Length and write incrementally — we still set
+		// the Cache-Control hint to make intermediaries unlikely to buffer.
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		if err := StreamLogs(r.Context(), w, m.daemonRoot, instance, follow); err != nil {
+			// Headers already flushed; we can't switch to a JSON error.
+			// The connection will end here — clients see truncated output,
+			// which is the best we can do post-headers.
+			return
+		}
 	})
 
 	return mux

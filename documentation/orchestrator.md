@@ -1,6 +1,6 @@
 # Custom Orchestrator (design sketch)
 
-**Status**: scaffolding + lifecycle endpoints landed in SQU-28 (`cmd/agent-teamd/` + `internal/daemon/`). Message routing and log streaming come in SQU-29. Resolved Open Questions are noted inline; the rest of this document captures the design as written.
+**Status**: scaffolding + lifecycle endpoints landed in SQU-28 (`cmd/agent-teamd/` + `internal/daemon/`). Message routing (`/v1/message`) and log streaming (`/v1/logs/{instance}`) plus daemon-aware CLI (`run` / `ps` / `logs`) and the `inbox` skill landed in SQU-29. Resolved Open Questions are noted inline; the rest of this document captures the design as written.
 
 ## What it is
 
@@ -115,16 +115,22 @@ GET /v1/instances
        "pid": <int>, "session_id": "...", "workspace": "...", "started_at": "...", ... }]
 ```
 
-**Coming in SQU-29:**
+**Landed in SQU-29:**
 
 ```
 POST /v1/message
-  { "to": "worker-squ-14", "body": "<message>" }
-  → { "delivered": true }
+  { "to": "worker-squ-14", "from": "manager", "body": "<message>" }
+  → { "delivered": true, "id": "<uuid>", "ts": "<rfc3339>" }
 
-GET /v1/logs/{instance}
-  → stream of conversation log lines (server-sent events or chunked text)
+GET /v1/logs/{instance}[?follow=true]
+  → chunked text stream of <daemon-root>/<instance>/child.log.
+    Without follow=true: dump current file and close.
+    With follow=true: dump, then tail until ctx cancels.
 ```
+
+Chunked text over SSE: the consumer is a CLI doing either a one-shot dump or a long-running tail piped to stdout — neither benefits from SSE's reconnect/event-typed semantics, and chunked text is what `curl --no-buffer` and Go's `http.Client` produce naturally.
+
+The `child.log` file is the canonical per-instance log (stdout+stderr from the claude subprocess, written by the spawner). `/v1/logs/{instance}` reads it; the inbox / ps / messaging code paths share no state with it.
 
 ## CLI surface additions
 
@@ -174,7 +180,9 @@ Decide at implementation time; either keeps the public surface identical.
 | `.agent_team/daemon.pid` | daemon (gitignored) | Pidfile. Read by `agent-team daemon status/stop`. |
 | `.agent_team/daemon/agent-teamd.log` | daemon (gitignored) | Stdout/stderr from a `--detach`'d daemon. Distinct from per-instance child logs. |
 | `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |
-| `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the claude subprocess for this instance. (`/v1/logs/{id}` in SQU-29 will stream this.) |
+| `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the claude subprocess for this instance. Streamed by `/v1/logs/{id}` (SQU-29). |
+| `.agent_team/daemon/<instance>/mailbox.jsonl` | daemon (gitignored) | Append-only JSONL message inbox. One `{id, from, to, body, ts}` per line. Written by `POST /v1/message` (SQU-29); read by the bundled `inbox` skill. |
+| `.agent_team/daemon/<instance>/mailbox-cursor.txt` | daemon (gitignored) | Highest-acked message ID. Updated by `inbox ack <id>`; consulted by `inbox check` to decide what is unread. |
 
 ### SQU-28 spawn surface (intentionally minimal)
 
@@ -279,7 +287,7 @@ Instances that have a state dir but no `status.toml` (declared but never spawned
 
 7. **API surface stability**. Once agents are calling `curl --unix-socket .agent_team/daemon.sock /dispatch`, that's a contract. Versioning the API from day one (`/v1/dispatch`) is cheap insurance.
 
-   **Resolved (SQU-28)**: all routes versioned `/v1/...` from day one. `POST /v1/dispatch`, `POST /v1/stop`, `POST /v1/start`, `GET /v1/instances`. `POST /v1/message` and `GET /v1/logs/{id}` ship in SQU-29 under the same `/v1/` prefix.
+   **Resolved (SQU-28, extended SQU-29)**: all routes versioned `/v1/...` from day one. SQU-28 shipped `POST /v1/dispatch`, `POST /v1/stop`, `POST /v1/start`, `GET /v1/instances`. SQU-29 added `POST /v1/message` and `GET /v1/logs/{id}` (with `?follow=true`) under the same prefix. `DispatchInput` was extended with `Args` and `Env` so the CLI can hand off the full `--agents/--add-dir/...` machinery without the daemon re-deriving agent resolution.
 
 ## What this doesn't change
 

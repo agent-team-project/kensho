@@ -157,6 +157,76 @@ func TestHTTP_InstancesEmptyArray(t *testing.T) {
 	}
 }
 
+func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	srv := httptest.NewServer(Handler(m))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/message", `{"to":"worker-1","from":"manager","body":"hello"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var rb struct {
+		Delivered bool   `json:"delivered"`
+		ID        string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rb); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !rb.Delivered {
+		t.Errorf("delivered=false")
+	}
+	if rb.ID == "" {
+		t.Errorf("missing id")
+	}
+
+	got, err := ReadMessages(root, "worker-1")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("messages: got %d want 1", len(got))
+	}
+	if got[0].Body != "hello" || got[0].From != "manager" || got[0].To != "worker-1" {
+		t.Errorf("message: %+v", got[0])
+	}
+}
+
+func TestHTTP_Message_Validation(t *testing.T) {
+	m := NewInstanceManager(t.TempDir(), nil)
+	srv := httptest.NewServer(Handler(m))
+	defer srv.Close()
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"missing to", `{"body":"hi"}`},
+		{"missing body", `{"to":"x"}`},
+		{"unknown field", `{"to":"x","body":"y","foo":1}`},
+		{"bad json", `{not-json}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := mustPost(t, srv.URL+"/v1/message", c.body)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status: %d want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestHTTP_Message_MethodGuard(t *testing.T) {
+	m := NewInstanceManager(t.TempDir(), nil)
+	srv := httptest.NewServer(Handler(m))
+	defer srv.Close()
+	resp := mustGet(t, srv.URL+"/v1/message")
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("status: %d want 405", resp.StatusCode)
+	}
+}
+
 func mustPost(t *testing.T, url, body string) *http.Response {
 	t.Helper()
 	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte(body)))
