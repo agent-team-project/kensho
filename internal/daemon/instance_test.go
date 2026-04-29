@@ -200,6 +200,53 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestInstance_DispatchPassesArgsAndEnv(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	_, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "w-args",
+		Workspace: t.TempDir(),
+		Args:      []string{"--agents", `{"a":{"description":"d","prompt":"p"}}`, "--add-dir", "/tmp/x"},
+		Env:       []string{"AGENT_TEAM_INSTANCE=w-args", "AGENT_TEAM_ROOT=/tmp/team"},
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	args := fake.lastCall()
+	// The first three are claude / --session-id / <uuid>; then our Args.
+	wantSubstring := []string{"--agents", "--add-dir", "/tmp/x"}
+	for _, want := range wantSubstring {
+		found := false
+		for _, a := range args {
+			if a == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("args: missing %q in %v", want, args)
+		}
+	}
+	envs := fake.envs[len(fake.envs)-1]
+	wantEnv := "AGENT_TEAM_INSTANCE=w-args"
+	found := false
+	for _, e := range envs {
+		if e == wantEnv {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("env: missing %q", wantEnv)
+	}
+
+	_, _ = m.Stop("w-args")
+	waitForStatusNot(t, m, "w-args", StatusRunning)
+}
+
 func TestInstance_DispatchRequiresFields(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), newFakeSpawner(time.Second).spawn)
 	cases := []DispatchInput{
