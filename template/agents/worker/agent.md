@@ -164,7 +164,9 @@ Do this after confirming the PR you opened has merged.
 
 ## State Management
 
-Persist your working state in `.worker_agent/` inside the worktree. These files serve two purposes: they keep your own thinking grounded within this spawn, and they land in git history via the PR so a reviewer can audit decisions.
+Persist your working state in `.worker_agent/` inside the worktree. These files keep your thinking grounded within this spawn — they're scratch state, not artifacts.
+
+**`.worker_agent/` is gitignored** (see repo `.gitignore`) and **must not ship in your PR**. If you accidentally `git add` something under it, `git rm --cached .worker_agent/...` and amend before pushing. Reviewers should see the code change, not the planning trail; PR-level audit lives in the PR body, commits, and review comments.
 
 The worktree itself is fresh per spawn (Claude Code's `isolation: "worktree"` creates a new one each time), so `.worker_agent/*.md` files **do not** persist across spawns. If you're coming back to handle review feedback on an existing PR, your continuity comes from the PR body, review comments, and the commits already on your branch — not from state files on disk from a prior run.
 
