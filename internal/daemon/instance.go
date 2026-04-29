@@ -80,6 +80,12 @@ type InstanceManager struct {
 type tracked struct {
 	meta    *Metadata
 	process *os.Process
+	// reaped is closed by the reaper goroutine after it has finalised the
+	// in-memory + on-disk metadata for this incarnation of the instance.
+	// Each Dispatch / Start replaces it so the channel always reflects the
+	// most recent reaper. Tests use waitReaped() for deterministic ordering;
+	// production code does not block on it.
+	reaped chan struct{}
 }
 
 // NewInstanceManager builds a manager rooted at daemonRoot
@@ -153,38 +159,51 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, fmt.Errorf("dispatch: persist metadata: %w", err)
 	}
 
+	reaped := make(chan struct{})
 	m.mu.Lock()
-	m.instances[in.Name] = &tracked{meta: meta, process: proc}
+	m.instances[in.Name] = &tracked{meta: meta, process: proc, reaped: reaped}
 	m.mu.Unlock()
-	go m.reap(in.Name, proc)
+	go m.reap(in.Name, proc, reaped)
 	return meta, nil
 }
 
 // Stop sends SIGTERM to the child and persists status=stopped. The reaper
 // goroutine will pick up the eventual exit and finalise.
+//
+// We mark the in-memory status as Stopped BEFORE signalling so the reaper —
+// which can wake up arbitrarily fast on a fast machine, especially under CI
+// load — sees Stopped instead of Running and preserves it. (See `reap`'s
+// switch: it only flips to Crashed/Exited when prior status was Running.)
 func (m *InstanceManager) Stop(instance string) (*Metadata, error) {
 	m.mu.Lock()
 	t, ok := m.instances[instance]
-	m.mu.Unlock()
 	if !ok {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("stop: unknown instance %q", instance)
 	}
 	if t.meta.Status != StatusRunning {
-		return t.meta, nil
-	}
-	if err := t.process.Signal(syscall.SIGTERM); err != nil {
-		// Already gone; let the reaper finalise.
-		if !errors.Is(err, os.ErrProcessDone) {
-			return nil, fmt.Errorf("stop: signal: %w", err)
-		}
+		out := *t.meta
+		m.mu.Unlock()
+		return &out, nil
 	}
 	now := time.Now().UTC()
 	t.meta.Status = StatusStopped
 	t.meta.StoppedAt = now
 	if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("stop: persist: %w", err)
 	}
-	return t.meta, nil
+	proc := t.process
+	out := *t.meta
+	m.mu.Unlock()
+
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Already gone; the reaper will pick up the wait and finalise.
+		if !errors.Is(err, os.ErrProcessDone) {
+			return nil, fmt.Errorf("stop: signal: %w", err)
+		}
+	}
+	return &out, nil
 }
 
 // Start resumes a previously-stopped persistent instance. It re-spawns claude
@@ -239,11 +258,13 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 		return nil, fmt.Errorf("start: persist: %w", err)
 	}
 	t.process = proc
+	reaped := make(chan struct{})
+	t.reaped = reaped
 
 	m.mu.Lock()
 	m.instances[instance] = t
 	m.mu.Unlock()
-	go m.reap(instance, proc)
+	go m.reap(instance, proc, reaped)
 	return t.meta, nil
 }
 
@@ -265,7 +286,12 @@ func (m *InstanceManager) List() []*Metadata {
 // status=exited UNLESS the prior status was StatusStopped (a stop we issued),
 // in which case we leave it as StatusStopped — the user-visible meaning is
 // "I stopped this", not "it crashed after my SIGTERM".
-func (m *InstanceManager) reap(instance string, proc *os.Process) {
+//
+// Closing `reaped` is the LAST thing reap does, after both the in-memory
+// metadata and on-disk metadata have been finalised. Tests block on this
+// channel for deterministic ordering.
+func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- struct{}) {
+	defer close(reaped)
 	state, err := proc.Wait()
 
 	m.mu.Lock()
@@ -304,6 +330,22 @@ func (m *InstanceManager) reap(instance string, proc *os.Process) {
 		// any drift. Don't block the goroutine.
 		_ = err
 	}
+}
+
+// reapedChan returns the per-instance reaper-completion channel snapshotted
+// under the lock, so the caller can select on it without racing the next
+// dispatch. Returns nil if the instance is unknown or has no in-flight
+// reaper (e.g. loaded from disk on startup, never spawned).
+//
+// Exposed for tests; production code does not need to wait on the reaper.
+func (m *InstanceManager) reapedChan(instance string) <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.instances[instance]
+	if !ok {
+		return nil
+	}
+	return t.reaped
 }
 
 // LoadFromDisk repopulates the manager's in-memory map from on-disk metadata,

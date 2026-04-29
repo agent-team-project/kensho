@@ -273,20 +273,34 @@ func TestInstance_LoadFromDiskRebuildsMap(t *testing.T) {
 	}
 }
 
-// waitForStatusNot polls the on-disk metadata until the instance's status is
-// no longer want AND the reaper has finalised (ExitedAt set). This avoids
-// racing the cleanup goroutine, which writes metadata after the process is
-// already in status=stopped.
+// waitForStatusNot blocks until the instance's reaper goroutine has
+// finalised its metadata (closes its `reaped` channel). After that, the
+// in-memory + on-disk meta is guaranteed consistent — no need to poll.
+//
+// We don't actually need `want` here any more (the reaper's exit is
+// deterministic), but we keep the signature so call sites read clearly.
+// A 45s ceiling guards against a stuck goroutine on extremely slow CI.
 func waitForStatusNot(t *testing.T, m *InstanceManager, instance string, want Status) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		disk, err := ReadMetadata(m.daemonRoot, instance)
-		if err == nil && disk.Status != want && !disk.ExitedAt.IsZero() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	ch := m.reapedChan(instance)
+	if ch == nil {
+		t.Fatalf("instance %s has no reaper channel", instance)
 	}
-	t.Fatalf("instance %s still status=%s or reaper not finalised", instance, want)
+	select {
+	case <-ch:
+	case <-time.After(45 * time.Second):
+		disk, _ := ReadMetadata(m.daemonRoot, instance)
+		t.Fatalf("reaper for %s did not finish in 45s; disk=%+v", instance, disk)
+	}
+	disk, err := ReadMetadata(m.daemonRoot, instance)
+	if err != nil {
+		t.Fatalf("read after reap: %v", err)
+	}
+	if disk.Status == want {
+		t.Fatalf("after reap, instance %s still has status=%s; disk=%+v", instance, want, disk)
+	}
+	if disk.ExitedAt.IsZero() {
+		t.Fatalf("after reap, instance %s ExitedAt is zero; disk=%+v", instance, disk)
+	}
 }
 
