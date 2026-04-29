@@ -59,10 +59,11 @@ func LogPath(teamDir string) string {
 
 // Daemon is one running daemon. Build with New, then call Run.
 type Daemon struct {
-	cfg     Config
-	manager *InstanceManager
-	server  *http.Server
-	listen  net.Listener
+	cfg      Config
+	manager  *InstanceManager
+	channels *ChannelStore
+	server   *http.Server
+	listen   net.Listener
 }
 
 // New constructs a Daemon. Defaults are filled in from cfg.TeamDir.
@@ -77,11 +78,15 @@ func New(cfg Config) (*Daemon, error) {
 		return nil, fmt.Errorf("daemon: mkdir runtime dir: %w", err)
 	}
 	mgr := NewInstanceManager(DaemonRoot(cfg.TeamDir), cfg.SpawnerOverride)
-	return &Daemon{cfg: cfg, manager: mgr}, nil
+	channels := NewChannelStore(DaemonRoot(cfg.TeamDir))
+	return &Daemon{cfg: cfg, manager: mgr, channels: channels}, nil
 }
 
 // Manager returns the underlying InstanceManager. Useful for tests.
 func (d *Daemon) Manager() *InstanceManager { return d.manager }
+
+// Channels returns the ChannelStore. Useful for tests.
+func (d *Daemon) Channels() *ChannelStore { return d.channels }
 
 // Run starts the listener and blocks until ctx is cancelled or Shutdown is
 // called. It performs orphan reconciliation before accepting connections.
@@ -100,7 +105,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.listen = l
 	d.server = &http.Server{
-		Handler:           Handler(d.manager),
+		Handler:           Handler(d.manager, d.channels),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -30,7 +30,7 @@ func newTestClient(t *testing.T, h http.Handler) (*daemonClient, func()) {
 func TestClient_Dispatch(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))
-	c, cleanup := newTestClient(t, daemon.Handler(m))
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil))
 	defer cleanup()
 
 	resp, err := c.Dispatch(dispatchPayload{
@@ -51,7 +51,7 @@ func TestClient_Dispatch(t *testing.T) {
 func TestClient_Instances(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))
-	c, cleanup := newTestClient(t, daemon.Handler(m))
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil))
 	defer cleanup()
 
 	_, err := c.Dispatch(dispatchPayload{Agent: "w", Name: "x", Workspace: t.TempDir()})
@@ -72,7 +72,7 @@ func TestClient_Instances(t *testing.T) {
 func TestClient_LogsStream_NotFound(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, nil)
-	c, cleanup := newTestClient(t, daemon.Handler(m))
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil))
 	defer cleanup()
 
 	var buf bytes.Buffer
@@ -85,7 +85,7 @@ func TestClient_LogsStream_NotFound(t *testing.T) {
 func TestClient_LogsStream_NonFollow(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, nil)
-	c, cleanup := newTestClient(t, daemon.Handler(m))
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil))
 	defer cleanup()
 
 	// Seed a child.log file.

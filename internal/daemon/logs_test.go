@@ -115,7 +115,7 @@ func TestLogs_MissingInstanceErrors(t *testing.T) {
 func TestHTTP_Logs_Endpoint(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	// 404 when no log file exists.
@@ -152,7 +152,7 @@ func TestHTTP_Logs_FollowReturnsOnContextEnd(t *testing.T) {
 	root := t.TempDir()
 	writeChildLog(t, root, "w", "seed\n")
 	m := NewInstanceManager(root, nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	// POST /v1/dispatch
@@ -64,7 +65,7 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 func TestHTTP_DispatchValidation(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	cases := []struct {
@@ -91,7 +92,7 @@ func TestHTTP_StartResumesSession(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	resp := mustPost(t, srv.URL+"/v1/dispatch",
@@ -131,7 +132,7 @@ func TestHTTP_StartResumesSession(t *testing.T) {
 
 func TestHTTP_MethodGuards(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), newFakeSpawner(time.Second).spawn)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	// GET on a POST endpoint
@@ -148,7 +149,7 @@ func TestHTTP_MethodGuards(t *testing.T) {
 
 func TestHTTP_InstancesEmptyArray(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 	resp := mustGet(t, srv.URL+"/v1/instances")
 	body := readBody(t, resp)
@@ -160,7 +161,7 @@ func TestHTTP_InstancesEmptyArray(t *testing.T) {
 func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	resp := mustPost(t, srv.URL+"/v1/message", `{"to":"worker-1","from":"manager","body":"hello"}`)
@@ -195,7 +196,7 @@ func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 
 func TestHTTP_Message_Validation(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 
 	cases := []struct {
@@ -219,13 +220,252 @@ func TestHTTP_Message_Validation(t *testing.T) {
 
 func TestHTTP_Message_MethodGuard(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), nil)
-	srv := httptest.NewServer(Handler(m))
+	srv := httptest.NewServer(Handler(m, nil))
 	defer srv.Close()
 	resp := mustGet(t, srv.URL+"/v1/message")
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("status: %d want 405", resp.StatusCode)
 	}
 }
+
+func TestHTTP_Channel_PublishSubscribeDrainAck(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	// Publish before any subscriber → message is on disk; subscriber comes
+	// in after, gets cursor=1 (head), shouldn't see "first".
+	resp := mustPost(t, srv.URL+"/v1/channel/%23room/publish",
+		`{"sender":"manager","body":"first"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var pubResp struct {
+		Seq int64 `json:"seq"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pubResp); err != nil {
+		t.Fatalf("publish decode: %v", err)
+	}
+	if pubResp.Seq != 1 {
+		t.Errorf("first seq: got %d", pubResp.Seq)
+	}
+
+	// Subscribe alice.
+	resp = mustPost(t, srv.URL+"/v1/channel/%23room/subscribe", `{"instance":"alice"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("subscribe: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var subResp struct {
+		Cursor     int64 `json:"cursor"`
+		Subscribed bool  `json:"subscribed"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&subResp); err != nil {
+		t.Fatal(err)
+	}
+	if !subResp.Subscribed {
+		t.Errorf("subscribed=false on first subscribe")
+	}
+	if subResp.Cursor != 1 {
+		t.Errorf("cursor: got %d want 1", subResp.Cursor)
+	}
+
+	// Re-subscribe is idempotent.
+	resp = mustPost(t, srv.URL+"/v1/channel/%23room/subscribe", `{"instance":"alice"}`)
+	json.NewDecoder(resp.Body).Decode(&subResp)
+	if subResp.Subscribed {
+		t.Errorf("subscribed=true on re-subscribe")
+	}
+
+	// Drain immediately → empty (cursor at head).
+	resp = mustGet(t, srv.URL+"/v1/channel/%23room/messages?instance=alice")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("drain: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var drainResp struct {
+		Messages []ChannelMessage `json:"messages"`
+		Cursor   int64            `json:"cursor"`
+	}
+	json.NewDecoder(resp.Body).Decode(&drainResp)
+	if len(drainResp.Messages) != 0 {
+		t.Errorf("immediate drain: got %d want 0", len(drainResp.Messages))
+	}
+
+	// Publish two more.
+	mustPost(t, srv.URL+"/v1/channel/%23room/publish", `{"sender":"manager","body":"two"}`)
+	mustPost(t, srv.URL+"/v1/channel/%23room/publish", `{"sender":"manager","body":"three"}`)
+
+	resp = mustGet(t, srv.URL+"/v1/channel/%23room/messages?instance=alice")
+	json.NewDecoder(resp.Body).Decode(&drainResp)
+	if len(drainResp.Messages) != 2 {
+		t.Errorf("post-publish drain: got %d want 2", len(drainResp.Messages))
+	}
+	if drainResp.Cursor != 3 {
+		t.Errorf("cursor: got %d want 3", drainResp.Cursor)
+	}
+
+	// Ack and re-drain → empty.
+	ackBody := `{"instance":"alice","cursor":` + jsonNumber(drainResp.Cursor) + `}`
+	resp = mustPost(t, srv.URL+"/v1/channel/%23room/ack", ackBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ack: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	resp = mustGet(t, srv.URL+"/v1/channel/%23room/messages?instance=alice")
+	json.NewDecoder(resp.Body).Decode(&drainResp)
+	if len(drainResp.Messages) != 0 {
+		t.Errorf("post-ack drain: got %d want 0", len(drainResp.Messages))
+	}
+}
+
+func TestHTTP_Channel_DrainSinceParam(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	mustPost(t, srv.URL+"/v1/channel/%23x/publish", `{"sender":"s","body":"a"}`)
+	mustPost(t, srv.URL+"/v1/channel/%23x/publish", `{"sender":"s","body":"b"}`)
+	mustPost(t, srv.URL+"/v1/channel/%23x/publish", `{"sender":"s","body":"c"}`)
+	mustPost(t, srv.URL+"/v1/channel/%23x/subscribe", `{"instance":"bob"}`)
+
+	// since=0 → all three.
+	resp := mustGet(t, srv.URL+"/v1/channel/%23x/messages?instance=bob&since=0")
+	var dr struct {
+		Messages []ChannelMessage `json:"messages"`
+	}
+	json.NewDecoder(resp.Body).Decode(&dr)
+	if len(dr.Messages) != 3 {
+		t.Errorf("since=0: got %d want 3", len(dr.Messages))
+	}
+
+	// since=2 → only seq 3.
+	resp = mustGet(t, srv.URL+"/v1/channel/%23x/messages?instance=bob&since=2")
+	json.NewDecoder(resp.Body).Decode(&dr)
+	if len(dr.Messages) != 1 || dr.Messages[0].Seq != 3 {
+		t.Errorf("since=2: got %+v", dr.Messages)
+	}
+}
+
+func TestHTTP_Channel_LongPollWait(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	mustPost(t, srv.URL+"/v1/channel/%23live/subscribe", `{"instance":"alice"}`)
+
+	// Issue a wait drain in a goroutine; publish from the main thread; expect
+	// the goroutine to wake up before the deadline.
+	type result struct {
+		body string
+		dur  time.Duration
+	}
+	done := make(chan result, 1)
+	start := time.Now()
+	go func() {
+		resp, _ := http.Get(srv.URL + "/v1/channel/%23live/messages?instance=alice&wait=3s")
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(resp.Body)
+		resp.Body.Close()
+		done <- result{body: buf.String(), dur: time.Since(start)}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	mustPost(t, srv.URL+"/v1/channel/%23live/publish", `{"sender":"x","body":"woke!"}`)
+
+	select {
+	case r := <-done:
+		if r.dur > 2*time.Second {
+			t.Errorf("waited too long: %s — should have woken on publish", r.dur)
+		}
+		if !strings.Contains(r.body, "woke!") {
+			t.Errorf("body=%q", r.body)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("long-poll never returned")
+	}
+}
+
+func TestHTTP_Channel_List(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	mustPost(t, srv.URL+"/v1/channel/%23a/publish", `{"sender":"s","body":"x"}`)
+	mustPost(t, srv.URL+"/v1/channel/%23b/subscribe", `{"instance":"alice"}`)
+
+	resp := mustGet(t, srv.URL+"/v1/channels")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list: %d", resp.StatusCode)
+	}
+	var infos []ChannelInfo
+	json.NewDecoder(resp.Body).Decode(&infos)
+	if len(infos) != 2 {
+		t.Fatalf("infos: got %d want 2 (%+v)", len(infos), infos)
+	}
+}
+
+func TestHTTP_Channel_Delete(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	mustPost(t, srv.URL+"/v1/channel/%23gone/publish", `{"sender":"s","body":"x"}`)
+
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/v1/channel/%23gone", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("delete: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Deleting again → 404.
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/v1/channel/%23gone", nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("delete-again: got %d want 404", resp.StatusCode)
+	}
+}
+
+func TestHTTP_Channel_Validation(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	srv := httptest.NewServer(Handler(m, cs))
+	defer srv.Close()
+
+	// Bad name (uppercase).
+	resp := mustPost(t, srv.URL+"/v1/channel/%23BadName/publish", `{"sender":"s","body":"x"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad name: got %d want 400", resp.StatusCode)
+	}
+	// Missing body.
+	resp = mustPost(t, srv.URL+"/v1/channel/%23ok/publish", `{"sender":"s"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing body: got %d want 400", resp.StatusCode)
+	}
+	// Drain with missing instance.
+	resp = mustGet(t, srv.URL+"/v1/channel/%23ok/messages")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing instance: got %d want 400", resp.StatusCode)
+	}
+	// Unknown verb.
+	resp = mustPost(t, srv.URL+"/v1/channel/%23ok/strange-verb", `{}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown verb: got %d want 404", resp.StatusCode)
+	}
+}
+
+func jsonNumber(n int64) string { return strconv.FormatInt(n, 10) }
 
 func mustPost(t *testing.T, url, body string) *http.Response {
 	t.Helper()
