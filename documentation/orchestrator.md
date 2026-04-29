@@ -158,6 +158,74 @@ Decide at implementation time; either keeps the public surface identical.
 - **Per-instance state** (committed by default): `.agent_team/state/<instance>/` — journal, goals, progress, anything the agent writes.
 - **Daemon-owned runtime metadata** (gitignored): `.agent_team/daemon/<instance>/` — claude session ID, process ID, log files, message queue. Recreated/repaired on daemon restart.
 
+## Instance status / observability
+
+Each running instance writes a small `status.toml` to its state dir at phase transitions, so an outside observer (a human running `agent-team instance ps`, or eventually the daemon) can see what every instance is doing without scraping logs or attaching to a session.
+
+The bundled `status` skill is the writer. `agent-team instance ps` is the reader. Both land in v1.0 alongside the CLI; the daemon (when it lands) will cache these files in memory and add long-poll for `ps -w`, but the file format is stable from day one.
+
+### Schema
+
+`<state-dir>/status.toml`:
+
+```toml
+[status]
+phase       = "implementing"   # one of: planning, implementing, awaiting_review, blocked, idle, done
+description = "Porting parameter substitution to Go"
+since       = "2026-04-28T13:42:00Z"   # ISO-8601 UTC, when this phase started
+last_action = "Edited internal/template/render.go"
+
+[work]                          # optional — the unit of work this instance is on
+ticket = "SQU-25"
+pr     = "https://github.com/jamesaud/agent-team/pull/26"
+branch = "squ-25-status-emission"
+
+[blocking]                      # optional — present only when phase = "blocked"
+reason = "Need clarification on the rendered/ subdir contract"
+ask_to = "manager"              # instance name or role this instance is asking
+```
+
+**Phases.** A small fixed vocabulary so `instance ps` columns align across instances:
+
+| Phase | Meaning |
+|---|---|
+| `planning` | Reading docs, exploring code, writing a plan. No external artifacts yet. |
+| `implementing` | Actively editing code or running commands. |
+| `awaiting_review` | PR opened or work handed off; waiting for human / reviewer. |
+| `blocked` | Cannot proceed without input from the field in `[blocking]`. |
+| `idle` | Persistent instance with no active task — waiting for the next request. |
+| `done` | Terminal for ephemeral instances; their state dir will be cleaned up. |
+
+**Atomicity.** The skill writes to `status.toml.tmp` and `rename`s over `status.toml`. The reader never sees a partial write.
+
+**Staleness.** `last_action` is a human string, not a timestamp. The reader uses the file's mtime to judge freshness: if mtime is older than 10 minutes for a non-`idle`/non-`done` instance, the row is annotated `(stale)` to flag a likely-hung agent.
+
+### Writer surface
+
+```sh
+status set <phase> [--desc "..."] [--ticket <id>] [--pr <url>] [--branch <name>] [--last-action "..."]
+status block --reason "..." --ask <instance-name|role>
+status clear-block                     # transitions back to the prior phase
+status show                             # debug: print the current file
+```
+
+Anything not passed is preserved from the prior write. `since` is auto-managed by the skill: it's reset whenever `phase` changes, untouched when only `description` / `last_action` / `[work]` fields are updated.
+
+### Reader
+
+`agent-team instance ps` walks `.agent_team/state/*/status.toml` and renders a Docker-style table:
+
+```
+INSTANCE          AGENT           PHASE             AGE   SUMMARY
+manager           manager         idle              2h    waiting on user
+worker-squ-25     worker          implementing      8m    Porting parameter substitution
+ticket-manager    ticket-manager  blocked           4m    asks manager: clarify rendered/ contract
+```
+
+Instances that have a state dir but no `status.toml` (declared but never spawned, or pre-status-emission) show `—` placeholders for PHASE/AGE so the operator still knows they exist.
+
+`agent-team instance show <name>` prints the parsed status with all fields, plus the existing state-dir file listing.
+
 ## Open design questions
 
 1. **Per-repo daemon or system daemon?** Per-repo is simpler — one socket per repo, no auth required, isolated lifecycles. System daemon is one process for all your projects but raises multi-tenancy concerns. Recommendation: start per-repo; revisit if pain emerges.

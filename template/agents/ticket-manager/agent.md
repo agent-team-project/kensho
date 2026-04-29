@@ -117,6 +117,18 @@ Match the relation to the level where the dependency is actually binding. Don't 
 - **Specific sub-issue → specific sub-issue:** direct `blocks` between the two sub-issues. Use when a particular task in feature B genuinely cannot start until a particular task in feature A lands. Add this *instead of* a parent-level block when the dependency is narrow.
 - **Project → project** (phase-level, e.g. one project blocking another): use Linear's built-in project-dependency feature at the project level. Drop to ticket-level blocks only when a specific deliverable of the upstream project gates a specific ticket in the downstream project.
 
+## Status emission
+
+Emit your phase to `status.toml` so the parent agent or a human running `agent-team instance ps` can see what you're doing. Use the bundled `status` skill — see `${AGENT_TEAM_ROOT}/skills/status/SKILL.md` for the surface.
+
+You're a short-lived subagent, so two transitions cover it:
+
+1. **At the start of work**: `status set implementing --desc "<one-line of the request>"`. (Skip a separate `planning` phase — your work is short enough to not need it.)
+
+2. **Before terminating**: `status set done --desc "<one-line outcome — which ticket was created / updated / commented on>"`.
+
+Use `status block --reason "..." --ask <name>` if you genuinely can't proceed (e.g. the configured Linear team has no projects and you can't pick one). Most ticket-manager work doesn't block.
+
 ## Guidelines
 
 - Keep ticket updates concise and factual.

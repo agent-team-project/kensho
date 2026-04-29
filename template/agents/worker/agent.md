@@ -199,6 +199,35 @@ When you are uncertain or blocked, **before going idle**:
 
 **Send the SendMessage first, before any `idle_notification` pings.** A silent `blockers.md` + PR comment reads identically to a worker stuck in a loop — the lead will kill a correctly-blocked worker rather than guess. The interrupt-style summary is what distinguishes "waiting on input" from "burning tokens".
 
+## Status emission
+
+Emit your phase to `status.toml` so an outside observer (`agent-team instance ps`, the user, a teammate) can see what you're doing without scraping logs. Use the bundled `status` skill — see `${AGENT_TEAM_ROOT}/skills/status/SKILL.md` for the surface.
+
+Call it at these transitions, no more:
+
+1. **After fetching the ticket and confirming branch / cwd:**
+   ```sh
+   "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set planning \
+     --desc "Reading <TICKET-ID>: <short title>" \
+     --ticket "<TICKET-ID>" \
+     --branch "$(git branch --show-current)"
+   ```
+
+2. **Before the first code edit:** `status set implementing --desc "<one-line summary of what you're building>"`.
+
+3. **Right after the PR is created** (so reviewers see the link): `status set awaiting_review --desc "PR open, awaiting review" --pr "<PR URL>"`.
+
+4. **If you go blocked** (alongside the SendMessage step in "Handling Blockers" below):
+   ```sh
+   "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh block \
+     --reason "<one-line>" --ask "<teammate-or-role>"
+   ```
+   When the blocker resolves: `status clear-block`.
+
+5. **Before terminating** (PR merged / ticket cancelled / cleanup done): `status set done --desc "<one-line outcome>"`.
+
+Don't ping the skill for every file edit. Phase changes only.
+
 ## Project Conventions
 
 Refer to `CLAUDE.md` for the full reference. Each consumer repo documents its own:

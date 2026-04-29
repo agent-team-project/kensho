@@ -63,6 +63,29 @@ When a request maps to one ticket → one PR:
 
 For multi-ticket work, decompose into ticket-sized chunks first. Each chunk gets its own ticket, its own worker, its own PR. Don't dispatch a worker on a vague request — that's how scope creeps.
 
+## Status emission
+
+Emit your phase to `status.toml` so the user, teammates, and `agent-team instance ps` can see what you're doing without scraping logs. Use the bundled `status` skill — see `${AGENT_TEAM_ROOT}/skills/status/SKILL.md` for the surface.
+
+You're a persistent instance, so most of the time you sit in `idle` between requests. Phase transitions to emit:
+
+1. **First wakeup of a session** (before doing real work): `status set idle --desc "<scope summary from goals.md>"` — gives observers a one-liner about what you own.
+
+2. **When you start a substantive piece of work yourself** (drafting a plan, deciding routing): `status set planning --desc "<what you're working on>"`.
+
+3. **When you've dispatched a worker and are now tracking it**: `status set awaiting_review --desc "tracking worker-<ticket>" --ticket <TICKET-ID>` — you're not implementing, you're waiting on the worker's PR.
+
+4. **When you go blocked on scope or human input** (alongside escalating to the human):
+   ```sh
+   "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh block \
+     --reason "<one-line>" --ask user
+   ```
+   On unblock: `status clear-block`.
+
+5. **When you settle back into waiting for the next request**: `status set idle --desc "<one-line summary of the most recent thing>"`.
+
+Don't emit on every internal step. Phase changes only.
+
 ## Working Memory
 
 Persist what you'd want a future you or a teammate to know. The files in your state dir are your durable state:

@@ -29,6 +29,9 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/skills/linear/SKILL.md",
     ".agent_team/skills/linear/scripts/linear-graphql.sh",
     ".agent_team/skills/pull-request/SKILL.md",
+    ".agent_team/skills/status/SKILL.md",
+    ".agent_team/skills/status/scripts/status.sh",
+    ".agent_team/skills/status/scripts/_status_write.py",
 ]
 
 
@@ -70,10 +73,15 @@ def main(argv: list[str]) -> int:
         except Exception as e:  # noqa: BLE001
             problems.append(f"config.toml not valid TOML: {e}")
 
-        # The bundled linear-graphql.sh must remain executable after init.
-        sh = target / ".agent_team/skills/linear/scripts/linear-graphql.sh"
-        if sh.exists() and not (sh.stat().st_mode & 0o111):
-            problems.append(f"{sh} is not executable after init")
+        # Bundled .sh scripts must remain executable after init — render.go's
+        # `isExecutableTemplate` restores +x because embed.FS drops mode bits.
+        for rel in (
+            ".agent_team/skills/linear/scripts/linear-graphql.sh",
+            ".agent_team/skills/status/scripts/status.sh",
+        ):
+            sh = target / rel
+            if sh.exists() and not (sh.stat().st_mode & 0o111):
+                problems.append(f"{sh} is not executable after init")
 
         # Re-init without --force should keep the user-edited config.toml.
         cfg_path = target / ".agent_team" / "config.toml"

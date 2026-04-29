@@ -3,5 +3,5 @@
 # Local skills under ./skills/ are auto-included.
 # Pull in shared skills (under ../../skills/) by name, or anywhere by path:
 [skills]
-extra = ["linear", "pull-request"]
+extra = ["linear", "pull-request", "status"]
 # disable = []   # opt-out from local defaults if needed
