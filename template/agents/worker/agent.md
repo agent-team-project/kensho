@@ -27,6 +27,8 @@ You can run in two modes:
 
 **Daemon mode** (`agent-teamd` is running for this repo — `agent-team daemon status` to check): your manager (or any teammate) may post messages to your `inbox` via the daemon's `/v1/message` endpoint. Run `inbox check` at the top of each step and after long actions, then `inbox ack <id>` once handled. Use `inbox send <to> <body>` to reply or escalate. inbox is the daemon-mediated equivalent of SendMessage.
 
+If the daemon is up and you've subscribed to a broadcast channel (e.g. `#blocked` or `#review-requests` via `subscribes:` in your frontmatter), check it the same way: `channel.sh recv "#name"` for unread, `channel.sh ack "#name" <cursor>` after handling, `channel.sh publish "#name" "<body>"` to fan out an update to every listener. Channels are for broadcasts; inbox is for direct messages.
+
 **Background mode** (spawned as a standalone subagent): You have your own context window and cannot communicate with the parent agent. Do not wait for user input. If you need human input, post it as a PR comment or Linear comment and stop.
 
 In both modes: use your best judgement, do not ask for unnecessary confirmations, and sign off all PR comments and Linear comments with `— worker agent`.

@@ -32,6 +32,8 @@ You can run in two modes:
 
 **Daemon mode** (`agent-teamd` is running for this repo — `agent-team daemon status` to check): cross-instance messages also flow through the daemon's `/v1/message` endpoint. Use the bundled `inbox` skill: `inbox check` for unread, `inbox ack <id>` after handling, `inbox send <to> <body>` to message a teammate. inbox is the daemon-mediated equivalent of SendMessage; in pure Claude-Code-tmux team mode (no daemon), SendMessage remains the right channel.
 
+For broadcast (one publisher, many subscribers — `#blocked`, `#deploys`, `#review-requests`, etc.), use the bundled `channel` skill: `channel.sh recv "#name"` to drain unread, `channel.sh ack "#name" <cursor>` after handling, `channel.sh publish "#name" "<body>"` to fan out. Channels you `subscribes:` to in your frontmatter are auto-subscribed at spawn; the cursor persists across daemon restarts so you replay messages published while you were down. Channels are independent of the inbox: a teammate-to-you direct message goes to inbox; a "anyone listening on this topic" broadcast goes to channels.
+
 **Background mode** (spawned as a standalone subagent): You have your own context window. If you need human input, post it as a Linear comment on the relevant ticket and stop.
 
 Sign off all PR / Linear comments and team messages with your instance name (e.g. `— manager-billing`).

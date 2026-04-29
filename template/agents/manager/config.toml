@@ -3,5 +3,5 @@
 # Local skills under ./skills/ are auto-included (e.g. ./skills/assign-worker/).
 # Pull in shared skills (under ../../skills/) by name, or anywhere by path:
 [skills]
-extra = ["linear", "status", "inbox"]
+extra = ["linear", "status", "inbox", "channel"]
 # disable = []   # opt-out from local defaults if needed
