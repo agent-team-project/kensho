@@ -154,3 +154,184 @@ func readErrorBody(resp *http.Response) string {
 	b, _ := io.ReadAll(resp.Body)
 	return string(bytes.TrimSpace(b))
 }
+
+// --- channel client helpers ----------------------------------------------
+
+// channelInfo mirrors daemon.ChannelInfo on the wire.
+type channelInfo struct {
+	Name          string    `json:"name"`
+	Subscribers   int       `json:"subscribers"`
+	MessageCount  int64     `json:"message_count"`
+	LastMessageTS time.Time `json:"last_message_ts"`
+}
+
+// channelMessage mirrors daemon.ChannelMessage on the wire.
+type channelMessage struct {
+	Seq    int64     `json:"seq"`
+	Sender string    `json:"sender"`
+	Body   string    `json:"body"`
+	TS     time.Time `json:"ts"`
+}
+
+// publishResp / subscribeResp / drainResp mirror the JSON the daemon returns.
+type publishResp struct {
+	Seq int64     `json:"seq"`
+	TS  time.Time `json:"ts"`
+}
+
+type subscribeResp struct {
+	OK         bool  `json:"ok"`
+	Cursor     int64 `json:"cursor"`
+	Subscribed bool  `json:"subscribed"`
+}
+
+type unsubscribeResp struct {
+	OK           bool `json:"ok"`
+	Unsubscribed bool `json:"unsubscribed"`
+}
+
+type drainResp struct {
+	Messages []*channelMessage `json:"messages"`
+	Cursor   int64             `json:"cursor"`
+}
+
+// channelURL builds the path for a channel-scoped endpoint, URL-encoding the
+// `#` so the daemon's path parser receives `%23name`.
+func (c *daemonClient) channelURL(name, verb string) string {
+	enc := url.PathEscape(name)
+	if verb == "" {
+		return c.baseURL + "/v1/channel/" + enc
+	}
+	return c.baseURL + "/v1/channel/" + enc + "/" + verb
+}
+
+func (c *daemonClient) ChannelPublish(name, sender, body string) (*publishResp, error) {
+	payload, _ := json.Marshal(map[string]string{"sender": sender, "body": body})
+	resp, err := c.hc.Post(c.channelURL(name, "publish"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: channel publish: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: channel publish: %s", readErrorBody(resp))
+	}
+	var out publishResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: channel publish decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) ChannelSubscribe(name, instance string) (*subscribeResp, error) {
+	payload, _ := json.Marshal(map[string]string{"instance": instance})
+	resp, err := c.hc.Post(c.channelURL(name, "subscribe"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: channel subscribe: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: channel subscribe: %s", readErrorBody(resp))
+	}
+	var out subscribeResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: channel subscribe decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) ChannelUnsubscribe(name, instance string) (*unsubscribeResp, error) {
+	payload, _ := json.Marshal(map[string]string{"instance": instance})
+	resp, err := c.hc.Post(c.channelURL(name, "unsubscribe"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: channel unsubscribe: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: channel unsubscribe: %s", readErrorBody(resp))
+	}
+	var out unsubscribeResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: channel unsubscribe decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) ChannelAck(name, instance string, cursor int64) error {
+	payload, _ := json.Marshal(map[string]any{"instance": instance, "cursor": cursor})
+	resp, err := c.hc.Post(c.channelURL(name, "ack"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("daemon: channel ack: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("daemon: channel ack: %s", readErrorBody(resp))
+	}
+	return nil
+}
+
+// ChannelDrain calls GET /v1/channel/{name}/messages. Pass since=nil to use
+// the subscriber's stored cursor; pass wait=0 for non-blocking. Cancel via
+// ctx for early termination of long-polls.
+func (c *daemonClient) ChannelDrain(ctx context.Context, name, instance string, since *int64, wait time.Duration) (*drainResp, error) {
+	q := url.Values{}
+	q.Set("instance", instance)
+	if since != nil {
+		q.Set("since", fmt.Sprintf("%d", *since))
+	}
+	if wait > 0 {
+		q.Set("wait", wait.String())
+	}
+	u := c.channelURL(name, "messages") + "?" + q.Encode()
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: channel drain: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: channel drain: %s", readErrorBody(resp))
+	}
+	var out drainResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: channel drain decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) ChannelList() ([]*channelInfo, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/channels")
+	if err != nil {
+		return nil, fmt.Errorf("daemon: channels: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: channels: %s", readErrorBody(resp))
+	}
+	var out []*channelInfo
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: channels decode: %w", err)
+	}
+	return out, nil
+}
+
+func (c *daemonClient) ChannelDelete(name string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.channelURL(name, ""), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon: channel delete: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("no such channel %q", name)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("daemon: channel delete: %s", readErrorBody(resp))
+	}
+	return nil
+}
