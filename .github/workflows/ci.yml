@@ -41,7 +41,9 @@ jobs:
         run: go test ./...
 
       - name: go build
-        run: go build -o bin/agent-team ./cmd/agent-team
+        run: |
+          go build -o bin/agent-team ./cmd/agent-team
+          go build -o bin/agent-teamd ./cmd/agent-teamd
 
       - name: CLI smoke test (init + template + doctor)
         run: python3 scripts/ci/smoke_init.py bin/agent-team

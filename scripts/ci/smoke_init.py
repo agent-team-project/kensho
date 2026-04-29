@@ -137,13 +137,93 @@ def main(argv: list[str]) -> int:
         if r.returncode != 0:
             problems.append(f"doctor failed on a healthy tree: rc={r.returncode}\nstdout: {r.stdout}\nstderr: {r.stderr}")
 
+        # --- daemon start / status / stop, when agent-teamd is sibling-binary ---
+        # The daemon binary is built alongside agent-team in CI. If a sibling
+        # agent-teamd exists, exercise the lifecycle. Otherwise skip silently.
+        teamd_path = binary.parent / "agent-teamd"
+        if teamd_path.is_file():
+            problems.extend(check_daemon_lifecycle(binary, target))
+
     if problems:
         print("smoke_init_go failed:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
-    print("OK  agent-team init + template + doctor")
+    print("OK  agent-team init + template + doctor + daemon")
     return 0
+
+
+def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
+    """Smoke the agent-team daemon start/status/stop flow.
+
+    Spawns agent-teamd via `agent-team daemon start --detach`, hits
+    /v1/instances over the unix socket, then stops the daemon. Verifies the
+    pidfile / socket are cleaned up after stop.
+    """
+    problems: list[str] = []
+    socket_dir = Path(tempfile.mkdtemp(prefix="agt-smoke-d-", dir="/tmp"))
+    try:
+        # init the smoke target under /tmp so the unix-socket path is short.
+        run([
+            str(binary), "init", "--target", str(socket_dir),
+            "--set", "linear.team_id=smoke-team-uuid",
+            "--set", "linear.ticket_prefix=SMK",
+        ])
+        team_dir = socket_dir / ".agent_team"
+        sock = team_dir / "daemon.sock"
+        pid = team_dir / "daemon.pid"
+
+        r = subprocess.run(
+            [str(binary), "daemon", "status", "--target", str(socket_dir)],
+            capture_output=True, text=True,
+        )
+        if "not running" not in r.stdout:
+            problems.append(f"daemon status before start: {r.stdout!r}")
+
+        r = subprocess.run(
+            [str(binary), "daemon", "start", "--detach", "--target", str(socket_dir)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            problems.append(f"daemon start --detach failed: {r.stderr}")
+            return problems
+
+        if not sock.exists():
+            problems.append(f"daemon socket missing after start: {sock}")
+        if not pid.exists():
+            problems.append(f"daemon pidfile missing after start: {pid}")
+
+        # /v1/instances over the unix socket should return [].
+        r = subprocess.run(
+            ["curl", "-s", "--unix-socket", str(sock), "http://./v1/instances"],
+            capture_output=True, text=True,
+        )
+        if r.stdout.strip() != "[]":
+            problems.append(f"/v1/instances: got {r.stdout!r}, want '[]'")
+
+        r = subprocess.run(
+            [str(binary), "daemon", "stop", "--target", str(socket_dir)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            problems.append(f"daemon stop failed: {r.stderr}")
+        # After stop, pidfile and socket should be gone.
+        if pid.exists():
+            problems.append(f"daemon pidfile lingered after stop: {pid}")
+        if sock.exists():
+            problems.append(f"daemon socket lingered after stop: {sock}")
+    finally:
+        # Best-effort: kill any lingering agent-teamd we left running.
+        if pid.exists():
+            try:
+                p = int(pid.read_text().strip())
+                subprocess.run(["kill", "-9", str(p)], capture_output=True)
+            except (OSError, ValueError):
+                pass
+        # Clean up the smoke dir.
+        import shutil
+        shutil.rmtree(socket_dir, ignore_errors=True)
+    return problems
 
 
 def run(cmd: list[str]) -> None:
