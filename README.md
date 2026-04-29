@@ -18,21 +18,39 @@ A starter "software engineering team" template (a `ticket-manager`, a `manager`,
 
 ## Install
 
-`agent-team` is a single Go binary. Install it with:
+`agent-team` ships as two single-file Go binaries: the user-facing `agent-team` CLI and the per-repo `agent-teamd` daemon. Pick whichever install path fits your setup.
+
+**1. `go install`** (works today; needs Go 1.22+):
 
 ```sh
 go install github.com/jamesaud/agent-team/cmd/agent-team@latest
+go install github.com/jamesaud/agent-team/cmd/agent-teamd@latest
 ```
 
-This drops `agent-team` into `$(go env GOPATH)/bin` (typically `~/go/bin`). Make sure that directory is on your `PATH`.
+This drops both binaries into `$(go env GOPATH)/bin` (typically `~/go/bin`). Make sure that directory is on your `PATH`.
 
-Verify:
+**2. Prebuilt release tarball** (works after the first tagged release):
+
+Grab the archive for your OS/arch from [GitHub Releases](https://github.com/jamesaud/agent-team/releases), unpack, and put both binaries on your `PATH`:
+
+```sh
+# example for macOS arm64 — adjust the URL for your platform
+curl -fsSL https://github.com/jamesaud/agent-team/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
+  | tar -xz -C /usr/local/bin agent-team agent-teamd
+```
+
+**3. Homebrew** *(coming soon — tap not yet published)*:
+
+```sh
+# not yet available — pending tap repo creation; see SQU-31
+# brew install jamesaud/agent-team/agent-team
+```
+
+Verify any install with:
 
 ```sh
 agent-team --version
 ```
-
-> Prebuilt binaries via `goreleaser` / Homebrew are tracked as a follow-up; for now `go install` is the v1.0 path.
 
 ## Lifecycle
 

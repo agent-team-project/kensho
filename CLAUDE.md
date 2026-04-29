@@ -95,6 +95,12 @@ Skills are picked up by Claude Code's `--add-dir` discovery — see [Skills docs
 
 This repo's `.agent_team/agents` and `.agent_team/skills` are symlinks into `template/`, so edits to template content are immediately live for the next `agent-team run`. If you've broken the wiring, recreate the symlinks by hand or wipe `.agent_team/{agents,skills}` and re-link.
 
+## Releasing
+
+`.goreleaser.yaml` builds both binaries for `darwin/{arm64,amd64}` + `linux/{amd64,arm64}`; `.github/workflows/release.yml` runs goreleaser on `v*` tag push. Dry-run before tagging (produces `dist/`, uploads nothing): `goreleaser release --snapshot --clean --skip=publish`. Cut a real release: `git tag v0.x.0 && git push --tags`. `--version` output is wired to `internal/cli.Version`, which goreleaser overrides via `-ldflags`.
+
+Homebrew publishing is deferred — the tap repo doesn't exist yet. To enable: create `jamesaud/homebrew-agent-team`, mint a PAT with `repo` scope on it, save it as the `HOMEBREW_TAP_GITHUB_TOKEN` secret on this repo, then uncomment the `brews:` block in `.goreleaser.yaml`.
+
 ## Contribution rules
 
 ### Branches
