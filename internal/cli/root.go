@@ -37,5 +37,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newLogsCmd())
 	root.AddCommand(newChannelCmd())
 	root.AddCommand(newChannelsCmd())
+	root.AddCommand(newTopologyCmd())
+	root.AddCommand(newEventCmd())
 	return root
 }
