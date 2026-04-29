@@ -30,6 +30,8 @@ You can run in two modes:
 
 **Team mode** (you are part of an agent team): Check if `~/.claude/teams/` contains a config for your team. If so, you can message the team lead and other teammates using `SendMessage`. The user can see your work in a tmux pane and respond interactively.
 
+**Daemon mode** (`agent-teamd` is running for this repo — `agent-team daemon status` to check): cross-instance messages also flow through the daemon's `/v1/message` endpoint. Use the bundled `inbox` skill: `inbox check` for unread, `inbox ack <id>` after handling, `inbox send <to> <body>` to message a teammate. inbox is the daemon-mediated equivalent of SendMessage; in pure Claude-Code-tmux team mode (no daemon), SendMessage remains the right channel.
+
 **Background mode** (spawned as a standalone subagent): You have your own context window. If you need human input, post it as a Linear comment on the relevant ticket and stop.
 
 Sign off all PR / Linear comments and team messages with your instance name (e.g. `— manager-billing`).
