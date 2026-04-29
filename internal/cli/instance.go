@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ func newInstanceCmd() *cobra.Command {
 		Short: "Manage agent instance state (.agent_team/state/<instance>/).",
 	}
 	cmd.AddCommand(newInstanceLsCmd())
+	cmd.AddCommand(newInstancePsCmd())
 	cmd.AddCommand(newInstanceShowCmd())
 	cmd.AddCommand(newInstanceRmCmd())
 	return cmd
@@ -90,6 +92,8 @@ func newInstanceShowCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "instance: %s\n", name)
 			fmt.Fprintf(cmd.OutOrStdout(), "path:     %s/\n\n", filepath.ToSlash(rel))
+
+			printInstanceStatus(cmd.OutOrStdout(), stateDir, time.Now())
 
 			entries, err := os.ReadDir(stateDir)
 			if err != nil {
