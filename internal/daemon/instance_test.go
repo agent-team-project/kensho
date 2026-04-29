@@ -131,6 +131,7 @@ func TestInstance_DispatchRefusesDuplicateName(t *testing.T) {
 		t.Errorf("want already-running error, got %v", err)
 	}
 	_, _ = m.Stop("n")
+	waitForStatusNot(t, m, "n", StatusRunning)
 }
 
 func TestInstance_StopMarksStopped(t *testing.T) {

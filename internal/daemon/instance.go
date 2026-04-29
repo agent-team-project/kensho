@@ -367,6 +367,27 @@ func (m *InstanceManager) reapedChan(instance string) <-chan struct{} {
 	return t.reaped
 }
 
+// WaitForReaper blocks until the per-instance reaper goroutine has finalised
+// its metadata (in-memory + on-disk meta.json + the spawner's stdout/stderr
+// fd close). Returns nil after a successful wait, or an error if the timeout
+// elapses or the instance has no in-flight reaper.
+//
+// Exported for cli-package tests that drive an in-process InstanceManager
+// against a t.TempDir(); without it, t.TempDir's cleanup races the reaper's
+// WriteMetadata rename. Production code paths don't need to call this.
+func (m *InstanceManager) WaitForReaper(instance string, timeout time.Duration) error {
+	ch := m.reapedChan(instance)
+	if ch == nil {
+		return fmt.Errorf("daemon: no reaper for instance %q", instance)
+	}
+	select {
+	case <-ch:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("daemon: reaper for %q did not finish in %s", instance, timeout)
+	}
+}
+
 // LoadFromDisk repopulates the manager's in-memory map from on-disk metadata,
 // without spawning anything. Used at daemon startup before reconciliation
 // runs.
