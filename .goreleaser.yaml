@@ -1,0 +1,120 @@
+# goreleaser config — see https://goreleaser.com/customization/
+#
+# Local dry-run (no upload):
+#   goreleaser release --snapshot --clean --skip=publish
+#
+# Real release: push a `v*` tag; .github/workflows/release.yml runs
+# `goreleaser release --clean` against this config.
+version: 2
+
+project_name: agent-team
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agent-team
+    main: ./cmd/agent-team
+    binary: agent-team
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/jamesaud/agent-team/internal/cli.Version={{.Version}}
+
+  - id: agent-teamd
+    main: ./cmd/agent-teamd
+    binary: agent-teamd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/jamesaud/agent-team/internal/cli.Version={{.Version}}
+
+archives:
+  - id: agent-team
+    ids:
+      - agent-team
+      - agent-teamd
+    name_template: "agent-team_{{.Version}}_{{.Os}}_{{.Arch}}"
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      - LICENSE*
+      - CLAUDE.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: git
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?!?:.+$'
+      order: 0
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\(.+\))?!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))?!?:.+$'
+      order: 2
+    - title: Chores
+      regexp: '^.*?chore(\(.+\))?!?:.+$'
+      order: 3
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^Merge "
+      - "^test:"
+
+release:
+  github:
+    owner: jamesaud
+    name: agent-team
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+# TODO(SQU-31): enable Homebrew tap publishing once the user has:
+#   1. Created the tap repo `jamesaud/homebrew-agent-team` on GitHub.
+#   2. Generated a PAT with `repo` scope on that tap repo.
+#   3. Saved it as the `HOMEBREW_TAP_GITHUB_TOKEN` repository secret on this repo.
+#   4. Uncommented the block below.
+# Without those steps, goreleaser would fail trying to push to a non-existent
+# tap on the first release.
+#
+# brews:
+#   - name: agent-team
+#     repository:
+#       owner: jamesaud
+#       name: homebrew-agent-team
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     directory: Formula
+#     homepage: "https://github.com/jamesaud/agent-team"
+#     description: "Declare and launch Claude Code subagents and skills, vendored into any repo."
+#     license: "MIT"
+#     install: |
+#       bin.install "agent-team"
+#       bin.install "agent-teamd"
+#     test: |
+#       system "#{bin}/agent-team", "--version"
