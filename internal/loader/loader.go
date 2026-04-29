@@ -42,6 +42,11 @@ type Agent struct {
 	Prompt      string
 	// Skills maps skill-name → resolved absolute path (symlinks evaluated).
 	Skills map[string]string
+	// Subscribes is the agent's frontmatter `subscribes:` list — channel
+	// names this agent should be auto-subscribed to at spawn time. Empty if
+	// not declared. Validation of the channel-name shape happens at
+	// subscribe time (the daemon enforces it).
+	Subscribes []string
 }
 
 // LoadAgent reads `<agentDir>/agent.md` (frontmatter + body) and resolves the
@@ -56,8 +61,8 @@ func LoadAgent(agentDir, teamDir string) (*Agent, error) {
 	if err != nil {
 		return nil, newLoadErr("%s: %v", mdPath, err)
 	}
-	fm, body := ParseFrontmatter(string(raw))
-	desc := strings.TrimSpace(fm["description"])
+	fm, body := ParseFrontmatterRich(string(raw))
+	desc := strings.TrimSpace(fm.Scalars["description"])
 	if desc == "" {
 		return nil, newLoadErr("%s has no `description` in frontmatter", mdPath)
 	}
@@ -70,6 +75,7 @@ func LoadAgent(agentDir, teamDir string) (*Agent, error) {
 		Description: desc,
 		Prompt:      body,
 		Skills:      skills,
+		Subscribes:  fm.Lists["subscribes"],
 	}, nil
 }
 

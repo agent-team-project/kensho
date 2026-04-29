@@ -357,6 +357,48 @@ func TestRun_NoTmplFilesProducesNoRenderDir(t *testing.T) {
 	}
 }
 
+func TestSubscribeAgentChannels_PostsToDaemon(t *testing.T) {
+	env := newChannelTestEnv(t)
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+
+	subscribeAgentChannels(cmd, env.client, "manager-billing", []string{"#blocked", "#review-requests", "  ", ""})
+
+	infos, err := env.client.ChannelList()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("channels: got %d want 2 (%+v)", len(infos), infos)
+	}
+	got := []string{infos[0].Name, infos[1].Name}
+	want := []string{"#blocked", "#review-requests"}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("at %d: got %q want %q", i, got[i], w)
+		}
+	}
+	for _, info := range infos {
+		if info.Subscribers != 1 {
+			t.Errorf("%s subscribers: got %d want 1", info.Name, info.Subscribers)
+		}
+	}
+}
+
+func TestSubscribeAgentChannels_ErrorIsLoggedNotFatal(t *testing.T) {
+	env := newChannelTestEnv(t)
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	stderr := &bytes.Buffer{}
+	cmd.SetErr(stderr)
+	// Invalid name (uppercase) → daemon rejects with 400.
+	subscribeAgentChannels(cmd, env.client, "x", []string{"#BAD"})
+	if !strings.Contains(stderr.String(), "failed to pre-subscribe") {
+		t.Errorf("stderr should warn about failed subscribe: %q", stderr.String())
+	}
+}
+
 func TestRun_ForwardedArgsAfterDoubleDash(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

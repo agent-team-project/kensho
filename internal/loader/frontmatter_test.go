@@ -105,3 +105,73 @@ func TestParseFrontmatter_NoClosingDelimiter(t *testing.T) {
 		t.Errorf("body=%q want full input", body)
 	}
 }
+
+func TestParseFrontmatterRich_ListValues(t *testing.T) {
+	in := "---\nname: manager\nsubscribes:\n  - \"#blocked\"\n  - \"#review-requests\"\ndescription: a desc\n---\nbody"
+	rich, body := ParseFrontmatterRich(in)
+	if rich.Scalars["name"] != "manager" {
+		t.Errorf("name=%q", rich.Scalars["name"])
+	}
+	if rich.Scalars["description"] != "a desc" {
+		t.Errorf("desc=%q", rich.Scalars["description"])
+	}
+	got := rich.Lists["subscribes"]
+	want := []string{"#blocked", "#review-requests"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("subscribes=%v want %v", got, want)
+	}
+	if body != "body" {
+		t.Errorf("body=%q", body)
+	}
+}
+
+func TestParseFrontmatterRich_UnquotedListItems(t *testing.T) {
+	in := "---\nsubscribes:\n  - alpha\n  - beta\n---\n"
+	rich, _ := ParseFrontmatterRich(in)
+	got := rich.Lists["subscribes"]
+	want := []string{"alpha", "beta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v want %v", got, want)
+	}
+}
+
+func TestParseFrontmatterRich_EmptyKeyDropsIfNoList(t *testing.T) {
+	// `key:` with neither a value nor a `- ...` follow-up should drop
+	// (matches the previous parser's behaviour for nested-mapping shapes).
+	in := "---\nname: foo\nempty:\n  nested: thing\ndescription: d\n---\n"
+	rich, _ := ParseFrontmatterRich(in)
+	if _, ok := rich.Scalars["empty"]; ok {
+		t.Errorf("empty: should not be in scalars")
+	}
+	if _, ok := rich.Lists["empty"]; ok {
+		t.Errorf("empty: should not be in lists")
+	}
+	if rich.Scalars["description"] != "d" {
+		t.Errorf("description=%q", rich.Scalars["description"])
+	}
+}
+
+func TestParseFrontmatterRich_ListThenScalar(t *testing.T) {
+	in := "---\nsubscribes:\n  - \"#one\"\n  - \"#two\"\nname: after\n---\n"
+	rich, _ := ParseFrontmatterRich(in)
+	if rich.Scalars["name"] != "after" {
+		t.Errorf("scalar after list lost: %q", rich.Scalars["name"])
+	}
+	if !reflect.DeepEqual(rich.Lists["subscribes"], []string{"#one", "#two"}) {
+		t.Errorf("subs=%v", rich.Lists["subscribes"])
+	}
+}
+
+func TestParseFrontmatter_BackcompatScalarsOnly(t *testing.T) {
+	// Old API still returns just the scalar map and ignores list-typed keys
+	// — frontmatters with `subscribes: [...]` shouldn't break callers that
+	// don't yet care.
+	in := "---\nname: foo\nsubscribes:\n  - \"#x\"\ndescription: d\n---\n"
+	fm, _ := ParseFrontmatter(in)
+	if fm["name"] != "foo" || fm["description"] != "d" {
+		t.Errorf("scalars: %v", fm)
+	}
+	if _, ok := fm["subscribes"]; ok {
+		t.Errorf("subscribes leaked into scalar map")
+	}
+}

@@ -183,6 +183,17 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	// through the daemon when one is running. Interactive sessions stay
 	// direct — the daemon spawns claude headless against a log file, which
 	// is incompatible with an attached terminal.
+	//
+	// Channel subscriptions declared in agent frontmatter (`subscribes: ...`)
+	// are POSTed to the daemon before the spawn so an agent has its mailbox
+	// ready when its claude process boots. This applies to both daemon and
+	// no-daemon paths — but no-daemon mode silently skips since channels
+	// only exist with a running daemon.
+	if !cfg.noDaemon {
+		if dc, err := newDaemonClient(teamDir); err == nil {
+			subscribeAgentChannels(cmd, dc, instance, chosen.Subscribes)
+		}
+	}
 	if !cfg.noDaemon && cfg.prompt != "" {
 		if dc, err := newDaemonClient(teamDir); err == nil {
 			// claudeArgs already starts with --agents/--add-dir/.../-p; the
@@ -317,6 +328,23 @@ func writeStateConfig(stateDir string, resolved template.Tree) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(stateDir, "config.toml"), body, 0o644)
+}
+
+// subscribeAgentChannels POSTs /v1/channel/<name>/subscribe for each declared
+// channel before the agent's claude process is spawned. Errors are logged to
+// stderr and ignored (the agent can re-subscribe at runtime via the channel
+// skill if needed) — a flaky `subscribe` shouldn't gate the dispatch.
+func subscribeAgentChannels(cmd *cobra.Command, dc *daemonClient, instance string, channels []string) {
+	for _, ch := range channels {
+		ch = strings.TrimSpace(ch)
+		if ch == "" {
+			continue
+		}
+		if _, err := dc.ChannelSubscribe(ch, instance); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"agent-team: failed to pre-subscribe %s to %s: %v\n", instance, ch, err)
+		}
+	}
 }
 
 // rerenderTmplFiles walks teamDir for any `.tmpl` files and renders each one

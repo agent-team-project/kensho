@@ -208,6 +208,41 @@ func TestUnionSkills_Collision(t *testing.T) {
 	}
 }
 
+func TestLoadAgent_SubscribesFromFrontmatter(t *testing.T) {
+	teamDir := makeTeam(t)
+	agentDir := filepath.Join(teamDir, "agents", "subbed")
+	writeFile(t, filepath.Join(agentDir, "agent.md"),
+		"---\ndescription: a subbed agent\nsubscribes:\n  - \"#deploys\"\n  - \"#blocked\"\n---\nbody\n")
+
+	a, err := LoadAgent(agentDir, teamDir)
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	want := []string{"#deploys", "#blocked"}
+	if len(a.Subscribes) != len(want) {
+		t.Fatalf("subscribes: got %v want %v", a.Subscribes, want)
+	}
+	for i, s := range a.Subscribes {
+		if s != want[i] {
+			t.Errorf("subscribe %d: got %q want %q", i, s, want[i])
+		}
+	}
+}
+
+func TestLoadAgent_NoSubscribes(t *testing.T) {
+	teamDir := makeTeam(t)
+	agentDir := filepath.Join(teamDir, "agents", "plain")
+	writeFile(t, filepath.Join(agentDir, "agent.md"),
+		"---\ndescription: plain\n---\nbody\n")
+	a, err := LoadAgent(agentDir, teamDir)
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if len(a.Subscribes) != 0 {
+		t.Errorf("expected no subscribes, got %v", a.Subscribes)
+	}
+}
+
 func TestUnionSkills_SamePathOK(t *testing.T) {
 	a1 := &Agent{Name: "a", Skills: map[string]string{"foo": "/p"}}
 	a2 := &Agent{Name: "b", Skills: map[string]string{"foo": "/p"}}
