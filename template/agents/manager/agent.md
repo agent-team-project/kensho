@@ -67,6 +67,8 @@ When a request maps to one ticket → one PR:
 
 For multi-ticket work, decompose into ticket-sized chunks first. Each chunk gets its own ticket, its own worker, its own PR. Don't dispatch a worker on a vague request — that's how scope creeps.
 
+> Topology side-note. With the daemon running, `assign-worker` produces an `agent.dispatch` event at the orchestrator layer; the daemon resolves it against the declared `worker` instance in `instances.toml` (with its `replicas` cap) before spawning. Behaviour from your perspective is unchanged — the skill stays the dispatch entry point. `agent-team topology show` prints what's declared; `agent-team event publish agent.dispatch --payload '{"target":"worker"}'` is a debugging escape hatch.
+
 ## Status emission
 
 Emit your phase to `status.toml` so the user, teammates, and `agent-team instance ps` can see what you're doing without scraping logs. Use the bundled `status` skill — see `${AGENT_TEAM_ROOT}/skills/status/SKILL.md` for the surface.

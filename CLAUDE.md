@@ -25,14 +25,16 @@ Two design sketches capture where the project is going. Read the relevant one if
 
 - [`documentation/templates.md`](./documentation/templates.md) — full templates-as-images model: parameter declarations, layered config resolution, `upgrade` semantics, worked example. The `template` resource verb (SQU-22), the `init <ref>` flow, and the bundled starter's role as the "default template" all live here. Read before touching `init`, the `template` verb, the loader, or `config.toml` shape.
 - [`documentation/orchestrator.md`](./documentation/orchestrator.md) — v1.1+ Go daemon (`agent-teamd`) that owns instance lifecycle, replaces Claude Code's in-session dispatch primitives with an orchestrator-mediated model, and unblocks runtime-agnostic execution. Read before touching the dispatch path or thinking about persistent / restartable instances.
-- [`documentation/topology.md`](./documentation/topology.md) — v1.2+ declarative topology (`instances.toml`): which named instances exist, how each is configured, what events trigger each. Compose-style; depends on the daemon for trigger resolution. Read before touching `instance` resource verbs, dispatch logic, or anything event-driven.
+- [`documentation/topology.md`](./documentation/topology.md) — declarative topology (`instances.toml`): which named instances exist, how each is configured, what events trigger each. Schema, layered config, and the event-resolution daemon endpoints landed in SQU-27; read before touching `topology` / `event` / `instance up/down` or extending event types.
 
 ## Repo layout
 
 - `cmd/agent-team/` — binary entrypoint (`main.go`).
-- `internal/cli/` — Cobra commands. One file per top-level command (`init`, `run`, `doctor`, `template`, `instance`) plus `root.go`.
+- `internal/cli/` — Cobra commands. One file per top-level command (`init`, `run`, `doctor`, `template`, `instance`, `topology`, `event`) plus `root.go`.
 - `internal/loader/` — pure logic: parse YAML frontmatter, load agents, resolve skills.
 - `internal/template/` — manifest parsing, parameter resolution, `.tmpl` rendering, ref resolver.
+- `internal/topology/` — `instances.toml` schema: declared instances, per-instance config overrides, the event-trigger match DSL.
+- `internal/daemon/` — `agent-teamd` (orchestrator daemon): instance lifecycle, channel store, mailbox, event resolver.
 - `template/` — bundled "default" template content. `go:embed`'d into the binary at module root via `embed.go`.
 - `embed.go` — `//go:embed all:template` directive + accessor. Lives at the module root because `go:embed` patterns can't escape the directory of the source file holding the directive.
 - `.agent_team/` (this repo) — our own team, since we self-dogfood. `agents/` and `skills/` are symlinks into `template/`.
