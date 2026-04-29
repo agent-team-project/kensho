@@ -1,0 +1,202 @@
+// Package daemon implements `agent-teamd`: the per-repo orchestrator daemon
+// that owns claude-subprocess lifecycle and serves a small JSON HTTP API over
+// a unix socket.
+//
+// See `documentation/orchestrator.md` for the design. This package is the
+// scaffolding + lifecycle endpoints landed in SQU-28; message routing and
+// log streaming come in SQU-29.
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Config is the runtime config for one daemon instance.
+type Config struct {
+	// TeamDir is the absolute path to the consumer's `.agent_team/`. The
+	// socket lives at TeamDir/daemon.sock; per-instance metadata under
+	// TeamDir/daemon/<instance>/.
+	TeamDir string
+
+	// LogOut is where the daemon's own structured-ish log lines go.
+	// nil -> os.Stderr.
+	LogOut io.Writer
+
+	// SpawnerOverride lets tests substitute a fake claude. nil -> DefaultSpawner.
+	SpawnerOverride Spawner
+}
+
+// SocketPath returns the daemon socket path under teamDir.
+func SocketPath(teamDir string) string {
+	return filepath.Join(teamDir, "daemon.sock")
+}
+
+// PidPath returns the daemon pidfile path under teamDir.
+func PidPath(teamDir string) string {
+	return filepath.Join(teamDir, "daemon.pid")
+}
+
+// DaemonRoot returns the per-repo daemon-runtime metadata dir.
+func DaemonRoot(teamDir string) string {
+	return filepath.Join(teamDir, "daemon")
+}
+
+// LogPath returns the daemon's own log file path.
+func LogPath(teamDir string) string {
+	return filepath.Join(DaemonRoot(teamDir), "agent-teamd.log")
+}
+
+// Daemon is one running daemon. Build with New, then call Run.
+type Daemon struct {
+	cfg     Config
+	manager *InstanceManager
+	server  *http.Server
+	listen  net.Listener
+}
+
+// New constructs a Daemon. Defaults are filled in from cfg.TeamDir.
+func New(cfg Config) (*Daemon, error) {
+	if cfg.TeamDir == "" {
+		return nil, errors.New("daemon: TeamDir is required")
+	}
+	if cfg.LogOut == nil {
+		cfg.LogOut = os.Stderr
+	}
+	if err := os.MkdirAll(DaemonRoot(cfg.TeamDir), 0o755); err != nil {
+		return nil, fmt.Errorf("daemon: mkdir runtime dir: %w", err)
+	}
+	mgr := NewInstanceManager(DaemonRoot(cfg.TeamDir), cfg.SpawnerOverride)
+	return &Daemon{cfg: cfg, manager: mgr}, nil
+}
+
+// Manager returns the underlying InstanceManager. Useful for tests.
+func (d *Daemon) Manager() *InstanceManager { return d.manager }
+
+// Run starts the listener and blocks until ctx is cancelled or Shutdown is
+// called. It performs orphan reconciliation before accepting connections.
+func (d *Daemon) Run(ctx context.Context) error {
+	if err := Reconcile(DaemonRoot(d.cfg.TeamDir), d.manager); err != nil {
+		return fmt.Errorf("daemon: reconcile: %w", err)
+	}
+
+	socket := SocketPath(d.cfg.TeamDir)
+	// Stale socket from a prior crashed daemon would cause `bind: address in
+	// use`. Best-effort remove before listen.
+	_ = os.Remove(socket)
+	l, err := net.Listen("unix", socket)
+	if err != nil {
+		return fmt.Errorf("daemon: listen %s: %w", socket, err)
+	}
+	d.listen = l
+	d.server = &http.Server{
+		Handler:           Handler(d.manager),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	if err := writePidfile(PidPath(d.cfg.TeamDir), os.Getpid()); err != nil {
+		_ = l.Close()
+		return fmt.Errorf("daemon: pidfile: %w", err)
+	}
+	defer os.Remove(PidPath(d.cfg.TeamDir))
+	defer os.Remove(socket)
+
+	d.logf("agent-teamd listening on %s (pid=%d)", socket, os.Getpid())
+
+	errCh := make(chan error, 1)
+	go func() {
+		err := d.server.Serve(l)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = d.server.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+// Shutdown stops the http server and cleans up the socket / pidfile. Safe to
+// call multiple times. Tests use this to stop in-process daemons.
+func (d *Daemon) Shutdown(ctx context.Context) error {
+	if d.server == nil {
+		return nil
+	}
+	return d.server.Shutdown(ctx)
+}
+
+// Addr returns the listening socket path. Empty if Run hasn't started yet.
+func (d *Daemon) Addr() string {
+	if d.listen == nil {
+		return ""
+	}
+	return d.listen.Addr().String()
+}
+
+func (d *Daemon) logf(format string, args ...any) {
+	if d.cfg.LogOut == nil {
+		return
+	}
+	fmt.Fprintf(d.cfg.LogOut, "%s "+format+"\n", append([]any{time.Now().UTC().Format(time.RFC3339)}, args...)...)
+}
+
+// writePidfile writes pid to path atomically. Caller is responsible for
+// removing on graceful shutdown; orphaned pidfiles are tolerated by status
+// checks (which probe liveness via kill(pid,0)).
+func writePidfile(path string, pid int) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	body := []byte(strconv.Itoa(pid) + "\n")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".pid-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// ReadPidfile parses path. Returns 0,nil if missing.
+func ReadPidfile(path string) (int, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(body)))
+	if err != nil {
+		return 0, fmt.Errorf("pidfile %s: not an integer: %w", path, err)
+	}
+	return pid, nil
+}
