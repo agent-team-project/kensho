@@ -190,7 +190,7 @@ marker = "from-default"
 
 	// Layer 2 + 3 + 4 via resolveRunConfig.
 	teamDir := filepath.Join(target, ".agent_team")
-	resolved, err := resolveRunConfig(teamDir, stateDir, runConfig{
+	resolved, err := resolveRunConfig(teamDir, stateDir, "x", runConfig{
 		setStrings: []string{"linear.ticket_prefix=FROM-CLI"},
 	})
 	if err != nil {
@@ -213,7 +213,7 @@ team_id = "team-from-instance"
 	}
 
 	// Without --set, instance overrides repo.
-	resolved2, err := resolveRunConfig(teamDir, stateDir, runConfig{})
+	resolved2, err := resolveRunConfig(teamDir, stateDir, "x", runConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ team_id = "team-from-instance"
 	}
 
 	// With --set, CLI still wins over instance.
-	resolved3, err := resolveRunConfig(teamDir, stateDir, runConfig{
+	resolved3, err := resolveRunConfig(teamDir, stateDir, "x", runConfig{
 		setStrings: []string{"linear.ticket_prefix=FROM-CLI"},
 	})
 	if err != nil {
@@ -230,6 +230,85 @@ team_id = "team-from-instance"
 	}
 	if v, _ := resolved3.GetDotted("linear.ticket_prefix"); v != "FROM-CLI" {
 		t.Errorf("layer 4 (CLI) didn't beat instance: %v", v)
+	}
+}
+
+// TestRun_DeclaredOverridesFlowThrough verifies the new layer 3 from
+// documentation/topology.md: per-instance overrides declared in
+// instances.toml are folded between repo config and per-instance state file.
+// Two declared instances of the same agent with different config land with
+// different resolved values.
+func TestRun_DeclaredOverridesFlowThrough(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[linear]
+team_id       = "team-shared"
+ticket_prefix = "PREFIX"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.tm-platform]
+agent = "ticket-manager"
+
+[instances.tm-platform.config.linear]
+project_id = "project-platform-uuid"
+
+[instances.tm-mobile]
+agent = "ticket-manager"
+
+[instances.tm-mobile.config.linear]
+project_id = "project-mobile-uuid"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve as the platform instance.
+	stateP := filepath.Join(teamDir, "state", "tm-platform")
+	if err := os.MkdirAll(stateP, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plat, err := resolveRunConfig(teamDir, stateP, "tm-platform", runConfig{})
+	if err != nil {
+		t.Fatalf("resolve platform: %v", err)
+	}
+	if v, _ := plat.GetDotted("linear.project_id"); v != "project-platform-uuid" {
+		t.Errorf("platform project_id: %v want project-platform-uuid", v)
+	}
+	if v, _ := plat.GetDotted("linear.team_id"); v != "team-shared" {
+		t.Errorf("platform team_id should inherit repo: %v", v)
+	}
+
+	// Resolve as the mobile instance — different declared overrides.
+	stateM := filepath.Join(teamDir, "state", "tm-mobile")
+	if err := os.MkdirAll(stateM, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mob, err := resolveRunConfig(teamDir, stateM, "tm-mobile", runConfig{})
+	if err != nil {
+		t.Fatalf("resolve mobile: %v", err)
+	}
+	if v, _ := mob.GetDotted("linear.project_id"); v != "project-mobile-uuid" {
+		t.Errorf("mobile project_id: %v want project-mobile-uuid", v)
+	}
+
+	// Per-instance state file should still beat declared overrides.
+	if err := os.WriteFile(filepath.Join(stateM, "config.toml"), []byte(`
+[linear]
+project_id = "from-state-file"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mob2, err := resolveRunConfig(teamDir, stateM, "tm-mobile", runConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := mob2.GetDotted("linear.project_id"); v != "from-state-file" {
+		t.Errorf("state file should beat declared: got %v", v)
 	}
 }
 
