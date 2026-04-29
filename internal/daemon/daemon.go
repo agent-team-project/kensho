@@ -112,6 +112,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("daemon: reconcile: %w", err)
 	}
 
+	// Pidfile first, then socket. Tests (and external probes like
+	// `agent-team daemon status`) treat the socket as the
+	// "daemon is fully up" signal — so the pidfile must already exist by
+	// then to avoid a "socket present, pidfile not yet written" race.
+	if err := writePidfile(PidPath(d.cfg.TeamDir), os.Getpid()); err != nil {
+		return fmt.Errorf("daemon: pidfile: %w", err)
+	}
+	defer os.Remove(PidPath(d.cfg.TeamDir))
+
 	socket := SocketPath(d.cfg.TeamDir)
 	// Stale socket from a prior crashed daemon would cause `bind: address in
 	// use`. Best-effort remove before listen.
@@ -125,12 +134,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		Handler:           Handler(d.manager, d.channels, d.events, d.cfg.TeamDir),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	if err := writePidfile(PidPath(d.cfg.TeamDir), os.Getpid()); err != nil {
-		_ = l.Close()
-		return fmt.Errorf("daemon: pidfile: %w", err)
-	}
-	defer os.Remove(PidPath(d.cfg.TeamDir))
 	defer os.Remove(socket)
 
 	d.logf("agent-teamd listening on %s (pid=%d)", socket, os.Getpid())
