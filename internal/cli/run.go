@@ -12,6 +12,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/template"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -101,10 +102,12 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		return fmt.Errorf("create state dir: %w", err)
 	}
 
-	// Resolve the config tree: repo `config.toml` ← per-instance ← --set.
+	// Resolve the config tree:
+	//   repo `config.toml` ← declared overrides (instances.toml)
+	//                     ← per-instance state ← --set.
 	// The merged result is written to <stateDir>/config.toml so the spawned
 	// session reads exactly the config its caller intended.
-	resolved, err := resolveRunConfig(teamDir, stateDir, cfg)
+	resolved, err := resolveRunConfig(teamDir, stateDir, instance, cfg)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
@@ -275,18 +278,24 @@ func agentNames(agents []*loader.Agent) string {
 	return strings.Join(names, ", ")
 }
 
-// resolveRunConfig builds the resolved instance config from layered sources:
+// resolveRunConfig builds the resolved instance config from the five-layer
+// chain in `documentation/topology.md` § Layered config resolution chain:
 //   1. repo config (`<teamDir>/config.toml`)
-//   2. per-instance config — either `--instance-config <path>` if given, or
-//      the auto-pickup at `<stateDir>/config.toml` from a previous run/edit
-//   3. CLI `--set` flags
+//   2. per-instance declared overrides (`instances.toml [instances.<name>.config]`)
+//   3. per-instance state file — either `--instance-config <path>` or the
+//      auto-pickup at `<stateDir>/config.toml`
+//   4. CLI `--set` flags
 //
 // The merged tree is the single source of truth for the spawned session's
 // skills and bash steps.
-func resolveRunConfig(teamDir, stateDir string, cfg runConfig) (template.Tree, error) {
+func resolveRunConfig(teamDir, stateDir, instance string, cfg runConfig) (template.Tree, error) {
 	repoCfg, err := template.LoadTOMLFile(filepath.Join(teamDir, "config.toml"))
 	if err != nil {
 		return nil, fmt.Errorf("repo config: %w", err)
+	}
+	declared, err := loadDeclaredOverrides(teamDir, instance)
+	if err != nil {
+		return nil, fmt.Errorf("instances.toml: %w", err)
 	}
 	var instanceCfg template.Tree
 	switch {
@@ -303,7 +312,7 @@ func resolveRunConfig(teamDir, stateDir string, cfg runConfig) (template.Tree, e
 			return nil, fmt.Errorf("instance config: %w", err)
 		}
 	}
-	merged := template.ResolveLayers(repoCfg, instanceCfg)
+	merged := template.ResolveLayers(repoCfg, declared, instanceCfg)
 
 	sets, err := template.ParseSetSpecs(cfg.setStrings)
 	if err != nil {
@@ -317,6 +326,24 @@ func resolveRunConfig(teamDir, stateDir string, cfg runConfig) (template.Tree, e
 		return nil, err
 	}
 	return withSets, nil
+}
+
+// loadDeclaredOverrides reads instances.toml and returns the [instances.<name>.config]
+// tree for `instance`, or an empty tree if no declaration matches. Missing
+// instances.toml is non-fatal — topology declaration is opt-in.
+func loadDeclaredOverrides(teamDir, instance string) (template.Tree, error) {
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	if topo == nil {
+		return template.Tree{}, nil
+	}
+	decl := topo.Find(instance)
+	if decl == nil || decl.Config == nil {
+		return template.Tree{}, nil
+	}
+	return decl.Config, nil
 }
 
 // writeStateConfig writes the resolved tree to <stateDir>/config.toml.
