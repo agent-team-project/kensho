@@ -416,6 +416,22 @@ func (c *daemonClient) StopInstance(instance string) error {
 	return nil
 }
 
+// StartInstance hits POST /v1/start to resume a previously-stopped persistent
+// instance via `claude --resume <session-id>`. Used by `attach` to re-adopt the
+// instance after the user exits an interactive session.
+func (c *daemonClient) StartInstance(instance string) error {
+	body, _ := json.Marshal(map[string]string{"instance": instance})
+	resp, err := c.hc.Post(c.baseURL+"/v1/start", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("daemon: start: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("daemon: start: %s", readErrorBody(resp))
+	}
+	return nil
+}
+
 func (c *daemonClient) ChannelDelete(name string) error {
 	req, err := http.NewRequest(http.MethodDelete, c.channelURL(name, ""), nil)
 	if err != nil {
