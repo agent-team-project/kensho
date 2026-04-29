@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/jamesaud/agent-team/internal/cli"
 	"github.com/jamesaud/agent-team/internal/daemon"
 )
 
@@ -30,8 +31,13 @@ func run(argv []string) error {
 	fs := flag.NewFlagSet("agent-teamd", flag.ContinueOnError)
 	cwd, _ := os.Getwd()
 	target := fs.String("target", cwd, "Repo root containing .agent_team/.")
+	showVersion := fs.Bool("version", false, "Print version and exit.")
 	if err := fs.Parse(argv); err != nil {
 		return err
+	}
+	if *showVersion {
+		fmt.Println("agent-teamd", cli.Version)
+		return nil
 	}
 
 	abs, err := filepath.Abs(*target)

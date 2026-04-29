@@ -7,7 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.0"
+// Version is the agent-team release version. The default below is the
+// in-tree development value; release builds override it via ldflags
+// (`-X github.com/jamesaud/agent-team/internal/cli.Version=...`) — see
+// `.goreleaser.yaml`.
+var Version = "0.1.0"
 
 // ExitCode is a sentinel error type used to signal a non-zero process exit
 // code from a Cobra `RunE`. `cmd/agent-team/main.go` unwraps it via
