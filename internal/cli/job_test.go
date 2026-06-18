@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
@@ -253,6 +254,107 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	}
 	if branchExists(t, target, dispatched.Branch) {
 		t.Fatalf("branch %s still exists after cleanup", dispatched.Branch)
+	}
+}
+
+func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-201",
+		Ticket:    "SQU-201",
+		Target:    "manager",
+		Kickoff:   "SQU-201: review implementation",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "advance", "squ-201", "--repo", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job advance: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode advance json: %v\nbody=%s", err, out.String())
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != "manager" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-201")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Steps[1].Status != job.StatusRunning || updated.LastEvent != "advance_messaged" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"pipeline_step":"review"`) {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
+func TestJobStepDoneAdvanceDispatchesNextStep(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-202",
+		Ticket:    "SQU-202",
+		Target:    "manager",
+		Kickoff:   "SQU-202: triage",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusRunning, Instance: "manager", StartedAt: now},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "step", "squ-202", "triage", "--status", "done", "--advance", "--repo", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job step --advance: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode step advance json: %v\nbody=%s", err, out.String())
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-202")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Steps[0].Status != job.StatusDone || updated.Steps[1].Status != job.StatusRunning {
+		t.Fatalf("updated steps = %+v", updated.Steps)
 	}
 }
 

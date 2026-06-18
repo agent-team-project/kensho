@@ -30,6 +30,8 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobCloseCmd())
 	cmd.AddCommand(newJobCleanupCmd())
+	cmd.AddCommand(newJobStepCmd())
+	cmd.AddCommand(newJobAdvanceCmd())
 	return cmd
 }
 
@@ -456,6 +458,109 @@ func newJobCleanupCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobStepCmd() *cobra.Command {
+	var (
+		repo      string
+		status    string
+		message   string
+		instance  string
+		pr        string
+		branch    string
+		worktree  string
+		advance   bool
+		workspace string
+		jsonOut   bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "step <job-id> <step-id>",
+		Short: "Update a pipeline job step status.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			stepStatus, err := job.ParseStatus(status)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if err := updateJobStep(j, args[1], stepStatus, jobStepUpdate{
+				Message:  message,
+				Instance: instance,
+				PR:       pr,
+				Branch:   branch,
+				Worktree: worktree,
+			}); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
+				return exitErr(2)
+			}
+			if err := job.Write(teamDir, j); err != nil {
+				return err
+			}
+			if advance && stepStatus == job.StatusDone {
+				res, err := advanceJob(cmd, teamDir, j, workspace)
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				}
+				return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
+			}
+			renderJobDetail(cmd.OutOrStdout(), j)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Step status: queued, running, blocked, done, or failed.")
+	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
+	cmd.Flags().StringVar(&instance, "instance", "", "Instance that owns or completed this step.")
+	cmd.Flags().StringVar(&pr, "pr", "", "PR URL to record on the job.")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch name to record on the job.")
+	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path to record on the job.")
+	cmd.Flags().BoolVar(&advance, "advance", false, "After marking the step done, dispatch the next ready step.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for an advanced step: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or advance result as JSON.")
+	return cmd
+}
+
+func newJobAdvanceCmd() *cobra.Command {
+	var (
+		repo      string
+		workspace string
+		jsonOut   bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "advance <job-id>",
+		Short: "Dispatch the next ready step in a pipeline job.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := advanceJob(cmd, teamDir, j, workspace)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+			}
+			return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for the advanced step: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
+	return cmd
+}
+
 func readJobFromRepo(cmd *cobra.Command, repo, id string) (*job.Job, error) {
 	_, j, err := readJobAndTeamDir(cmd, repo, id)
 	return j, err
@@ -525,6 +630,272 @@ func applyDispatchResponseToJob(j *job.Job, requestedName string, res *eventResp
 		j.LastEvent = "dispatch_no_match"
 		j.LastStatus = "no triggers matched"
 	}
+}
+
+type jobStepUpdate struct {
+	Message  string
+	Instance string
+	PR       string
+	Branch   string
+	Worktree string
+}
+
+type jobAdvanceResult struct {
+	Job     *job.Job       `json:"job"`
+	Step    *job.Step      `json:"step,omitempty"`
+	Event   *eventResponse `json:"event,omitempty"`
+	Message string         `json:"message,omitempty"`
+}
+
+func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepUpdate) error {
+	idx := jobStepIndex(j, stepID)
+	if idx == -1 {
+		return fmt.Errorf("step %q not found", stepID)
+	}
+	now := time.Now().UTC()
+	step := &j.Steps[idx]
+	step.Status = status
+	if strings.TrimSpace(update.Instance) != "" {
+		step.Instance = strings.TrimSpace(update.Instance)
+	}
+	if (status == job.StatusRunning || status == job.StatusQueued) && step.StartedAt.IsZero() {
+		step.StartedAt = now
+	}
+	if status == job.StatusDone || status == job.StatusFailed {
+		if step.StartedAt.IsZero() {
+			step.StartedAt = now
+		}
+		step.FinishedAt = now
+	}
+	if update.PR != "" {
+		j.PR = update.PR
+	}
+	if update.Branch != "" {
+		j.Branch = update.Branch
+	}
+	if update.Worktree != "" {
+		j.Worktree = update.Worktree
+	}
+	j.LastEvent = "step_" + string(status)
+	if strings.TrimSpace(update.Message) != "" {
+		j.LastStatus = strings.TrimSpace(update.Message)
+	} else {
+		j.LastStatus = stepID + " " + string(status)
+	}
+	j.UpdatedAt = now
+	switch status {
+	case job.StatusFailed:
+		j.Status = job.StatusFailed
+	case job.StatusBlocked:
+		j.Status = job.StatusBlocked
+	case job.StatusDone:
+		if allJobStepsDone(j) {
+			j.Status = job.StatusDone
+			j.LastEvent = "pipeline_done"
+			j.LastStatus = "all steps done"
+		} else {
+			j.Status = job.StatusRunning
+		}
+	default:
+		j.Status = status
+	}
+	return nil
+}
+
+func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string) (*jobAdvanceResult, error) {
+	step := nextReadyJobStep(j)
+	if step == nil {
+		now := time.Now().UTC()
+		if allJobStepsDone(j) {
+			j.Status = job.StatusDone
+			j.LastEvent = "pipeline_done"
+			j.LastStatus = "all steps done"
+			j.UpdatedAt = now
+			if err := job.Write(teamDir, j); err != nil {
+				return nil, err
+			}
+			return &jobAdvanceResult{Job: j, Message: "all steps done"}, nil
+		}
+		j.Status = job.StatusBlocked
+		j.LastEvent = "advance_blocked"
+		j.LastStatus = "no ready steps"
+		j.UpdatedAt = now
+		if err := job.Write(teamDir, j); err != nil {
+			return nil, err
+		}
+		return &jobAdvanceResult{Job: j, Message: "no ready steps"}, nil
+	}
+	name := step.Instance
+	if strings.TrimSpace(name) == "" {
+		name = step.Target + "-" + j.ID + "-" + job.NormalizeID(step.ID)
+	}
+	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, j.Kickoff, name, "job:"+j.ID, workspace)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+		return nil, exitErr(2)
+	}
+	payload["job_id"] = j.ID
+	payload["job"] = j.ID
+	if j.Pipeline != "" {
+		payload["pipeline"] = j.Pipeline
+	}
+	payload["pipeline_step"] = step.ID
+	dc, err := newDaemonClient(teamDir)
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: daemon is not running — start it with `agent-team start`.")
+		return nil, exitErr(2)
+	}
+	res, err := dc.PublishEvent("agent.dispatch", payload)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+		return nil, exitErr(1)
+	}
+	if latest, err := job.Read(teamDir, j.ID); err == nil {
+		j = latest
+	}
+	applyAdvanceResponseToJobStep(j, step.ID, requestedName, res)
+	if err := job.Write(teamDir, j); err != nil {
+		return nil, err
+	}
+	if idx := jobStepIndex(j, step.ID); idx >= 0 {
+		return &jobAdvanceResult{Job: j, Step: &j.Steps[idx], Event: res}, nil
+	}
+	return &jobAdvanceResult{Job: j, Event: res}, nil
+}
+
+func applyAdvanceResponseToJobStep(j *job.Job, stepID, requestedName string, res *eventResponse) {
+	status := job.StatusFailed
+	instance := requestedName
+	lastEvent := "advance_rejected"
+	lastStatus := "dispatch rejected"
+	for _, d := range res.Dispatched {
+		if id, _ := d["instance_id"].(string); strings.TrimSpace(id) != "" {
+			status = job.StatusRunning
+			instance = id
+			lastEvent = "advance_dispatched"
+			lastStatus = "running " + stepID
+			goto done
+		}
+	}
+	if len(res.Queued) > 0 {
+		status = job.StatusQueued
+		lastEvent = "advance_queued"
+		lastStatus = "queued " + stepID
+		goto done
+	}
+	if len(res.Messaged) > 0 {
+		status = job.StatusRunning
+		instance = res.Messaged[0]
+		lastEvent = "advance_messaged"
+		lastStatus = "running " + stepID
+		goto done
+	}
+	for _, r := range res.Rejected {
+		reason, _ := r["reason"].(string)
+		if id, _ := r["instance_id"].(string); strings.TrimSpace(id) != "" {
+			instance = id
+		}
+		if strings.Contains(reason, "already running") {
+			status = job.StatusRunning
+			lastEvent = "advance_already_running"
+			lastStatus = reason
+			goto done
+		}
+		if strings.Contains(reason, "already queued") {
+			status = job.StatusQueued
+			lastEvent = "advance_already_queued"
+			lastStatus = reason
+			goto done
+		}
+		lastStatus = reason
+		break
+	}
+	if len(res.Matched) == 0 {
+		lastEvent = "advance_no_match"
+		lastStatus = "no triggers matched"
+	}
+done:
+	_ = updateJobStep(j, stepID, status, jobStepUpdate{Instance: instance, Message: lastStatus})
+	j.LastEvent = lastEvent
+	j.LastStatus = lastStatus
+}
+
+func nextReadyJobStep(j *job.Job) *job.Step {
+	done := map[string]bool{}
+	for _, step := range j.Steps {
+		if step.Status == job.StatusDone {
+			done[step.ID] = true
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Status == job.StatusDone || step.Status == job.StatusFailed || step.Status == job.StatusRunning || step.Status == job.StatusQueued {
+			continue
+		}
+		ready := true
+		for _, dep := range step.After {
+			if !done[dep] {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return step
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Status != job.StatusQueued {
+			continue
+		}
+		ready := true
+		for _, dep := range step.After {
+			if !done[dep] {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return step
+		}
+	}
+	return nil
+}
+
+func allJobStepsDone(j *job.Job) bool {
+	if len(j.Steps) == 0 {
+		return false
+	}
+	for _, step := range j.Steps {
+		if step.Status != job.StatusDone {
+			return false
+		}
+	}
+	return true
+}
+
+func jobStepIndex(j *job.Job, stepID string) int {
+	for i, step := range j.Steps {
+		if step.ID == stepID {
+			return i
+		}
+	}
+	return -1
+}
+
+func renderJobAdvanceResult(w io.Writer, res *jobAdvanceResult) error {
+	if res.Message != "" {
+		fmt.Fprintf(w, "Job: %s %s\n", res.Job.ID, res.Message)
+		return nil
+	}
+	if res.Step != nil {
+		fmt.Fprintf(w, "Job: %s advanced step=%s status=%s instance=%s\n",
+			res.Job.ID, res.Step.ID, res.Step.Status, emptyDash(res.Step.Instance))
+	}
+	if res.Event != nil {
+		renderDispatchOutcome(w, "", "", res.Event)
+	}
+	return nil
 }
 
 func cleanupJobOwnedWorktree(repoRoot string, j *job.Job) (string, error) {
