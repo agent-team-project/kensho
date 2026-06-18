@@ -29,6 +29,8 @@ func newIntakeCmd() *cobra.Command {
 	return cmd
 }
 
+var intakeInput io.Reader = os.Stdin
+
 func newIntakeLinearCmd() *cobra.Command {
 	return newWebhookIntakeCmd("linear", intake.NormalizeLinear)
 }
@@ -103,7 +105,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Webhook JSON object.")
-	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file.")
+	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
 	if provider == "github" {
 		cmd.Flags().BoolVar(&reconcileJob, "reconcile-job", false, "Also reconcile the normalized PR event into the owning durable job.")
@@ -169,6 +171,13 @@ func intakePayload(payload, payloadFile string) ([]byte, error) {
 	}
 	if hasPayload {
 		return []byte(payload), nil
+	}
+	if strings.TrimSpace(payloadFile) == "-" {
+		body, err := io.ReadAll(intakeInput)
+		if err != nil {
+			return nil, fmt.Errorf("--payload-file -: %w", err)
+		}
+		return body, nil
 	}
 	body, err := os.ReadFile(filepath.Clean(payloadFile))
 	if err != nil {

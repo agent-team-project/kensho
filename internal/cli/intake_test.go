@@ -75,6 +75,28 @@ func TestIntakeLinearDryRunNormalizesWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestIntakePayloadFileDashReadsStdin(t *testing.T) {
+	prev := intakeInput
+	intakeInput = strings.NewReader(`{"action":"Issue created","data":{"identifier":"SQU-104","title":"Pipe payload"}}`)
+	t.Cleanup(func() { intakeInput = prev })
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "linear", "--payload-file", "-", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake linear stdin dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode stdin dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Event == nil || result.Event.Type != "ticket.created" || result.Event.Payload["ticket"] != "SQU-104" {
+		t.Fatalf("stdin dry-run result = %+v", result)
+	}
+}
+
 func TestIntakeGitHubReconcilesOwningJob(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()
