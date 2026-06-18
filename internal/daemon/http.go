@@ -428,13 +428,16 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		outcomes, err := events.Event(ev.Type, ev.Payload)
+		result, err := events.EventWithResult(ev.Type, ev.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		resp := eventResponseMap(outcomes)
+		resp := eventResponseMap(result.Outcomes)
 		resp["event"] = ev
+		if result.Reconcile != nil {
+			resp["reconcile"] = result.Reconcile
+		}
 		writeJSON(w, http.StatusOK, resp)
 	})
 

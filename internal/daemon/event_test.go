@@ -793,6 +793,19 @@ func TestIntakeGitHubMergedReconcilesJob(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("intake: %d %s", resp.StatusCode, readBody(t, resp))
 	}
+	var got struct {
+		Event     map[string]any            `json:"event"`
+		Reconcile *jobstore.ReconcileResult `json:"reconcile"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.Event["type"] != "pr.merged" {
+		t.Fatalf("event = %+v", got.Event)
+	}
+	if got.Reconcile == nil || got.Reconcile.Job == nil || got.Reconcile.Job.ID != "squ-94" || got.Reconcile.MatchedBy != "pr_url" {
+		t.Fatalf("reconcile response = %+v", got.Reconcile)
+	}
 	updated, err := jobstore.Read(teamDir, "squ-94")
 	if err != nil {
 		t.Fatalf("Read updated job: %v", err)

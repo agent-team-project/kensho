@@ -105,6 +105,13 @@ type EventOutcome struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+// EventResult is the full resolver outcome, including side-effect metadata
+// such as a durable job reconciled from a PR webhook.
+type EventResult struct {
+	Outcomes  []EventOutcome            `json:"outcomes"`
+	Reconcile *jobstore.ReconcileResult `json:"reconcile,omitempty"`
+}
+
 // Event resolves an inbound event against the topology and actuates each
 // matched instance. Returns one outcome per matched instance; an empty slice
 // means no triggers matched.
@@ -113,15 +120,25 @@ type EventOutcome struct {
 // types. Callers should pass the eventType through unchanged — webhook event
 // types are passed through to triggers as-is.
 func (r *EventResolver) Event(eventType string, payload map[string]any) ([]EventOutcome, error) {
+	result, err := r.EventWithResult(eventType, payload)
+	if err != nil {
+		return nil, err
+	}
+	return result.Outcomes, nil
+}
+
+// EventWithResult is Event plus side-effect metadata for API callers that need
+// to report more than matched instance outcomes.
+func (r *EventResolver) EventWithResult(eventType string, payload map[string]any) (*EventResult, error) {
 	if strings.TrimSpace(eventType) == "" {
 		return nil, errors.New("event: type is required")
 	}
-	r.reconcilePRJob(eventType, payload)
+	reconciled := r.reconcilePRJob(eventType, payload)
 	r.mu.Lock()
 	t := r.topo
 	r.mu.Unlock()
 	if t == nil {
-		return nil, nil
+		return &EventResult{Reconcile: reconciled}, nil
 	}
 	matched := t.Resolve(eventType, payload)
 	out := make([]EventOutcome, 0, len(matched))
@@ -131,20 +148,21 @@ func (r *EventResolver) Event(eventType string, payload map[string]any) ([]Event
 	for _, pipeline := range t.ResolvePipelines(eventType, payload) {
 		out = append(out, r.actuatePipeline(pipeline, eventType, payload)...)
 	}
-	return out, nil
+	return &EventResult{Outcomes: out, Reconcile: reconciled}, nil
 }
 
-func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any) {
+func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any) *jobstore.ReconcileResult {
 	if !strings.HasPrefix(eventType, "pr.") {
-		return
+		return nil
 	}
 	if strings.TrimSpace(r.teamDir) == "" {
-		return
+		return nil
 	}
-	_, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
+	result, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
 	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
-		return
+		return result
 	}
+	return nil
 }
 
 func (r *EventResolver) actuate(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {
