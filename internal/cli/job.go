@@ -4759,6 +4759,7 @@ func renderJobRecentEvents(w io.Writer, events []job.Event) {
 }
 
 func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult) {
+	actions := jobDetailActions(j, queueItems, statusPreviews, time.Now().UTC())
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
@@ -4823,8 +4824,63 @@ func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.Qu
 				preview.Instance, preview.Phase, preview.Before, preview.After, action, emptyDash(preview.Message))
 		}
 	}
+	if len(actions) > 0 {
+		fmt.Fprintln(w, "Actions:")
+		for _, action := range actions {
+			fmt.Fprintf(w, "  %s\n", action)
+		}
+	}
 	fmt.Fprintf(w, "Created:     %s\n", j.CreatedAt.Format(time.RFC3339))
 	fmt.Fprintf(w, "Updated:     %s\n", j.UpdatedAt.Format(time.RFC3339))
+}
+
+func jobDetailActions(j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, now time.Time) []string {
+	if j == nil {
+		return nil
+	}
+	var actions []string
+	add := func(action string) {
+		action = strings.TrimSpace(action)
+		if action == "" {
+			return
+		}
+		actions = appendStringOnce(actions, action)
+	}
+	stats := jobTriageQueueStats{IDs: make([]string, 0, len(queueItems))}
+	for _, item := range queueItems {
+		if item == nil {
+			continue
+		}
+		stats.IDs = append(stats.IDs, item.ID)
+		switch item.State {
+		case daemon.QueueStatePending:
+			stats.Pending++
+			if !item.NextRetry.IsZero() && item.NextRetry.After(now) {
+				stats.Delayed++
+			}
+		case daemon.QueueStateDead:
+			stats.Dead++
+		}
+	}
+	sort.Strings(stats.IDs)
+	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, now, 0); ok {
+		for _, action := range triage.Actions {
+			add(action)
+		}
+	}
+	for _, preview := range statusPreviews {
+		if preview.Changed && preview.After == job.StatusBlocked {
+			add(fmt.Sprintf("agent-team job unblock %s <answer...>", j.ID))
+		}
+	}
+	if len(j.Steps) > 0 {
+		for _, action := range actionsForJobReadyRow(jobReadyRowFromJob(j, inspectNextJobStep(j))) {
+			add(action)
+		}
+	} else if j.Status == job.StatusQueued {
+		add(fmt.Sprintf("agent-team job dispatch %s", j.ID))
+	}
+	return actions
 }
 
 func emptyDash(value string) string {

@@ -83,7 +83,9 @@ func TestJobCreateListShowClose(t *testing.T) {
 	if !strings.Contains(showOut.String(), "Ticket URL:") ||
 		!strings.Contains(showOut.String(), "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor") ||
 		!strings.Contains(showOut.String(), "Kickoff:") ||
-		!strings.Contains(showOut.String(), "implement the status monitor") {
+		!strings.Contains(showOut.String(), "implement the status monitor") ||
+		!strings.Contains(showOut.String(), "Actions:") ||
+		!strings.Contains(showOut.String(), "agent-team job dispatch squ-42") {
 		t.Fatalf("job show missing kickoff:\n%s", showOut.String())
 	}
 
@@ -206,6 +208,8 @@ branch = "worker-squ-208"
 		"after=blocked",
 		"action=would_update",
 		"needs token",
+		"Actions:",
+		"agent-team job unblock squ-208 <answer...>",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, out.String())
@@ -304,7 +308,7 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	if err := show.Execute(); err != nil {
 		t.Fatalf("job show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Queue:", "q-job-show", "state=dead", "instance_id=worker-squ-109"} {
+	for _, want := range []string{"Queue:", "q-job-show", "state=dead", "instance_id=worker-squ-109", "Actions:", "agent-team queue retry q-job-show"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
 		}
