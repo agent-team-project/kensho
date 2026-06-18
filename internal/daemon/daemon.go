@@ -111,6 +111,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := Reconcile(DaemonRoot(d.cfg.TeamDir), d.manager); err != nil {
 		return fmt.Errorf("daemon: reconcile: %w", err)
 	}
+	if d.events != nil {
+		d.events.RecoverQueueState()
+	}
 
 	// Pidfile first, then socket. Tests (and external probes like
 	// `agent-team daemon status`) treat the socket as the

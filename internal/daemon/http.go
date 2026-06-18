@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"sort"
@@ -430,6 +431,88 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		})
 	})
 
+	mux.HandleFunc("/v1/queue", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		items, err := ListQueueItems(m.daemonRoot)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if items == nil {
+			items = []*QueueItem{}
+		}
+		writeJSON(w, http.StatusOK, items)
+	})
+
+	mux.HandleFunc("/v1/queue/", func(w http.ResponseWriter, r *http.Request) {
+		id, action, ok := splitQueuePath(r.URL.Path)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "expected /v1/queue/{id}[/retry|/drop]")
+			return
+		}
+		switch action {
+		case "":
+			if r.Method != http.MethodGet {
+				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			item, err := ReadQueueItem(m.daemonRoot, id)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					writeError(w, http.StatusNotFound, "queue item not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+		case "drop":
+			if r.Method != http.MethodPost {
+				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			var err error
+			if events != nil {
+				err = events.DropQueueItem(id)
+			} else {
+				err = RemoveQueueItem(m.daemonRoot, id)
+			}
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					writeError(w, http.StatusNotFound, "queue item not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"dropped": true, "id": id})
+		case "retry":
+			if r.Method != http.MethodPost {
+				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			if events == nil {
+				writeError(w, http.StatusServiceUnavailable, "topology not configured")
+				return
+			}
+			outcome, err := events.RetryQueueItem(id)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					writeError(w, http.StatusNotFound, "queue item not found")
+					return
+				}
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, outcome)
+		default:
+			writeError(w, http.StatusBadRequest, "unknown queue action")
+		}
+	})
+
 	// `GET /v1/topology` — declared instances + triggers + per-instance
 	// running/queued counts. Always 200 with `{instances: []}` even when
 	// nothing is declared, so clients can render an empty state.
@@ -467,6 +550,29 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 	})
 
 	return mux
+}
+
+func splitQueuePath(path string) (id, action string, ok bool) {
+	const prefix = "/v1/queue/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", "", false
+	}
+	rest := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	if rest == "" {
+		return "", "", false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) > 2 {
+		return "", "", false
+	}
+	decoded, err := url.PathUnescape(parts[0])
+	if err != nil || strings.TrimSpace(decoded) == "" {
+		return "", "", false
+	}
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+	return decoded, action, true
 }
 
 type reconcileResponse struct {

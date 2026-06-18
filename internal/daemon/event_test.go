@@ -516,6 +516,75 @@ func TestEvent_EphemeralReplicasQueueing(t *testing.T) {
 	}
 }
 
+func TestEvent_PersistedQueueRecoveryDrainsReadyItem(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	item := &QueueItem{
+		ID:         "queued-1",
+		State:      QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-77",
+		Payload:    map[string]any{"target": "worker", "name": "worker-squ-77", "ticket": "SQU-77"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := WriteQueueItem(root, item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	running, queued := resolver.QueueDepth("worker")
+	if running != 0 || queued != 1 {
+		t.Fatalf("initial depth running=%d queued=%d, want 0/1", running, queued)
+	}
+	resolver.RecoverQueueState()
+	running, queued = resolver.QueueDepth("worker")
+	if running != 1 || queued != 0 {
+		t.Fatalf("after recover depth running=%d queued=%d, want 1/0", running, queued)
+	}
+	if _, err := ReadQueueItem(root, "queued-1"); !os.IsNotExist(err) {
+		t.Fatalf("queue item should be removed after dispatch, err=%v", err)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls=%d, want 1", fake.callCount())
+	}
+}
+
+func TestEvent_QueuedSpawnFailureMovesToDeadLetter(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	item := &QueueItem{
+		ID:         "queued-dead",
+		State:      QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-78",
+		Payload:    map[string]any{"target": "worker", "name": "worker-squ-78", "ticket": "SQU-78"},
+		Attempts:   MaxQueueAttempts - 1,
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := WriteQueueItem(root, item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	m := NewInstanceManager(root, func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+		return nil, os.ErrPermission
+	})
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	resolver.RecoverQueueState()
+	dead, err := ReadQueueItem(root, "queued-dead")
+	if err != nil {
+		t.Fatalf("ReadQueueItem: %v", err)
+	}
+	if dead.State != QueueStateDead || dead.Attempts != MaxQueueAttempts || dead.LastError == "" {
+		t.Fatalf("dead = %+v, want dead-letter with failure", dead)
+	}
+}
+
 func TestEvent_EmptyPayloadValidation(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)

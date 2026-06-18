@@ -460,6 +460,66 @@ func (c *daemonClient) PublishEvent(eventType string, payload map[string]any) (*
 	return &out, nil
 }
 
+func (c *daemonClient) QueueItems() ([]*daemon.QueueItem, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/queue")
+	if err != nil {
+		return nil, fmt.Errorf("daemon: queue: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: queue: %s", readErrorBody(resp))
+	}
+	var out []*daemon.QueueItem
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: queue decode: %w", err)
+	}
+	return out, nil
+}
+
+func (c *daemonClient) QueueItem(id string) (*daemon.QueueItem, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/queue/" + url.PathEscape(id))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: queue show: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: queue show: %s", readErrorBody(resp))
+	}
+	var out daemon.QueueItem
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: queue show decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) QueueDrop(id string) error {
+	resp, err := c.hc.Post(c.baseURL+"/v1/queue/"+url.PathEscape(id)+"/drop", "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return fmt.Errorf("daemon: queue drop: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("daemon: queue drop: %s", readErrorBody(resp))
+	}
+	return nil
+}
+
+func (c *daemonClient) QueueRetry(id string) (*daemon.EventOutcome, error) {
+	resp, err := c.hc.Post(c.baseURL+"/v1/queue/"+url.PathEscape(id)+"/retry", "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: queue retry: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: queue retry: %s", readErrorBody(resp))
+	}
+	var out daemon.EventOutcome
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: queue retry decode: %w", err)
+	}
+	return &out, nil
+}
+
 // topologyResponse mirrors the wire shape of /v1/topology.
 type topologyResponse struct {
 	Instances []topologyInstance `json:"instances"`

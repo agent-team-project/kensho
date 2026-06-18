@@ -24,6 +24,11 @@ import (
 // trade-off (see documentation/topology.md § Open question on replicas).
 const DefaultQueueCap = 10
 
+// MaxQueueAttempts is the number of failed spawn attempts before a queued
+// event is moved to dead-letter. Initial capacity queueing does not count as
+// an attempt; only failed dispatch attempts do.
+const MaxQueueAttempts = 3
+
 // EventResolver routes inbound events to declared instances per the topology.
 // Persistent instances receive a JSON-encoded event payload via mailbox
 // (the inbox skill drains it on the agent side). Ephemeral instances spawn
@@ -49,10 +54,14 @@ type ephTracker struct {
 }
 
 type queuedEvent struct {
+	id         string
 	eventType  string
 	payload    map[string]any
 	queuedAt   time.Time
 	uniqueName string
+	attempts   int
+	lastError  string
+	nextRetry  time.Time
 }
 
 // NewEventResolver installs a reap hook on mgr and returns a resolver bound
@@ -67,6 +76,7 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 		tracking: map[string]*ephTracker{},
 	}
 	mgr.SetReapHook(r.onReap)
+	_ = r.loadPersistedQueue()
 	return r
 }
 
@@ -178,12 +188,18 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 				Reason:   fmt.Sprintf("at replica capacity (%d) and queue is full (%d)", inst.Replicas, r.queueCap),
 			}
 		}
-		tr.queue = append(tr.queue, &queuedEvent{
+		ev := &queuedEvent{
+			id:         newSessionID(),
 			eventType:  eventType,
 			payload:    payload,
 			queuedAt:   time.Now().UTC(),
 			uniqueName: childName,
-		})
+		}
+		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
+			r.mu.Unlock()
+			return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
+		}
+		tr.queue = append(tr.queue, ev)
 		r.mu.Unlock()
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName}
 	}
@@ -219,6 +235,15 @@ func childNameForEvent(declared string, payload map[string]any) (string, bool, e
 func queuedChildName(queue []*queuedEvent, name string) bool {
 	for _, ev := range queue {
 		if ev != nil && ev.uniqueName == name {
+			return true
+		}
+	}
+	return false
+}
+
+func queuedEventID(queue []*queuedEvent, id string) bool {
+	for _, ev := range queue {
+		if ev != nil && ev.id == id {
 			return true
 		}
 	}
@@ -571,9 +596,10 @@ func (r *EventResolver) onReap(spawned string) {
 	}
 	var next *queuedEvent
 	if len(tr.queue) > 0 {
-		next = tr.queue[0]
-		tr.queue = tr.queue[1:]
-		tr.running++
+		next, tr.queue = popReadyQueuedEvent(tr.queue, time.Now().UTC())
+		if next != nil {
+			tr.running++
+		}
 	}
 	r.mu.Unlock()
 	r.cleanupEphemeralSpawn(spawned)
@@ -583,9 +609,260 @@ func (r *EventResolver) onReap(spawned string) {
 	// Re-spawn from the queue. Failures are dropped to the daemon log; no
 	// retry. (A full retry-and-dead-letter design is out of scope for v1.2.)
 	if _, err := r.spawn(declared, next.uniqueName, next.eventType, next.payload); err != nil {
+		r.recordQueueFailure(declared.Name, next, err)
 		r.mu.Lock()
 		tr.running--
 		r.mu.Unlock()
+		return
+	}
+	_ = RemoveQueueItem(r.mgr.daemonRoot, next.id)
+}
+
+func popReadyQueuedEvent(queue []*queuedEvent, now time.Time) (*queuedEvent, []*queuedEvent) {
+	for i, ev := range queue {
+		if ev == nil {
+			continue
+		}
+		if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
+			continue
+		}
+		out := append(queue[:i:i], queue[i+1:]...)
+		return ev, out
+	}
+	return nil, queue
+}
+
+func (r *EventResolver) recordQueueFailure(declared string, ev *queuedEvent, spawnErr error) {
+	if ev == nil {
+		return
+	}
+	ev.attempts++
+	ev.lastError = spawnErr.Error()
+	if ev.attempts >= MaxQueueAttempts {
+		_ = MoveQueueItemToDead(r.mgr.daemonRoot, queueItemFromEvent(declared, ev, QueueStateDead))
+		return
+	}
+	ev.nextRetry = time.Now().UTC().Add(time.Duration(ev.attempts) * time.Second)
+	_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(declared, ev, QueueStatePending))
+	r.mu.Lock()
+	tr, ok := r.tracking[declared]
+	if ok && !queuedEventID(tr.queue, ev.id) {
+		tr.queue = append(tr.queue, ev)
+	}
+	r.mu.Unlock()
+}
+
+func (r *EventResolver) loadPersistedQueue() error {
+	items, err := ListQueueItems(r.mgr.daemonRoot)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, item := range items {
+		if item.State != QueueStatePending {
+			continue
+		}
+		if r.topo == nil || r.topo.Find(item.Instance) == nil {
+			continue
+		}
+		tr, ok := r.tracking[item.Instance]
+		if !ok {
+			tr = &ephTracker{}
+			r.tracking[item.Instance] = tr
+		}
+		if queuedEventID(tr.queue, item.ID) {
+			continue
+		}
+		tr.queue = append(tr.queue, queuedEventFromItem(item))
+	}
+	return nil
+}
+
+// RecoverQueueState rebuilds ephemeral running counters from current daemon
+// metadata and reloads persisted pending queue files. Daemon.Run calls this
+// after process reconciliation so queued dispatches survive daemon restart.
+func (r *EventResolver) RecoverQueueState() {
+	r.mu.Lock()
+	r.tracking = map[string]*ephTracker{}
+	if r.topo != nil {
+		for _, meta := range r.mgr.List() {
+			inst := r.declaredOwnerOfLocked(meta.Instance)
+			if inst == nil || !inst.Ephemeral || meta.Status != StatusRunning {
+				continue
+			}
+			tr, ok := r.tracking[inst.Name]
+			if !ok {
+				tr = &ephTracker{}
+				r.tracking[inst.Name] = tr
+			}
+			tr.running++
+		}
+	}
+	r.mu.Unlock()
+	_ = r.loadPersistedQueue()
+	r.DrainQueues()
+}
+
+// DrainQueues attempts ready queued items while replica capacity is available.
+func (r *EventResolver) DrainQueues() {
+	for {
+		declared, ev := r.nextDrainableQueuedEvent()
+		if declared == nil || ev == nil {
+			return
+		}
+		if _, err := r.spawn(declared, ev.uniqueName, ev.eventType, ev.payload); err != nil {
+			r.recordQueueFailure(declared.Name, ev, err)
+			r.mu.Lock()
+			if tr := r.tracking[declared.Name]; tr != nil && tr.running > 0 {
+				tr.running--
+			}
+			r.mu.Unlock()
+			continue
+		}
+		_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
+	}
+}
+
+func (r *EventResolver) nextDrainableQueuedEvent() (*topology.Instance, *queuedEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.topo == nil {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	for _, inst := range r.topo.SortedInstances() {
+		if !inst.Ephemeral {
+			continue
+		}
+		tr, ok := r.tracking[inst.Name]
+		if !ok || tr.running >= inst.Replicas {
+			continue
+		}
+		ev, rest := popReadyQueuedEvent(tr.queue, now)
+		if ev == nil {
+			continue
+		}
+		tr.queue = rest
+		tr.running++
+		return inst, ev
+	}
+	return nil, nil
+}
+
+// DropQueueItem removes a queued item from memory and disk.
+func (r *EventResolver) DropQueueItem(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("queue: id is required")
+	}
+	r.mu.Lock()
+	for _, tr := range r.tracking {
+		filtered := tr.queue[:0]
+		for _, ev := range tr.queue {
+			if ev == nil || ev.id == id {
+				continue
+			}
+			filtered = append(filtered, ev)
+		}
+		tr.queue = filtered
+	}
+	r.mu.Unlock()
+	return RemoveQueueItem(r.mgr.daemonRoot, id)
+}
+
+// RetryQueueItem retries a pending or dead-letter queue item immediately.
+func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return EventOutcome{}, errors.New("queue: id is required")
+	}
+	item, err := ReadQueueItem(r.mgr.daemonRoot, id)
+	if err != nil {
+		return EventOutcome{}, err
+	}
+	if err := ResetQueueItemForRetry(r.mgr.daemonRoot, item); err != nil {
+		return EventOutcome{}, err
+	}
+	ev := queuedEventFromItem(item)
+	r.mu.Lock()
+	inst := (*topology.Instance)(nil)
+	if r.topo != nil {
+		inst = r.topo.Find(item.Instance)
+	}
+	if inst == nil || !inst.Ephemeral {
+		r.mu.Unlock()
+		return EventOutcome{}, fmt.Errorf("queue: instance %q is not a declared ephemeral instance", item.Instance)
+	}
+	tr, ok := r.tracking[inst.Name]
+	if !ok {
+		tr = &ephTracker{}
+		r.tracking[inst.Name] = tr
+	}
+	tr.queue = removeQueuedEventByID(tr.queue, id)
+	if tr.running >= inst.Replicas {
+		tr.queue = append(tr.queue, ev)
+		r.mu.Unlock()
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName}, nil
+	}
+	tr.running++
+	r.mu.Unlock()
+
+	if _, err := r.spawn(inst, ev.uniqueName, ev.eventType, ev.payload); err != nil {
+		r.recordQueueFailure(inst.Name, ev, err)
+		r.mu.Lock()
+		if tr.running > 0 {
+			tr.running--
+		}
+		r.mu.Unlock()
+		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()}, nil
+	}
+	_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
+	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: ev.uniqueName}, nil
+}
+
+func removeQueuedEventByID(queue []*queuedEvent, id string) []*queuedEvent {
+	filtered := queue[:0]
+	for _, ev := range queue {
+		if ev == nil || ev.id == id {
+			continue
+		}
+		filtered = append(filtered, ev)
+	}
+	return filtered
+}
+
+func queueItemFromEvent(declared string, ev *queuedEvent, state string) *QueueItem {
+	now := time.Now().UTC()
+	updated := now
+	if ev.queuedAt.IsZero() {
+		ev.queuedAt = now
+	}
+	return &QueueItem{
+		ID:         ev.id,
+		State:      state,
+		EventType:  ev.eventType,
+		Instance:   declared,
+		InstanceID: ev.uniqueName,
+		Payload:    ev.payload,
+		Attempts:   ev.attempts,
+		LastError:  ev.lastError,
+		NextRetry:  ev.nextRetry,
+		QueuedAt:   ev.queuedAt,
+		UpdatedAt:  updated,
+	}
+}
+
+func queuedEventFromItem(item *QueueItem) *queuedEvent {
+	return &queuedEvent{
+		id:         item.ID,
+		eventType:  item.EventType,
+		payload:    item.Payload,
+		queuedAt:   item.QueuedAt,
+		uniqueName: item.InstanceID,
+		attempts:   item.Attempts,
+		lastError:  item.LastError,
+		nextRetry:  item.NextRetry,
 	}
 }
 
@@ -603,18 +880,23 @@ func (r *EventResolver) cleanupEphemeralSpawn(spawned string) {
 func (r *EventResolver) declaredOwnerOf(spawned string) (*topology.Instance, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	inst := r.declaredOwnerOfLocked(spawned)
+	return inst, inst != nil
+}
+
+func (r *EventResolver) declaredOwnerOfLocked(spawned string) *topology.Instance {
 	if r.topo == nil {
-		return nil, false
+		return nil
 	}
 	for _, inst := range r.topo.Instances {
 		if !inst.Ephemeral {
 			continue
 		}
 		if spawned == inst.Name || strings.HasPrefix(spawned, inst.Name+"-") {
-			return inst, true
+			return inst
 		}
 	}
-	return nil, false
+	return nil
 }
 
 // uniqueChildName builds a per-spawn name from the declared name plus a short
