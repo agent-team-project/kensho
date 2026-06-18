@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -85,8 +87,11 @@ func newTeamShowCmd() *cobra.Command {
 
 func newTeamStatusCmd() *cobra.Command {
 	var (
-		repo    string
-		jsonOut bool
+		repo     string
+		watch    bool
+		noClear  bool
+		interval time.Duration
+		jsonOut  bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -94,9 +99,19 @@ func newTeamStatusCmd() *cobra.Command {
 		Short: "Summarize one team's instances, jobs, and pipelines.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team status: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				clear := !noClear && !jsonOut
+				return runTeamStatusWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear)
 			}
 			snapshot, err := collectTeamStatus(teamDir, args[0], time.Now().UTC())
 			if err != nil {
@@ -107,6 +122,9 @@ func newTeamStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team status until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team status as JSON.")
 	return cmd
 }
@@ -217,6 +235,40 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	}
 	snapshot.Actions = teamStatusActions(top, team, snapshot)
 	return snapshot, nil
+}
+
+func runTeamStatusWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		snapshot, err := collectTeamStatus(teamDir, name, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			if err := json.NewEncoder(w).Encode(snapshot); err != nil {
+				return err
+			}
+		} else {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+			if err := renderTeamStatus(w, snapshot, false); err != nil {
+				return err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func teamInstanceRows(top *topology.Topology, team *topology.Team, rows []instanceRow) []instanceRow {

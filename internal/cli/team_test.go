@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -157,6 +158,61 @@ func TestTeamShowMissingFails(t *testing.T) {
 		t.Fatal("team show missing succeeded")
 	}
 	if !strings.Contains(stderr.String(), `team "missing" not found`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestTeamStatusWatchRendersSnapshot(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[teams.delivery]
+instances = ["manager"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out bytes.Buffer
+	if err := runTeamStatusWatch(ctx, &out, teamDir, "delivery", time.Millisecond, false, false); err != nil {
+		t.Fatalf("team status watch: %v", err)
+	}
+	if !strings.Contains(out.String(), "Team: delivery") || !strings.Contains(out.String(), "instances: total=1") {
+		t.Fatalf("watch output missing team snapshot:\n%s", out.String())
+	}
+
+	jsonCtx, jsonCancel := context.WithCancel(context.Background())
+	jsonCancel()
+	var jsonOut bytes.Buffer
+	if err := runTeamStatusWatch(jsonCtx, &jsonOut, teamDir, "delivery", time.Millisecond, true, false); err != nil {
+		t.Fatalf("team status watch json: %v", err)
+	}
+	var snapshot teamStatusSnapshot
+	if err := json.Unmarshal(bytes.TrimSpace(jsonOut.Bytes()), &snapshot); err != nil {
+		t.Fatalf("decode watch json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if snapshot.Team.Name != "delivery" {
+		t.Fatalf("watch json snapshot = %+v", snapshot)
+	}
+}
+
+func TestTeamStatusRejectsNegativeInterval(t *testing.T) {
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "status", "delivery", "--watch", "--interval", "-1s"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("team status negative interval succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--interval must be >= 0") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
