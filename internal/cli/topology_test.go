@@ -260,6 +260,33 @@ func TestEventPublishPayloadFileDash(t *testing.T) {
 	}
 }
 
+func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--dry-run", "--json", "--target", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("event publish dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview eventPublishPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode event publish dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Type != "user_invocation" || len(preview.Matched) != 1 || preview.Matched[0] != "manager" {
+		t.Fatalf("preview = %+v", preview)
+	}
+}
+
 func TestEventPublishFormat(t *testing.T) {
 	target, err := os.MkdirTemp("/tmp", "agent-team-event-format-")
 	if err != nil {

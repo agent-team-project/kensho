@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -28,6 +29,7 @@ func newEventPublishCmd() *cobra.Command {
 		target      string
 		payload     string
 		payloadFile string
+		dryRun      bool
 		jsonOut     bool
 		format      string
 	)
@@ -73,6 +75,14 @@ func newEventPublishCmd() *cobra.Command {
 					body = map[string]any{}
 				}
 			}
+			if dryRun {
+				preview, err := previewEventPublish(teamDir, eventType, body)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event publish: %v\n", err)
+					return exitErr(1)
+				}
+				return renderEventPublishPreview(cmd.OutOrStdout(), preview, jsonOut, formatTemplate)
+			}
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: daemon is not running — start it first with `agent-team daemon start`.")
@@ -117,9 +127,70 @@ func newEventPublishCmd() *cobra.Command {
 	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	c.Flags().StringVar(&payload, "payload", "", "JSON object passed as the event payload (e.g. '{\"target\":\"worker\"}').")
 	c.Flags().StringVar(&payloadFile, "payload-file", "", "Read event payload JSON from a file, or '-' for stdin.")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching triggers without publishing to the daemon.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
-	c.Flags().StringVar(&format, "format", "", "Render the event outcome with a Go template, e.g. '{{len .Matched}} {{len .Dispatched}}'.")
+	c.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template, e.g. '{{len .Matched}} {{len .Dispatched}}'.")
 	return c
+}
+
+type eventPublishPreview struct {
+	Type      string         `json:"type"`
+	Payload   map[string]any `json:"payload"`
+	Matched   []string       `json:"matched"`
+	Pipelines []string       `json:"pipelines,omitempty"`
+	DryRun    bool           `json:"dry_run"`
+}
+
+func previewEventPublish(teamDir, eventType string, payload map[string]any) (*eventPublishPreview, error) {
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	preview := &eventPublishPreview{
+		Type:    eventType,
+		Payload: payload,
+		Matched: []string{},
+		DryRun:  true,
+	}
+	if top == nil {
+		return preview, nil
+	}
+	for _, inst := range top.Resolve(eventType, payload) {
+		preview.Matched = append(preview.Matched, inst.Name)
+	}
+	for _, pipeline := range top.ResolvePipelines(eventType, payload) {
+		preview.Pipelines = append(preview.Pipelines, pipeline.Name)
+	}
+	return preview, nil
+}
+
+func renderEventPublishPreview(w io.Writer, preview *eventPublishPreview, jsonOut bool, tmpl *template.Template) error {
+	if preview == nil {
+		preview = &eventPublishPreview{Matched: []string{}, DryRun: true}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(preview)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, preview); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	fmt.Fprintf(w, "Event: %s\n", preview.Type)
+	fmt.Fprintln(w, "Dry run: true")
+	if len(preview.Matched) == 0 && len(preview.Pipelines) == 0 {
+		fmt.Fprintln(w, "(no triggers matched)")
+		return nil
+	}
+	if len(preview.Matched) > 0 {
+		fmt.Fprintf(w, "Matched: %s\n", strings.Join(preview.Matched, ", "))
+	}
+	if len(preview.Pipelines) > 0 {
+		fmt.Fprintf(w, "Pipelines: %s\n", strings.Join(preview.Pipelines, ", "))
+	}
+	return nil
 }
 
 func parseEventPublishFormat(format string) (*template.Template, error) {

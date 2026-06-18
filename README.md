@@ -196,7 +196,7 @@ agent-team channels                             # list pub/sub channels; reads l
 agent-team channel show <name>                  # show a channel summary and recent messages
 agent-team channel publish <name> <body...> [--sender user]
                                                 # publish to a channel; appends locally if the daemon is down
-agent-team event publish <type> [--payload <json> | --payload-file <path|->] [--format '{{len .Matched}} {{len .Dispatched}}'] [--json]
+agent-team event publish <type> [--payload <json> | --payload-file <path|->] [--dry-run] [--format '{{len .Matched}} {{len .Dispatched}}'] [--json]
                                                 # manually publish a topology event through the daemon
 agent-team channel rm <name> -f                 # delete a channel and its durable state
 agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
