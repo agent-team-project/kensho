@@ -142,6 +142,29 @@ target = "manager"
 	if len(result.Preview.Pipelines) != 1 || result.Preview.Pipelines[0] != "ticket_triage" {
 		t.Fatalf("pipeline preview = %+v", result.Preview)
 	}
+	if len(result.Preview.PipelineJobs) != 1 {
+		t.Fatalf("pipeline job preview = %+v", result.Preview)
+	}
+	pipelineJob := result.Preview.PipelineJobs[0]
+	if pipelineJob.Action != "would_create" || pipelineJob.JobID != "squ-105" || pipelineJob.Ticket != "SQU-105" || pipelineJob.Pipeline != "ticket_triage" || pipelineJob.Target != "manager" {
+		t.Fatalf("pipeline job preview = %+v", pipelineJob)
+	}
+	if len(pipelineJob.Steps) != 1 || pipelineJob.Steps[0].ID != "triage" || pipelineJob.Steps[0].Target != "manager" || pipelineJob.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("pipeline job steps preview = %+v", pipelineJob.Steps)
+	}
+	textCmd := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textCmd.SetOut(textOut)
+	textCmd.SetErr(textErr)
+	textCmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers"})
+	if err := textCmd.Execute(); err != nil {
+		t.Fatalf("intake linear dry-run preview text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Matched: manager", "Pipelines: ticket_triage", "Jobs:", "squ-105", "would_create", "target=manager", "steps=triage"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("preview text missing %q:\n%s", want, textOut.String())
+		}
+	}
 	if _, err := job.Read(teamDir, "squ-105"); !os.IsNotExist(err) {
 		t.Fatalf("dry-run preview wrote job, err=%v", err)
 	}

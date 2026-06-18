@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -284,6 +285,82 @@ func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
 	}
 	if !preview.DryRun || preview.Type != "user_invocation" || len(preview.Matched) != 1 || preview.Matched[0] != "manager" {
 		t.Fatalf("preview = %+v", preview)
+	}
+}
+
+func TestEventPublishDryRunPreviewsPipelineJob(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := topoFixture + `
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Implement it"}`, "--dry-run", "--json", "--target", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("event publish dry-run pipeline: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview eventPublishPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode event publish dry-run pipeline json: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Type != "ticket.created" || len(preview.Pipelines) != 1 || preview.Pipelines[0] != "ticket_to_pr" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if len(preview.PipelineJobs) != 1 {
+		t.Fatalf("pipeline job preview = %+v", preview)
+	}
+	pipelineJob := preview.PipelineJobs[0]
+	if pipelineJob.Action != "would_create" || pipelineJob.JobID != "squ-130" || pipelineJob.Target != "worker" || pipelineJob.Kickoff != "Implement it" {
+		t.Fatalf("pipeline job preview = %+v", pipelineJob)
+	}
+	if len(pipelineJob.Steps) != 1 || pipelineJob.Steps[0].ID != "implement" || pipelineJob.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("pipeline job steps = %+v", pipelineJob.Steps)
+	}
+	if _, err := job.Read(teamDir, "squ-130"); !os.IsNotExist(err) {
+		t.Fatalf("dry-run pipeline preview wrote job, err=%v", err)
+	}
+
+	existing := mustNewJob(t, "SQU-130", "worker")
+	existing.Status = job.StatusBlocked
+	if err := job.Write(teamDir, existing); err != nil {
+		t.Fatalf("write existing job: %v", err)
+	}
+	updateCmd := NewRootCmd()
+	updateOut, updateErr := &bytes.Buffer{}, &bytes.Buffer{}
+	updateCmd.SetOut(updateOut)
+	updateCmd.SetErr(updateErr)
+	updateCmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Updated kickoff"}`, "--dry-run", "--json", "--target", target})
+	if err := updateCmd.Execute(); err != nil {
+		t.Fatalf("event publish dry-run existing pipeline: %v\nstderr=%s", err, updateErr.String())
+	}
+	var updatePreview eventPublishPreview
+	if err := json.Unmarshal(updateOut.Bytes(), &updatePreview); err != nil {
+		t.Fatalf("decode event publish dry-run existing pipeline json: %v\nbody=%s", err, updateOut.String())
+	}
+	if len(updatePreview.PipelineJobs) != 1 || updatePreview.PipelineJobs[0].Action != "would_update" || !updatePreview.PipelineJobs[0].Existing {
+		t.Fatalf("existing pipeline job preview = %+v", updatePreview.PipelineJobs)
+	}
+	unchanged, err := job.Read(teamDir, "squ-130")
+	if err != nil {
+		t.Fatalf("read existing job: %v", err)
+	}
+	if unchanged.Status != job.StatusBlocked || unchanged.Kickoff != "test kickoff" {
+		t.Fatalf("dry-run mutated existing job = %+v", unchanged)
 	}
 }
 

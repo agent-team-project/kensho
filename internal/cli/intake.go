@@ -262,15 +262,10 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *templ
 		fmt.Fprintf(w, "Cleanup: %s\n", cleanupPreview.Summary)
 	}
 	if triggerPreview != nil {
-		if len(triggerPreview.Matched) == 0 && len(triggerPreview.Pipelines) == 0 {
+		if !eventPublishPreviewHasRoutes(triggerPreview) {
 			fmt.Fprintln(w, "Triggers: none")
 		} else {
-			if len(triggerPreview.Matched) > 0 {
-				fmt.Fprintf(w, "Matched: %s\n", strings.Join(triggerPreview.Matched, ", "))
-			}
-			if len(triggerPreview.Pipelines) > 0 {
-				fmt.Fprintf(w, "Pipelines: %s\n", strings.Join(triggerPreview.Pipelines, ", "))
-			}
+			return renderEventPublishRoutePreview(w, triggerPreview)
 		}
 	}
 	return nil

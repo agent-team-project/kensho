@@ -7,7 +7,9 @@ import (
 	"os"
 	"strings"
 	"text/template"
+	"time"
 
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -134,11 +136,33 @@ func newEventPublishCmd() *cobra.Command {
 }
 
 type eventPublishPreview struct {
-	Type      string         `json:"type"`
-	Payload   map[string]any `json:"payload"`
-	Matched   []string       `json:"matched"`
-	Pipelines []string       `json:"pipelines,omitempty"`
-	DryRun    bool           `json:"dry_run"`
+	Type         string                    `json:"type"`
+	Payload      map[string]any            `json:"payload"`
+	Matched      []string                  `json:"matched"`
+	Pipelines    []string                  `json:"pipelines,omitempty"`
+	PipelineJobs []eventPipelineJobPreview `json:"pipeline_jobs,omitempty"`
+	DryRun       bool                      `json:"dry_run"`
+}
+
+type eventPipelineJobPreview struct {
+	Action          string                     `json:"action"`
+	Pipeline        string                     `json:"pipeline"`
+	JobID           string                     `json:"job_id,omitempty"`
+	Ticket          string                     `json:"ticket,omitempty"`
+	TicketURL       string                     `json:"ticket_url,omitempty"`
+	GeneratedTicket bool                       `json:"generated_ticket,omitempty"`
+	Target          string                     `json:"target,omitempty"`
+	Kickoff         string                     `json:"kickoff,omitempty"`
+	Existing        bool                       `json:"existing,omitempty"`
+	Steps           []eventPipelineStepPreview `json:"steps,omitempty"`
+	Error           string                     `json:"error,omitempty"`
+}
+
+type eventPipelineStepPreview struct {
+	ID     string     `json:"id"`
+	Target string     `json:"target"`
+	Status job.Status `json:"status,omitempty"`
+	After  []string   `json:"after,omitempty"`
 }
 
 func previewEventPublish(teamDir, eventType string, payload map[string]any) (*eventPublishPreview, error) {
@@ -160,8 +184,109 @@ func previewEventPublish(teamDir, eventType string, payload map[string]any) (*ev
 	}
 	for _, pipeline := range top.ResolvePipelines(eventType, payload) {
 		preview.Pipelines = append(preview.Pipelines, pipeline.Name)
+		preview.PipelineJobs = append(preview.PipelineJobs, previewPipelineJob(teamDir, eventType, payload, pipeline))
 	}
 	return preview, nil
+}
+
+func previewPipelineJob(teamDir, eventType string, payload map[string]any, pipeline *topology.Pipeline) eventPipelineJobPreview {
+	preview := eventPipelineJobPreview{
+		Action:   "rejected",
+		Pipeline: pipeline.Name,
+	}
+	if len(pipeline.Steps) == 0 {
+		preview.Error = "pipeline has no steps"
+		return preview
+	}
+	ticket, generated := previewPipelineTicket(pipeline.Name, payload)
+	kickoff := previewPipelineKickoff(eventType, payload)
+	if generated {
+		preview.Action = "would_create"
+		preview.Ticket = ticket
+		preview.GeneratedTicket = true
+		preview.Target = pipeline.Steps[0].Target
+		preview.Kickoff = kickoff
+		preview.Steps = previewPipelineSteps(jobStepsFromPipeline(pipeline))
+		return preview
+	}
+	j, err := job.New(ticket, pipeline.Steps[0].Target, kickoff, time.Now())
+	if err != nil {
+		preview.Error = err.Error()
+		return preview
+	}
+	j.Pipeline = pipeline.Name
+	if ticketURL := previewPayloadString(payload, "ticket_url"); ticketURL != "" {
+		j.TicketURL = ticketURL
+	}
+	j.Steps = jobStepsFromPipeline(pipeline)
+	preview = previewPipelineJobFromJob(j, "would_create", false)
+	if existing, err := job.Read(teamDir, j.ID); err == nil {
+		existing.Pipeline = pipeline.Name
+		if ticketURL := previewPayloadString(payload, "ticket_url"); ticketURL != "" {
+			existing.TicketURL = ticketURL
+		}
+		if len(existing.Steps) == 0 {
+			existing.Steps = jobStepsFromPipeline(pipeline)
+		}
+		preview = previewPipelineJobFromJob(existing, "would_update", true)
+	}
+	return preview
+}
+
+func previewPipelineJobFromJob(j *job.Job, action string, existing bool) eventPipelineJobPreview {
+	return eventPipelineJobPreview{
+		Action:    action,
+		Pipeline:  j.Pipeline,
+		JobID:     j.ID,
+		Ticket:    j.Ticket,
+		TicketURL: j.TicketURL,
+		Target:    j.Target,
+		Kickoff:   j.Kickoff,
+		Existing:  existing,
+		Steps:     previewPipelineSteps(j.Steps),
+	}
+}
+
+func previewPipelineSteps(steps []job.Step) []eventPipelineStepPreview {
+	out := make([]eventPipelineStepPreview, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, eventPipelineStepPreview{
+			ID:     step.ID,
+			Target: step.Target,
+			Status: step.Status,
+			After:  append([]string(nil), step.After...),
+		})
+	}
+	return out
+}
+
+func previewPipelineTicket(pipeline string, payload map[string]any) (string, bool) {
+	for _, key := range []string{"ticket", "ticket_id", "id"} {
+		if v := previewPayloadString(payload, key); v != "" {
+			return v, false
+		}
+	}
+	return pipeline + "-<generated>", true
+}
+
+func previewPipelineKickoff(eventType string, payload map[string]any) string {
+	if kickoff := previewPayloadString(payload, "kickoff"); kickoff != "" {
+		return kickoff
+	}
+	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
+	return string(body)
+}
+
+func previewPayloadString(payload map[string]any, key string) string {
+	if payload == nil {
+		return ""
+	}
+	v, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
 }
 
 func renderEventPublishPreview(w io.Writer, preview *eventPublishPreview, jsonOut bool, tmpl *template.Template) error {
@@ -180,17 +305,68 @@ func renderEventPublishPreview(w io.Writer, preview *eventPublishPreview, jsonOu
 	}
 	fmt.Fprintf(w, "Event: %s\n", preview.Type)
 	fmt.Fprintln(w, "Dry run: true")
-	if len(preview.Matched) == 0 && len(preview.Pipelines) == 0 {
+	if !eventPublishPreviewHasRoutes(preview) {
 		fmt.Fprintln(w, "(no triggers matched)")
 		return nil
 	}
+	return renderEventPublishRoutePreview(w, preview)
+}
+
+func eventPublishPreviewHasRoutes(preview *eventPublishPreview) bool {
+	return preview != nil && (len(preview.Matched) > 0 || len(preview.Pipelines) > 0 || len(preview.PipelineJobs) > 0)
+}
+
+func renderEventPublishRoutePreview(w io.Writer, preview *eventPublishPreview) error {
 	if len(preview.Matched) > 0 {
 		fmt.Fprintf(w, "Matched: %s\n", strings.Join(preview.Matched, ", "))
 	}
 	if len(preview.Pipelines) > 0 {
 		fmt.Fprintf(w, "Pipelines: %s\n", strings.Join(preview.Pipelines, ", "))
 	}
+	if len(preview.PipelineJobs) > 0 {
+		fmt.Fprintln(w, "Jobs:")
+		for _, jobPreview := range preview.PipelineJobs {
+			fmt.Fprintf(w, "  %s\n", formatPipelineJobPreview(jobPreview))
+		}
+	}
 	return nil
+}
+
+func formatPipelineJobPreview(preview eventPipelineJobPreview) string {
+	name := preview.JobID
+	if name == "" {
+		name = "pipeline:" + preview.Pipeline
+	}
+	if preview.Error != "" {
+		return fmt.Sprintf("%s rejected pipeline=%s error=%q", name, preview.Pipeline, preview.Error)
+	}
+	ticket := preview.Ticket
+	if preview.GeneratedTicket {
+		ticket = "<generated>"
+	}
+	parts := []string{
+		name,
+		preview.Action,
+		"pipeline=" + preview.Pipeline,
+		"target=" + preview.Target,
+	}
+	if ticket != "" {
+		parts = append(parts, "ticket="+ticket)
+	}
+	if steps := formatPipelinePreviewSteps(preview.Steps); steps != "" {
+		parts = append(parts, "steps="+steps)
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatPipelinePreviewSteps(steps []eventPipelineStepPreview) string {
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if step.ID != "" {
+			names = append(names, step.ID)
+		}
+	}
+	return strings.Join(names, ",")
 }
 
 func parseEventPublishFormat(format string) (*template.Template, error) {
