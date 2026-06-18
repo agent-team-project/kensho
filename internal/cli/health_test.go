@@ -442,10 +442,12 @@ func TestRenderHealthShowsIssues(t *testing.T) {
 	result := buildHealth(false, 0, []instanceRow{
 		{Instance: "w", Agent: "worker", Lifecycle: string(daemon.StatusCrashed), Phase: "blocked"},
 	}, nil, time.Now())
+	result.Queue = queueSummary{Total: 1, Dead: 1, Attempts: 3}
+	result.addIssue("queue_dead_letter", "", "", "", "queue has 1 dead-letter item(s)")
 	var buf bytes.Buffer
 	renderHealth(&buf, result)
 	out := buf.String()
-	for _, want := range []string{"health: unhealthy", "daemon: not running", "phases:", "blocked=1", "instance_crashed", "w"} {
+	for _, want := range []string{"health: unhealthy", "daemon: not running", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3", "phases:", "blocked=1", "instance_crashed", "queue_dead_letter", "w"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered health missing %q:\n%s", want, out)
 		}
@@ -472,6 +474,57 @@ func TestHealthCommandJSONExitsUnhealthy(t *testing.T) {
 	}
 	if body.Healthy || body.Daemon.Running {
 		t.Fatalf("health json should be unhealthy with daemon down: %+v", body)
+	}
+}
+
+func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	item := &daemon.QueueItem{
+		ID:             "q-health-dead",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-108",
+		Payload:        map[string]any{"target": "worker", "ticket": "SQU-108"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health json: %v\nbody=%s", err, stdout.String())
+	}
+	if body.Queue.Total != 1 || body.Queue.Dead != 1 || body.Queue.Attempts != daemon.MaxQueueAttempts {
+		t.Fatalf("queue = %+v, want one dead item", body.Queue)
+	}
+	var sawQueueIssue bool
+	for _, issue := range body.Issues {
+		if issue.Code == "queue_dead_letter" {
+			sawQueueIssue = true
+			break
+		}
+	}
+	if !sawQueueIssue {
+		t.Fatalf("issues = %+v, missing queue_dead_letter", body.Issues)
 	}
 }
 

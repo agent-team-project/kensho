@@ -190,6 +190,7 @@ type healthResult struct {
 	Healthy   bool             `json:"healthy"`
 	Daemon    healthDaemon     `json:"daemon"`
 	Summary   psSummaryJSON    `json:"summary"`
+	Queue     queueSummary     `json:"queue"`
 	Declared  healthDeclared   `json:"declared"`
 	Issues    []healthIssue    `json:"issues"`
 	CheckedAt string           `json:"checked_at"`
@@ -366,7 +367,11 @@ func collectHealthWithOptions(teamDir string, now time.Time, opts healthOptions)
 	if err != nil {
 		return nil, err
 	}
-	return buildHealthWithDaemonStatus(daemonStatus, rows, topo, now, opts), nil
+	result := buildHealthWithDaemonStatus(daemonStatus, rows, topo, now, opts)
+	if err := addQueueHealth(result, teamDir, now); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func buildHealth(daemonRunning bool, daemonPID int, rows []instanceRow, topo *topology.Topology, now time.Time) *healthResult {
@@ -473,6 +478,27 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 	return result
 }
 
+func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
+	if result == nil {
+		return nil
+	}
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return err
+	}
+	result.Queue = summarizeQueueItems(items, now.UTC())
+	if result.Queue.Dead > 0 {
+		result.addIssue(
+			"queue_dead_letter",
+			"",
+			"",
+			"",
+			fmt.Sprintf("queue has %d dead-letter item(s)", result.Queue.Dead),
+		)
+	}
+	return nil
+}
+
 func filterHealthRows(rows []instanceRow, opts healthOptions) []instanceRow {
 	return filterLimitSortPsRows(rows, opts.filters)
 }
@@ -574,6 +600,15 @@ func renderHealth(w io.Writer, result *healthResult) {
 		result.Summary.Crashed,
 		result.Summary.Stale,
 	)
+	if result.Queue.Total > 0 {
+		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
+			result.Queue.Total,
+			result.Queue.Pending,
+			result.Queue.Dead,
+			result.Queue.Delayed,
+			result.Queue.Attempts,
+		)
+	}
 	fmt.Fprint(w, "phases:")
 	for _, phase := range lifecyclePhaseSummaryOrder() {
 		fmt.Fprintf(w, " %s=%d", phase, result.Summary.Phases[phase])
