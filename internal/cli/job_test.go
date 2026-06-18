@@ -135,6 +135,58 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobShowIncludesStatusPreview(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	j := mustNewJob(t, "SQU-208", "worker")
+	j.Status = job.StatusQueued
+	j.UpdatedAt = now
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write queued job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-208"), `[status]
+phase = "blocked"
+description = "needs token"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-208"
+ticket = "SQU-208"
+branch = "worker-squ-208"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "show", "SQU-208", "--repo", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job show: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"Status Preview:",
+		"worker-squ-208",
+		"phase=blocked",
+		"before=queued",
+		"after=blocked",
+		"action=would_update",
+		"needs token",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("job show missing %q:\n%s", want, out.String())
+		}
+	}
+	updated, err := job.Read(teamDir, "squ-208")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusQueued {
+		t.Fatalf("job show should not mutate job status: %+v", updated)
+	}
+}
+
 func TestJobCreateFromTicketURLUsesTicketSlugID(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

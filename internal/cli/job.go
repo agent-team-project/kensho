@@ -3318,6 +3318,20 @@ func queueItemsForJob(teamDir string, j *job.Job) ([]*daemon.QueueItem, error) {
 	return matches, nil
 }
 
+func statusPreviewsForJob(teamDir string, j *job.Job) ([]jobStatusReconcileResult, error) {
+	previews, err := reconcileJobsFromStatus(teamDir, true, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]jobStatusReconcileResult, 0, len(previews))
+	for _, preview := range previews {
+		if preview.JobID == j.ID {
+			matches = append(matches, preview)
+		}
+	}
+	return matches, nil
+}
+
 func queueItemMatchesJob(item *daemon.QueueItem, j *job.Job) bool {
 	if item == nil || j == nil {
 		return false
@@ -4362,7 +4376,11 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 	if err != nil {
 		return err
 	}
-	renderJobDetailWithQueue(w, j, queueItems)
+	statusPreviews, err := statusPreviewsForJob(teamDir, j)
+	if err != nil {
+		return err
+	}
+	renderJobDetailWithRuntime(w, j, queueItems, statusPreviews)
 	return nil
 }
 
@@ -4459,10 +4477,14 @@ func renderJobStatusReconcileResults(w io.Writer, results []jobStatusReconcileRe
 }
 
 func renderJobDetail(w io.Writer, j *job.Job) {
-	renderJobDetailWithQueue(w, j, nil)
+	renderJobDetailWithRuntime(w, j, nil, nil)
 }
 
 func renderJobDetailWithQueue(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem) {
+	renderJobDetailWithRuntime(w, j, queueItems, nil)
+}
+
+func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult) {
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
@@ -4514,6 +4536,17 @@ func renderJobDetailWithQueue(w io.Writer, j *job.Job, queueItems []*daemon.Queu
 		for _, item := range queueItems {
 			fmt.Fprintf(w, "  %s  state=%s instance=%s instance_id=%s attempts=%d next_retry=%s\n",
 				item.ID, item.State, item.Instance, item.InstanceID, item.Attempts, queueTime(item.NextRetry))
+		}
+	}
+	if len(statusPreviews) > 0 {
+		fmt.Fprintln(w, "Status Preview:")
+		for _, preview := range statusPreviews {
+			action := "unchanged"
+			if preview.Changed {
+				action = "would_update"
+			}
+			fmt.Fprintf(w, "  %s  phase=%s before=%s after=%s action=%s message=%s\n",
+				preview.Instance, preview.Phase, preview.Before, preview.After, action, emptyDash(preview.Message))
 		}
 	}
 	fmt.Fprintf(w, "Created:     %s\n", j.CreatedAt.Format(time.RFC3339))
