@@ -408,13 +408,18 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		"squ-202",
 		"stale_running",
 		"running_without_instance",
+		"agent-team job reconcile status",
 		"squ-203",
 		"stale_queued",
+		"agent-team job dispatch squ-203",
 		"squ-204",
 		"queue_dead",
+		"agent-team queue retry q-triage-dead",
+		"agent-team job retry squ-201 --dispatch",
 		"Ready pipeline steps:",
 		"squ-205",
 		"implement",
+		"agent-team job advance squ-205",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("job triage missing %q:\n%s", want, out.String())
@@ -437,14 +442,25 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		t.Fatalf("triage snapshot = %+v", snapshot)
 	}
 	reasons := map[string][]string{}
+	actions := map[string][]string{}
 	for _, item := range snapshot.Attention {
 		reasons[item.JobID] = item.Reasons
+		actions[item.JobID] = item.Actions
 	}
 	if !containsString(reasons["squ-204"], "queue_dead") {
 		t.Fatalf("squ-204 reasons = %v", reasons["squ-204"])
 	}
+	if !containsString(actions["squ-204"], "agent-team queue retry q-triage-dead") {
+		t.Fatalf("squ-204 actions = %v", actions["squ-204"])
+	}
+	if !containsString(actions["squ-201"], "agent-team job retry squ-201 --dispatch") {
+		t.Fatalf("squ-201 actions = %v", actions["squ-201"])
+	}
 	if snapshot.ReadySteps[0].JobID != "squ-205" || snapshot.ReadySteps[0].StepID != "implement" {
 		t.Fatalf("ready steps = %+v", snapshot.ReadySteps)
+	}
+	if !containsString(snapshot.ReadySteps[0].Actions, "agent-team job advance squ-205") {
+		t.Fatalf("ready step actions = %+v", snapshot.ReadySteps[0].Actions)
 	}
 }
 
@@ -483,6 +499,7 @@ branch = "worker-squ-207"
 		"Attention:",
 		"squ-207",
 		"status_file_blocked",
+		"agent-team job unblock squ-207 <answer...>",
 		"needs token",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -507,6 +524,9 @@ branch = "worker-squ-207"
 	}
 	if len(snapshot.Attention) != 1 || snapshot.Attention[0].JobID != "squ-207" || !containsString(snapshot.Attention[0].Reasons, "status_file_blocked") {
 		t.Fatalf("attention = %+v", snapshot.Attention)
+	}
+	if snapshot.Attention[0].Severity != "warning" || !containsString(snapshot.Attention[0].Actions, "agent-team job unblock squ-207 <answer...>") {
+		t.Fatalf("attention action/severity = %+v", snapshot.Attention[0])
 	}
 	updated, err := job.Read(teamDir, "squ-207")
 	if err != nil {

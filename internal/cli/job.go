@@ -2269,6 +2269,7 @@ type jobTriageItem struct {
 	Status       job.Status `json:"status"`
 	Severity     string     `json:"severity"`
 	Reasons      []string   `json:"reasons"`
+	Actions      []string   `json:"actions,omitempty"`
 	Message      string     `json:"message,omitempty"`
 	Target       string     `json:"target,omitempty"`
 	Instance     string     `json:"instance,omitempty"`
@@ -2630,6 +2631,7 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, n
 	} else {
 		item.Message = strings.Join(item.Reasons, ",")
 	}
+	item.Actions = actionsForJobTriageItem(item)
 	return item, true
 }
 
@@ -2696,9 +2698,9 @@ func renderJobTriageAttention(w io.Writer, items []jobTriageItem) {
 	}
 	fmt.Fprintln(w, "Attention:")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tSEVERITY\tSTATUS\tREASONS\tTARGET\tINSTANCE\tQUEUE\tUPDATED\tMESSAGE")
+	fmt.Fprintln(tw, "JOB\tSEVERITY\tSTATUS\tREASONS\tTARGET\tINSTANCE\tQUEUE\tUPDATED\tACTION\tMESSAGE")
 	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			item.JobID,
 			item.Severity,
 			item.Status,
@@ -2707,10 +2709,56 @@ func renderJobTriageAttention(w io.Writer, items []jobTriageItem) {
 			emptyDash(item.Instance),
 			jobTriageQueueSummary(item),
 			item.UpdatedAt.Format(time.RFC3339),
+			emptyDash(strings.Join(item.Actions, "; ")),
 			emptyDash(item.Message),
 		)
 	}
 	_ = tw.Flush()
+}
+
+func actionsForJobTriageItem(item jobTriageItem) []string {
+	var actions []string
+	add := func(action string) {
+		action = strings.TrimSpace(action)
+		if action == "" {
+			return
+		}
+		for _, existing := range actions {
+			if existing == action {
+				return
+			}
+		}
+		actions = append(actions, action)
+	}
+	if stringSliceContains(item.Reasons, "queue_dead") {
+		if len(item.QueueIDs) == 1 {
+			add(fmt.Sprintf("agent-team queue retry %s", item.QueueIDs[0]))
+		} else {
+			add(fmt.Sprintf("agent-team queue retry --all --job %s", item.JobID))
+		}
+	}
+	if stringSliceContains(item.Reasons, "failed") || stringSliceContains(item.Reasons, "failed_step") {
+		add(fmt.Sprintf("agent-team job retry %s --dispatch", item.JobID))
+	}
+	if stringSliceContains(item.Reasons, "blocked") || stringSliceContains(item.Reasons, "blocked_step") || stringSliceContains(item.Reasons, "status_file_blocked") {
+		add(fmt.Sprintf("agent-team job unblock %s <answer...>", item.JobID))
+	}
+	if stringSliceContains(item.Reasons, "stale_queued") {
+		add(fmt.Sprintf("agent-team job dispatch %s", item.JobID))
+	}
+	if stringSliceContains(item.Reasons, "stale_running") || stringSliceContains(item.Reasons, "running_without_instance") {
+		add("agent-team job reconcile status")
+	}
+	return actions
+}
+
+func stringSliceContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func jobTriageQueueSummary(item jobTriageItem) string {
@@ -2749,20 +2797,23 @@ func addStatusPreviewsToJobTriage(items []jobTriageItem, jobs []*job.Job, previe
 		if idx, ok := itemIndexes[preview.JobID]; ok {
 			items[idx].Status = preview.After
 			items[idx].Reasons = appendStringOnce(items[idx].Reasons, "status_file_blocked")
+			items[idx].Severity = maxJobTriageSeverity(items[idx].Severity, "warning")
 			if strings.TrimSpace(preview.Message) != "" {
 				items[idx].Message = preview.Message
 			}
 			if strings.TrimSpace(items[idx].Instance) == "" {
 				items[idx].Instance = preview.Instance
 			}
+			items[idx].Actions = actionsForJobTriageItem(items[idx])
 			continue
 		}
 		j := jobsByID[preview.JobID]
 		item := jobTriageItem{
 			JobID:     preview.JobID,
 			Status:    preview.After,
-			Severity:  "error",
+			Severity:  "warning",
 			Reasons:   []string{"status_file_blocked"},
+			Actions:   []string{fmt.Sprintf("agent-team job unblock %s <answer...>", preview.JobID)},
 			Message:   preview.Message,
 			Instance:  preview.Instance,
 			UpdatedAt: now,
@@ -3065,7 +3116,23 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.StepStatus = next.Step.Status
 		row.Instance = next.Step.Instance
 	}
+	row.Actions = actionsForJobReadyRow(row)
 	return row
+}
+
+func actionsForJobReadyRow(row jobReadyRow) []string {
+	switch row.State {
+	case "ready":
+		return []string{fmt.Sprintf("agent-team job advance %s", row.JobID)}
+	case "queued":
+		return []string{"agent-team tick"}
+	case "failed":
+		return []string{fmt.Sprintf("agent-team job retry %s --dispatch", row.JobID)}
+	case "blocked":
+		return []string{fmt.Sprintf("agent-team job unblock %s <answer...>", row.JobID)}
+	default:
+		return nil
+	}
 }
 
 func renderJobReadyTable(w io.Writer, rows []jobReadyRow) {
@@ -3074,14 +3141,14 @@ func renderJobReadyTable(w io.Writer, rows []jobReadyRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tTARGET\tPIPELINE\tWAITING_FOR\tUPDATED")
+	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tTARGET\tPIPELINE\tWAITING_FOR\tUPDATED\tACTION")
 	for _, row := range rows {
 		waiting := "-"
 		if len(row.WaitingFor) > 0 {
 			waiting = strings.Join(row.WaitingFor, ",")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Target), emptyDash(row.Pipeline), waiting, row.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Target), emptyDash(row.Pipeline), waiting, row.UpdatedAt.Format(time.RFC3339), emptyDash(strings.Join(row.Actions, "; ")))
 	}
 	_ = tw.Flush()
 }
@@ -3838,6 +3905,7 @@ type jobReadyRow struct {
 	Pipeline   string     `json:"pipeline,omitempty"`
 	JobStatus  job.Status `json:"job_status"`
 	State      string     `json:"state"`
+	Actions    []string   `json:"actions,omitempty"`
 	StepID     string     `json:"step_id,omitempty"`
 	Target     string     `json:"target,omitempty"`
 	StepStatus job.Status `json:"step_status,omitempty"`
