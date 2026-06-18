@@ -291,7 +291,13 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-304", "--repo", root, "--kickoff", "run pipeline", "--json"})
+	cmd.SetArgs([]string{
+		"pipeline", "run", "ticket_to_pr", "SQU-304",
+		"--repo", root,
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline",
+		"--kickoff", "run pipeline",
+		"--json",
+	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("pipeline run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -301,6 +307,9 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	}
 	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 2 {
 		t.Fatalf("created job = %+v", created)
+	}
+	if created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline" {
+		t.Fatalf("created ticket_url = %q", created.TicketURL)
 	}
 	if created.Steps[0].ID != "implement" || created.Steps[0].Status != job.StatusQueued {
 		t.Fatalf("first step = %+v", created.Steps[0])
@@ -312,7 +321,7 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pipeline run events: %v", err)
 	}
-	if len(events) != 1 || events[0].Data["pipeline"] != "ticket_to_pr" {
+	if len(events) != 1 || events[0].Data["pipeline"] != "ticket_to_pr" || events[0].Data["ticket_url"] != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline" {
 		t.Fatalf("events = %+v", events)
 	}
 

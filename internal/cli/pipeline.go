@@ -257,6 +257,7 @@ func newPipelineRunCmd() *cobra.Command {
 	var (
 		repo        string
 		id          string
+		ticketURL   string
 		kickoff     string
 		kickoffFile string
 		dispatchNow bool
@@ -307,6 +308,9 @@ func newPipelineRunCmd() *cobra.Command {
 				}
 				j.ID = normalized
 			}
+			if strings.TrimSpace(ticketURL) != "" {
+				j.TicketURL = strings.TrimSpace(ticketURL)
+			}
 			j.Pipeline = pipelineDef.Name
 			j.Steps = jobStepsFromPipeline(pipelineDef)
 			j.LastEvent = "created"
@@ -315,11 +319,15 @@ func newPipelineRunCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: job %q already exists.\n", j.ID)
 				return exitErr(2)
 			}
-			if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, map[string]string{
+			data := map[string]string{
 				"ticket":   j.Ticket,
 				"target":   j.Target,
 				"pipeline": j.Pipeline,
-			}); err != nil {
+			}
+			if j.TicketURL != "" {
+				data["ticket_url"] = j.TicketURL
+			}
+			if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, data); err != nil {
 				return err
 			}
 			if dispatchNow {
@@ -340,6 +348,7 @@ func newPipelineRunCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
+	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the first ready pipeline step immediately using the running daemon.")

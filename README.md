@@ -183,14 +183,14 @@ agent-team send [<instance>] <message...> [--all] [--latest | --last N] [--agent
                                                 # send a daemon mailbox message; phase/stale/unhealthy selectors use current status.toml; appends locally if the daemon is down
 agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source <instance>] [--workspace auto|worktree|repo] [--kickoff "..."] [--kickoff-file <path>] [--format '{{len .Dispatched}}'] [--json]
                                                 # publish an agent.dispatch topology event; e.g. dispatch worker SQU-42
-agent-team job create <ticket> [kickoff...] [--target worker] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--instance <name>] [--json]
+agent-team job create <ticket> [kickoff...] [--target worker] [--ticket-url <url>] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--instance <name>] [--json]
 agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--status queued|running|blocked|done|failed] [--target-agent worker] [--pipeline name] [--instance name] [--json]
 agent-team job show <job-id> | triage [-w] [--no-clear] [--json] | next <job-id> [--json] | ready [--state ready|queued|all] [--json] | events <job-id> [-f] [--tail N|all] [--type closed] [--actor cli] [--since 24h] [--json]
 agent-team job retry <job-id> [--dispatch] [--workspace auto|worktree|repo] [--json]
                                                 # reopen a failed/closed job and optionally dispatch another attempt immediately
 agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reopen|cleanup|rm|prune|step|advance|reconcile ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
-agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--json] | run <pipeline> <ticket> [--dispatch] [--json]
+agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--json] | run <pipeline> <ticket> [--ticket-url <url>] [--dispatch] [--json]
                                                 # inspect declared pipeline workflows from instances.toml
 agent-team schedule ls [--json] | due [--format '{{.Name}} {{.DueReason}}'] [--json] | next [--limit N] [--format '{{.Name}} {{.NextRun}}'] [--json] | fire [--dry-run] [--format '{{.Fired}} {{len .Schedules}}'] [--json] | show <schedule> [--json] | run <schedule> [--payload <json>] [--dry-run] [--json]
                                                 # inspect due/upcoming schedules, fire all due schedule events, or manually publish one declared schedule event

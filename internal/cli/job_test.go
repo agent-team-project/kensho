@@ -35,6 +35,7 @@ func TestJobCreateListShowClose(t *testing.T) {
 	create.SetArgs([]string{
 		"job", "create", "SQU-42",
 		"--target", "worker",
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor",
 		"--kickoff", "implement the status monitor",
 		"--repo", tmp,
 		"--json",
@@ -48,6 +49,9 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if created.ID != "squ-42" || created.Status != job.StatusQueued || created.Target != "worker" {
 		t.Fatalf("created = %+v", created)
+	}
+	if created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor" {
+		t.Fatalf("created ticket_url = %q", created.TicketURL)
 	}
 
 	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "jobs", "squ-42.toml")); err != nil {
@@ -76,7 +80,10 @@ func TestJobCreateListShowClose(t *testing.T) {
 	if err := show.Execute(); err != nil {
 		t.Fatalf("job show: %v\nstderr=%s", err, showErr.String())
 	}
-	if !strings.Contains(showOut.String(), "Kickoff:") || !strings.Contains(showOut.String(), "implement the status monitor") {
+	if !strings.Contains(showOut.String(), "Ticket URL:") ||
+		!strings.Contains(showOut.String(), "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor") ||
+		!strings.Contains(showOut.String(), "Kickoff:") ||
+		!strings.Contains(showOut.String(), "implement the status monitor") {
 		t.Fatalf("job show missing kickoff:\n%s", showOut.String())
 	}
 
@@ -110,6 +117,9 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Type != "created" || events[1].Type != "closed" {
 		t.Fatalf("events = %+v", events)
+	}
+	if events[0].Data["ticket_url"] != "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor" {
+		t.Fatalf("created event data = %+v", events[0].Data)
 	}
 
 	tailCmd := NewRootCmd()

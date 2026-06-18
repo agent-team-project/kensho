@@ -127,6 +127,7 @@ func newJobCreateCmd() *cobra.Command {
 		targetAgent string
 		pipeline    string
 		id          string
+		ticketURL   string
 		kickoff     string
 		kickoffFile string
 		instance    string
@@ -192,6 +193,9 @@ func newJobCreateCmd() *cobra.Command {
 				}
 				j.ID = normalized
 			}
+			if strings.TrimSpace(ticketURL) != "" {
+				j.TicketURL = strings.TrimSpace(ticketURL)
+			}
 			if strings.TrimSpace(instance) != "" {
 				j.Instance = strings.TrimSpace(instance)
 			}
@@ -204,6 +208,9 @@ func newJobCreateCmd() *cobra.Command {
 			data := map[string]string{
 				"ticket": j.Ticket,
 				"target": j.Target,
+			}
+			if j.TicketURL != "" {
+				data["ticket_url"] = j.TicketURL
 			}
 			if j.Pipeline != "" {
 				data["pipeline"] = j.Pipeline
@@ -246,6 +253,7 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&targetAgent, "target", "worker", "Target agent that should own this job.")
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Create this job from a declared pipeline in instances.toml.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
+	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the target agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that owns the job (default set during dispatch).")
