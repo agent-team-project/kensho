@@ -1807,6 +1807,7 @@ func newJobAdvanceCmd() *cobra.Command {
 	var (
 		repo      string
 		workspace string
+		dryRun    bool
 		jsonOut   bool
 	)
 	cwd, _ := os.Getwd()
@@ -1818,6 +1819,14 @@ func newJobAdvanceCmd() *cobra.Command {
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
 				return err
+			}
+			if dryRun {
+				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+					return exitErr(1)
+				}
+				return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, nil)
 			}
 			res, err := advanceJob(cmd, teamDir, j, workspace)
 			if err != nil {
@@ -1831,6 +1840,7 @@ func newJobAdvanceCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for the advanced step: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the next ready step dispatch without changing daemon or job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
 	return cmd
 }

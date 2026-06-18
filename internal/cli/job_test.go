@@ -3112,6 +3112,43 @@ func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"job", "advance", "squ-201", "--repo", target, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("job advance dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview jobAdvancePreview
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode advance dry-run json: %v\nbody=%s", err, dryOut.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-201" || preview.Step == nil || preview.Step.ID != "review" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if preview.Dispatch == nil || preview.Dispatch.RequestedName != "manager-squ-201-review" {
+		t.Fatalf("dispatch preview = %+v", preview.Dispatch)
+	}
+	payload := preview.Dispatch.Preview.Payload
+	if payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "review" || payload["job_id"] != "squ-201" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	unchanged, err := job.Read(teamDir, "squ-201")
+	if err != nil {
+		t.Fatalf("read dry-run job: %v", err)
+	}
+	if unchanged.Steps[1].Status != job.StatusBlocked || unchanged.LastEvent != "" {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+	dryMessages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read dry-run messages: %v", err)
+	}
+	if len(dryMessages) != 0 {
+		t.Fatalf("dry-run sent messages = %+v", dryMessages)
+	}
+
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
