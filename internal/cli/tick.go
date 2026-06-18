@@ -25,9 +25,11 @@ func newTickCmd() *cobra.Command {
 		skipAdvance   bool
 		dryRun        bool
 		watch         bool
+		untilIdle     bool
 		jsonOut       bool
 		format        string
 		interval      time.Duration
+		maxCycles     int
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -47,6 +49,22 @@ func newTickCmd() *cobra.Command {
 			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if watch && untilIdle {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: choose one of --watch or --until-idle.")
+				return exitErr(2)
+			}
+			if untilIdle && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --until-idle cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if maxCycles <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --max-cycles must be > 0.")
+				return exitErr(2)
+			}
+			if cmd.Flags().Changed("max-cycles") && !untilIdle {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --max-cycles requires --until-idle.")
 				return exitErr(2)
 			}
 			tmpl, err := parseTickFormat(format)
@@ -77,6 +95,19 @@ func newTickCmd() *cobra.Command {
 				}
 				return nil
 			}
+			if untilIdle {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				result, err := runTickUntilIdle(ctx, cmd, teamDir, workspace, limit, opts, maxCycles, interval)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
+					if errors.Is(err, errDaemonNotRunning) {
+						return exitErr(2)
+					}
+					return exitErr(1)
+				}
+				return renderTickUntilIdleResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+			}
 			result, err := runTick(cmd, teamDir, workspace, limit, opts)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
@@ -97,9 +128,11 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview schedule firing, queue drain, and pipeline advancement without mutating state.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
+	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, queue, or pipeline work remains.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
-	cmd.Flags().StringVar(&format, "format", "", "Render the tick result with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.")
-	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch, or delay between --until-idle cycles.")
+	cmd.Flags().IntVar(&maxCycles, "max-cycles", 20, "With --until-idle, stop after this many cycles if work keeps appearing.")
 	return cmd
 }
 
@@ -117,6 +150,13 @@ type tickResult struct {
 	Queue     *daemon.QueueDrainResult   `json:"queue,omitempty"`
 	Advance   []pipelineAdvanceResult    `json:"advance,omitempty"`
 	DryRun    bool                       `json:"dry_run,omitempty"`
+}
+
+type tickUntilIdleResult struct {
+	CyclesRun int           `json:"cycles_run"`
+	Idle      bool          `json:"idle"`
+	HitLimit  bool          `json:"hit_limit,omitempty"`
+	Cycles    []*tickResult `json:"cycles"`
 }
 
 func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tickOptions) (*tickResult, error) {
@@ -156,6 +196,38 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 	return result, nil
 }
 
+func runTickUntilIdle(ctx context.Context, cmd *cobra.Command, teamDir, workspace string, limit int, opts tickOptions, maxCycles int, interval time.Duration) (*tickUntilIdleResult, error) {
+	if maxCycles <= 0 {
+		maxCycles = 1
+	}
+	result := &tickUntilIdleResult{Cycles: []*tickResult{}}
+	for cycle := 0; cycle < maxCycles; cycle++ {
+		if cycle > 0 && interval > 0 {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				result.CyclesRun = len(result.Cycles)
+				return result, nil
+			case <-timer.C:
+			}
+		}
+		tick, err := runTick(cmd, teamDir, workspace, limit, opts)
+		if err != nil {
+			result.CyclesRun = len(result.Cycles)
+			return result, err
+		}
+		result.Cycles = append(result.Cycles, tick)
+		if tickResultIsIdle(tick) {
+			result.Idle = true
+			break
+		}
+	}
+	result.CyclesRun = len(result.Cycles)
+	result.HitLimit = !result.Idle && result.CyclesRun >= maxCycles
+	return result, nil
+}
+
 func runTickLoop(ctx context.Context, cmd *cobra.Command, teamDir, workspace string, limit int, opts tickOptions, jsonOut bool, tmpl *template.Template, interval time.Duration) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -183,6 +255,24 @@ func runTickLoop(ctx context.Context, cmd *cobra.Command, teamDir, workspace str
 	}
 }
 
+func tickResultIsIdle(result *tickResult) bool {
+	if result == nil {
+		return true
+	}
+	if result.Schedule != nil && (result.Schedule.Fired > 0 || result.Schedule.WouldFire > 0) {
+		return false
+	}
+	if result.Queue != nil && (result.Queue.Attempted > 0 || result.Queue.WouldDispatch > 0 || result.Queue.Dispatched > 0 || result.Queue.Rejected > 0) {
+		return false
+	}
+	for _, advanced := range result.Advance {
+		if advanced.Action == "advanced" || advanced.Action == "would_advance" {
+			return false
+		}
+	}
+	return true
+}
+
 func parseTickFormat(format string) (*template.Template, error) {
 	if format == "" {
 		return nil, nil
@@ -192,6 +282,42 @@ func parseTickFormat(format string) (*template.Template, error) {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
 	return tmpl, nil
+}
+
+func renderTickUntilIdleResult(w fmtWriter, result *tickUntilIdleResult, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &tickUntilIdleResult{Cycles: []*tickResult{}}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	for i, cycle := range result.Cycles {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintf(w, "Cycle %d:\n", i+1)
+		if err := renderTickResult(w, cycle, false, nil); err != nil {
+			return err
+		}
+	}
+	if len(result.Cycles) > 0 {
+		fmt.Fprintln(w)
+	}
+	if result.Idle {
+		fmt.Fprintf(w, "tick: idle after %d cycle(s)\n", result.CyclesRun)
+	} else if result.HitLimit {
+		fmt.Fprintf(w, "tick: hit max cycles (%d) before idle\n", result.CyclesRun)
+	} else {
+		fmt.Fprintf(w, "tick: stopped after %d cycle(s)\n", result.CyclesRun)
+	}
+	return nil
 }
 
 func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *template.Template) error {

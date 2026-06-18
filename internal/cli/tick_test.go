@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,6 +158,76 @@ func TestTickDryRunIncludesDueSchedules(t *testing.T) {
 	}
 	if _, err := daemon.ReadScheduleState(daemon.DaemonRoot(teamDir), "nightly"); !os.IsNotExist(err) {
 		t.Fatalf("tick dry-run wrote schedule state, err=%v", err)
+	}
+}
+
+func TestTickUntilIdleRunsUntilScheduleClears(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-tick-idle-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"tick",
+		"--target", tmp,
+		"--until-idle",
+		"--max-cycles", "3",
+		"--interval", "0s",
+		"--skip-reconcile",
+		"--skip-drain",
+		"--skip-advance",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick until-idle: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickUntilIdleResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick until-idle json: %v\nbody=%s", err, out.String())
+	}
+	if !result.Idle || result.HitLimit || result.CyclesRun != 2 || len(result.Cycles) != 2 {
+		t.Fatalf("until-idle result = %+v", result)
+	}
+	if result.Cycles[0].Schedule == nil || result.Cycles[0].Schedule.Fired != 1 {
+		t.Fatalf("first cycle schedule = %+v", result.Cycles[0].Schedule)
+	}
+	if result.Cycles[1].Schedule == nil || result.Cycles[1].Schedule.Fired != 0 || len(result.Cycles[1].Schedule.Schedules) != 0 {
+		t.Fatalf("second cycle schedule = %+v", result.Cycles[1].Schedule)
+	}
+	if _, err := daemon.ReadScheduleState(daemon.DaemonRoot(teamDir), "nightly"); err != nil {
+		t.Fatalf("schedule state not written: %v", err)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
+func TestTickUntilIdleRejectsDryRun(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--until-idle", "--dry-run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("tick --until-idle --dry-run succeeded: stdout=%s", out.String())
+	}
+	if !strings.Contains(stderr.String(), "--until-idle cannot be combined with --dry-run") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
