@@ -449,22 +449,23 @@ type pipelineStepInfo struct {
 }
 
 type pipelineStatusRow struct {
-	Pipeline     string `json:"pipeline"`
-	Declared     bool   `json:"declared"`
-	Steps        int    `json:"steps"`
-	Jobs         int    `json:"jobs"`
-	Queued       int    `json:"queued"`
-	Running      int    `json:"running"`
-	Blocked      int    `json:"blocked"`
-	Done         int    `json:"done"`
-	Failed       int    `json:"failed"`
-	ReadySteps   int    `json:"ready_steps"`
-	QueuedSteps  int    `json:"queued_steps"`
-	RunningSteps int    `json:"running_steps"`
-	BlockedSteps int    `json:"blocked_steps"`
-	FailedSteps  int    `json:"failed_steps"`
-	DoneSteps    int    `json:"done_steps"`
-	NoStep       int    `json:"no_step"`
+	Pipeline     string   `json:"pipeline"`
+	Declared     bool     `json:"declared"`
+	Steps        int      `json:"steps"`
+	Jobs         int      `json:"jobs"`
+	Queued       int      `json:"queued"`
+	Running      int      `json:"running"`
+	Blocked      int      `json:"blocked"`
+	Done         int      `json:"done"`
+	Failed       int      `json:"failed"`
+	ReadySteps   int      `json:"ready_steps"`
+	QueuedSteps  int      `json:"queued_steps"`
+	RunningSteps int      `json:"running_steps"`
+	BlockedSteps int      `json:"blocked_steps"`
+	FailedSteps  int      `json:"failed_steps"`
+	DoneSteps    int      `json:"done_steps"`
+	NoStep       int      `json:"no_step"`
+	Actions      []string `json:"actions,omitempty"`
 }
 
 type pipelineAdvanceResult struct {
@@ -579,6 +580,7 @@ func collectPipelineStatusRows(teamDir, pipeline string) ([]pipelineStatusRow, e
 		if row == nil {
 			return nil, fmt.Errorf("pipeline %q not found", pipeline)
 		}
+		finalizePipelineStatusRow(row)
 		return []pipelineStatusRow{*row}, nil
 	}
 	extras := make([]string, 0, len(rows))
@@ -591,11 +593,14 @@ func collectPipelineStatusRows(teamDir, pipeline string) ([]pipelineStatusRow, e
 	out := make([]pipelineStatusRow, 0, len(rows))
 	for _, name := range declaredOrder {
 		if row := rows[name]; row != nil {
+			finalizePipelineStatusRow(row)
 			out = append(out, *row)
 		}
 	}
 	for _, name := range extras {
-		out = append(out, *rows[name])
+		row := rows[name]
+		finalizePipelineStatusRow(row)
+		out = append(out, *row)
 	}
 	return out, nil
 }
@@ -634,6 +639,26 @@ func applyPipelineStatusJob(row *pipelineStatusRow, j *job.Job) {
 	case "none":
 		row.NoStep++
 	}
+}
+
+func finalizePipelineStatusRow(row *pipelineStatusRow) {
+	if row == nil {
+		return
+	}
+	actions := []string{}
+	if row.ReadySteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team pipeline advance %s --dry-run --preview-routes", row.Pipeline))
+	}
+	if row.FailedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state failed", row.Pipeline))
+	}
+	if row.BlockedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state blocked", row.Pipeline))
+	}
+	if row.QueuedSteps > 0 {
+		actions = append(actions, "agent-team tick")
+	}
+	row.Actions = actions
 }
 
 func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
@@ -819,9 +844,9 @@ func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PIPELINE\tDECLARED\tSTEPS\tJOBS\tJOB_STATUS\tREADY\tQUEUED\tRUNNING\tBLOCKED\tFAILED\tDONE\tNONE")
+	fmt.Fprintln(tw, "PIPELINE\tDECLARED\tSTEPS\tJOBS\tJOB_STATUS\tREADY\tQUEUED\tRUNNING\tBLOCKED\tFAILED\tDONE\tNONE\tACTION")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
 			row.Pipeline,
 			yesNo(row.Declared),
 			row.Steps,
@@ -834,6 +859,7 @@ func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
 			row.FailedSteps,
 			row.DoneSteps,
 			row.NoStep,
+			emptyDash(strings.Join(row.Actions, "; ")),
 		)
 	}
 	_ = tw.Flush()

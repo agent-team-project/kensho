@@ -267,9 +267,15 @@ target = "manager"
 	if !ticket.Declared || ticket.Steps != 2 || ticket.Jobs != 2 || ticket.Running != 1 || ticket.Failed != 1 || ticket.ReadySteps != 1 || ticket.FailedSteps != 1 {
 		t.Fatalf("ticket status = %+v", ticket)
 	}
+	if !containsString(ticket.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") || !containsString(ticket.Actions, "agent-team pipeline ready ticket_to_pr --state failed") {
+		t.Fatalf("ticket actions = %+v", ticket.Actions)
+	}
 	nightly := byName["nightly"]
 	if !nightly.Declared || nightly.Steps != 1 || nightly.Jobs != 1 || nightly.Queued != 1 || nightly.QueuedSteps != 1 {
 		t.Fatalf("nightly status = %+v", nightly)
+	}
+	if !containsString(nightly.Actions, "agent-team tick") {
+		t.Fatalf("nightly actions = %+v", nightly.Actions)
 	}
 	adHoc := byName["ad_hoc"]
 	if adHoc.Declared || adHoc.Steps != 0 || adHoc.Jobs != 1 || adHoc.Done != 1 || adHoc.NoStep != 1 {
@@ -296,7 +302,7 @@ target = "manager"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ticket_to_pr", "yes", "running=1,failed=1", "ad_hoc", "no"} {
+	for _, want := range []string{"PIPELINE", "ACTION", "ticket_to_pr", "yes", "running=1,failed=1", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "ad_hoc", "no"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline status text missing %q:\n%s", want, textOut.String())
 		}
