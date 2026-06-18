@@ -137,6 +137,8 @@ agent-team plan [--json] [--summary] [--stop-extras] [--format '{{.Instance}} {{
                                                 # preview desired instance state from topology and daemon metadata
 agent-team sync [-q] [--dry-run] [--stop-extras] [--agent manager] [--instance manager] [--status unknown] [--phase idle] [--action start] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--json]
                                                 # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
+agent-team tick [-w] [--interval 2s] [--skip-reconcile] [--skip-drain] [--skip-advance] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
+                                                # run one maintenance cycle: reconcile daemon metadata, drain ready queue items, and advance ready pipeline jobs
 agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # show/watch daemon health and current instance snapshot
 agent-team daemon start [--detach=false] [--ready-timeout 3s] [--format '{{.Action}} {{.PID}}'] [--json]
@@ -186,8 +188,8 @@ agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--
                                                 # inspect declared pipeline workflows from instances.toml
 agent-team schedule ls [--json] | show <schedule> [--json] | run <schedule> [--payload <json>] [--dry-run] [--json]
                                                 # inspect and manually publish declared schedule events
-agent-team queue ls [-w] [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--ready] [--json] | show <id> | drop <id>|--all [--dry-run] | retry <id>|--all [--dry-run] | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
-                                                # inspect, retry, drop, and prune persisted daemon dispatch queue items
+agent-team queue ls [-w] [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--ready] [--json] | show <id> | drain [--json] | drop <id>|--all [--dry-run] | retry <id>|--all [--dry-run] | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
+                                                # inspect, drain, retry, drop, and prune persisted daemon dispatch queue items
 agent-team intake linear|github --payload <json> [--dry-run] [--format '{{.Event.Type}}'] [--json] [github: --reconcile-job [--cleanup-merged]] | schedule <name> [--dry-run] [--format '{{.Event.Type}}'] [--json]
                                                 # normalize external webhook or schedule events, optionally without publishing
 agent-team channels                             # list pub/sub channels; reads local channel state if the daemon is down
@@ -223,6 +225,8 @@ agent-team instance rm [<name>...] [--all] [--finished] [--latest | --last N] [-
 Shortcuts: `agent-team up` = `start`, `agent-team down` = `stop`, `agent-team ls` = `ps`, and `agent-team top` = `stats`.
 
 Lifecycle actions (`start`, `stop`, `kill`, `restart`), desired-state previews (`plan`), topology convergence (`sync`), cleanup (`rm`, `prune`), and completion waits (`wait`) accept `--summary` to show aggregate counts for the same selected instances; `--summary --json` emits a `{ "summary": ... }` object for scripts.
+
+Use `monitor --jobs` or `job triage` to inspect what needs attention. Use `tick` to act on ready work: it reconciles stale daemon metadata, asks the daemon to dispatch ready queued events, and advances ready pipeline jobs. `tick --watch` repeats that cycle in the foreground; `--json` emits one JSON object per cycle.
 
 `status --summary --events N`, `monitor --summary --events N`, and `watch --summary --events N` add compact recent lifecycle event counts; combine `--events` with `--event-action` and `--since` to narrow event tails before summarizing. `status --summary --resources`, `monitor --summary --resources`, and `watch --summary --resources` add aggregate CPU, memory, RSS, lifecycle, and phase counts. `status --summary --plan`, `monitor --summary --plan`, and `watch --summary --plan` add compact desired-state action counts from topology. Combining `--summary` with `--resources`, `--plan`, and `--events` produces one compact operator snapshot instead of full tables.
 
