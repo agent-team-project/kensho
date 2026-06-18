@@ -1,0 +1,133 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
+)
+
+func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+
+	j, err := job.New("SQU-501", "worker", "capture diagnostics", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Status = job.StatusRunning
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	queue := &daemon.QueueItem{
+		ID:             "q-snapshot",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-501",
+		Payload:        map[string]any{"target": "worker", "ticket": "SQU-501"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now.Add(-30 * time.Minute),
+		DeadLetteredAt: now.Add(-30 * time.Minute),
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), queue); err != nil {
+		t.Fatalf("write queue: %v", err)
+	}
+	if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), &daemon.LifecycleEvent{
+		TS:       now,
+		Action:   "dispatch",
+		Instance: "worker-squ-501",
+		Agent:    "worker",
+		Status:   daemon.StatusRunning,
+		Message:  "started worker",
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "5", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot json: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Version == "" || snapshot.CapturedAt == "" || snapshot.Repo == "" || snapshot.TeamDir == "" {
+		t.Fatalf("snapshot metadata missing: %+v", snapshot)
+	}
+	if snapshot.Health == nil || snapshot.Health.Queue.Dead != 1 {
+		t.Fatalf("health = %+v", snapshot.Health)
+	}
+	if snapshot.Plan == nil || snapshot.Plan.Summary.Total == 0 {
+		t.Fatalf("plan = %+v", snapshot.Plan)
+	}
+	if len(snapshot.Jobs) != 1 || snapshot.Jobs[0].ID != "squ-501" || snapshot.Jobs[0].Status != job.StatusRunning {
+		t.Fatalf("jobs = %+v", snapshot.Jobs)
+	}
+	if len(snapshot.Queue) != 1 || snapshot.Queue[0].ID != "q-snapshot" || snapshot.QueueSummary == nil || snapshot.QueueSummary.Dead != 1 {
+		t.Fatalf("queue = %+v summary=%+v", snapshot.Queue, snapshot.QueueSummary)
+	}
+	if len(snapshot.Events) != 1 || snapshot.Events[0].Instance != "worker-squ-501" {
+		t.Fatalf("events = %+v", snapshot.Events)
+	}
+	if snapshot.Runtime == nil || snapshot.Runtime.Runtime == "" {
+		t.Fatalf("runtime = %+v", snapshot.Runtime)
+	}
+}
+
+func TestSnapshotCommandWritesOutputFile(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	outPath := filepath.Join(tmp, "diagnostics", "snapshot.json")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--output", outPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot output: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "Wrote snapshot to") {
+		t.Fatalf("stdout = %q", out.String())
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(body, &snapshot); err != nil {
+		t.Fatalf("decode output file: %v\nbody=%s", err, string(body))
+	}
+	if len(snapshot.Events) != 0 {
+		t.Fatalf("--events 0 should skip events: %+v", snapshot.Events)
+	}
+}
+
+func TestSnapshotRejectsJSONAndOutputFile(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--json", "--output", "snapshot.json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("snapshot invalid flags succeeded: stdout=%s", out.String())
+	}
+	if !strings.Contains(stderr.String(), "choose one of --json or --output") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}

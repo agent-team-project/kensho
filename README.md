@@ -161,6 +161,8 @@ agent-team monitor [-w] [--no-clear] [-a] [--summary [--resources]] [--plan [--s
                                                 # combined health, instance, resource, and event-history snapshot; uses local metadata if the daemon is down
 agent-team runtime [--json]
                                                 # inspect selected LLM runtime profile, binary path, and supported capabilities
+agent-team snapshot [--events N|-1] [--schedule-limit N] [--json | --output snapshot.json]
+                                                # capture a read-only diagnostic report with health, plan, jobs, queue, schedules, runtime, and recent events
 agent-team watch [--no-clear] [-a] [--summary [--resources]] [--plan [--stop-extras] [--action start]] [--jobs] [--schedules] [--latest | --last N] [--events N [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # continuously redraw the combined operator monitor
 agent-team ps [-a] [-w] [--no-clear] [-q] [--summary] [--latest | --last N] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--json] [--format '{{.Instance}} {{.Status}}'] [--status running] [--phase blocked] [--stale] [--unhealthy] [--agent worker] [--instance worker-1]
@@ -231,6 +233,8 @@ Lifecycle actions (`start`, `stop`, `kill`, `restart`), desired-state previews (
 Use `monitor --jobs --schedules` or `job triage` plus `schedule next` to inspect what needs attention. Use `tick` to act on ready work: it reconciles stale daemon metadata, fires due schedules, asks the daemon to dispatch ready queued events, and advances ready pipeline jobs. `tick --dry-run` previews schedule, queue, and pipeline work without mutating state; `tick --watch` repeats the cycle in the foreground; `tick --until-idle --max-cycles N` is the finite CI/script mode. `--json` emits one JSON object per cycle for watch mode, or an aggregate cycle result for until-idle mode.
 
 Use `repair --dry-run` when `health` reports dead-letter queue items or stale daemon state. `repair` starts and reconciles the daemon, retries dead-letter queue entries, then runs a maintenance tick; add `--skip-daemon`, `--skip-queue`, or `--skip-tick` to narrow the recovery action.
+
+Use `snapshot --output diagnostics.json` when you need one read-only artifact for debugging or handoff. It captures health, desired-state plan, instance rows, jobs, queue items, schedules, runtime profile, and recent lifecycle events; section-level failures are recorded in the JSON instead of aborting the whole report.
 
 `status --summary --events N`, `monitor --summary --events N`, and `watch --summary --events N` add compact recent lifecycle event counts; combine `--events` with `--event-action` and `--since` to narrow event tails before summarizing. `status --summary --resources`, `monitor --summary --resources`, and `watch --summary --resources` add aggregate CPU, memory, RSS, lifecycle, and phase counts. `status --summary --plan`, `monitor --summary --plan`, and `watch --summary --plan` add compact desired-state action counts from topology. Combining `--summary` with `--resources`, `--plan`, and `--events` produces one compact operator snapshot instead of full tables.
 
