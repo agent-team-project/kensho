@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -152,6 +153,36 @@ func TestDoctor_WarnsWhenRuntimeBinaryMissing(t *testing.T) {
 	}
 }
 
+func TestDoctorJSONReportsWarnings(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		return "", exec.ErrNotFound
+	})
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor --json warning should not fail: %v\nstderr: %s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || len(result.Problems) != 0 || len(result.Warnings) == 0 {
+		t.Fatalf("doctor result = %+v, want ok with warnings", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write warnings to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorStrictRuntimeFailsWhenRuntimeBinaryMissing(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
@@ -204,6 +235,37 @@ func TestDoctorFailsOnInvalidRuntimeEnv(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), runtimebin.EnvRuntime+" must be") {
 		t.Fatalf("expected invalid runtime problem, got: %s", errOut.String())
+	}
+}
+
+func TestDoctorJSONReportsProblems(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "bad")
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --json with invalid runtime to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.OK || len(result.Problems) == 0 {
+		t.Fatalf("doctor result = %+v, want problems", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write problems to stderr: %s", errOut.String())
 	}
 }
 

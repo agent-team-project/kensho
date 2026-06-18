@@ -209,7 +209,7 @@ agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status
 agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade --check [--to <ref>]         # compare .template.lock with a template ref
-agent-team doctor [--strict-daemon] [--strict-runtime]
+agent-team doctor [--strict-daemon] [--strict-runtime] [--json]
                                                 # validate layout, config, provenance, skill wiring, selected runtime, and daemon binary availability
 agent-team --version                            # print version
 

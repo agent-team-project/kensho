@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ func newDoctorCmd() *cobra.Command {
 		target        string
 		strictDaemon  bool
 		strictRuntime bool
+		jsonOut       bool
 	)
 	cwd, _ := os.Getwd()
 
@@ -28,16 +30,17 @@ func newDoctorCmd() *cobra.Command {
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
 			"the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, target, strictDaemon, strictRuntime)
+			return runDoctor(cmd, target, strictDaemon, strictRuntime, jsonOut)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail when the companion agent-teamd binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when the selected LLM runtime binary is not discoverable.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime bool) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, jsonOut bool) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return exitErr(2)
@@ -59,7 +62,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime bo
 	}
 	if st, err := os.Stat(teamDir); err != nil || !st.IsDir() {
 		problems = append(problems, fmt.Sprintf("%s not found — run `agent-team init` first.", teamDir))
-		return reportDoctor(cmd, problems, warnings)
+		return reportDoctor(cmd, problems, warnings, jsonOut)
 	}
 	if info, err := collectRuntimeInfoForTeam(teamDir); err != nil {
 		problems = append(problems, err.Error())
@@ -138,10 +141,30 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime bo
 		}
 	}
 
-	return reportDoctor(cmd, problems, warnings)
+	return reportDoctor(cmd, problems, warnings, jsonOut)
 }
 
-func reportDoctor(cmd *cobra.Command, problems, warnings []string) error {
+type doctorResult struct {
+	OK       bool     `json:"ok"`
+	Problems []string `json:"problems,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+func reportDoctor(cmd *cobra.Command, problems, warnings []string, jsonOut bool) error {
+	result := doctorResult{
+		OK:       len(problems) == 0,
+		Problems: problems,
+		Warnings: warnings,
+	}
+	if jsonOut {
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
 	if len(problems) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "agent-team doctor: OK")
 		for _, w := range warnings {
