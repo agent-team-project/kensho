@@ -186,8 +186,8 @@ agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reope
                                                 # create, monitor, dispatch, control, and clean up durable work units
 agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--json] | run <pipeline> <ticket> [--dispatch] [--json]
                                                 # inspect declared pipeline workflows from instances.toml
-agent-team schedule ls [--json] | due [--format '{{.Name}} {{.DueReason}}'] [--json] | fire [--dry-run] [--format '{{.Fired}} {{len .Schedules}}'] [--json] | show <schedule> [--json] | run <schedule> [--payload <json>] [--dry-run] [--json]
-                                                # inspect due schedules, fire all due schedule events, or manually publish one declared schedule event
+agent-team schedule ls [--json] | due [--format '{{.Name}} {{.DueReason}}'] [--json] | next [--limit N] [--format '{{.Name}} {{.NextRun}}'] [--json] | fire [--dry-run] [--format '{{.Fired}} {{len .Schedules}}'] [--json] | show <schedule> [--json] | run <schedule> [--payload <json>] [--dry-run] [--json]
+                                                # inspect due/upcoming schedules, fire all due schedule events, or manually publish one declared schedule event
 agent-team queue ls [-w] [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--ready] [--json] | show <id> | drain [--dry-run] [--json] | drop <id>|--all [--dry-run] | retry <id>|--all [--dry-run] | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
                                                 # inspect, drain, retry, drop, and prune persisted daemon dispatch queue items
 agent-team intake linear|github (--payload <json> | --payload-file <path|->) [--dry-run] [--preview-triggers] [--format '{{.Event.Type}}'] [--json] [github: --reconcile-job [--cleanup-merged]] | schedule <name> [--dry-run] [--format '{{.Event.Type}}'] [--json]

@@ -27,6 +27,7 @@ func newScheduleCmd() *cobra.Command {
 	cmd.AddCommand(newScheduleLsCmd())
 	cmd.AddCommand(newScheduleShowCmd())
 	cmd.AddCommand(newScheduleDueCmd())
+	cmd.AddCommand(newScheduleNextCmd())
 	cmd.AddCommand(newScheduleFireCmd())
 	cmd.AddCommand(newScheduleRunCmd())
 	return cmd
@@ -125,6 +126,52 @@ func newScheduleDueCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit due schedules as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.")
+	return cmd
+}
+
+func newScheduleNextCmd() *cobra.Command {
+	var (
+		repo    string
+		jsonOut bool
+		format  string
+		limit   int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "next",
+		Short: "List declared schedules ordered by next run.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule next: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule next: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parseScheduleDueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule next: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			schedules, err := loadScheduleInfos(teamDir)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule next: %v\n", err)
+				return exitErr(1)
+			}
+			rows := nextScheduleRows(schedules, time.Now().UTC(), limit)
+			return renderScheduleNextRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schedule forecast rows as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each forecast row with a Go template, e.g. '{{.Name}} {{.Due}} {{.NextRun}}'.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many schedules after ordering; 0 means all.")
 	return cmd
 }
 
@@ -400,6 +447,42 @@ func scheduleDueState(info scheduleInfo, now time.Time) (bool, string) {
 	return false, ""
 }
 
+func nextScheduleRows(schedules []scheduleInfo, now time.Time, limit int) []scheduleInfo {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	rows := make([]scheduleInfo, 0, len(schedules))
+	for _, info := range schedules {
+		due, reason := scheduleDueState(info, now)
+		info.Due = due
+		info.DueReason = reason
+		if due && (info.NextRun == nil || info.NextRun.Before(now)) {
+			next := now
+			info.NextRun = &next
+		}
+		rows = append(rows, info)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Due != rows[j].Due {
+			return rows[i].Due
+		}
+		if rows[i].NextRun == nil && rows[j].NextRun != nil {
+			return false
+		}
+		if rows[i].NextRun != nil && rows[j].NextRun == nil {
+			return true
+		}
+		if rows[i].NextRun != nil && rows[j].NextRun != nil && !rows[i].NextRun.Equal(*rows[j].NextRun) {
+			return rows[i].NextRun.Before(*rows[j].NextRun)
+		}
+		return rows[i].Name < rows[j].Name
+	})
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
 func parseScheduleDueFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -435,6 +518,39 @@ func renderScheduleDueRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl 
 	for _, row := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			row.Name, row.Every, row.DueReason, scheduleTime(row.LastFiredAt), scheduleTime(row.NextRun), summariseSchedulePayload(row.Payload))
+	}
+	_ = tw.Flush()
+	return nil
+}
+
+func renderScheduleNextRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(rows)
+	}
+	if tmpl != nil {
+		for _, row := range rows {
+			if err := tmpl.Execute(w, row); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(w, "(no schedules declared)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "SCHEDULE\tEVERY\tDUE\tREASON\tNEXT_RUN\tLAST_FIRED\tPAYLOAD")
+	for _, row := range rows {
+		reason := row.DueReason
+		if reason == "" {
+			reason = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.Name, row.Every, yesNo(row.Due), reason, scheduleTime(row.NextRun), scheduleTime(row.LastFiredAt), summariseSchedulePayload(row.Payload))
 	}
 	_ = tw.Flush()
 	return nil

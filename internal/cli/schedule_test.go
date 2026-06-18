@@ -156,6 +156,54 @@ func TestScheduleDueListsRunOnStartAndInterval(t *testing.T) {
 	}
 }
 
+func TestScheduleNextOrdersDueUpcomingAndLimit(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := daemon.WriteScheduleState(daemon.DaemonRoot(teamDir), &daemon.ScheduleState{
+		Name:       "hourly",
+		LastSeenAt: now.Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("WriteScheduleState hourly: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"schedule", "next", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("schedule next json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []scheduleInfo
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode schedule next json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 2 {
+		t.Fatalf("next rows = %+v", rows)
+	}
+	if rows[0].Name != "nightly" || !rows[0].Due || rows[0].DueReason != "run_on_start" {
+		t.Fatalf("first next row = %+v, want due nightly", rows[0])
+	}
+	if rows[1].Name != "hourly" || rows[1].Due || rows[1].NextRun == nil || !rows[1].NextRun.After(now) {
+		t.Fatalf("second next row = %+v, want upcoming hourly", rows[1])
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"schedule", "next", "--repo", tmp, "--limit", "1", "--format", "{{.Name}} {{.DueReason}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("schedule next format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if strings.TrimSpace(formatOut.String()) != "nightly run_on_start" {
+		t.Fatalf("formatted limited next rows = %q", formatOut.String())
+	}
+}
+
 func TestScheduleFireUsesDaemonAndPreservesDryRun(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-schedule-")
 	if err != nil {
