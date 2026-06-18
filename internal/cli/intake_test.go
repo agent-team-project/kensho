@@ -75,6 +75,63 @@ func TestIntakeLinearDryRunNormalizesWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestIntakeGitHubReconcilesOwningJob(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	j := mustNewJob(t, "SQU-106", "worker")
+	j.Status = job.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/106"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	payload := `{"action":"closed","repository":{"full_name":"acme/repo"},"pull_request":{"number":106,"merged":true,"html_url":"https://github.com/acme/repo/pull/106","head":{"ref":"worker-squ-106"}}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github reconcile: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake github json: %v\nbody=%s", err, out.String())
+	}
+	if result.Event == nil || result.Event.Type != "pr.merged" {
+		t.Fatalf("event = %+v", result.Event)
+	}
+	if result.Reconcile == nil || result.Reconcile.Job == nil {
+		t.Fatalf("missing reconcile result: %+v", result)
+	}
+	if result.Reconcile.Job.ID != "squ-106" || result.Reconcile.Job.Status != job.StatusDone || result.Reconcile.MatchedBy != "pr_url" {
+		t.Fatalf("reconcile = %+v", result.Reconcile)
+	}
+	updated, err := job.Read(teamDir, "squ-106")
+	if err != nil {
+		t.Fatalf("read reconciled job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastEvent != "pr.merged" || updated.Branch != "worker-squ-106" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestIntakeGitHubCleanupMergedRequiresReconcileJob(t *testing.T) {
+	payload := `{"action":"closed","pull_request":{"number":1,"merged":true}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--cleanup-merged", "--dry-run"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("intake github --cleanup-merged without --reconcile-job succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--cleanup-merged requires --reconcile-job") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestIntakeDryRunFormat(t *testing.T) {
 	payload := `{"action":"Issue created","data":{"identifier":"SQU-103","title":"Formatted intake"}}`
 	cmd := NewRootCmd()

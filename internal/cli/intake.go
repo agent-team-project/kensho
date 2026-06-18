@@ -10,8 +10,10 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -37,12 +39,14 @@ func newIntakeGitHubCmd() *cobra.Command {
 
 func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event, error)) *cobra.Command {
 	var (
-		target      string
-		payload     string
-		payloadFile string
-		dryRun      bool
-		jsonOut     bool
-		format      string
+		target        string
+		payload       string
+		payloadFile   string
+		dryRun        bool
+		reconcileJob  bool
+		cleanupMerged bool
+		jsonOut       bool
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -52,6 +56,10 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: --format cannot be combined with --json.\n", provider)
+				return exitErr(2)
+			}
+			if provider == "github" && cleanupMerged && !reconcileJob {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --cleanup-merged requires --reconcile-job.")
 				return exitErr(2)
 			}
 			tmpl, err := parseIntakeFormat(format)
@@ -72,13 +80,30 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			if dryRun {
 				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl)
 			}
-			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
+			var reconcile *job.ReconcileResult
+			cleanup := ""
+			if provider == "github" && reconcileJob {
+				teamDir, err := resolveTeamDir(cmd, target)
+				if err != nil {
+					return err
+				}
+				reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, cleanupMerged)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake github: %v\n", err)
+					return exitErr(1)
+				}
+			}
+			return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, reconcile, cleanup)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Webhook JSON object.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
+	if provider == "github" {
+		cmd.Flags().BoolVar(&reconcileJob, "reconcile-job", false, "Also reconcile the normalized PR event into the owning durable job.")
+		cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
+	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
 	return cmd
@@ -148,9 +173,11 @@ func intakePayload(payload, payloadFile string) ([]byte, error) {
 }
 
 type intakePublishResult struct {
-	Event   *intake.Event  `json:"event"`
-	Outcome *eventResponse `json:"outcome"`
-	DryRun  bool           `json:"dry_run,omitempty"`
+	Event     *intake.Event        `json:"event"`
+	Outcome   *eventResponse       `json:"outcome"`
+	Reconcile *job.ReconcileResult `json:"reconcile,omitempty"`
+	Cleanup   string               `json:"cleanup,omitempty"`
+	DryRun    bool                 `json:"dry_run,omitempty"`
 }
 
 func parseIntakeFormat(format string) (*template.Template, error) {
@@ -191,6 +218,10 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *templ
 }
 
 func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {
+	return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, nil, "")
+}
+
+func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template, reconcile *job.ReconcileResult, cleanup string) error {
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -206,7 +237,7 @@ func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jso
 		return exitErr(1)
 	}
 	out := cmd.OutOrStdout()
-	result := intakePublishResult{Event: ev, Outcome: res}
+	result := intakePublishResult{Event: ev, Outcome: res, Reconcile: reconcile, Cleanup: cleanup}
 	if jsonOut {
 		return json.NewEncoder(out).Encode(result)
 	}
@@ -214,7 +245,39 @@ func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jso
 		return renderIntakeTemplate(out, result, tmpl)
 	}
 	fmt.Fprintf(out, "Event: %s\n", ev.Type)
-	return renderIntakeOutcome(out, res)
+	if err := renderIntakeOutcome(out, res); err != nil {
+		return err
+	}
+	if reconcile != nil && reconcile.Job != nil {
+		fmt.Fprintf(out, "Job: %s reconciled by %s status=%s\n", reconcile.Job.ID, reconcile.MatchedBy, reconcile.Job.Status)
+	}
+	if cleanup != "" {
+		fmt.Fprintf(out, "Cleanup: %s\n", cleanup)
+	}
+	return nil
+}
+
+func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool) (*job.ReconcileResult, string, error) {
+	result, err := job.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
+	if err != nil {
+		return nil, "", err
+	}
+	cleanup := ""
+	if cleanupMerged && result.Job.Status == job.StatusDone {
+		repoRoot := filepath.Dir(teamDir)
+		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job)
+		if err != nil {
+			return nil, "", err
+		}
+		result.Job.Worktree = ""
+		result.Job.Branch = ""
+		result.Job.LastStatus = strings.TrimSpace(result.Job.LastStatus + "; cleanup: " + cleanup)
+		result.Job.UpdatedAt = time.Now().UTC()
+		if err := writeJobWithAudit(teamDir, result.Job, "cleanup", "cli", cleanup, nil); err != nil {
+			return nil, "", err
+		}
+	}
+	return result, cleanup, nil
 }
 
 func renderIntakeTemplate(w io.Writer, result intakePublishResult, tmpl *template.Template) error {
