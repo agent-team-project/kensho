@@ -93,24 +93,25 @@ type snapshotOptions struct {
 }
 
 type snapshotResult struct {
-	Version       string                     `json:"version"`
-	CapturedAt    string                     `json:"captured_at"`
-	Repo          string                     `json:"repo"`
-	TeamDir       string                     `json:"team_dir"`
-	Redacted      bool                       `json:"redacted"`
-	Runtime       *runtimeInfo               `json:"runtime,omitempty"`
-	Health        *healthResult              `json:"health,omitempty"`
-	Plan          *planResult                `json:"plan,omitempty"`
-	Instances     []psJSONRow                `json:"instances,omitempty"`
-	Jobs          []*job.Job                 `json:"jobs,omitempty"`
-	JobTriage     *jobTriageSnapshot         `json:"job_triage,omitempty"`
-	JobStatus     []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
-	Queue         []*daemon.QueueItem        `json:"queue,omitempty"`
-	QueueSummary  *queueSummary              `json:"queue_summary,omitempty"`
-	Schedules     []scheduleInfo             `json:"schedules,omitempty"`
-	ScheduleNext  []scheduleInfo             `json:"schedule_next,omitempty"`
-	Events        []daemon.LifecycleEvent    `json:"events,omitempty"`
-	SectionErrors map[string]string          `json:"section_errors,omitempty"`
+	Version         string                     `json:"version"`
+	CapturedAt      string                     `json:"captured_at"`
+	Repo            string                     `json:"repo"`
+	TeamDir         string                     `json:"team_dir"`
+	Redacted        bool                       `json:"redacted"`
+	Runtime         *runtimeInfo               `json:"runtime,omitempty"`
+	Health          *healthResult              `json:"health,omitempty"`
+	Plan            *planResult                `json:"plan,omitempty"`
+	Instances       []psJSONRow                `json:"instances,omitempty"`
+	Jobs            []*job.Job                 `json:"jobs,omitempty"`
+	JobTriage       *jobTriageSnapshot         `json:"job_triage,omitempty"`
+	JobStatus       []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	PipelineAdvance []pipelineAdvanceResult    `json:"pipeline_advance_preview,omitempty"`
+	Queue           []*daemon.QueueItem        `json:"queue,omitempty"`
+	QueueSummary    *queueSummary              `json:"queue_summary,omitempty"`
+	Schedules       []scheduleInfo             `json:"schedules,omitempty"`
+	ScheduleNext    []scheduleInfo             `json:"schedule_next,omitempty"`
+	Events          []daemon.LifecycleEvent    `json:"events,omitempty"`
+	SectionErrors   map[string]string          `json:"section_errors,omitempty"`
 }
 
 func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotResult {
@@ -159,6 +160,11 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("job_status_preview", err)
 	} else {
 		out.JobStatus = status
+	}
+	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", 0, true, true); err != nil {
+		out.addError("pipeline_advance_preview", err)
+	} else {
+		out.PipelineAdvance = advance
 	}
 	if queue, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir)); err != nil {
 		out.addError("queue", err)
@@ -236,6 +242,16 @@ func redactSnapshotResult(snapshot *snapshotResult) {
 	for i := range snapshot.ScheduleNext {
 		snapshot.ScheduleNext[i].Payload = redactSnapshotMap(snapshot.ScheduleNext[i].Payload)
 	}
+	for i := range snapshot.PipelineAdvance {
+		redactSnapshotPipelineAdvance(&snapshot.PipelineAdvance[i])
+	}
+}
+
+func redactSnapshotPipelineAdvance(result *pipelineAdvanceResult) {
+	if result == nil || result.Preview == nil || result.Preview.Dispatch == nil || result.Preview.Dispatch.Preview == nil {
+		return
+	}
+	result.Preview.Dispatch.Preview.Payload = redactSnapshotMap(result.Preview.Dispatch.Preview.Payload)
 }
 
 func redactSnapshotMap(in map[string]any) map[string]any {
@@ -364,6 +380,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	if snapshot.JobStatus != nil {
 		fmt.Fprintf(w, "job status: previews=%d changes=%d\n", len(snapshot.JobStatus), countChangedJobStatusPreviews(snapshot.JobStatus))
 	}
+	if snapshot.PipelineAdvance != nil {
+		fmt.Fprintf(w, "pipeline advance: ready=%d route_previews=%d\n", len(snapshot.PipelineAdvance), countPipelineAdvanceRoutePreviews(snapshot.PipelineAdvance))
+	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
 			snapshot.QueueSummary.Total,
@@ -385,6 +404,16 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func countPipelineAdvanceRoutePreviews(results []pipelineAdvanceResult) int {
+	count := 0
+	for _, result := range results {
+		if result.Preview != nil && result.Preview.Dispatch != nil && result.Preview.Dispatch.Preview != nil {
+			count++
+		}
+	}
+	return count
 }
 
 func countChangedJobStatusPreviews(results []jobStatusReconcileResult) int {

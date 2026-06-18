@@ -123,6 +123,64 @@ branch = "worker-squ-501"
 	}
 }
 
+func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-503",
+		Ticket:    "SQU-503",
+		Target:    "worker",
+		Kickoff:   "SQU-503: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write ready job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", target, "--events", "0", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot pipeline advance: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\nbody=%s", err, out.String())
+	}
+	if len(snapshot.PipelineAdvance) != 1 || snapshot.PipelineAdvance[0].JobID != "squ-503" || snapshot.PipelineAdvance[0].Action != "would_advance" || !snapshot.PipelineAdvance[0].DryRun {
+		t.Fatalf("pipeline advance preview = %+v", snapshot.PipelineAdvance)
+	}
+	preview := snapshot.PipelineAdvance[0].Preview
+	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-503-implement" {
+		t.Fatalf("pipeline advance route preview = %+v", preview)
+	}
+	if preview.Dispatch.Preview == nil || len(preview.Dispatch.Preview.Matched) != 1 || preview.Dispatch.Preview.Matched[0] != "worker" {
+		t.Fatalf("pipeline advance dispatch preview = %+v", preview.Dispatch.Preview)
+	}
+	payload := preview.Dispatch.Preview.Payload
+	if payload["job_id"] != "squ-503" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "worktree" {
+		t.Fatalf("pipeline advance payload = %+v", payload)
+	}
+	unchanged, err := job.Read(teamDir, "squ-503")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("snapshot mutated job = %+v", unchanged)
+	}
+}
+
 func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 	now := time.Now().UTC()
 	snapshot := &snapshotResult{
@@ -146,11 +204,20 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 			JobID:   "squ-601",
 			Changed: true,
 		}},
+		PipelineAdvance: []pipelineAdvanceResult{{
+			JobID:  "squ-601",
+			Action: "would_advance",
+			Preview: &jobAdvancePreview{
+				Dispatch: &dispatchRoutePreview{
+					Preview: &eventPublishPreview{},
+				},
+			},
+		}},
 	}
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1"} {
+	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline advance: ready=1 route_previews=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
