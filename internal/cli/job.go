@@ -39,6 +39,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobStopCmd())
 	cmd.AddCommand(newJobKillCmd())
 	cmd.AddCommand(newJobCloseCmd())
+	cmd.AddCommand(newJobReopenCmd())
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobRmCmd())
 	cmd.AddCommand(newJobPruneCmd())
@@ -834,6 +835,69 @@ func newJobCloseCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Close status: done or failed.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	return cmd
+}
+
+func newJobReopenCmd() *cobra.Command {
+	var (
+		repo    string
+		status  string
+		message string
+		force   bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "reopen <job-id>",
+		Aliases: []string{"retry"},
+		Short:   "Reopen a durable job for another attempt.",
+		Long: "Reopen a durable job by resetting its lifecycle status to queued or blocked. " +
+			"Running jobs are refused unless --force is set. Dispatch remains explicit via `agent-team job dispatch`.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reopen: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			nextStatus, err := parseJobReopenStatus(status)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if j.Status == job.StatusRunning && !force {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: refusing to reopen running job %q; pass --force to override.\n", j.ID)
+				return exitErr(2)
+			}
+			j.Status = nextStatus
+			j.LastEvent = "reopened"
+			if strings.TrimSpace(message) != "" {
+				j.LastStatus = strings.TrimSpace(message)
+			} else {
+				j.LastStatus = "reopened as " + string(nextStatus)
+			}
+			j.UpdatedAt = time.Now().UTC()
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"force": fmt.Sprint(force)}); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&status, "status", string(job.StatusQueued), "Reopened status: queued or blocked.")
+	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow reopening a job currently marked running.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
@@ -1764,6 +1828,19 @@ func jobWaitStatusList(statuses map[job.Status]bool) string {
 		}
 	}
 	return strings.Join(out, "|")
+}
+
+func parseJobReopenStatus(raw string) (job.Status, error) {
+	status, err := job.ParseStatus(raw)
+	if err != nil {
+		return "", err
+	}
+	switch status {
+	case job.StatusQueued, job.StatusBlocked:
+		return status, nil
+	default:
+		return "", fmt.Errorf("--status must be queued or blocked")
+	}
 }
 
 func runJobInstanceUp(cmd *cobra.Command, repo, id string, opts instanceUpOptions, readyTimeout time.Duration) error {

@@ -373,6 +373,91 @@ func TestJobPruneRemovesOnlySelectedTerminalJobs(t *testing.T) {
 	}
 }
 
+func TestJobReopenResetsStatusAndAudits(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	failed := &job.Job{
+		ID:        "squ-68",
+		Ticket:    "SQU-68",
+		Target:    "worker",
+		Status:    job.StatusFailed,
+		LastEvent: "dispatch_failed",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, failed); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	reopen := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	reopen.SetOut(out)
+	reopen.SetErr(stderr)
+	reopen.SetArgs([]string{"job", "reopen", "SQU-68", "--repo", tmp, "--message", "retry after fix", "--json"})
+	if err := reopen.Execute(); err != nil {
+		t.Fatalf("job reopen: %v\nstderr=%s", err, stderr.String())
+	}
+	var reopened job.Job
+	if err := json.Unmarshal(out.Bytes(), &reopened); err != nil {
+		t.Fatalf("decode reopen json: %v\nbody=%s", err, out.String())
+	}
+	if reopened.Status != job.StatusQueued || reopened.LastEvent != "reopened" || reopened.LastStatus != "retry after fix" {
+		t.Fatalf("reopened = %+v", reopened)
+	}
+	events, err := job.ListEvents(teamDir, "squ-68")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "reopened" || events[0].Status != job.StatusQueued || events[0].Message != "retry after fix" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobReopenRefusesRunningUnlessForced(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	running := &job.Job{
+		ID:        "squ-69",
+		Ticket:    "SQU-69",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Instance:  "worker-squ-69",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, running); err != nil {
+		t.Fatalf("write running job: %v", err)
+	}
+
+	refused := NewRootCmd()
+	refusedOut, refusedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	refused.SetOut(refusedOut)
+	refused.SetErr(refusedErr)
+	refused.SetArgs([]string{"job", "reopen", "squ-69", "--repo", tmp})
+	if err := refused.Execute(); err == nil {
+		t.Fatalf("job reopen running succeeded unexpectedly")
+	}
+	if !strings.Contains(refusedErr.String(), "refusing to reopen running job") {
+		t.Fatalf("stderr = %q", refusedErr.String())
+	}
+
+	forced := NewRootCmd()
+	forcedOut, forcedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	forced.SetOut(forcedOut)
+	forced.SetErr(forcedErr)
+	forced.SetArgs([]string{"job", "retry", "squ-69", "--repo", tmp, "--force", "--status", "blocked", "--format", "{{.ID}} {{.Status}} {{.LastEvent}}"})
+	if err := forced.Execute(); err != nil {
+		t.Fatalf("job retry force: %v\nstderr=%s", err, forcedErr.String())
+	}
+	if got := strings.TrimSpace(forcedOut.String()); got != "squ-69 blocked reopened" {
+		t.Fatalf("forced output = %q", got)
+	}
+}
+
 func TestJobListWatchRendersSnapshot(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

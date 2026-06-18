@@ -178,7 +178,7 @@ agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source
 agent-team job create <ticket> [kickoff...] [--target worker] [--instance <name>] [--json]
 agent-team job ls [-w] [--summary] [--status queued|running|blocked|done|failed] [--target-agent worker] [--pipeline name] [--instance name] [--json]
 agent-team job show <job-id> | events <job-id> [-f] [--tail N|all] [--json]
-agent-team job dispatch|start|stop|kill|wait|logs|attach|send|close|cleanup|rm|prune|step|advance ...
+agent-team job dispatch|start|stop|kill|wait|logs|attach|send|close|reopen|cleanup|rm|prune|step|advance ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
 agent-team channels                             # list pub/sub channels; reads local channel state if the daemon is down
 agent-team channel show <name>                  # show a channel summary and recent messages
