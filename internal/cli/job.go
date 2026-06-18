@@ -56,6 +56,9 @@ func newJobEventsCmd() *cobra.Command {
 		repo     string
 		follow   bool
 		tail     string
+		types    []string
+		actors   []string
+		since    string
 		interval time.Duration
 		jsonOut  bool
 		format   string
@@ -72,6 +75,11 @@ func newJobEventsCmd() *cobra.Command {
 			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			filters, err := newJobEventFilters(types, actors, since, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
 				return exitErr(2)
 			}
 			tailEvents, err := parseLogTail(tail)
@@ -91,14 +99,17 @@ func newJobEventsCmd() *cobra.Command {
 			if follow {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				return runJobEventsFollow(ctx, cmd.OutOrStdout(), teamDir, j.ID, tailEvents, interval, jsonOut, tmpl)
+				return runJobEventsFollow(ctx, cmd.OutOrStdout(), teamDir, j.ID, tailEvents, interval, filters, jsonOut, tmpl)
 			}
-			return runJobEvents(cmd.OutOrStdout(), teamDir, j.ID, tailEvents, jsonOut, tmpl)
+			return runJobEvents(cmd.OutOrStdout(), teamDir, j.ID, tailEvents, filters, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Poll and print new job events until interrupted.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N events before returning or following (0 or all = all).")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job events from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&since, "since", "", "Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().DurationVar(&interval, "interval", time.Second, "Polling interval for --follow.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. With --follow, emit one JSON object per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.TS}} {{.Type}} {{.Message}}'.")
@@ -1424,16 +1435,17 @@ func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message str
 	return job.AppendSnapshotEvent(teamDir, j, eventType, actor, message, data)
 }
 
-func runJobEvents(w io.Writer, teamDir, id string, tail int, jsonOut bool, tmpl *template.Template) error {
+func runJobEvents(w io.Writer, teamDir, id string, tail int, filters jobEventFilters, jsonOut bool, tmpl *template.Template) error {
 	events, err := job.ListEvents(teamDir, id)
 	if err != nil {
 		return err
 	}
+	events = filterJobEvents(events, filters)
 	events = job.TailEvents(events, tail)
 	return renderJobEvents(w, events, jsonOut, tmpl)
 }
 
-func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, tail int, interval time.Duration, jsonOut bool, tmpl *template.Template) error {
+func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, tail int, interval time.Duration, filters jobEventFilters, jsonOut bool, tmpl *template.Template) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
@@ -1443,7 +1455,7 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 	}
 	index := len(events)
 	headerWritten := false
-	initial := job.TailEvents(events, tail)
+	initial := job.TailEvents(filterJobEvents(events, filters), tail)
 	if len(initial) > 0 {
 		if err := renderJobEventsFollowBatch(w, initial, jsonOut, tmpl, true); err != nil {
 			return err
@@ -1469,8 +1481,11 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 		if len(events) == index {
 			continue
 		}
-		next := events[index:]
+		next := filterJobEvents(events[index:], filters)
 		index = len(events)
+		if len(next) == 0 {
+			continue
+		}
 		if err := renderJobEventsFollowBatch(w, next, jsonOut, tmpl, !headerWritten); err != nil {
 			return err
 		}
@@ -1478,6 +1493,63 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 			headerWritten = true
 		}
 	}
+}
+
+type jobEventFilters struct {
+	types  map[string]bool
+	actors map[string]bool
+	since  *time.Time
+}
+
+func newJobEventFilters(types, actors []string, sinceRaw string, now func() time.Time) (jobEventFilters, error) {
+	var filters jobEventFilters
+	var err error
+	if filters.types, err = stringSetFilter(types, "--type", "event type"); err != nil {
+		return filters, err
+	}
+	if filters.actors, err = stringSetFilter(actors, "--actor", "actor"); err != nil {
+		return filters, err
+	}
+	sinceRaw = strings.TrimSpace(sinceRaw)
+	if sinceRaw == "" {
+		return filters, nil
+	}
+	since, err := parseEventSince(sinceRaw, now)
+	if err != nil {
+		return filters, err
+	}
+	filters.since = &since
+	return filters, nil
+}
+
+func filterJobEvents(events []job.Event, filters jobEventFilters) []job.Event {
+	if filters.empty() {
+		return events
+	}
+	out := make([]job.Event, 0, len(events))
+	for _, ev := range events {
+		if filters.match(ev) {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func (f jobEventFilters) empty() bool {
+	return len(f.types) == 0 && len(f.actors) == 0 && f.since == nil
+}
+
+func (f jobEventFilters) match(ev job.Event) bool {
+	if f.since != nil && ev.TS.Before(*f.since) {
+		return false
+	}
+	if len(f.types) > 0 && !f.types[ev.Type] {
+		return false
+	}
+	if len(f.actors) > 0 && !f.actors[ev.Actor] {
+		return false
+	}
+	return true
 }
 
 func renderJobEventsFollowBatch(w io.Writer, events []job.Event, jsonOut bool, tmpl *template.Template, header bool) error {

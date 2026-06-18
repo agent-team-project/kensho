@@ -116,6 +116,114 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobEventsFilters(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	base := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	j := &job.Job{
+		ID:        "squ-75",
+		Ticket:    "SQU-75",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		CreatedAt: base.Add(-2 * time.Hour),
+		UpdatedAt: base,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	for _, ev := range []job.Event{
+		{
+			TS:      base.Add(-2 * time.Hour),
+			JobID:   j.ID,
+			Type:    "created",
+			Status:  job.StatusQueued,
+			Actor:   "cli",
+			Message: "created",
+		},
+		{
+			TS:       base.Add(-30 * time.Minute),
+			JobID:    j.ID,
+			Type:     "updated",
+			Status:   job.StatusRunning,
+			Instance: "worker-squ-75",
+			Actor:    "daemon",
+			Message:  "started",
+		},
+		{
+			TS:       base.Add(-10 * time.Minute),
+			JobID:    j.ID,
+			Type:     "closed",
+			Status:   job.StatusDone,
+			Instance: "worker-squ-75",
+			Actor:    "cli",
+			Message:  "closed",
+		},
+	} {
+		ev := ev
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append event %s: %v", ev.Type, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "events", "squ-75",
+		"--repo", tmp,
+		"--type", "closed",
+		"--actor", "cli",
+		"--since", base.Add(-time.Hour).Format(time.RFC3339),
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job events filters: %v\nstderr=%s", err, stderr.String())
+	}
+	var got []job.Event
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode filtered events json: %v\nbody=%s", err, out.String())
+	}
+	if len(got) != 1 || got[0].Type != "closed" || got[0].Actor != "cli" {
+		t.Fatalf("filtered events = %+v", got)
+	}
+
+	cmd = NewRootCmd()
+	out, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "events", "squ-75",
+		"--repo", tmp,
+		"--type", "created",
+		"--since", base.Add(-time.Hour).Format(time.RFC3339),
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job events filtered empty: %v\nstderr=%s", err, stderr.String())
+	}
+	got = nil
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode empty filtered events json: %v\nbody=%s", err, out.String())
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no events, got %+v", got)
+	}
+
+	cmd = NewRootCmd()
+	out, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "events", "squ-75", "--repo", tmp, "--type", ","})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job events empty type filter succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--type requires at least one non-empty event type") {
+		t.Fatalf("missing empty filter error:\n%s", stderr.String())
+	}
+}
+
 func TestJobListFilters(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

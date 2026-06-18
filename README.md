@@ -177,7 +177,7 @@ agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source
                                                 # publish an agent.dispatch topology event; e.g. dispatch worker SQU-42
 agent-team job create <ticket> [kickoff...] [--target worker] [--instance <name>] [--json]
 agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--status queued|running|blocked|done|failed] [--target-agent worker] [--pipeline name] [--instance name] [--json]
-agent-team job show <job-id> | events <job-id> [-f] [--tail N|all] [--json]
+agent-team job show <job-id> | events <job-id> [-f] [--tail N|all] [--type closed] [--actor cli] [--since 24h] [--json]
 agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reopen|cleanup|rm|prune|step|advance ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
 agent-team queue ls [-w] [--summary] [--state pending|dead] [--json] | show|retry|drop <id> | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
