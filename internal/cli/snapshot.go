@@ -30,8 +30,8 @@ func newSnapshotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "snapshot",
 		Short: "Capture a read-only orchestration diagnostic report.",
-		Long: "Capture a read-only diagnostic report with health, plan, instance, job, queue, schedule, " +
-			"runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.",
+		Long: "Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, " +
+			"schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -93,23 +93,24 @@ type snapshotOptions struct {
 }
 
 type snapshotResult struct {
-	Version       string                  `json:"version"`
-	CapturedAt    string                  `json:"captured_at"`
-	Repo          string                  `json:"repo"`
-	TeamDir       string                  `json:"team_dir"`
-	Redacted      bool                    `json:"redacted"`
-	Runtime       *runtimeInfo            `json:"runtime,omitempty"`
-	Health        *healthResult           `json:"health,omitempty"`
-	Plan          *planResult             `json:"plan,omitempty"`
-	Instances     []psJSONRow             `json:"instances,omitempty"`
-	Jobs          []*job.Job              `json:"jobs,omitempty"`
-	JobTriage     *jobTriageSnapshot      `json:"job_triage,omitempty"`
-	Queue         []*daemon.QueueItem     `json:"queue,omitempty"`
-	QueueSummary  *queueSummary           `json:"queue_summary,omitempty"`
-	Schedules     []scheduleInfo          `json:"schedules,omitempty"`
-	ScheduleNext  []scheduleInfo          `json:"schedule_next,omitempty"`
-	Events        []daemon.LifecycleEvent `json:"events,omitempty"`
-	SectionErrors map[string]string       `json:"section_errors,omitempty"`
+	Version       string                     `json:"version"`
+	CapturedAt    string                     `json:"captured_at"`
+	Repo          string                     `json:"repo"`
+	TeamDir       string                     `json:"team_dir"`
+	Redacted      bool                       `json:"redacted"`
+	Runtime       *runtimeInfo               `json:"runtime,omitempty"`
+	Health        *healthResult              `json:"health,omitempty"`
+	Plan          *planResult                `json:"plan,omitempty"`
+	Instances     []psJSONRow                `json:"instances,omitempty"`
+	Jobs          []*job.Job                 `json:"jobs,omitempty"`
+	JobTriage     *jobTriageSnapshot         `json:"job_triage,omitempty"`
+	JobStatus     []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	Queue         []*daemon.QueueItem        `json:"queue,omitempty"`
+	QueueSummary  *queueSummary              `json:"queue_summary,omitempty"`
+	Schedules     []scheduleInfo             `json:"schedules,omitempty"`
+	ScheduleNext  []scheduleInfo             `json:"schedule_next,omitempty"`
+	Events        []daemon.LifecycleEvent    `json:"events,omitempty"`
+	SectionErrors map[string]string          `json:"section_errors,omitempty"`
 }
 
 func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotResult {
@@ -153,6 +154,11 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("job_triage", err)
 	} else {
 		out.JobTriage = &triage
+	}
+	if status, err := reconcileJobsFromStatus(teamDir, true, now); err != nil {
+		out.addError("job_status_preview", err)
+	} else {
+		out.JobStatus = status
 	}
 	if queue, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir)); err != nil {
 		out.addError("queue", err)
@@ -355,6 +361,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	if snapshot.JobTriage != nil {
 		fmt.Fprintf(w, "job triage: attention=%d ready_steps=%d\n", len(snapshot.JobTriage.Attention), len(snapshot.JobTriage.ReadySteps))
 	}
+	if snapshot.JobStatus != nil {
+		fmt.Fprintf(w, "job status: previews=%d changes=%d\n", len(snapshot.JobStatus), countChangedJobStatusPreviews(snapshot.JobStatus))
+	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
 			snapshot.QueueSummary.Total,
@@ -376,6 +385,16 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func countChangedJobStatusPreviews(results []jobStatusReconcileResult) int {
+	changed := 0
+	for _, result := range results {
+		if result.Changed {
+			changed++
+		}
+	}
+	return changed
 }
 
 func renderSnapshotJobSummary(w io.Writer, jobs []*job.Job) {

@@ -27,6 +27,16 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-501"), `[status]
+phase = "blocked"
+description = "waiting on queue failure"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-501"
+ticket = "SQU-501"
+branch = "worker-squ-501"
+`, now)
 	queue := &daemon.QueueItem{
 		ID:         "q-snapshot",
 		State:      daemon.QueueStateDead,
@@ -89,6 +99,9 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 	if snapshot.JobTriage == nil || snapshot.JobTriage.Summary.Total != 1 || len(snapshot.JobTriage.Attention) == 0 {
 		t.Fatalf("job triage = %+v", snapshot.JobTriage)
 	}
+	if len(snapshot.JobStatus) != 1 || snapshot.JobStatus[0].JobID != "squ-501" || snapshot.JobStatus[0].After != job.StatusBlocked || !snapshot.JobStatus[0].Changed || !snapshot.JobStatus[0].DryRun {
+		t.Fatalf("job status preview = %+v", snapshot.JobStatus)
+	}
 	if !snapshot.Redacted {
 		t.Fatalf("snapshot should redact by default: %+v", snapshot)
 	}
@@ -129,11 +142,15 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 				Reasons:  []string{"failed"},
 			}},
 		},
+		JobStatus: []jobStatusReconcileResult{{
+			JobID:   "squ-601",
+			Changed: true,
+		}},
 	}
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0"} {
+	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
