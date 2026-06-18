@@ -20,11 +20,13 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	now := time.Now().UTC()
 	item := &daemon.QueueItem{
 		ID:         "q-local",
-		State:      daemon.QueueStatePending,
+		State:      daemon.QueueStateDead,
 		EventType:  "agent.dispatch",
 		Instance:   "worker",
 		InstanceID: "worker-squ-90",
 		Payload:    map[string]any{"target": "worker", "ticket": "SQU-90"},
+		Attempts:   daemon.MaxQueueAttempts,
+		LastError:  "spawn failed",
 		QueuedAt:   now,
 		UpdatedAt:  now,
 	}
@@ -40,9 +42,23 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("queue ls: %v\nstderr=%s", err, lsErr.String())
 	}
-	for _, want := range []string{"q-local", "pending", "worker-squ-90"} {
+	for _, want := range []string{"q-local", "dead", "worker-squ-90", "agent-team queue retry q-local", "agent-team queue drop q-local"} {
 		if !strings.Contains(lsOut.String(), want) {
 			t.Fatalf("queue ls missing %q:\n%s", want, lsOut.String())
+		}
+	}
+
+	showText := NewRootCmd()
+	showTextOut, showTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	showText.SetOut(showTextOut)
+	showText.SetErr(showTextErr)
+	showText.SetArgs([]string{"queue", "show", "q-local", "--target", tmp})
+	if err := showText.Execute(); err != nil {
+		t.Fatalf("queue show text: %v\nstderr=%s", err, showTextErr.String())
+	}
+	for _, want := range []string{"Actions:", "agent-team queue retry q-local", "agent-team queue drop q-local"} {
+		if !strings.Contains(showTextOut.String(), want) {
+			t.Fatalf("queue show text missing %q:\n%s", want, showTextOut.String())
 		}
 	}
 
@@ -196,6 +212,27 @@ func TestQueueListFilters(t *testing.T) {
 	}
 	if len(listed) != 1 || listed[0].ID != "q-ready" {
 		t.Fatalf("listed = %+v", listed)
+	}
+
+	textList := NewRootCmd()
+	textListOut, textListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textList.SetOut(textListOut)
+	textList.SetErr(textListErr)
+	textList.SetArgs([]string{"queue", "ls", "--target", tmp, "--instance", "worker", "--event-type", "agent.dispatch"})
+	if err := textList.Execute(); err != nil {
+		t.Fatalf("queue ls text: %v\nstderr=%s", err, textListErr.String())
+	}
+	for _, want := range []string{
+		"q-ready",
+		"agent-team queue drain; agent-team queue drop q-ready",
+		"q-delayed",
+		"agent-team queue show q-delayed; agent-team queue drop q-delayed",
+		"q-dead-worker",
+		"agent-team queue retry q-dead-worker; agent-team queue drop q-dead-worker",
+	} {
+		if !strings.Contains(textListOut.String(), want) {
+			t.Fatalf("queue ls text missing %q:\n%s", want, textListOut.String())
+		}
 	}
 
 	summaryCmd := NewRootCmd()

@@ -1107,10 +1107,11 @@ func renderQueueTable(w io.Writer, items []*daemon.QueueItem) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATE\tINSTANCE\tINSTANCE_ID\tATTEMPTS\tNEXT_RETRY\tLAST_ERROR")
+	fmt.Fprintln(tw, "ID\tSTATE\tINSTANCE\tINSTANCE_ID\tATTEMPTS\tNEXT_RETRY\tACTION\tLAST_ERROR")
+	now := time.Now().UTC()
 	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
-			item.ID, item.State, item.Instance, item.InstanceID, item.Attempts, queueTime(item.NextRetry), emptyDash(item.LastError))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			item.ID, item.State, item.Instance, item.InstanceID, item.Attempts, queueTime(item.NextRetry), emptyDash(strings.Join(queueItemActions(item, now), "; ")), emptyDash(item.LastError))
 	}
 	_ = tw.Flush()
 }
@@ -1133,9 +1134,41 @@ func renderQueueDetail(w io.Writer, item *daemon.QueueItem) {
 	if !item.DeadLetteredAt.IsZero() {
 		fmt.Fprintf(w, "Dead:        %s\n", item.DeadLetteredAt.Format(time.RFC3339))
 	}
+	if actions := queueItemActions(item, time.Now().UTC()); len(actions) > 0 {
+		fmt.Fprintln(w, "Actions:")
+		for _, action := range actions {
+			fmt.Fprintf(w, "  %s\n", action)
+		}
+	}
 	if len(item.Payload) > 0 {
 		body, _ := json.MarshalIndent(item.Payload, "", "  ")
 		fmt.Fprintf(w, "Payload:\n%s\n", string(body))
+	}
+}
+
+func queueItemActions(item *daemon.QueueItem, now time.Time) []string {
+	if item == nil {
+		return nil
+	}
+	switch item.State {
+	case daemon.QueueStateDead:
+		return []string{
+			fmt.Sprintf("agent-team queue retry %s", item.ID),
+			fmt.Sprintf("agent-team queue drop %s", item.ID),
+		}
+	case daemon.QueueStatePending:
+		if !item.NextRetry.IsZero() && item.NextRetry.After(now.UTC()) {
+			return []string{
+				fmt.Sprintf("agent-team queue show %s", item.ID),
+				fmt.Sprintf("agent-team queue drop %s", item.ID),
+			}
+		}
+		return []string{
+			"agent-team queue drain",
+			fmt.Sprintf("agent-team queue drop %s", item.ID),
+		}
+	default:
+		return nil
 	}
 }
 
