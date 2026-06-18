@@ -167,15 +167,25 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	}
 	j.Pipeline = pipeline.Name
 	j.Steps = pipelineJobSteps(pipeline)
+	pipelineEvent := "pipeline_created"
 	if existing, err := jobstore.Read(r.teamDir, j.ID); err == nil {
 		j = existing
 		j.Pipeline = pipeline.Name
 		if len(j.Steps) == 0 {
 			j.Steps = pipelineJobSteps(pipeline)
 		}
+		pipelineEvent = "pipeline_updated"
 		j.UpdatedAt = now
 	}
+	j.LastEvent = pipelineEvent
+	j.LastStatus = "pipeline " + pipeline.Name
 	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error()}}
+	}
+	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, pipelineEvent, "daemon", "", map[string]string{
+		"pipeline": pipeline.Name,
+		"event":    eventType,
+	}); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error()}}
 	}
 	step := firstRunnablePipelineStep(pipeline)
@@ -187,7 +197,12 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		j = latest
 	}
 	applyPipelineStepOutcome(j, step.ID, outcomes)
-	_ = jobstore.Write(r.teamDir, j)
+	if err := jobstore.Write(r.teamDir, j); err == nil {
+		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
+			"pipeline": pipeline.Name,
+			"step":     step.ID,
+		})
+	}
 	return outcomes
 }
 
@@ -612,7 +627,29 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	if err := jobstore.Write(r.teamDir, j); err != nil {
 		return nil
 	}
+	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", dispatchJobEventData(payload, branch, worktreePath)); err != nil {
+		return nil
+	}
 	return j
+}
+
+func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
+	data := map[string]string{}
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket"} {
+		if value := payloadString(payload, key); value != "" {
+			data[key] = value
+		}
+	}
+	if branch != "" {
+		data["branch"] = branch
+	}
+	if worktreePath != "" {
+		data["worktree"] = worktreePath
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return data
 }
 
 func eventJobID(payload map[string]any) string {

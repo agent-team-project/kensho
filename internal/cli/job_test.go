@@ -86,6 +86,34 @@ func TestJobCreateListShowClose(t *testing.T) {
 	if closed.Status != job.StatusDone || closed.LastEvent != "closed" {
 		t.Fatalf("closed = %+v", closed)
 	}
+
+	eventsCmd := NewRootCmd()
+	eventsOut, eventsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	eventsCmd.SetOut(eventsOut)
+	eventsCmd.SetErr(eventsErr)
+	eventsCmd.SetArgs([]string{"job", "events", "SQU-42", "--repo", tmp, "--json"})
+	if err := eventsCmd.Execute(); err != nil {
+		t.Fatalf("job events: %v\nstderr=%s", err, eventsErr.String())
+	}
+	var events []job.Event
+	if err := json.Unmarshal(eventsOut.Bytes(), &events); err != nil {
+		t.Fatalf("decode events json: %v\nbody=%s", err, eventsOut.String())
+	}
+	if len(events) != 2 || events[0].Type != "created" || events[1].Type != "closed" {
+		t.Fatalf("events = %+v", events)
+	}
+
+	tailCmd := NewRootCmd()
+	tailOut, tailErr := &bytes.Buffer{}, &bytes.Buffer{}
+	tailCmd.SetOut(tailOut)
+	tailCmd.SetErr(tailErr)
+	tailCmd.SetArgs([]string{"job", "events", "SQU-42", "--repo", tmp, "--tail", "1", "--format", "{{.Type}} {{.Status}}"})
+	if err := tailCmd.Execute(); err != nil {
+		t.Fatalf("job events tail: %v\nstderr=%s", err, tailErr.String())
+	}
+	if got := strings.TrimSpace(tailOut.String()); got != "closed done" {
+		t.Fatalf("tail output = %q", got)
+	}
 }
 
 func TestJobListFilters(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,6 +90,72 @@ func TestReadMissingJob(t *testing.T) {
 	}
 }
 
+func TestJobEventsAppendListTail(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.FixedZone("local", 3600))
+	if err := AppendEvent(teamDir, &Event{
+		TS:       now,
+		JobID:    "SQU-42",
+		Type:     "created",
+		Status:   StatusQueued,
+		Instance: " worker-squ-42 ",
+		Message:  " created ",
+		Actor:    " cli ",
+		Data:     map[string]string{"ticket": "SQU-42"},
+	}); err != nil {
+		t.Fatalf("AppendEvent first: %v", err)
+	}
+	if err := AppendEvent(teamDir, &Event{
+		JobID:  "squ-42",
+		Type:   "closed",
+		Status: StatusDone,
+	}); err != nil {
+		t.Fatalf("AppendEvent second: %v", err)
+	}
+	events, err := ListEvents(teamDir, "SQU-42")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events len=%d, want 2: %+v", len(events), events)
+	}
+	first := events[0]
+	if first.JobID != "squ-42" || first.Type != "created" || first.Status != StatusQueued || first.TS.Location() != time.UTC {
+		t.Fatalf("first event = %+v", first)
+	}
+	if first.Instance != "worker-squ-42" || first.Message != "created" || first.Actor != "cli" || first.Data["ticket"] != "SQU-42" {
+		t.Fatalf("first event fields = %+v", first)
+	}
+	tail := TailEvents(events, 1)
+	if len(tail) != 1 || tail[0].Type != "closed" {
+		t.Fatalf("tail = %+v", tail)
+	}
+}
+
+func TestJobEventsMissingAndInvalid(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	events, err := ListEvents(teamDir, "missing")
+	if err != nil {
+		t.Fatalf("ListEvents missing: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("missing events = %+v", events)
+	}
+	if err := AppendEvent(teamDir, &Event{JobID: "SQU-42"}); err == nil {
+		t.Fatalf("AppendEvent accepted missing type")
+	}
+	if err := os.MkdirAll(Directory(teamDir), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(EventPath(teamDir, "squ-43"), []byte("{bad json}\n"), 0o644); err != nil {
+		t.Fatalf("write bad event log: %v", err)
+	}
+	_, err = ListEvents(teamDir, "squ-43")
+	if err == nil || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("ListEvents invalid err=%v, want line number", err)
+	}
+}
+
 func TestReconcilePRMarksMergedJobDone(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
@@ -123,5 +190,12 @@ func TestReconcilePRMarksMergedJobDone(t *testing.T) {
 	}
 	if updated.Status != StatusDone || updated.LastStatus != "pull request merged" {
 		t.Fatalf("updated = %+v", updated)
+	}
+	events, err := ListEvents(teamDir, "squ-77")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "pr.merged" || events[0].Actor != "reconcile" || events[0].Data["matched_by"] != "pr_url" {
+		t.Fatalf("events = %+v", events)
 	}
 }

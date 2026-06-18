@@ -85,6 +85,22 @@ func ReconcilePR(teamDir string, input ReconcileInput, now time.Time) (*Reconcil
 	if err := Write(teamDir, j); err != nil {
 		return nil, err
 	}
+	data := map[string]string{"matched_by": match.MatchedBy}
+	if input.PR != "" {
+		data["pr"] = input.PR
+	}
+	if input.PRURL != "" {
+		data["pr_url"] = input.PRURL
+	}
+	if input.Branch != "" {
+		data["branch"] = input.Branch
+	}
+	if input.Source != "" {
+		data["source"] = input.Source
+	}
+	if err := AppendSnapshotEvent(teamDir, j, "", "reconcile", "", data); err != nil {
+		return nil, err
+	}
 	return &ReconcileResult{Job: j, MatchedBy: match.MatchedBy, Message: j.LastStatus}, nil
 }
 

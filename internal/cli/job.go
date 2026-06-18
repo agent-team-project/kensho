@@ -29,6 +29,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobCreateCmd())
 	cmd.AddCommand(newJobLsCmd())
 	cmd.AddCommand(newJobShowCmd())
+	cmd.AddCommand(newJobEventsCmd())
 	cmd.AddCommand(newJobWaitCmd())
 	cmd.AddCommand(newJobStartCmd())
 	cmd.AddCommand(newJobDispatchCmd())
@@ -42,6 +43,60 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobStepCmd())
 	cmd.AddCommand(newJobAdvanceCmd())
 	cmd.AddCommand(newJobReconcileCmd())
+	return cmd
+}
+
+func newJobEventsCmd() *cobra.Command {
+	var (
+		repo     string
+		follow   bool
+		tail     string
+		interval time.Duration
+		jsonOut  bool
+		format   string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "events <job-id>",
+		Short: "Show a job's durable event history.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			tailEvents, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobEventFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if follow {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runJobEventsFollow(ctx, cmd.OutOrStdout(), teamDir, j.ID, tailEvents, interval, jsonOut, tmpl)
+			}
+			return runJobEvents(cmd.OutOrStdout(), teamDir, j.ID, tailEvents, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Poll and print new job events until interrupted.")
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N events before returning or following (0 or all = all).")
+	cmd.Flags().DurationVar(&interval, "interval", time.Second, "Polling interval for --follow.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. With --follow, emit one JSON object per line.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.TS}} {{.Type}} {{.Message}}'.")
 	return cmd
 }
 
@@ -97,11 +152,16 @@ func newJobCreateCmd() *cobra.Command {
 			if strings.TrimSpace(instance) != "" {
 				j.Instance = strings.TrimSpace(instance)
 			}
+			j.LastEvent = "created"
+			j.LastStatus = "created"
 			if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: job %q already exists.\n", j.ID)
 				return exitErr(2)
 			}
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, map[string]string{
+				"ticket": j.Ticket,
+				"target": j.Target,
+			}); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
@@ -413,7 +473,10 @@ func newJobDispatchCmd() *cobra.Command {
 				j = latest
 			}
 			applyDispatchResponseToJob(j, requestedName, res)
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{
+				"target":             j.Target,
+				"requested_instance": requestedName,
+			}); err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
@@ -484,7 +547,7 @@ func newJobSendCmd() *cobra.Command {
 			j.LastEvent = "message_sent"
 			j.LastStatus = strings.TrimSpace(body)
 			j.UpdatedAt = time.Now().UTC()
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"from": from}); err != nil {
 				return err
 			}
 			if jsonOut {
@@ -749,7 +812,7 @@ func newJobCloseCmd() *cobra.Command {
 			j.LastEvent = "closed"
 			j.LastStatus = status
 			j.UpdatedAt = time.Now().UTC()
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
@@ -803,7 +866,7 @@ func newJobCleanupCmd() *cobra.Command {
 			j.LastEvent = "cleanup"
 			j.LastStatus = summary
 			j.UpdatedAt = time.Now().UTC()
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 				return err
 			}
 			if jsonOut {
@@ -861,7 +924,7 @@ func newJobStepCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 				return exitErr(2)
 			}
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": args[1]}); err != nil {
 				return err
 			}
 			if advance && stepStatus == job.StatusDone {
@@ -990,7 +1053,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 				result.Job.Branch = ""
 				result.Job.LastStatus = strings.TrimSpace(result.Job.LastStatus + "; cleanup: " + cleanupSummary)
 				result.Job.UpdatedAt = time.Now().UTC()
-				if err := job.Write(teamDir, result.Job); err != nil {
+				if err := writeJobWithAudit(teamDir, result.Job, "cleanup", "cli", cleanupSummary, nil); err != nil {
 					return err
 				}
 			}
@@ -1036,6 +1099,133 @@ func readJobAndTeamDir(cmd *cobra.Command, repo, id string) (string, *job.Job, e
 		return "", nil, exitErr(1)
 	}
 	return teamDir, j, nil
+}
+
+func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message string, data map[string]string) error {
+	if err := job.Write(teamDir, j); err != nil {
+		return err
+	}
+	return job.AppendSnapshotEvent(teamDir, j, eventType, actor, message, data)
+}
+
+func runJobEvents(w io.Writer, teamDir, id string, tail int, jsonOut bool, tmpl *template.Template) error {
+	events, err := job.ListEvents(teamDir, id)
+	if err != nil {
+		return err
+	}
+	events = job.TailEvents(events, tail)
+	return renderJobEvents(w, events, jsonOut, tmpl)
+}
+
+func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, tail int, interval time.Duration, jsonOut bool, tmpl *template.Template) error {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	events, err := job.ListEvents(teamDir, id)
+	if err != nil {
+		return err
+	}
+	index := len(events)
+	headerWritten := false
+	initial := job.TailEvents(events, tail)
+	if len(initial) > 0 {
+		if err := renderJobEventsFollowBatch(w, initial, jsonOut, tmpl, true); err != nil {
+			return err
+		}
+		headerWritten = !jsonOut && tmpl == nil
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+		events, err := job.ListEvents(teamDir, id)
+		if err != nil {
+			return err
+		}
+		if len(events) < index {
+			index = 0
+			headerWritten = false
+		}
+		if len(events) == index {
+			continue
+		}
+		next := events[index:]
+		index = len(events)
+		if err := renderJobEventsFollowBatch(w, next, jsonOut, tmpl, !headerWritten); err != nil {
+			return err
+		}
+		if !jsonOut && tmpl == nil {
+			headerWritten = true
+		}
+	}
+}
+
+func renderJobEventsFollowBatch(w io.Writer, events []job.Event, jsonOut bool, tmpl *template.Template, header bool) error {
+	if jsonOut {
+		enc := json.NewEncoder(w)
+		for _, ev := range events {
+			if err := enc.Encode(ev); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if tmpl != nil {
+		for _, ev := range events {
+			if err := renderJobEventTemplate(w, ev, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobEventTable(w, events, header)
+	return nil
+}
+
+func renderJobEvents(w io.Writer, events []job.Event, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(events)
+	}
+	if tmpl != nil {
+		for _, ev := range events {
+			if err := renderJobEventTemplate(w, ev, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobEventTable(w, events, true)
+	return nil
+}
+
+func renderJobEventTemplate(w io.Writer, ev job.Event, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, ev); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
+}
+
+func renderJobEventTable(w io.Writer, events []job.Event, header bool) {
+	if len(events) == 0 {
+		if header {
+			fmt.Fprintln(w, "(no job events)")
+		}
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if header {
+		fmt.Fprintln(tw, "TIME\tTYPE\tSTATUS\tINSTANCE\tACTOR\tMESSAGE")
+	}
+	for _, ev := range events {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			ev.TS.Format(time.RFC3339), ev.Type, emptyDash(string(ev.Status)), emptyDash(ev.Instance), emptyDash(ev.Actor), emptyDash(ev.Message))
+	}
+	_ = tw.Flush()
 }
 
 type jobListFilters struct {
@@ -1217,7 +1407,7 @@ func runJobInstanceUp(cmd *cobra.Command, repo, id string, opts instanceUpOption
 		return nil
 	}
 	applyJobInstanceUpUpdate(j)
-	return job.Write(teamDir, j)
+	return writeJobWithAudit(teamDir, j, "", "cli", "", nil)
 }
 
 func applyJobInstanceUpUpdate(j *job.Job) {
@@ -1251,7 +1441,7 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id string, opts instanceDownOp
 		return nil
 	}
 	applyJobInstanceDownUpdate(j, downAction(opts), nextStatus)
-	return job.Write(teamDir, j)
+	return writeJobWithAudit(teamDir, j, "", "cli", "", nil)
 }
 
 func applyJobInstanceDownUpdate(j *job.Job, action string, nextStatus job.Status) {
@@ -1450,7 +1640,7 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 			j.LastEvent = "pipeline_done"
 			j.LastStatus = "all steps done"
 			j.UpdatedAt = now
-			if err := job.Write(teamDir, j); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 				return nil, err
 			}
 			return &jobAdvanceResult{Job: j, Message: "all steps done"}, nil
@@ -1459,7 +1649,7 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 		j.LastEvent = "advance_blocked"
 		j.LastStatus = "no ready steps"
 		j.UpdatedAt = now
-		if err := job.Write(teamDir, j); err != nil {
+		if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 			return nil, err
 		}
 		return &jobAdvanceResult{Job: j, Message: "no ready steps"}, nil
@@ -1493,7 +1683,7 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 		j = latest
 	}
 	applyAdvanceResponseToJobStep(j, step.ID, requestedName, res)
-	if err := job.Write(teamDir, j); err != nil {
+	if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": step.ID}); err != nil {
 		return nil, err
 	}
 	if idx := jobStepIndex(j, step.ID); idx >= 0 {
@@ -1716,6 +1906,17 @@ func parseJobFormat(format string) (*template.Template, error) {
 		return nil, nil
 	}
 	tmpl, err := template.New("job-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func parseJobEventFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("job-event-format").Parse(format)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
