@@ -2600,6 +2600,13 @@ func applyDispatchResponseToJob(j *job.Job, requestedName string, res *eventResp
 		j.LastStatus = "queued"
 		return
 	}
+	if len(res.Messaged) > 0 {
+		j.Instance = res.Messaged[0]
+		j.Status = job.StatusRunning
+		j.LastEvent = "messaged"
+		j.LastStatus = "running"
+		return
+	}
 	for _, r := range res.Rejected {
 		reason, _ := r["reason"].(string)
 		if id, _ := r["instance_id"].(string); strings.TrimSpace(id) != "" {

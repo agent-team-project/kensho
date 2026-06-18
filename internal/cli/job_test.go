@@ -233,6 +233,34 @@ func TestJobCreateDispatchesImmediately(t *testing.T) {
 	}
 }
 
+func TestJobCreateDispatchMarksMessagedPersistentInstanceRunning(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "create", "SQU-218", "--repo", target, "--target", "manager", "--dispatch", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job create persistent --dispatch: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode persistent dispatch json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.Instance != "manager" || result.Job.LastEvent != "messaged" {
+		t.Fatalf("persistent dispatch result = %+v", result)
+	}
+	updated, err := job.Read(filepath.Join(target, ".agent_team"), "squ-218")
+	if err != nil {
+		t.Fatalf("read persistent dispatch job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.Instance != "manager" || updated.LastEvent != "messaged" {
+		t.Fatalf("updated persistent job = %+v", updated)
+	}
+}
+
 func TestJobEventsFilters(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
