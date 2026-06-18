@@ -28,12 +28,20 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 	queue := &daemon.QueueItem{
-		ID:             "q-snapshot",
-		State:          daemon.QueueStateDead,
-		EventType:      "agent.dispatch",
-		Instance:       "worker",
-		InstanceID:     "worker-squ-501",
-		Payload:        map[string]any{"target": "worker", "ticket": "SQU-501"},
+		ID:         "q-snapshot",
+		State:      daemon.QueueStateDead,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-501",
+		Payload: map[string]any{
+			"target":       "worker",
+			"ticket":       "SQU-501",
+			"access_token": "secret-token",
+			"headers": map[string]any{
+				"authorization": "Bearer secret",
+				"safe":          "visible",
+			},
+		},
 		Attempts:       daemon.MaxQueueAttempts,
 		LastError:      "spawn failed",
 		QueuedAt:       now.Add(-time.Hour),
@@ -78,8 +86,18 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 	if len(snapshot.Jobs) != 1 || snapshot.Jobs[0].ID != "squ-501" || snapshot.Jobs[0].Status != job.StatusRunning {
 		t.Fatalf("jobs = %+v", snapshot.Jobs)
 	}
+	if !snapshot.Redacted {
+		t.Fatalf("snapshot should redact by default: %+v", snapshot)
+	}
 	if len(snapshot.Queue) != 1 || snapshot.Queue[0].ID != "q-snapshot" || snapshot.QueueSummary == nil || snapshot.QueueSummary.Dead != 1 {
 		t.Fatalf("queue = %+v summary=%+v", snapshot.Queue, snapshot.QueueSummary)
+	}
+	if snapshot.Queue[0].Payload["target"] != "worker" || snapshot.Queue[0].Payload["access_token"] != snapshotRedactedValue {
+		t.Fatalf("redacted payload = %+v", snapshot.Queue[0].Payload)
+	}
+	headers, ok := snapshot.Queue[0].Payload["headers"].(map[string]any)
+	if !ok || headers["authorization"] != snapshotRedactedValue || headers["safe"] != "visible" {
+		t.Fatalf("nested redacted payload = %+v", snapshot.Queue[0].Payload["headers"])
 	}
 	if len(snapshot.Events) != 1 || snapshot.Events[0].Instance != "worker-squ-501" {
 		t.Fatalf("events = %+v", snapshot.Events)
@@ -115,6 +133,45 @@ func TestSnapshotCommandWritesOutputFile(t *testing.T) {
 	}
 	if len(snapshot.Events) != 0 {
 		t.Fatalf("--events 0 should skip events: %+v", snapshot.Events)
+	}
+}
+
+func TestSnapshotNoRedactPreservesPayloadSecrets(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	item := &daemon.QueueItem{
+		ID:         "q-sensitive",
+		State:      daemon.QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-502",
+		Payload:    map[string]any{"target": "worker", "api_key": "raw-key"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+		t.Fatalf("write queue: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--no-redact", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot no-redact: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Redacted {
+		t.Fatalf("--no-redact should disable redaction: %+v", snapshot)
+	}
+	if len(snapshot.Queue) != 1 || snapshot.Queue[0].Payload["api_key"] != "raw-key" {
+		t.Fatalf("queue payload = %+v", snapshot.Queue)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
@@ -21,6 +22,7 @@ func newSnapshotCmd() *cobra.Command {
 		target        string
 		output        string
 		jsonOut       bool
+		noRedact      bool
 		eventLimit    int
 		scheduleLimit int
 	)
@@ -55,6 +57,7 @@ func newSnapshotCmd() *cobra.Command {
 			snapshot := collectSnapshot(teamDir, repoRoot, snapshotOptions{
 				EventLimit:    eventLimit,
 				ScheduleLimit: scheduleLimit,
+				Redact:        !noRedact,
 				Now:           time.Now().UTC(),
 			})
 			switch {
@@ -76,6 +79,7 @@ func newSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full snapshot JSON to stdout.")
+	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "Recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "Upcoming schedules to include after ordering; 0 means all.")
 	return cmd
@@ -84,6 +88,7 @@ func newSnapshotCmd() *cobra.Command {
 type snapshotOptions struct {
 	EventLimit    int
 	ScheduleLimit int
+	Redact        bool
 	Now           time.Time
 }
 
@@ -92,6 +97,7 @@ type snapshotResult struct {
 	CapturedAt    string                  `json:"captured_at"`
 	Repo          string                  `json:"repo"`
 	TeamDir       string                  `json:"team_dir"`
+	Redacted      bool                    `json:"redacted"`
 	Runtime       *runtimeInfo            `json:"runtime,omitempty"`
 	Health        *healthResult           `json:"health,omitempty"`
 	Plan          *planResult             `json:"plan,omitempty"`
@@ -160,6 +166,9 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 	} else {
 		out.Events = events
 	}
+	if opts.Redact {
+		redactSnapshotResult(out)
+	}
 	return out
 }
 
@@ -194,6 +203,89 @@ func collectSnapshotEvents(teamDir string, limit int) ([]daemon.LifecycleEvent, 
 		out = append(out, line.ev)
 	}
 	return out, nil
+}
+
+const snapshotRedactedValue = "[redacted]"
+
+func redactSnapshotResult(snapshot *snapshotResult) {
+	if snapshot == nil {
+		return
+	}
+	snapshot.Redacted = true
+	for _, item := range snapshot.Queue {
+		if item == nil {
+			continue
+		}
+		item.Payload = redactSnapshotMap(item.Payload)
+	}
+	for i := range snapshot.Schedules {
+		snapshot.Schedules[i].Payload = redactSnapshotMap(snapshot.Schedules[i].Payload)
+	}
+	for i := range snapshot.ScheduleNext {
+		snapshot.ScheduleNext[i].Payload = redactSnapshotMap(snapshot.ScheduleNext[i].Payload)
+	}
+}
+
+func redactSnapshotMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		if snapshotSensitiveKey(key) {
+			out[key] = snapshotRedactedValue
+			continue
+		}
+		out[key] = redactSnapshotValue(value)
+	}
+	return out
+}
+
+func redactSnapshotValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return redactSnapshotMap(v)
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = redactSnapshotValue(item)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(v))
+		for i, item := range v {
+			out[i] = redactSnapshotMap(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func snapshotSensitiveKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_"))
+	for _, token := range []string{
+		"secret",
+		"token",
+		"password",
+		"passwd",
+		"api_key",
+		"apikey",
+		"access_token",
+		"refresh_token",
+		"auth_token",
+		"authorization",
+		"bearer",
+		"cookie",
+		"private_key",
+		"client_secret",
+		"webhook_secret",
+	} {
+		if strings.Contains(normalized, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeSnapshotFile(path string, snapshot *snapshotResult) (string, error) {
@@ -239,6 +331,7 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	fmt.Fprintf(w, "snapshot: %s\n", snapshot.CapturedAt)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
+	fmt.Fprintf(w, "redacted: %s\n", yesNo(snapshot.Redacted))
 	if snapshot.Health != nil {
 		fmt.Fprintf(w, "health: %s\n", repairHealthState(snapshot.Health))
 	}
