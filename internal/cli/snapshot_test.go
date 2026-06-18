@@ -86,6 +86,9 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 	if len(snapshot.Jobs) != 1 || snapshot.Jobs[0].ID != "squ-501" || snapshot.Jobs[0].Status != job.StatusRunning {
 		t.Fatalf("jobs = %+v", snapshot.Jobs)
 	}
+	if snapshot.JobTriage == nil || snapshot.JobTriage.Summary.Total != 1 || len(snapshot.JobTriage.Attention) == 0 {
+		t.Fatalf("job triage = %+v", snapshot.JobTriage)
+	}
 	if !snapshot.Redacted {
 		t.Fatalf("snapshot should redact by default: %+v", snapshot)
 	}
@@ -104,6 +107,36 @@ func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
 	}
 	if snapshot.Runtime == nil || snapshot.Runtime.Runtime == "" {
 		t.Fatalf("runtime = %+v", snapshot.Runtime)
+	}
+}
+
+func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
+	now := time.Now().UTC()
+	snapshot := &snapshotResult{
+		CapturedAt: now.Format(time.RFC3339),
+		Repo:       "/repo",
+		Redacted:   true,
+		Jobs: []*job.Job{
+			{ID: "squ-601", Ticket: "SQU-601", Target: "worker", Status: job.StatusFailed, CreatedAt: now, UpdatedAt: now},
+		},
+		JobTriage: &jobTriageSnapshot{
+			Summary: jobSummary{Total: 1, Failed: 1},
+			Attention: []jobTriageItem{{
+				JobID:    "squ-601",
+				Ticket:   "SQU-601",
+				Status:   job.StatusFailed,
+				Severity: "critical",
+				Reasons:  []string{"failed"},
+			}},
+		},
+	}
+
+	var out bytes.Buffer
+	renderSnapshotSummary(&out, snapshot)
+	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("summary missing %q:\n%s", want, out.String())
+		}
 	}
 }
 

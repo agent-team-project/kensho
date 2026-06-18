@@ -103,6 +103,7 @@ type snapshotResult struct {
 	Plan          *planResult             `json:"plan,omitempty"`
 	Instances     []psJSONRow             `json:"instances,omitempty"`
 	Jobs          []*job.Job              `json:"jobs,omitempty"`
+	JobTriage     *jobTriageSnapshot      `json:"job_triage,omitempty"`
 	Queue         []*daemon.QueueItem     `json:"queue,omitempty"`
 	QueueSummary  *queueSummary           `json:"queue_summary,omitempty"`
 	Schedules     []scheduleInfo          `json:"schedules,omitempty"`
@@ -147,6 +148,11 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("jobs", err)
 	} else {
 		out.Jobs = jobs
+	}
+	if triage, err := collectJobTriage(teamDir, now, defaultJobTriageStaleAfter); err != nil {
+		out.addError("job_triage", err)
+	} else {
+		out.JobTriage = &triage
 	}
 	if queue, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir)); err != nil {
 		out.addError("queue", err)
@@ -346,6 +352,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	fmt.Fprintf(w, "instances: %d\n", len(snapshot.Instances))
 	renderSnapshotJobSummary(w, snapshot.Jobs)
+	if snapshot.JobTriage != nil {
+		fmt.Fprintf(w, "job triage: attention=%d ready_steps=%d\n", len(snapshot.JobTriage.Attention), len(snapshot.JobTriage.ReadySteps))
+	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
 			snapshot.QueueSummary.Total,
