@@ -25,7 +25,7 @@ func TestLifecycleHelpShowsTopLevelStartStop(t *testing.T) {
 		t.Fatalf("help: %v", err)
 	}
 	for _, want := range []string{
-		"start", "stop", "kill", "restart", "reload", "plan", "sync", "status", "health", "monitor", "watch", "inspect", "rm", "prune", "wait", "stats", "send", "dispatch", "events", "ps", "logs", "attach",
+		"start", "stop", "kill", "restart", "reload", "plan", "sync", "status", "health", "monitor", "watch", "inspect", "rm", "prune", "wait", "stats", "send", "dispatch", "job", "events", "ps", "logs", "attach",
 		"Docker-like shortcuts:", "agent-team up", "agent-team down", "agent-team ls", "agent-team top",
 	} {
 		if !strings.Contains(out.String(), want) {
