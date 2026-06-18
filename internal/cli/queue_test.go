@@ -236,6 +236,140 @@ func TestQueueListFilters(t *testing.T) {
 	}
 }
 
+func TestQueueRetryAllLocal(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	items := []*daemon.QueueItem{
+		{
+			ID:             "q-retry-worker",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-100",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-100"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-retry-manager",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "manager",
+			InstanceID:     "manager-squ-101",
+			Payload:        map[string]any{"target": "manager", "ticket": "SQU-101"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:         "q-ready-pending",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-102",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-102"},
+			NextRetry:  now.Add(-time.Minute),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "q-delayed-pending",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-103",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-103"},
+			NextRetry:  now.Add(time.Hour),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now,
+		},
+	}
+	for _, item := range items {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{
+		"queue", "retry",
+		"--target", tmp,
+		"--all",
+		"--instance", "worker",
+		"--event-type", "agent.dispatch",
+		"--dry-run",
+		"--json",
+	})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("queue retry --all dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []queueRetryResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode dry retry json: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "q-retry-worker" || dryResults[0].Action != "would_retry" || !dryResults[0].DryRun {
+		t.Fatalf("dry results = %+v", dryResults)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-retry-worker"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("dry-run changed item=%+v err=%v", item, err)
+	}
+
+	ready := NewRootCmd()
+	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ready.SetOut(readyOut)
+	ready.SetErr(readyErr)
+	ready.SetArgs([]string{"queue", "retry", "--target", tmp, "--all", "--ready", "--dry-run", "--json"})
+	if err := ready.Execute(); err != nil {
+		t.Fatalf("queue retry --all ready dry-run: %v\nstderr=%s", err, readyErr.String())
+	}
+	var readyResults []queueRetryResult
+	if err := json.Unmarshal(readyOut.Bytes(), &readyResults); err != nil {
+		t.Fatalf("decode ready retry json: %v\nbody=%s", err, readyOut.String())
+	}
+	if len(readyResults) != 1 || readyResults[0].ID != "q-ready-pending" {
+		t.Fatalf("ready results = %+v", readyResults)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{
+		"queue", "retry",
+		"--target", tmp,
+		"--all",
+		"--instance", "worker",
+		"--event-type", "agent.dispatch",
+		"--json",
+	})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("queue retry --all apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied []queueRetryResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode applied retry json: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(applied) != 1 || applied[0].ID != "q-retry-worker" || applied[0].Action != "reset" {
+		t.Fatalf("applied = %+v", applied)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-retry-worker"); err != nil || item.State != daemon.QueueStatePending || item.LastError != "" || !item.DeadLetteredAt.IsZero() {
+		t.Fatalf("retried worker item=%+v err=%v", item, err)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-retry-manager"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("manager item=%+v err=%v", item, err)
+	}
+}
+
 func TestQueuePruneLocal(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
