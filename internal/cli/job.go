@@ -32,6 +32,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobLogsCmd())
+	cmd.AddCommand(newJobAttachCmd())
 	cmd.AddCommand(newJobCloseCmd())
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobStepCmd())
@@ -407,6 +408,60 @@ func newJobLogsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
+	return cmd
+}
+
+func newJobAttachCmd() *cobra.Command {
+	var (
+		repo     string
+		noResume bool
+		noFollow bool
+		tail     string
+		since    string
+		grep     string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "attach <job-id>",
+		Short: "Attach to a job's owning instance.",
+		Long: "Attach to the instance recorded on a durable job. By default this opens " +
+			"the owning instance with the normal interactive attach flow. Passing log " +
+			"options such as --tail, --no-follow, --since, or --grep follows the daemon-captured log stream instead.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			instance := strings.TrimSpace(j.Instance)
+			if instance == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job attach: job %q has no owning instance; dispatch it first.\n", j.ID)
+				return exitErr(2)
+			}
+			repoRoot := filepath.Dir(teamDir)
+			logMode := noFollow || cmd.Flags().Changed("tail") || strings.TrimSpace(since) != "" || strings.TrimSpace(grep) != ""
+			if logMode {
+				if noResume {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job attach: --no-resume cannot be combined with log-follow attach options.")
+					return exitErr(2)
+				}
+				return runAttachLogMode(cmd, repoRoot, []string{instance}, attachLogOptions{
+					NoFollow: noFollow,
+					Tail:     tail,
+					TailSet:  cmd.Flags().Changed("tail"),
+					Since:    since,
+					Grep:     grep,
+				})
+			}
+			return runAttach(cmd, repoRoot, instance, noResume)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the owning instance in stopped state when claude exits.")
+	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Log mode: print the selected log tail and exit instead of following.")
+	cmd.Flags().StringVar(&tail, "tail", "50", "Log mode: show only the last N lines before following (0 or all = all).")
+	cmd.Flags().StringVar(&since, "since", "", "Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.")
+	cmd.Flags().StringVar(&grep, "grep", "", "Log mode with --no-follow: only print log lines matching this regular expression.")
 	return cmd
 }
 

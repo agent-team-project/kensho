@@ -246,6 +246,122 @@ func TestJobLogsRequiresOwningInstance(t *testing.T) {
 	}
 }
 
+func TestJobAttachResolvesOwningInstance(t *testing.T) {
+	env := newAttachTestEnv(t)
+	meta := env.dispatchOne(t, "worker-squ-55")
+	now := time.Now().UTC()
+	if err := job.Write(env.teamDir, &job.Job{
+		ID:        "squ-55",
+		Ticket:    "SQU-55",
+		Target:    "worker",
+		Instance:  "worker-squ-55",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cap, restore := captureAttachExec(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "attach", "SQU-55", "--repo", env.target, "--no-resume"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job attach: %v\nstderr=%s", err, stderr.String())
+	}
+	if !cap.called {
+		t.Fatal("execClaudeAttach was not called")
+	}
+	if len(cap.args) != 2 || cap.args[0] != "--resume" || cap.args[1] != meta.SessionID {
+		t.Fatalf("attach args = %v, want resume session %s", cap.args, meta.SessionID)
+	}
+	wantCWD := env.target
+	if eval, err := filepath.EvalSymlinks(env.target); err == nil {
+		wantCWD = eval
+	}
+	if cap.cwd != wantCWD {
+		t.Fatalf("attach cwd = %q, want %q", cap.cwd, wantCWD)
+	}
+	if err := env.dmn.Manager().WaitForReaper("worker-squ-55", 5*time.Second); err != nil {
+		t.Fatalf("wait stop reaper: %v", err)
+	}
+}
+
+func TestJobAttachLogModeReadsOwningInstanceLog(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-56",
+		Ticket:    "SQU-56",
+		Target:    "worker",
+		Instance:  "worker-squ-56",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance:  "worker-squ-56",
+		Agent:     "worker",
+		Status:    daemon.StatusStopped,
+		StartedAt: now,
+		Job:       "squ-56",
+		Ticket:    "SQU-56",
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "worker-squ-56", "first\nlast\n")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "attach", "squ-56", "--repo", tmp, "--no-follow", "--tail", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job attach log mode: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != "last\n" {
+		t.Fatalf("job attach output = %q, want last line", got)
+	}
+}
+
+func TestJobAttachRequiresOwningInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-57",
+		Ticket:    "SQU-57",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "attach", "squ-57", "--repo", tmp})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job attach succeeded unexpectedly")
+	}
+	if !strings.Contains(stderr.String(), "has no owning instance") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestJobDispatchAndSend(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
