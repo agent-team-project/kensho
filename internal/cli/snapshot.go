@@ -105,6 +105,7 @@ type snapshotResult struct {
 	Jobs            []*job.Job                 `json:"jobs,omitempty"`
 	JobTriage       *jobTriageSnapshot         `json:"job_triage,omitempty"`
 	JobStatus       []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	PipelineStatus  []pipelineStatusRow        `json:"pipeline_status,omitempty"`
 	PipelineAdvance []pipelineAdvanceResult    `json:"pipeline_advance_preview,omitempty"`
 	Queue           []*daemon.QueueItem        `json:"queue,omitempty"`
 	QueueSummary    *queueSummary              `json:"queue_summary,omitempty"`
@@ -160,6 +161,11 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("job_status_preview", err)
 	} else {
 		out.JobStatus = status
+	}
+	if status, err := collectPipelineStatusRows(teamDir, ""); err != nil {
+		out.addError("pipeline_status", err)
+	} else {
+		out.PipelineStatus = status
 	}
 	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", 0, true, true); err != nil {
 		out.addError("pipeline_advance_preview", err)
@@ -380,6 +386,13 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	if snapshot.JobStatus != nil {
 		fmt.Fprintf(w, "job status: previews=%d changes=%d\n", len(snapshot.JobStatus), countChangedJobStatusPreviews(snapshot.JobStatus))
 	}
+	if snapshot.PipelineStatus != nil {
+		fmt.Fprintf(w, "pipeline status: pipelines=%d jobs=%d ready_steps=%d failed_steps=%d\n",
+			len(snapshot.PipelineStatus),
+			countPipelineStatusJobs(snapshot.PipelineStatus),
+			countPipelineStatusReadySteps(snapshot.PipelineStatus),
+			countPipelineStatusFailedSteps(snapshot.PipelineStatus))
+	}
 	if snapshot.PipelineAdvance != nil {
 		fmt.Fprintf(w, "pipeline advance: ready=%d route_previews=%d\n", len(snapshot.PipelineAdvance), countPipelineAdvanceRoutePreviews(snapshot.PipelineAdvance))
 	}
@@ -404,6 +417,30 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func countPipelineStatusJobs(rows []pipelineStatusRow) int {
+	count := 0
+	for _, row := range rows {
+		count += row.Jobs
+	}
+	return count
+}
+
+func countPipelineStatusReadySteps(rows []pipelineStatusRow) int {
+	count := 0
+	for _, row := range rows {
+		count += row.ReadySteps
+	}
+	return count
+}
+
+func countPipelineStatusFailedSteps(rows []pipelineStatusRow) int {
+	count := 0
+	for _, row := range rows {
+		count += row.FailedSteps
+	}
+	return count
 }
 
 func countPipelineAdvanceRoutePreviews(results []pipelineAdvanceResult) int {

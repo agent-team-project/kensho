@@ -161,6 +161,9 @@ func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	if len(snapshot.PipelineAdvance) != 1 || snapshot.PipelineAdvance[0].JobID != "squ-503" || snapshot.PipelineAdvance[0].Action != "would_advance" || !snapshot.PipelineAdvance[0].DryRun {
 		t.Fatalf("pipeline advance preview = %+v", snapshot.PipelineAdvance)
 	}
+	if len(snapshot.PipelineStatus) != 1 || snapshot.PipelineStatus[0].Pipeline != "ticket_to_pr" || snapshot.PipelineStatus[0].Declared || snapshot.PipelineStatus[0].Jobs != 1 || snapshot.PipelineStatus[0].ReadySteps != 1 {
+		t.Fatalf("pipeline status = %+v", snapshot.PipelineStatus)
+	}
 	preview := snapshot.PipelineAdvance[0].Preview
 	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-503-implement" {
 		t.Fatalf("pipeline advance route preview = %+v", preview)
@@ -204,6 +207,11 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 			JobID:   "squ-601",
 			Changed: true,
 		}},
+		PipelineStatus: []pipelineStatusRow{{
+			Pipeline:   "ticket_to_pr",
+			Jobs:       1,
+			ReadySteps: 1,
+		}},
 		PipelineAdvance: []pipelineAdvanceResult{{
 			JobID:  "squ-601",
 			Action: "would_advance",
@@ -217,7 +225,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline advance: ready=1 route_previews=1"} {
+	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 failed_steps=0", "pipeline advance: ready=1 route_previews=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
