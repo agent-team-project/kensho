@@ -75,6 +75,38 @@ func TestIntakeLinearDryRunNormalizesWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestIntakeDryRunFormat(t *testing.T) {
+	payload := `{"action":"Issue created","data":{"identifier":"SQU-103","title":"Formatted intake"}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"intake", "linear",
+		"--payload", payload,
+		"--dry-run",
+		"--format", `{{.Event.Type}} {{index .Event.Payload "ticket"}} {{.DryRun}}`,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake dry-run format: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := strings.TrimSpace(out.String()); got != "ticket.created SQU-103 true" {
+		t.Fatalf("formatted dry-run = %q", got)
+	}
+
+	invalid := NewRootCmd()
+	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalid.SetOut(invalidOut)
+	invalid.SetErr(invalidErr)
+	invalid.SetArgs([]string{"intake", "linear", "--payload", payload, "--dry-run", "--format", "{{.Event.Type}}", "--json"})
+	if err := invalid.Execute(); err == nil {
+		t.Fatalf("intake dry-run format+json succeeded")
+	}
+	if !strings.Contains(invalidErr.String(), "--format cannot be combined with --json") {
+		t.Fatalf("format+json stderr = %q", invalidErr.String())
+	}
+}
+
 func TestIntakeSchedulePublishesScheduleEvent(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()

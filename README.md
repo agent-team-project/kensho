@@ -184,7 +184,7 @@ agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--
                                                 # inspect declared pipeline workflows from instances.toml
 agent-team queue ls [-w] [--summary] [--state pending|dead] [--json] | show|retry|drop <id> | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
                                                 # inspect, retry, drop, and prune persisted daemon dispatch queue items
-agent-team intake linear|github --payload <json> [--dry-run] [--json] | schedule <name> [--dry-run] [--json]
+agent-team intake linear|github --payload <json> [--dry-run] [--format '{{.Event.Type}}'] [--json] | schedule <name> [--dry-run] [--format '{{.Event.Type}}'] [--json]
                                                 # normalize external webhook or schedule events, optionally without publishing
 agent-team channels                             # list pub/sub channels; reads local channel state if the daemon is down
 agent-team channel show <name>                  # show a channel summary and recent messages

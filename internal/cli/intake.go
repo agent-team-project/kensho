@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"text/template"
 
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/spf13/cobra"
@@ -41,6 +42,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		payloadFile string
 		dryRun      bool
 		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -48,6 +50,15 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		Short: "Normalize a " + provider + " webhook payload and publish it.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: --format cannot be combined with --json.\n", provider)
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: %v\n", provider, err)
+				return exitErr(2)
+			}
 			body, err := intakePayload(payload, payloadFile)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: %v\n", provider, err)
@@ -59,9 +70,9 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				return exitErr(2)
 			}
 			if dryRun {
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut)
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl)
 			}
-			return publishIntakeEvent(cmd, target, ev, jsonOut)
+			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
@@ -69,6 +80,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
 	return cmd
 }
 
@@ -78,6 +90,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 		payload string
 		dryRun  bool
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -85,6 +98,15 @@ func newIntakeScheduleCmd() *cobra.Command {
 		Short: "Publish a named schedule event.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake schedule: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: %v\n", err)
+				return exitErr(2)
+			}
 			body := map[string]any{"source": "schedule", "name": args[0]}
 			if strings.TrimSpace(payload) != "" {
 				if err := json.Unmarshal([]byte(payload), &body); err != nil {
@@ -96,15 +118,16 @@ func newIntakeScheduleCmd() *cobra.Command {
 			}
 			ev := &intake.Event{Type: "schedule", Payload: body}
 			if dryRun {
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut)
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl)
 			}
-			return publishIntakeEvent(cmd, target, ev, jsonOut)
+			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the schedule payload.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
 	return cmd
 }
 
@@ -130,9 +153,24 @@ type intakePublishResult struct {
 	DryRun  bool           `json:"dry_run,omitempty"`
 }
 
-func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool) error {
+func parseIntakeFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("intake-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {
+	result := intakePublishResult{Event: ev, DryRun: true}
 	if jsonOut {
-		return json.NewEncoder(w).Encode(intakePublishResult{Event: ev, DryRun: true})
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		return renderIntakeTemplate(w, result, tmpl)
 	}
 	fmt.Fprintf(w, "Event: %s\n", ev.Type)
 	if len(ev.Payload) == 0 {
@@ -152,7 +190,7 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool) error {
 	return nil
 }
 
-func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool) error {
+func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -168,11 +206,23 @@ func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jso
 		return exitErr(1)
 	}
 	out := cmd.OutOrStdout()
+	result := intakePublishResult{Event: ev, Outcome: res}
 	if jsonOut {
-		return json.NewEncoder(out).Encode(intakePublishResult{Event: ev, Outcome: res})
+		return json.NewEncoder(out).Encode(result)
+	}
+	if tmpl != nil {
+		return renderIntakeTemplate(out, result, tmpl)
 	}
 	fmt.Fprintf(out, "Event: %s\n", ev.Type)
 	return renderIntakeOutcome(out, res)
+}
+
+func renderIntakeTemplate(w io.Writer, result intakePublishResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func renderIntakeOutcome(w io.Writer, res *eventResponse) error {
