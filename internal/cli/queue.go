@@ -142,18 +142,57 @@ func newQueueShowCmd() *cobra.Command {
 
 func newQueueDropCmd() *cobra.Command {
 	var (
-		target  string
-		jsonOut bool
+		target      string
+		jsonOut     bool
+		dropAll     bool
+		dryRun      bool
+		stateFilter string
+		instances   []string
+		eventTypes  []string
+		readyOnly   bool
+		limit       int
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drop <id>",
-		Short: "Drop a pending or dead-letter queue item.",
-		Args:  cobra.ExactArgs(1),
+		Short: "Drop pending or dead-letter queue items.",
+		Long:  "Drop one queue item by id, or drop a filtered batch with --all. Batch drops default to dead-letter items.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
+			}
+			if dropAll {
+				if len(args) != 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --all cannot be combined with an id.")
+					return exitErr(2)
+				}
+				if limit < 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --limit must be >= 0.")
+					return exitErr(2)
+				}
+				effectiveState := strings.TrimSpace(stateFilter)
+				if effectiveState == "" {
+					effectiveState = daemon.QueueStateDead
+					if readyOnly {
+						effectiveState = daemon.QueueStatePending
+					}
+				}
+				filters, err := parseQueueListFilters(effectiveState, instances, eventTypes, readyOnly, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drop: %v\n", err)
+					return exitErr(2)
+				}
+				return runQueueDropAll(cmd.OutOrStdout(), teamDir, filters, limit, dryRun, jsonOut)
+			}
+			if len(args) != 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: requires one id unless --all is set.")
+				return exitErr(2)
+			}
+			if dryRun || stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || readyOnly || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --dry-run, --state, --instance, --event-type, --ready, and --limit require --all.")
+				return exitErr(2)
 			}
 			id := args[0]
 			if dc, err := newDaemonClient(teamDir); err == nil {
@@ -181,6 +220,13 @@ func newQueueDropCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching queue items instead of one id.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching queue items without dropping them.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
+	cmd.Flags().StringSliceVar(&instances, "instance", nil, "With --all, filter by target instance name; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
 
@@ -460,6 +506,15 @@ type queuePruneResult struct {
 	Dropped    bool      `json:"dropped"`
 }
 
+type queueDropResult struct {
+	ID         string `json:"id"`
+	State      string `json:"state"`
+	Instance   string `json:"instance"`
+	InstanceID string `json:"instance_id"`
+	Action     string `json:"action"`
+	DryRun     bool   `json:"dry_run,omitempty"`
+}
+
 type queueRetryResult struct {
 	ID         string `json:"id"`
 	State      string `json:"state"`
@@ -536,6 +591,50 @@ func pruneQueueItems(teamDir, state string, olderThan time.Duration, now time.Ti
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool) error {
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return err
+	}
+	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()))
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
+	}
+	var dc *daemonClient
+	if !dryRun {
+		client, err := newDaemonClient(teamDir)
+		if err == nil {
+			dc = client
+		} else if !errors.Is(err, errDaemonNotRunning) {
+			return err
+		}
+	}
+	results := make([]queueDropResult, 0, len(matches))
+	for _, item := range matches {
+		result := queueDropResult{
+			ID:         item.ID,
+			State:      item.State,
+			Instance:   item.Instance,
+			InstanceID: item.InstanceID,
+		}
+		if dryRun {
+			result.Action = "would_drop"
+			result.DryRun = true
+		} else {
+			if dc != nil {
+				if err := dc.QueueDrop(item.ID); err != nil {
+					return err
+				}
+			} else if err := daemon.RemoveQueueItem(daemon.DaemonRoot(teamDir), item.ID); err != nil {
+				return err
+			}
+			result.Action = "dropped"
+		}
+		results = append(results, result)
+	}
+	return renderQueueDropResults(w, results, jsonOut)
 }
 
 func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool) error {
@@ -718,6 +817,23 @@ func renderQueuePruneResults(w io.Writer, results []queuePruneResult, jsonOut bo
 	}
 	renderQueuePruneTable(w, results)
 	return nil
+}
+
+func renderQueueDropResults(w io.Writer, results []queueDropResult, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(w, "(no queue items dropped)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tSTATE\tINSTANCE\tINSTANCE_ID\tACTION")
+	for _, result := range results {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			result.ID, result.State, result.Instance, result.InstanceID, result.Action)
+	}
+	return tw.Flush()
 }
 
 func renderQueueRetryResults(w io.Writer, results []queueRetryResult, jsonOut bool) error {

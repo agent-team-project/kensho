@@ -236,6 +236,140 @@ func TestQueueListFilters(t *testing.T) {
 	}
 }
 
+func TestQueueDropAllLocal(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	items := []*daemon.QueueItem{
+		{
+			ID:             "q-drop-worker",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-104",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-104"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-drop-manager",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "manager",
+			InstanceID:     "manager-squ-105",
+			Payload:        map[string]any{"target": "manager", "ticket": "SQU-105"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:         "q-drop-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-106",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-106"},
+			NextRetry:  now.Add(-time.Minute),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "q-drop-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-107",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-107"},
+			NextRetry:  now.Add(time.Hour),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now,
+		},
+	}
+	for _, item := range items {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{
+		"queue", "drop",
+		"--target", tmp,
+		"--all",
+		"--instance", "worker",
+		"--event-type", "agent.dispatch",
+		"--dry-run",
+		"--json",
+	})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("queue drop --all dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []queueDropResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode dry drop json: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "q-drop-worker" || dryResults[0].Action != "would_drop" || !dryResults[0].DryRun {
+		t.Fatalf("dry results = %+v", dryResults)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drop-worker"); err != nil {
+		t.Fatalf("dry-run removed worker item: %v", err)
+	}
+
+	ready := NewRootCmd()
+	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ready.SetOut(readyOut)
+	ready.SetErr(readyErr)
+	ready.SetArgs([]string{"queue", "drop", "--target", tmp, "--all", "--ready", "--dry-run", "--json"})
+	if err := ready.Execute(); err != nil {
+		t.Fatalf("queue drop --all ready dry-run: %v\nstderr=%s", err, readyErr.String())
+	}
+	var readyResults []queueDropResult
+	if err := json.Unmarshal(readyOut.Bytes(), &readyResults); err != nil {
+		t.Fatalf("decode ready drop json: %v\nbody=%s", err, readyOut.String())
+	}
+	if len(readyResults) != 1 || readyResults[0].ID != "q-drop-ready" {
+		t.Fatalf("ready results = %+v", readyResults)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{
+		"queue", "drop",
+		"--target", tmp,
+		"--all",
+		"--instance", "worker",
+		"--event-type", "agent.dispatch",
+		"--json",
+	})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("queue drop --all apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied []queueDropResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode applied drop json: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(applied) != 1 || applied[0].ID != "q-drop-worker" || applied[0].Action != "dropped" {
+		t.Fatalf("applied = %+v", applied)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drop-worker"); !os.IsNotExist(err) {
+		t.Fatalf("worker item still exists or unexpected err=%v", err)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drop-manager"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("manager item=%+v err=%v", item, err)
+	}
+}
+
 func TestQueueRetryAllLocal(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
