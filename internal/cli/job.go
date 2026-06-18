@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -197,6 +198,7 @@ func newJobLsCmd() *cobra.Command {
 		summary      bool
 		jsonOut      bool
 		format       string
+		sortBy       string
 		interval     time.Duration
 	)
 	cwd, _ := os.Getwd()
@@ -217,6 +219,11 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --interval must be >= 0.")
 				return exitErr(2)
 			}
+			sortMode, err := parseJobSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
+				return exitErr(2)
+			}
 			tmpl, err := parseJobFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
@@ -227,6 +234,7 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
 			}
+			filters.Sort = sortMode
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -258,6 +266,7 @@ func newJobLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate job counts instead of job rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort rows by id, status, target, ticket, created, updated, instance, branch, or pr.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	return cmd
 }
@@ -1543,6 +1552,7 @@ type jobListFilters struct {
 	Ticket   string
 	Branch   string
 	PR       string
+	Sort     string
 }
 
 type jobRemoveOptions struct {
@@ -1597,6 +1607,80 @@ func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr st
 		f.Status = parsed
 	}
 	return f, nil
+}
+
+func parseJobSort(raw string) (string, error) {
+	sortMode := strings.ToLower(strings.TrimSpace(raw))
+	switch sortMode {
+	case "", "id", "status", "target", "ticket", "created", "updated", "instance", "branch", "pr":
+		if sortMode == "" {
+			return "id", nil
+		}
+		return sortMode, nil
+	default:
+		return "", fmt.Errorf("--sort must be id, status, target, ticket, created, updated, instance, branch, or pr")
+	}
+}
+
+func sortJobs(jobs []*job.Job, sortMode string) {
+	if sortMode == "" {
+		sortMode = "id"
+	}
+	sort.SliceStable(jobs, func(i, j int) bool {
+		left, right := jobs[i], jobs[j]
+		switch sortMode {
+		case "status":
+			if rankLeft, rankRight := jobStatusSortRank(left.Status), jobStatusSortRank(right.Status); rankLeft != rankRight {
+				return rankLeft < rankRight
+			}
+		case "target":
+			if left.Target != right.Target {
+				return left.Target < right.Target
+			}
+		case "ticket":
+			if left.Ticket != right.Ticket {
+				return left.Ticket < right.Ticket
+			}
+		case "created":
+			if !left.CreatedAt.Equal(right.CreatedAt) {
+				return left.CreatedAt.After(right.CreatedAt)
+			}
+		case "updated":
+			if !left.UpdatedAt.Equal(right.UpdatedAt) {
+				return left.UpdatedAt.After(right.UpdatedAt)
+			}
+		case "instance":
+			if left.Instance != right.Instance {
+				return left.Instance < right.Instance
+			}
+		case "branch":
+			if left.Branch != right.Branch {
+				return left.Branch < right.Branch
+			}
+		case "pr":
+			if left.PR != right.PR {
+				return left.PR < right.PR
+			}
+		}
+		return left.ID < right.ID
+	})
+}
+
+func jobStatusSortRank(status job.Status) int {
+	switch status {
+	case job.StatusQueued:
+		return 0
+	case job.StatusRunning:
+		return 1
+	case job.StatusBlocked:
+		return 2
+	case job.StatusDone:
+		return 3
+	case job.StatusFailed:
+		return 4
+	default:
+		return 5
+	}
 }
 
 func runJobSummary(w io.Writer, teamDir string, filters jobListFilters, jsonOut bool) error {
@@ -2098,6 +2182,7 @@ func filteredJobs(teamDir string, filters jobListFilters) ([]*job.Job, error) {
 			filtered = append(filtered, j)
 		}
 	}
+	sortJobs(filtered, filters.Sort)
 	return filtered, nil
 }
 

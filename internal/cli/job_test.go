@@ -254,6 +254,63 @@ func TestJobListSummary(t *testing.T) {
 	}
 }
 
+func TestJobListSortsRows(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	base := time.Now().UTC()
+	jobs := []*job.Job{
+		{ID: "squ-72", Ticket: "SQU-72", Target: "worker", Status: job.StatusDone, CreatedAt: base, UpdatedAt: base.Add(time.Minute)},
+		{ID: "squ-73", Ticket: "SQU-73", Target: "manager", Status: job.StatusQueued, CreatedAt: base, UpdatedAt: base.Add(3 * time.Minute)},
+		{ID: "squ-74", Ticket: "SQU-74", Target: "worker", Status: job.StatusBlocked, CreatedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
+	}
+	for _, j := range jobs {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	updated := NewRootCmd()
+	updatedOut, updatedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	updated.SetOut(updatedOut)
+	updated.SetErr(updatedErr)
+	updated.SetArgs([]string{"job", "ls", "--repo", tmp, "--sort", "updated", "--json"})
+	if err := updated.Execute(); err != nil {
+		t.Fatalf("job ls sort updated: %v\nstderr=%s", err, updatedErr.String())
+	}
+	var got []job.Job
+	if err := json.Unmarshal(updatedOut.Bytes(), &got); err != nil {
+		t.Fatalf("decode sorted jobs: %v\nbody=%s", err, updatedOut.String())
+	}
+	if len(got) != 3 || got[0].ID != "squ-73" || got[1].ID != "squ-74" || got[2].ID != "squ-72" {
+		t.Fatalf("updated sort = %+v", got)
+	}
+
+	status := NewRootCmd()
+	statusOut, statusErr := &bytes.Buffer{}, &bytes.Buffer{}
+	status.SetOut(statusOut)
+	status.SetErr(statusErr)
+	status.SetArgs([]string{"job", "ls", "--repo", tmp, "--sort", "status", "--format", "{{.ID}}"})
+	if err := status.Execute(); err != nil {
+		t.Fatalf("job ls sort status: %v\nstderr=%s", err, statusErr.String())
+	}
+	if got := strings.Split(strings.TrimSpace(statusOut.String()), "\n"); strings.Join(got, ",") != "squ-73,squ-74,squ-72" {
+		t.Fatalf("status sort output = %q", statusOut.String())
+	}
+
+	invalid := NewRootCmd()
+	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalid.SetOut(invalidOut)
+	invalid.SetErr(invalidErr)
+	invalid.SetArgs([]string{"job", "ls", "--repo", tmp, "--sort", "age"})
+	if err := invalid.Execute(); err == nil {
+		t.Fatalf("job ls invalid sort succeeded unexpectedly")
+	}
+	if !strings.Contains(invalidErr.String(), "--sort must be") {
+		t.Fatalf("invalid sort stderr = %q", invalidErr.String())
+	}
+}
+
 func TestJobRmRequiresForceForActiveAndRemovesEvents(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
