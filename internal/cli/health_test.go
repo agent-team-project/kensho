@@ -570,6 +570,9 @@ func TestHealthCommandJobsReportsJobAttention(t *testing.T) {
 	var sawJobIssue bool
 	for _, issue := range body.Issues {
 		if issue.Code == "job_attention" && issue.Job == "squ-91" && issue.Status == string(job.StatusFailed) {
+			if !containsString(issue.Actions, "agent-team job retry squ-91 --dispatch") {
+				t.Fatalf("job issue actions = %+v", issue.Actions)
+			}
 			sawJobIssue = true
 		}
 	}
@@ -585,7 +588,7 @@ func TestHealthCommandJobsReportsJobAttention(t *testing.T) {
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
-	for _, want := range []string{"jobs: total=1", "attention=1", "job_attention", "job=squ-91"} {
+	for _, want := range []string{"jobs: total=1", "attention=1", "job_attention", "job=squ-91", "action=agent-team job retry squ-91 --dispatch"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
 		}
@@ -642,6 +645,9 @@ branch = "worker-squ-92"
 	var sawIssue bool
 	for _, issue := range body.Issues {
 		if issue.Code == "job_status_blocked" && issue.Job == "squ-92" && issue.Phase == "blocked" {
+			if !containsString(issue.Actions, "agent-team job unblock squ-92 <answer...>") {
+				t.Fatalf("blocked status issue actions = %+v", issue.Actions)
+			}
 			sawIssue = true
 			break
 		}
@@ -658,7 +664,7 @@ branch = "worker-squ-92"
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
-	for _, want := range []string{"job status: previews=1 changes=1 blocked=1", "job_status_blocked", "job=squ-92"} {
+	for _, want := range []string{"job status: previews=1 changes=1 blocked=1", "job_status_blocked", "job=squ-92", "action=agent-team job unblock squ-92 <answer...>"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
 		}

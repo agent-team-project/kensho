@@ -218,13 +218,14 @@ type healthDeclared struct {
 }
 
 type healthIssue struct {
-	Code     string `json:"code"`
-	Severity string `json:"severity"`
-	Instance string `json:"instance,omitempty"`
-	Job      string `json:"job,omitempty"`
-	Message  string `json:"message"`
-	Status   string `json:"status,omitempty"`
-	Phase    string `json:"phase,omitempty"`
+	Code     string   `json:"code"`
+	Severity string   `json:"severity"`
+	Instance string   `json:"instance,omitempty"`
+	Job      string   `json:"job,omitempty"`
+	Actions  []string `json:"actions,omitempty"`
+	Message  string   `json:"message"`
+	Status   string   `json:"status,omitempty"`
+	Phase    string   `json:"phase,omitempty"`
 }
 
 type healthInstance struct {
@@ -537,7 +538,9 @@ func addJobHealth(result *healthResult, teamDir string, now time.Time) error {
 		if strings.TrimSpace(preview.Message) != "" {
 			message += ": " + strings.TrimSpace(preview.Message)
 		}
-		result.addIssueWithSeverity("job_status_blocked", "error", preview.Instance, preview.JobID, string(preview.After), preview.Phase, message)
+		result.addIssueWithSeverityAndActions("job_status_blocked", "error", preview.Instance, preview.JobID, string(preview.After), preview.Phase, message, []string{
+			fmt.Sprintf("agent-team job unblock %s <answer...>", preview.JobID),
+		})
 	}
 	return nil
 }
@@ -625,16 +628,21 @@ func (r *healthResult) addJobIssue(item jobTriageItem) {
 	if strings.TrimSpace(item.Message) != "" {
 		message += ": " + strings.TrimSpace(item.Message)
 	}
-	r.addIssueWithSeverity("job_attention", severity, item.Instance, item.JobID, string(item.Status), "", message)
+	r.addIssueWithSeverityAndActions("job_attention", severity, item.Instance, item.JobID, string(item.Status), "", message, item.Actions)
 }
 
 func (r *healthResult) addIssueWithSeverity(code, severity, instance, jobID, status, phase, message string) {
+	r.addIssueWithSeverityAndActions(code, severity, instance, jobID, status, phase, message, nil)
+}
+
+func (r *healthResult) addIssueWithSeverityAndActions(code, severity, instance, jobID, status, phase, message string, actions []string) {
 	r.Healthy = false
 	r.Issues = append(r.Issues, healthIssue{
 		Code:     code,
 		Severity: severity,
 		Instance: instance,
 		Job:      jobID,
+		Actions:  append([]string(nil), actions...),
 		Status:   status,
 		Phase:    phase,
 		Message:  message,
@@ -722,6 +730,9 @@ func renderHealth(w io.Writer, result *healthResult) {
 		}
 		if issue.Phase != "" {
 			parts = append(parts, "phase="+issue.Phase)
+		}
+		if len(issue.Actions) > 0 {
+			parts = append(parts, "action="+strings.Join(issue.Actions, "; "))
 		}
 		if len(parts) > 0 {
 			detail += " (" + strings.Join(parts, ", ") + ")"
