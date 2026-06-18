@@ -182,6 +182,8 @@ agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reope
                                                 # create, monitor, dispatch, control, and clean up durable work units
 agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline> [--state ready|all] [--json] | run <pipeline> <ticket> [--dispatch] [--json]
                                                 # inspect declared pipeline workflows from instances.toml
+agent-team schedule ls [--json] | show <schedule> [--json] | run <schedule> [--dry-run] [--json]
+                                                # inspect and manually publish declared schedule events
 agent-team queue ls [-w] [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--ready] [--json] | show <id> | drop <id>|--all [--dry-run] | retry <id>|--all [--dry-run] | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
                                                 # inspect, retry, drop, and prune persisted daemon dispatch queue items
 agent-team intake linear|github --payload <json> [--dry-run] [--format '{{.Event.Type}}'] [--json] | schedule <name> [--dry-run] [--format '{{.Event.Type}}'] [--json]
