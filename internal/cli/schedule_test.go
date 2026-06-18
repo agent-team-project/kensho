@@ -156,6 +156,71 @@ func TestScheduleDueListsRunOnStartAndInterval(t *testing.T) {
 	}
 }
 
+func TestScheduleFireUsesDaemonAndPreservesDryRun(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-schedule-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"schedule", "fire", "--repo", tmp, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("schedule fire dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview daemon.ScheduleFireResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode schedule fire dry-run json: %v\nbody=%s", err, dryOut.String())
+	}
+	if !preview.DryRun || preview.WouldFire != 1 || preview.Fired != 0 || len(preview.Schedules) != 1 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if item := preview.Schedules[0]; item.Name != "nightly" || item.Reason != "run_on_start" || item.Payload["kind"] != "nightly" {
+		t.Fatalf("preview item = %+v", item)
+	}
+	if _, err := daemon.ReadScheduleState(daemon.DaemonRoot(teamDir), "nightly"); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote schedule state, err=%v", err)
+	}
+
+	fire := NewRootCmd()
+	fireOut, fireErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fire.SetOut(fireOut)
+	fire.SetErr(fireErr)
+	fire.SetArgs([]string{"schedule", "fire", "--repo", tmp, "--json"})
+	if err := fire.Execute(); err != nil {
+		t.Fatalf("schedule fire: %v\nstderr=%s", err, fireErr.String())
+	}
+	var result daemon.ScheduleFireResult
+	if err := json.Unmarshal(fireOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode schedule fire json: %v\nbody=%s", err, fireOut.String())
+	}
+	if result.DryRun || result.Fired != 1 || len(result.Schedules) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if item := result.Schedules[0]; item.Name != "nightly" || len(item.Outcomes) != 1 || item.Outcomes[0].Action != "messaged" || item.Outcomes[0].Instance != "manager" {
+		t.Fatalf("result item = %+v", item)
+	}
+	if _, err := daemon.ReadScheduleState(daemon.DaemonRoot(teamDir), "nightly"); err != nil {
+		t.Fatalf("schedule state not written: %v", err)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"event":"schedule"`) || !strings.Contains(messages[0].Body, `"name":"nightly"`) {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
 func TestScheduleShowMissing(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -197,6 +262,10 @@ func writeScheduleTopology(t *testing.T, repo string) {
 	body := `
 [instances.manager]
 agent = "manager"
+
+[[instances.manager.triggers]]
+event = "schedule"
+match.name = "nightly"
 
 [schedules.nightly]
 every = "24h"

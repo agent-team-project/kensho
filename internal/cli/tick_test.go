@@ -113,6 +113,53 @@ func TestTickRunsMaintenanceCycle(t *testing.T) {
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickDryRunIncludesDueSchedules(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-tick-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"tick",
+		"--target", tmp,
+		"--dry-run",
+		"--skip-reconcile",
+		"--skip-drain",
+		"--skip-advance",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick schedule dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick schedule dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Schedule == nil || !result.Schedule.DryRun || result.Schedule.WouldFire != 1 {
+		t.Fatalf("tick schedule result = %+v", result)
+	}
+	if len(result.Schedule.Schedules) != 1 || result.Schedule.Schedules[0].Name != "nightly" || result.Schedule.Schedules[0].Reason != "run_on_start" {
+		t.Fatalf("tick schedule rows = %+v", result.Schedule.Schedules)
+	}
+	if result.Reconcile != nil || result.Queue != nil || result.Advance != nil {
+		t.Fatalf("skipped tick sections = %+v", result)
+	}
+	if _, err := daemon.ReadScheduleState(daemon.DaemonRoot(teamDir), "nightly"); !os.IsNotExist(err) {
+		t.Fatalf("tick dry-run wrote schedule state, err=%v", err)
+	}
+}
+
 func TestTickWatchRendersCanceledSnapshot(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
@@ -125,6 +172,7 @@ func TestTickWatchRendersCanceledSnapshot(t *testing.T) {
 	cmd.SetErr(stderr)
 	if err := runTickLoop(ctx, cmd, teamDir, "repo", 0, tickOptions{
 		SkipReconcile: true,
+		SkipSchedules: true,
 		SkipDrain:     true,
 		SkipAdvance:   true,
 	}, true, nil, time.Millisecond); err != nil {
@@ -134,7 +182,7 @@ func TestTickWatchRendersCanceledSnapshot(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode watch tick json: %v\nbody=%s", err, out.String())
 	}
-	if result.Reconcile != nil || result.Queue != nil || result.Advance != nil {
+	if result.Reconcile != nil || result.Schedule != nil || result.Queue != nil || result.Advance != nil {
 		t.Fatalf("watch result = %+v, want skipped sections", result)
 	}
 }

@@ -137,6 +137,11 @@ POST /v1/queue/drain[?dry_run=true]
        "would_dispatch": <int>, "pending": <int>, "dead": <int>,
        "dry_run": <bool>, "outcomes": [...] }
 
+POST /v1/schedules/fire[?dry_run=true]
+  → { "fired": <int>, "would_fire": <int>, "dry_run": <bool>,
+       "schedules": [{ "name": "...", "reason": "run_on_start|interval",
+                       "event_type": "schedule", "payload": {...}, "outcomes": [...] }] }
+
 POST /v1/queue/{id}/retry
   → { "instance": "...", "action": "dispatched|queued|rejected", ... }
 
@@ -218,8 +223,8 @@ agent-team plan [--json] [--summary] [--stop-extras] [--format '{{.Instance}} {{
                                   # read-only desired-state preview from instances.toml + daemon metadata
 agent-team sync [-q] [--dry-run] [--stop-extras] [--agent manager] [--instance manager] [--status unknown] [--phase idle] [--action start] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--json]
                                   # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
-agent-team tick [-w] [--interval 2s] [--dry-run] [--skip-reconcile] [--skip-drain] [--skip-advance] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
-                                  # operator maintenance cycle: reconcile metadata, drain ready queue items, advance ready pipeline jobs
+agent-team tick [-w] [--interval 2s] [--dry-run] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
+                                  # operator maintenance cycle: reconcile metadata, fire due schedules, drain ready queue items, advance ready pipeline jobs
 agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--format '{{.Instance}} {{if .Runtime}}{{.Runtime.Lifecycle}}{{end}}'] [--json]
                                   # runtime metadata + state/status/topology detail; reads persisted runtime metadata if the daemon is down
 agent-team wait [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--until terminal|running|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json] # wait for lifecycle or work-phase condition; uses persisted metadata if daemon is down

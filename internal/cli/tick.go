@@ -20,6 +20,7 @@ func newTickCmd() *cobra.Command {
 		workspace     string
 		limit         int
 		skipReconcile bool
+		skipSchedules bool
 		skipDrain     bool
 		skipAdvance   bool
 		dryRun        bool
@@ -33,7 +34,7 @@ func newTickCmd() *cobra.Command {
 		Use:   "tick",
 		Short: "Run one orchestration maintenance cycle.",
 		Long: "Run one orchestration maintenance cycle against the running daemon: " +
-			"reconcile process metadata, drain ready queue items, then advance ready pipeline jobs.",
+			"reconcile process metadata, fire due schedules, drain ready queue items, then advance ready pipeline jobs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -59,6 +60,7 @@ func newTickCmd() *cobra.Command {
 			}
 			opts := tickOptions{
 				SkipReconcile: skipReconcile,
+				SkipSchedules: skipSchedules,
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
 				DryRun:        dryRun,
@@ -90,9 +92,10 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata reconciliation.")
+	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview queue drain and pipeline advancement without mutating state.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview schedule firing, queue drain, and pipeline advancement without mutating state.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the tick result with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.")
@@ -102,16 +105,18 @@ func newTickCmd() *cobra.Command {
 
 type tickOptions struct {
 	SkipReconcile bool
+	SkipSchedules bool
 	SkipDrain     bool
 	SkipAdvance   bool
 	DryRun        bool
 }
 
 type tickResult struct {
-	Reconcile *daemonReconcileResponse `json:"reconcile,omitempty"`
-	Queue     *daemon.QueueDrainResult `json:"queue,omitempty"`
-	Advance   []pipelineAdvanceResult  `json:"advance,omitempty"`
-	DryRun    bool                     `json:"dry_run,omitempty"`
+	Reconcile *daemonReconcileResponse   `json:"reconcile,omitempty"`
+	Schedule  *daemon.ScheduleFireResult `json:"schedule,omitempty"`
+	Queue     *daemon.QueueDrainResult   `json:"queue,omitempty"`
+	Advance   []pipelineAdvanceResult    `json:"advance,omitempty"`
+	DryRun    bool                       `json:"dry_run,omitempty"`
 }
 
 func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tickOptions) (*tickResult, error) {
@@ -126,6 +131,13 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 			return nil, err
 		}
 		result.Reconcile = rec
+	}
+	if !opts.SkipSchedules {
+		schedule, err := dc.ScheduleFire(opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		result.Schedule = schedule
 	}
 	if !opts.SkipDrain {
 		drain, err := dc.QueueDrain(opts.DryRun)
@@ -207,6 +219,15 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 		}
 	} else {
 		fmt.Fprintln(w, "Reconcile: skipped")
+	}
+	fmt.Fprintln(w)
+	if result.Schedule != nil {
+		fmt.Fprintln(w, "Schedules:")
+		if err := renderScheduleFireResult(w, result.Schedule, false, nil); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "Schedules: skipped")
 	}
 	fmt.Fprintln(w)
 	if result.Queue != nil {

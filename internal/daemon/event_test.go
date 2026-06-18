@@ -793,6 +793,76 @@ payload.workspace = "repo"
 	}
 }
 
+func TestEvent_ScheduleFireResultPreviewsAndPublishesRunOnStart(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "schedule"
+match.name = "nightly"
+
+[schedules.nightly]
+every = "1s"
+run_on_start = true
+payload.workspace = "repo"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+
+	preview, err := resolver.PreviewDueSchedulesWithResult(now)
+	if err != nil {
+		t.Fatalf("PreviewDueSchedulesWithResult: %v", err)
+	}
+	if !preview.DryRun || preview.WouldFire != 1 || preview.Fired != 0 || len(preview.Schedules) != 1 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if item := preview.Schedules[0]; item.Name != "nightly" || item.Reason != "run_on_start" || item.EventType != "schedule" || item.Payload["workspace"] != "repo" {
+		t.Fatalf("preview item = %+v", item)
+	}
+	if _, err := ReadScheduleState(root, "nightly"); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not write schedule state, err=%v", err)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read dry-run messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("dry-run published messages = %+v", messages)
+	}
+
+	fired, err := resolver.FireDueSchedulesWithResult(now)
+	if err != nil {
+		t.Fatalf("FireDueSchedulesWithResult: %v", err)
+	}
+	if fired.DryRun || fired.Fired != 1 || fired.WouldFire != 0 || len(fired.Schedules) != 1 {
+		t.Fatalf("fired = %+v", fired)
+	}
+	if got := fired.Schedules[0]; got.Name != "nightly" || got.Reason != "run_on_start" || len(got.Outcomes) != 1 || got.Outcomes[0].Action != "messaged" || got.Outcomes[0].Instance != "manager" {
+		t.Fatalf("fired item = %+v", got)
+	}
+	persisted, err := ReadScheduleState(root, "nightly")
+	if err != nil {
+		t.Fatalf("ReadScheduleState after fire: %v", err)
+	}
+	if !persisted.LastSeenAt.Equal(now) || !persisted.LastFiredAt.Equal(now) {
+		t.Fatalf("persisted = %+v", persisted)
+	}
+	messages, err = ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"event":"schedule"`) || !strings.Contains(messages[0].Body, `"name":"nightly"`) {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
 func TestIntakeLinearRouteNormalizesAndDispatches(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,7 @@ func newScheduleCmd() *cobra.Command {
 	cmd.AddCommand(newScheduleLsCmd())
 	cmd.AddCommand(newScheduleShowCmd())
 	cmd.AddCommand(newScheduleDueCmd())
+	cmd.AddCommand(newScheduleFireCmd())
 	cmd.AddCommand(newScheduleRunCmd())
 	return cmd
 }
@@ -123,6 +125,56 @@ func newScheduleDueCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit due schedules as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.")
+	return cmd
+}
+
+func newScheduleFireCmd() *cobra.Command {
+	var (
+		repo    string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "fire",
+		Short: "Publish every schedule due now through the daemon.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseScheduleFireFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			dc, err := newDaemonClient(teamDir)
+			if err != nil {
+				if errors.Is(err, errDaemonNotRunning) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: daemon is not running — start it first with `agent-team daemon start`.")
+					return exitErr(2)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := dc.ScheduleFire(dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
+				return exitErr(1)
+			}
+			return renderScheduleFireResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview due schedules without publishing events or writing schedule clocks.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit fire results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.")
 	return cmd
 }
 
@@ -386,6 +438,75 @@ func renderScheduleDueRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl 
 	}
 	_ = tw.Flush()
 	return nil
+}
+
+func parseScheduleFireFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("schedule-fire-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderScheduleFireResult(w io.Writer, result *daemon.ScheduleFireResult, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &daemon.ScheduleFireResult{Schedules: []daemon.ScheduleFireItem{}}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	if result.DryRun {
+		fmt.Fprintf(w, "schedule fire dry-run: would_fire=%d\n", result.WouldFire)
+	} else {
+		fmt.Fprintf(w, "schedule fire: fired=%d\n", result.Fired)
+	}
+	if len(result.Schedules) == 0 {
+		fmt.Fprintln(w, "(no schedules due)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "SCHEDULE\tREASON\tEVENT\tOUTCOMES\tPAYLOAD")
+	for _, item := range result.Schedules {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			item.Name, item.Reason, item.EventType, summariseScheduleFireOutcomes(item.Outcomes), summariseSchedulePayload(item.Payload))
+	}
+	return tw.Flush()
+}
+
+func summariseScheduleFireOutcomes(outcomes []daemon.EventOutcome) string {
+	if len(outcomes) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		target := outcome.Instance
+		if outcome.InstanceID != "" && outcome.InstanceID != outcome.Instance {
+			target = target + "/" + outcome.InstanceID
+		}
+		if target == "" {
+			target = "-"
+		}
+		action := outcome.Action
+		if action == "" {
+			action = "unknown"
+		}
+		part := action + "=" + target
+		if outcome.Reason != "" {
+			part += "(" + outcome.Reason + ")"
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ",")
 }
 
 func publishScheduleEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {

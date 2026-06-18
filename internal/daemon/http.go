@@ -548,6 +548,31 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		}
 	})
 
+	mux.HandleFunc("/v1/schedules/fire", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		var (
+			result *ScheduleFireResult
+			err    error
+		)
+		if r.URL.Query().Get("dry_run") == "true" {
+			result, err = events.PreviewDueSchedulesWithResult(time.Now().UTC())
+		} else {
+			result, err = events.FireDueSchedulesWithResult(time.Now().UTC())
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	// `GET /v1/topology` — declared instances + triggers + per-instance
 	// running/queued counts. Always 200 with `{instances: []}` even when
 	// nothing is declared, so clients can render an empty state.

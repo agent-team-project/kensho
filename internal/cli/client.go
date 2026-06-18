@@ -540,6 +540,26 @@ func (c *daemonClient) QueueDrain(dryRun bool) (*daemon.QueueDrainResult, error)
 	return &out, nil
 }
 
+func (c *daemonClient) ScheduleFire(dryRun bool) (*daemon.ScheduleFireResult, error) {
+	u := c.baseURL + "/v1/schedules/fire"
+	if dryRun {
+		u += "?dry_run=true"
+	}
+	resp, err := c.hc.Post(u, "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: schedules fire: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: schedules fire: %s", readErrorBody(resp))
+	}
+	var out daemon.ScheduleFireResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: schedules fire decode: %w", err)
+	}
+	return &out, nil
+}
+
 // topologyResponse mirrors the wire shape of /v1/topology.
 type topologyResponse struct {
 	Instances []topologyInstance `json:"instances"`
