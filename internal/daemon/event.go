@@ -116,6 +116,7 @@ func (r *EventResolver) Event(eventType string, payload map[string]any) ([]Event
 	if strings.TrimSpace(eventType) == "" {
 		return nil, errors.New("event: type is required")
 	}
+	r.reconcilePRJob(eventType, payload)
 	r.mu.Lock()
 	t := r.topo
 	r.mu.Unlock()
@@ -131,6 +132,19 @@ func (r *EventResolver) Event(eventType string, payload map[string]any) ([]Event
 		out = append(out, r.actuatePipeline(pipeline, eventType, payload)...)
 	}
 	return out, nil
+}
+
+func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any) {
+	if !strings.HasPrefix(eventType, "pr.") {
+		return
+	}
+	if strings.TrimSpace(r.teamDir) == "" {
+		return
+	}
+	_, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
+	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
+		return
+	}
 }
 
 func (r *EventResolver) actuate(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {

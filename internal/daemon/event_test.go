@@ -660,6 +660,51 @@ target = "manager"
 	}
 }
 
+func TestIntakeGitHubMergedReconcilesJob(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	j, err := jobstore.New("SQU-94", "worker", "finish webhook reconciliation", now)
+	if err != nil {
+		t.Fatalf("New job: %v", err)
+	}
+	j.Status = jobstore.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/94"
+	j.Branch = "worktree-worker-squ-94"
+	j.Worktree = filepath.Join(filepath.Dir(teamDir), ".claude", "worktrees", "worker-squ-94")
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("Write job: %v", err)
+	}
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/intake/github", `{
+		"action":"closed",
+		"repository":{"full_name":"acme/repo"},
+		"pull_request":{
+			"number":94,
+			"merged":true,
+			"html_url":"https://github.com/acme/repo/pull/94",
+			"head":{"ref":"worktree-worker-squ-94"}
+		}
+	}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("intake: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	updated, err := jobstore.Read(teamDir, "squ-94")
+	if err != nil {
+		t.Fatalf("Read updated job: %v", err)
+	}
+	if updated.Status != jobstore.StatusDone || updated.LastEvent != "pr.merged" || updated.LastStatus != "pull request merged" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.Worktree == "" || updated.Branch == "" {
+		t.Fatalf("daemon reconcile should not cleanup worktree, job = %+v", updated)
+	}
+}
+
 func TestEvent_QueuedSpawnFailureMovesToDeadLetter(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

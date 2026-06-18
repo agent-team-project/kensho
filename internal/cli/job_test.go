@@ -257,6 +257,96 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	}
 }
 
+func TestJobReconcileGitHubMergedCleansOwnedWorktree(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	initGitRepoForJobTest(t, target)
+
+	create := NewRootCmd()
+	create.SetOut(&bytes.Buffer{})
+	createErr := &bytes.Buffer{}
+	create.SetErr(createErr)
+	create.SetArgs([]string{
+		"job", "create", "SQU-45",
+		"--target", "worker",
+		"--kickoff", "finish pr reconciliation",
+		"--repo", target,
+	})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("job create: %v\nstderr=%s", err, createErr.String())
+	}
+	dispatch := NewRootCmd()
+	dispatchOut, dispatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatch.SetOut(dispatchOut)
+	dispatch.SetErr(dispatchErr)
+	dispatch.SetArgs([]string{"job", "dispatch", "squ-45", "--workspace", "worktree", "--repo", target, "--json"})
+	if err := dispatch.Execute(); err != nil {
+		t.Fatalf("job dispatch: %v\nstderr=%s", err, dispatchErr.String())
+	}
+	dispatched, err := job.Read(filepath.Join(target, ".agent_team"), "squ-45")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	dispatched.PR = "https://github.com/acme/repo/pull/45"
+	if err := job.Write(filepath.Join(target, ".agent_team"), dispatched); err != nil {
+		t.Fatalf("write job pr: %v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-45")
+
+	payload, err := json.Marshal(map[string]any{
+		"action": "closed",
+		"repository": map[string]any{
+			"full_name": "acme/repo",
+		},
+		"pull_request": map[string]any{
+			"number":   45,
+			"merged":   true,
+			"html_url": "https://github.com/acme/repo/pull/45",
+			"head": map[string]any{
+				"ref": dispatched.Branch,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconcile := NewRootCmd()
+	reconcileOut, reconcileErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reconcile.SetOut(reconcileOut)
+	reconcile.SetErr(reconcileErr)
+	reconcile.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", string(payload),
+		"--cleanup-merged",
+		"--repo", target,
+		"--json",
+	})
+	if err := reconcile.Execute(); err != nil {
+		t.Fatalf("job reconcile github: %v\nstderr=%s", err, reconcileErr.String())
+	}
+	var result struct {
+		Result struct {
+			Job job.Job `json:"job"`
+		} `json:"result"`
+		Cleanup string `json:"cleanup"`
+	}
+	if err := json.Unmarshal(reconcileOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile json: %v\nbody=%s", err, reconcileOut.String())
+	}
+	if result.Result.Job.Status != job.StatusDone || result.Result.Job.Worktree != "" || result.Result.Job.Branch != "" {
+		t.Fatalf("reconciled job = %+v", result.Result.Job)
+	}
+	if !strings.Contains(result.Cleanup, "removed") {
+		t.Fatalf("cleanup summary = %q", result.Cleanup)
+	}
+	if _, err := os.Stat(dispatched.Worktree); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists or stat error: %v", err)
+	}
+	if branchExists(t, target, dispatched.Branch) {
+		t.Fatalf("branch %s still exists after reconcile cleanup", dispatched.Branch)
+	}
+}
+
 func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()

@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
@@ -32,6 +33,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobStepCmd())
 	cmd.AddCommand(newJobAdvanceCmd())
+	cmd.AddCommand(newJobReconcileCmd())
 	return cmd
 }
 
@@ -558,6 +560,100 @@ func newJobAdvanceCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for the advanced step: auto, worktree, or repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
+	return cmd
+}
+
+func newJobReconcileCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Reconcile external PR state back into jobs.",
+	}
+	cmd.AddCommand(newJobReconcileGitHubCmd())
+	return cmd
+}
+
+func newJobReconcileGitHubCmd() *cobra.Command {
+	var (
+		repo          string
+		payload       string
+		payloadFile   string
+		cleanupMerged bool
+		jsonOut       bool
+		format        string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "github",
+		Short: "Reconcile a GitHub PR webhook payload with its owning job.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			body, err := intakePayload(payload, payloadFile)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+				return exitErr(2)
+			}
+			ev, err := intake.NormalizeGitHub(body)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+				return exitErr(2)
+			}
+			result, err := job.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+				return exitErr(1)
+			}
+			cleanupSummary := ""
+			if cleanupMerged && result.Job.Status == job.StatusDone {
+				repoRoot := filepath.Dir(teamDir)
+				cleanupSummary, err = cleanupJobOwnedWorktree(repoRoot, result.Job)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+					return exitErr(1)
+				}
+				result.Job.Worktree = ""
+				result.Job.Branch = ""
+				result.Job.LastStatus = strings.TrimSpace(result.Job.LastStatus + "; cleanup: " + cleanupSummary)
+				result.Job.UpdatedAt = time.Now().UTC()
+				if err := job.Write(teamDir, result.Job); err != nil {
+					return err
+				}
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+					Event   *intake.Event        `json:"event"`
+					Result  *job.ReconcileResult `json:"result"`
+					Cleanup string               `json:"cleanup,omitempty"`
+				}{Event: ev, Result: result, Cleanup: cleanupSummary})
+			}
+			if tmpl != nil {
+				return renderJobTemplate(cmd.OutOrStdout(), result.Job, tmpl)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Job: %s reconciled by %s status=%s\n", result.Job.ID, result.MatchedBy, result.Job.Status)
+			if cleanupSummary != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Cleanup: %s\n", cleanupSummary)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&payload, "payload", "", "GitHub webhook JSON object.")
+	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read GitHub webhook JSON from a file.")
+	cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "After a merged PR event, remove the job-owned worktree and branch.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the normalized event and reconciled job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
 
