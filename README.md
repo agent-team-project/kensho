@@ -155,6 +155,8 @@ agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --la
                                                 # check daemon, declarations, crashes, stale status, queue dead letters, and optional topology drift
 agent-team monitor [-w] [--no-clear] [-a] [--summary [--resources]] [--plan [--stop-extras] [--action start]] [--latest | --last N] [--events N [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # combined health, instance, resource, and event-history snapshot; uses local metadata if the daemon is down
+agent-team runtime [--json]
+                                                # inspect selected LLM runtime profile, binary path, and supported capabilities
 agent-team watch [--no-clear] [-a] [--summary [--resources]] [--plan [--stop-extras] [--action start]] [--latest | --last N] [--events N [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # continuously redraw the combined operator monitor
 agent-team ps [-a] [-w] [--no-clear] [-q] [--summary] [--latest | --last N] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--json] [--format '{{.Instance}} {{.Status}}'] [--status running] [--phase blocked] [--stale] [--unhealthy] [--agent worker] [--instance worker-1]
@@ -248,6 +250,8 @@ Runtime selection is environment-driven:
 - `AGENT_TEAM_RUNTIME=claude` (default) enables the full daemon, resume, subagent registry, and queue/event dispatch path.
 - `AGENT_TEAM_RUNTIME=codex` launches direct Codex sessions with `codex` or `codex exec`. The chosen agent prompt and task are passed as the initial Codex prompt, and team agents are listed as coordination context. This path currently bypasses daemon dispatch/resume because Codex does not expose the same `--agents` / `--session-id` contract.
 - `AGENT_TEAM_RUNTIME_BIN=/path/to/wrapper` overrides the binary for the selected runtime.
+
+Run `agent-team runtime` to confirm the selected profile, resolved binary path, and supported capabilities.
 
 For the Claude-compatible runtime, the named agent's prompt becomes the session's system prompt and all other agents stay registered as subagents so the named agent can dispatch them via the Task tool. The launcher creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports:
 

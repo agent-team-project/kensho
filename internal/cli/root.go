@@ -24,8 +24,8 @@ func (e ExitCode) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "agent-team",
-		Short: "Declare and launch a custom set of Claude Code subagents and skills, vendored into any repo.",
-		Long: "agent-team — declare and launch Claude Code subagents and skills, vendored into any repo.\n\n" +
+		Short: "Declare and launch a custom set of LLM agents and skills, vendored into any repo.",
+		Long: "agent-team — declare and launch LLM agents and skills, vendored into any repo.\n\n" +
 			"Docker-like shortcuts:\n" +
 			"  agent-team up    = agent-team start\n" +
 			"  agent-team down  = agent-team stop\n" +
@@ -62,6 +62,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newQueueCmd())
 	root.AddCommand(newIntakeCmd())
 	root.AddCommand(newEventsCmd())
+	root.AddCommand(newRuntimeCmd())
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newInstanceCmd())
