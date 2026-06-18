@@ -335,3 +335,94 @@ func TestPipelineRunDispatchesFirstStep(t *testing.T) {
 		t.Fatalf("advanced step = %+v", result.Step)
 	}
 }
+
+func TestPipelineAdvanceDryRunAndDispatch(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-401",
+			Ticket:    "SQU-401",
+			Target:    "manager",
+			Kickoff:   "SQU-401: review implementation",
+			Pipeline:  "ticket_triage",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+			},
+		},
+		{
+			ID:        "squ-402",
+			Ticket:    "SQU-402",
+			Target:    "manager",
+			Kickoff:   "SQU-402: review implementation",
+			Pipeline:  "ticket_triage",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"pipeline", "advance", "ticket_triage", "--repo", target, "--limit", "1", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("pipeline advance dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []pipelineAdvanceResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode advance dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-401" || preview[0].StepID != "review" || preview[0].Action != "would_advance" || !preview[0].DryRun {
+		t.Fatalf("preview = %+v", preview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-401")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("dry-run changed job = %+v", unchanged)
+	}
+
+	run := NewRootCmd()
+	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
+	run.SetOut(runOut)
+	run.SetErr(runErr)
+	run.SetArgs([]string{"pipeline", "advance", "ticket_triage", "--repo", target, "--limit", "1", "--json"})
+	if err := run.Execute(); err != nil {
+		t.Fatalf("pipeline advance: %v\nstderr=%s", err, runErr.String())
+	}
+	var advanced []pipelineAdvanceResult
+	if err := json.Unmarshal(runOut.Bytes(), &advanced); err != nil {
+		t.Fatalf("decode advance json: %v\nbody=%s", err, runOut.String())
+	}
+	if len(advanced) != 1 || advanced[0].JobID != "squ-401" || advanced[0].Action != "advanced" || advanced[0].StepStatus != job.StatusRunning || advanced[0].Instance != "manager" {
+		t.Fatalf("advanced = %+v", advanced)
+	}
+	first, err := job.Read(teamDir, "squ-401")
+	if err != nil {
+		t.Fatalf("read first job: %v", err)
+	}
+	second, err := job.Read(teamDir, "squ-402")
+	if err != nil {
+		t.Fatalf("read second job: %v", err)
+	}
+	if first.Steps[1].Status != job.StatusRunning || second.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("jobs after advance first=%+v second=%+v", first, second)
+	}
+}
