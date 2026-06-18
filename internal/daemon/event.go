@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -44,6 +45,7 @@ type ephTracker struct {
 }
 
 type queuedEvent struct {
+	eventType  string
 	payload    map[string]any
 	queuedAt   time.Time
 	uniqueName string
@@ -152,6 +154,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		}
 		uniq := uniqueChildName(inst.Name)
 		tr.queue = append(tr.queue, &queuedEvent{
+			eventType:  eventType,
 			payload:    payload,
 			queuedAt:   time.Now().UTC(),
 			uniqueName: uniq,
@@ -174,13 +177,17 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: meta.Instance}
 }
 
-// spawn issues a Dispatch for an ephemeral declared instance. Today this is a
-// minimal `claude -p <prompt>` form — the launcher's full machinery
-// (`--agents`, `--add-dir`, kickoff prompt) is wired through the CLI's
-// `agent-team run` path, not the daemon. For event-driven dispatches the
-// caller's payload is JSON-encoded into the prompt so the spawned child has
+// spawn issues a Dispatch for an ephemeral declared instance. The daemon still
+// uses the minimal `claude -p <prompt>` argv shape rather than the CLI's full
+// `--agents` / `--add-dir` launcher, but it mirrors the run path's per-instance
+// runtime contract: state dir, resolved config, and AGENT_TEAM_* env vars.
+// The caller's payload is JSON-encoded into the prompt so the spawned child has
 // full event context to work from.
 func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, payload map[string]any) (*Metadata, error) {
+	env, err := r.prepareEphemeralRuntime(inst, name)
+	if err != nil {
+		return nil, err
+	}
 	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
 	prompt := fmt.Sprintf("Topology event for declared instance %q (agent=%s):\n%s",
 		inst.Name, inst.Agent, string(body))
@@ -189,7 +196,39 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		Name:      name,
 		Prompt:    prompt,
 		Workspace: r.teamDirParent(),
+		Env:       env,
 	})
+}
+
+func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) ([]string, error) {
+	if strings.TrimSpace(r.teamDir) == "" {
+		return nil, nil
+	}
+	stateDir := filepath.Join(r.teamDir, "state", name)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return nil, fmt.Errorf("event runtime: create state dir: %w", err)
+	}
+	repoConfig, err := teamtemplate.LoadTOMLFile(filepath.Join(r.teamDir, "config.toml"))
+	if err != nil {
+		return nil, fmt.Errorf("event runtime: repo config: %w", err)
+	}
+	declaredConfig := teamtemplate.Tree{}
+	if inst != nil && inst.Config != nil {
+		declaredConfig = teamtemplate.Tree(inst.Config)
+	}
+	resolved := teamtemplate.ResolveLayers(repoConfig, declaredConfig)
+	body, err := teamtemplate.EncodeTOML(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("event runtime: encode config: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "config.toml"), body, 0o644); err != nil {
+		return nil, fmt.Errorf("event runtime: write config: %w", err)
+	}
+	return []string{
+		"AGENT_TEAM_ROOT=" + r.teamDir,
+		"AGENT_TEAM_INSTANCE=" + name,
+		"AGENT_TEAM_STATE_DIR=" + stateDir,
+	}, nil
 }
 
 func (r *EventResolver) teamDirParent() string {
@@ -198,6 +237,9 @@ func (r *EventResolver) teamDirParent() string {
 	// return "" — Dispatch will reject with a clearer error.
 	if r.teamDir == "" {
 		return ""
+	}
+	if filepath.Base(r.teamDir) == ".agent_team" {
+		return filepath.Dir(r.teamDir)
 	}
 	return strings.TrimSuffix(r.teamDir, "/.agent_team")
 }
@@ -232,7 +274,7 @@ func (r *EventResolver) onReap(spawned string) {
 	}
 	// Re-spawn from the queue. Failures are dropped to the daemon log; no
 	// retry. (A full retry-and-dead-letter design is out of scope for v1.2.)
-	if _, err := r.spawn(declared, next.uniqueName, "queued", next.payload); err != nil {
+	if _, err := r.spawn(declared, next.uniqueName, next.eventType, next.payload); err != nil {
 		r.mu.Lock()
 		tr.running--
 		r.mu.Unlock()

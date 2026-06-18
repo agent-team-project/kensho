@@ -42,6 +42,24 @@ func mustParseTopo(t *testing.T) *topology.Topology {
 	return top
 }
 
+func (f *fakeSpawner) lastEnv() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.envs) == 0 {
+		return nil
+	}
+	return append([]string(nil), f.envs[len(f.envs)-1]...)
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestEvent_PersistentMessages(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
@@ -110,6 +128,85 @@ func TestEvent_EphemeralDispatchUnderCapacity(t *testing.T) {
 	if running != 1 || queued != 0 {
 		t.Errorf("counts: running=%d queued=%d", running, queued)
 	}
+}
+
+func TestEvent_EphemeralDispatchPreparesRuntimeState(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[linear]
+team_id = "repo-team"
+ticket_prefix = "BASE"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 1
+
+[instances.worker.config.linear]
+ticket_prefix = "WORK"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var got struct {
+		Dispatched []map[string]any `json:"dispatched"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Dispatched) != 1 {
+		t.Fatalf("expected 1 dispatched, got %+v", got)
+	}
+	id, _ := got.Dispatched[0]["instance_id"].(string)
+	stateDir := filepath.Join(teamDir, "state", id)
+	configBody, err := os.ReadFile(filepath.Join(stateDir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read state config: %v", err)
+	}
+	for _, want := range []string{`team_id = "repo-team"`, `ticket_prefix = "WORK"`} {
+		if !strings.Contains(string(configBody), want) {
+			t.Fatalf("state config missing %q:\n%s", want, string(configBody))
+		}
+	}
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"AGENT_TEAM_ROOT=" + teamDir,
+		"AGENT_TEAM_INSTANCE=" + id,
+		"AGENT_TEAM_STATE_DIR=" + stateDir,
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q in %v", want, env)
+		}
+	}
+	if meta, err := ReadMetadata(root, id); err != nil || meta.Workspace != repoRoot {
+		t.Fatalf("metadata workspace = %+v err=%v, want repo root %s", meta, err, repoRoot)
+	}
+	_, _ = m.Stop(id)
+	_ = m.WaitForReaper(id, 5*time.Second)
 }
 
 func TestEvent_EphemeralReapCleansMetadataAndState(t *testing.T) {

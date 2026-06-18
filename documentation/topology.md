@@ -390,7 +390,7 @@ POST /event
     "dispatched": [{ "instance_id": "worker-squ-42", "started_at": "..." }] }
 ```
 
-A fresh worker spawns (ephemeral, generated name from the kickoff). When it opens its PR and exits, the slot frees up — capped at the declared `replicas = 3`.
+A fresh worker spawns (ephemeral, generated name from the kickoff). The daemon creates `.agent_team/state/<generated-worker>/`, writes the resolved config from repo + declared instance overrides, and exports the same `AGENT_TEAM_ROOT`, `AGENT_TEAM_INSTANCE`, and `AGENT_TEAM_STATE_DIR` variables that `agent-team run` provides. When the worker opens its PR and exits, the slot frees up — capped at the declared `replicas = 3`.
 
 ### Inspecting and stopping
 
