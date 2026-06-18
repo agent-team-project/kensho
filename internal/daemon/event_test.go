@@ -216,6 +216,47 @@ func TestEvent_EphemeralDispatchUsesRequestedChildName(t *testing.T) {
 	}
 }
 
+func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-95","ticket":"SQU-95","kickoff":"implement SQU-95","workspace":"repo"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	j, err := jobstore.Read(teamDir, "squ-95")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Status != jobstore.StatusRunning || j.Instance != "worker-squ-95" || j.Target != "worker" || j.Kickoff != "implement SQU-95" {
+		t.Fatalf("job = %+v", j)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-95")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if meta.Job != "squ-95" || meta.Ticket != "SQU-95" {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"AGENT_TEAM_JOB_ID=squ-95",
+		"AGENT_TEAM_TICKET=SQU-95",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q in %v", want, env)
+		}
+	}
+	_, _ = m.Stop("worker-squ-95")
+	_ = m.WaitForReaper("worker-squ-95", 5*time.Second)
+}
+
 func TestEvent_EphemeralDispatchRejectsDuplicateRequestedChildName(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)

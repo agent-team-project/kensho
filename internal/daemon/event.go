@@ -346,11 +346,13 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
 	if requested && r.mgr.isRunning(childName) {
+		reason := fmt.Sprintf("instance %q already running", childName)
+		r.upsertDispatchJob(payload, childName, jobstore.StatusRunning, "already_running", reason, "", "")
 		return EventOutcome{
 			Instance:   inst.Name,
 			Action:     "rejected",
 			InstanceID: childName,
-			Reason:     fmt.Sprintf("instance %q already running", childName),
+			Reason:     reason,
 		}
 	}
 
@@ -362,20 +364,24 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 	}
 	if requested && queuedChildName(tr.queue, childName) {
 		r.mu.Unlock()
+		reason := fmt.Sprintf("instance %q already queued", childName)
+		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, "already_queued", reason, "", "")
 		return EventOutcome{
 			Instance:   inst.Name,
 			Action:     "rejected",
 			InstanceID: childName,
-			Reason:     fmt.Sprintf("instance %q already queued", childName),
+			Reason:     reason,
 		}
 	}
 	if tr.running >= inst.Replicas {
 		if len(tr.queue) >= r.queueCap {
 			r.mu.Unlock()
+			reason := fmt.Sprintf("at replica capacity (%d) and queue is full (%d)", inst.Replicas, r.queueCap)
+			r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "queue_full", reason, "", "")
 			return EventOutcome{
 				Instance: inst.Name,
 				Action:   "rejected",
-				Reason:   fmt.Sprintf("at replica capacity (%d) and queue is full (%d)", inst.Replicas, r.queueCap),
+				Reason:   reason,
 			}
 		}
 		ev := &queuedEvent{
@@ -391,6 +397,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		}
 		tr.queue = append(tr.queue, ev)
 		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, "queued", "queued", "", "")
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName}
 	}
 	tr.running++
@@ -402,6 +409,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		r.mu.Lock()
 		tr.running--
 		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "dispatch_failed", err.Error(), "", "")
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
 	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: meta.Instance}
@@ -500,12 +508,14 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		}
 		worktreePath = workspace
 	}
+	env := append([]string(nil), runtime.env...)
+	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
 	meta, err := r.mgr.Dispatch(DispatchInput{
 		Agent:     inst.Agent,
 		Name:      name,
 		Workspace: workspace,
 		Args:      args,
-		Env:       runtime.env,
+		Env:       env,
 	})
 	if err != nil {
 		cleanupWorkspace()
@@ -522,20 +532,63 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 	meta.Job = eventJobID(payload)
 	meta.Ticket = payloadString(payload, "ticket")
 	meta.Branch = branch
-	meta.PR = payloadString(payload, "pr")
+	meta.PR = firstPayloadString(payload, "pr_url", "pr")
+	j := r.upsertDispatchJob(payload, meta.Instance, jobstore.StatusRunning, "dispatched", "running", branch, worktreePath)
+	if j != nil {
+		meta.Job = j.ID
+		meta.Ticket = j.Ticket
+		meta.PR = j.PR
+	}
 	if err := WriteMetadata(r.mgr.daemonRoot, meta); err != nil {
 		return
 	}
-	if meta.Job == "" {
-		return
+}
+
+func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance string, status jobstore.Status, lastEvent, lastStatus, branch, worktreePath string) *jobstore.Job {
+	id := eventJobID(payload)
+	ticket := payloadString(payload, "ticket")
+	if id == "" && ticket == "" {
+		return nil
 	}
-	j, err := jobstore.Read(r.teamDir, meta.Job)
+	if id == "" {
+		id = jobstore.NormalizeID(ticket)
+	}
+	if ticket == "" {
+		ticket = id
+	}
+	if id == "" || strings.TrimSpace(r.teamDir) == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	j, err := jobstore.Read(r.teamDir, id)
 	if err != nil {
-		return
+		if !os.IsNotExist(err) {
+			return nil
+		}
+		target := firstPayloadString(payload, "target", "agent")
+		if target == "" {
+			target = "worker"
+		}
+		j, err = jobstore.New(ticket, target, payloadString(payload, "kickoff"), now)
+		if err != nil {
+			return nil
+		}
+		j.ID = id
 	}
-	j.Instance = meta.Instance
-	if meta.Ticket != "" {
-		j.Ticket = meta.Ticket
+	if target := firstPayloadString(payload, "target", "agent"); target != "" {
+		j.Target = target
+	}
+	if kickoff := payloadString(payload, "kickoff"); kickoff != "" && j.Kickoff == "" {
+		j.Kickoff = kickoff
+	}
+	if instance != "" {
+		j.Instance = instance
+	}
+	if ticket != "" {
+		j.Ticket = ticket
+	}
+	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
+		j.Pipeline = pipeline
 	}
 	if branch != "" {
 		j.Branch = branch
@@ -543,22 +596,67 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 	if worktreePath != "" {
 		j.Worktree = worktreePath
 	}
-	if meta.PR != "" {
-		j.PR = meta.PR
+	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
+		j.PR = pr
 	}
-	j.Status = jobstore.StatusRunning
-	j.LastEvent = "dispatched"
-	j.LastStatus = "running"
-	j.UpdatedAt = time.Now().UTC()
-	_ = jobstore.Write(r.teamDir, j)
+	if status != "" {
+		j.Status = status
+	}
+	if lastEvent != "" {
+		j.LastEvent = lastEvent
+	}
+	if lastStatus != "" {
+		j.LastStatus = lastStatus
+	}
+	j.UpdatedAt = now
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return nil
+	}
+	return j
 }
 
 func eventJobID(payload map[string]any) string {
-	id := payloadString(payload, "job_id")
-	if id == "" {
-		id = payloadString(payload, "job")
+	for _, key := range []string{"job_id", "job", "ticket"} {
+		if id := jobstore.NormalizeID(payloadString(payload, key)); id != "" {
+			return id
+		}
 	}
-	return jobstore.NormalizeID(id)
+	return ""
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := payloadString(payload, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []string {
+	env := []string{}
+	if id := eventJobID(payload); id != "" {
+		env = append(env, "AGENT_TEAM_JOB_ID="+id)
+	}
+	if ticket := payloadString(payload, "ticket"); ticket != "" {
+		env = append(env, "AGENT_TEAM_TICKET="+ticket)
+	}
+	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
+		env = append(env, "AGENT_TEAM_PIPELINE="+pipeline)
+	}
+	if step := payloadString(payload, "pipeline_step"); step != "" {
+		env = append(env, "AGENT_TEAM_PIPELINE_STEP="+step)
+	}
+	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
+		env = append(env, "AGENT_TEAM_PR="+pr)
+	}
+	if branch != "" {
+		env = append(env, "AGENT_TEAM_BRANCH="+branch)
+	}
+	if worktreePath != "" {
+		env = append(env, "AGENT_TEAM_WORKTREE="+worktreePath)
+	}
+	return env
 }
 
 type ephemeralRuntime struct {

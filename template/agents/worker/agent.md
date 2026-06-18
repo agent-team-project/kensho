@@ -27,6 +27,13 @@ You can run in two modes:
 
 **Daemon mode** (`agent-teamd` is running for this repo — `agent-team daemon status` to check): your manager (or any teammate) may post messages to your `inbox` via the daemon's `/v1/message` endpoint. Run `inbox check` at the top of each step and after long actions, then `inbox ack <id>` once handled. Use `inbox send <to> <body>` to reply or escalate. inbox is the daemon-mediated equivalent of SendMessage.
 
+When launched by daemon dispatch, prefer the job context exported in your environment over guessing from the prompt:
+
+- `AGENT_TEAM_JOB_ID` — durable job id under `.agent_team/jobs/`.
+- `AGENT_TEAM_TICKET` — ticket identifier.
+- `AGENT_TEAM_PIPELINE` / `AGENT_TEAM_PIPELINE_STEP` — present when this worker owns one pipeline step.
+- `AGENT_TEAM_BRANCH` / `AGENT_TEAM_WORKTREE` — present for daemon-created worktree runs.
+
 If the daemon is up and you've subscribed to a broadcast channel (e.g. `#blocked` or `#review-requests` via `subscribes:` in your frontmatter), check it the same way: `channel.sh recv "#name"` for unread, `channel.sh ack "#name" <cursor>` after handling, `channel.sh publish "#name" "<body>"` to fan out an update to every listener. Channels are for broadcasts; inbox is for direct messages.
 
 **Background mode** (spawned as a standalone subagent): You have your own context window and cannot communicate with the parent agent. Do not wait for user input. If you need human input, post it as a PR comment or Linear comment and stop.
@@ -104,6 +111,19 @@ When the work is complete and validated:
    If CI fails, read the logs with `gh run view <id> --log-failed`, fix the issues, push, and monitor again.
 4. Once CI is green, assign the PR to the authenticated user so it shows up in their queue: `gh pr edit <number> --add-assignee $(gh api user --jq '.login')`. (Don't use `--add-reviewer` — GitHub silently rejects review requests where the reviewer is the PR author, which is the common case here since the worker runs under the user's own gh creds.)
 5. Save PR info to `.worker_agent/pr.md`.
+6. If `AGENT_TEAM_JOB_ID` and `AGENT_TEAM_PIPELINE_STEP` are set and `agent-team` is on `PATH`, mark your pipeline step done and advance the job:
+   ```bash
+   MAIN_REPO="$(git worktree list --porcelain | awk '/^worktree/ {print $2; exit}')"
+   PR_URL="$(gh pr view --json url --jq .url)"
+   agent-team job step "$AGENT_TEAM_JOB_ID" "$AGENT_TEAM_PIPELINE_STEP" \
+     --status done \
+     --pr "$PR_URL" \
+     --branch "$(git branch --show-current)" \
+     --worktree "$(pwd)" \
+     --advance \
+     --repo "$MAIN_REPO"
+   ```
+   If that command fails, continue the PR handoff but mention the job-step update failure in your final report.
 
 Linear's GitHub integration moves the ticket automatically (to "In Review" on PR open, "Done" on merge) when the PR body contains `Closes <linear-url>` — no manual status update needed.
 
@@ -215,12 +235,12 @@ Call it at these transitions, no more:
    ```sh
      "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set planning \
        --desc "Reading <TICKET-ID>: <short title>" \
-       --job "<JOB-ID-if-present>" \
+       --job "${AGENT_TEAM_JOB_ID:-}" \
        --ticket "<TICKET-ID>" \
        --branch "$(git branch --show-current)"
    ```
 
-2. **Before the first code edit:** `status set implementing --desc "<one-line summary of what you're building>" --job "<JOB-ID-if-present>"`.
+2. **Before the first code edit:** `status set implementing --desc "<one-line summary of what you're building>" --job "${AGENT_TEAM_JOB_ID:-}"`.
 
 3. **Right after the PR is created** (so reviewers see the link): `status set awaiting_review --desc "PR open, awaiting review" --pr "<PR URL>"`.
 

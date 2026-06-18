@@ -62,7 +62,7 @@ When a request maps to one ticket → one PR:
 
 1. **Confirm the ticket exists** via the `linear` skill. If it doesn't, create it (route to a Linear project consistent with your scope).
 2. **Invoke the `assign-worker` skill** with the ticket identifier and any scope-specific context the worker should know (conventions, related tickets, gotchas).
-3. **Track the worker's progress** in `progress.md`. The worker reports back via team messages or PR comments.
+3. **Track the worker's progress** in `progress.md`. In daemon mode, `assign-worker` creates or updates `.agent_team/jobs/<ticket-slug>.toml`; use `agent-team job show <ticket-slug>` when you need branch, worktree, PR, or step state. The worker also reports back via team messages or PR comments.
 4. **Review and follow up.** When the worker's PR lands, summarize the outcome in `journal.md` and update `goals.md` if a goal moved.
 
 For multi-ticket work, decompose into ticket-sized chunks first. Each chunk gets its own ticket, its own worker, its own PR. Don't dispatch a worker on a vague request — that's how scope creeps.

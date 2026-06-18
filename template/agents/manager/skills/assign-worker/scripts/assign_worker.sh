@@ -108,6 +108,11 @@ dispatch() {
     done
 
     [[ -n "$ticket" ]] || usage
+    ticket_slug="$(slugify_ticket "$ticket")"
+    if [[ -z "$ticket_slug" ]]; then
+        echo "assign_worker.sh: ticket produced an empty job id: $ticket" >&2
+        exit 2
+    fi
     case "$workspace" in
         worktree|repo) ;;
         *)
@@ -121,17 +126,13 @@ dispatch() {
     [[ -n "$kickoff" ]] || usage
 
     if [[ -z "$name" ]]; then
-        ticket_slug="$(slugify_ticket "$ticket")"
-        if [[ -z "$ticket_slug" ]]; then
-            echo "assign_worker.sh: ticket produced an empty instance suffix: $ticket" >&2
-            exit 2
-        fi
         name="${target}-${ticket_slug}"
     fi
 
     export ASSIGN_WORKER_SOURCE="$source"
     export ASSIGN_WORKER_TARGET="$target"
     export ASSIGN_WORKER_NAME="$name"
+    export ASSIGN_WORKER_JOB_ID="$ticket_slug"
     export ASSIGN_WORKER_TICKET="$ticket"
     export ASSIGN_WORKER_KICKOFF="$kickoff"
     export ASSIGN_WORKER_WORKSPACE="$workspace"
@@ -143,6 +144,7 @@ event_payload = {
     "source": os.environ["ASSIGN_WORKER_SOURCE"],
     "target": os.environ["ASSIGN_WORKER_TARGET"],
     "name": os.environ["ASSIGN_WORKER_NAME"],
+    "job_id": os.environ["ASSIGN_WORKER_JOB_ID"],
     "ticket": os.environ["ASSIGN_WORKER_TICKET"],
     "kickoff": os.environ["ASSIGN_WORKER_KICKOFF"],
     "workspace": os.environ["ASSIGN_WORKER_WORKSPACE"],
