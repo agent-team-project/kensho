@@ -520,12 +520,29 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	var sawQueueIssue bool
 	for _, issue := range body.Issues {
 		if issue.Code == "queue_dead_letter" {
+			if !containsString(issue.Actions, "agent-team queue retry --all") || !containsString(issue.Actions, "agent-team repair --skip-tick") {
+				t.Fatalf("queue issue actions = %+v", issue.Actions)
+			}
 			sawQueueIssue = true
 			break
 		}
 	}
 	if !sawQueueIssue {
 		t.Fatalf("issues = %+v, missing queue_dead_letter", body.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"health", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("health text succeeded unexpectedly")
+	}
+	for _, want := range []string{"queue_dead_letter", "action=agent-team queue retry --all; agent-team repair --skip-tick"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
+		}
 	}
 }
 

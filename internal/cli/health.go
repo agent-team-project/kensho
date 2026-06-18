@@ -502,12 +502,15 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 	}
 	result.Queue = summarizeQueueItems(items, now.UTC())
 	if result.Queue.Dead > 0 {
-		result.addIssue(
+		result.addIssueWithSeverityAndActions(
 			"queue_dead_letter",
+			"error",
+			"",
 			"",
 			"",
 			"",
 			fmt.Sprintf("queue has %d dead-letter item(s)", result.Queue.Dead),
+			[]string{"agent-team queue retry --all", "agent-team repair --skip-tick"},
 		)
 	}
 	return nil
