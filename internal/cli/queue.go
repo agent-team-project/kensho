@@ -735,9 +735,17 @@ func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, limi
 }
 
 func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool) error {
-	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	results, err := queueRetryAllResults(teamDir, filters, limit, dryRun)
 	if err != nil {
 		return err
+	}
+	return renderQueueRetryResults(w, results, jsonOut)
+}
+
+func queueRetryAllResults(teamDir string, filters queueListFilters, limit int, dryRun bool) ([]queueRetryResult, error) {
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
 	}
 	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()))
 	if limit > 0 && len(matches) > limit {
@@ -749,7 +757,7 @@ func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, lim
 		if err == nil {
 			dc = client
 		} else if !errors.Is(err, errDaemonNotRunning) {
-			return err
+			return nil, err
 		}
 	}
 	results := make([]queueRetryResult, 0, len(matches))
@@ -767,7 +775,7 @@ func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, lim
 		case dc != nil:
 			outcome, err := dc.QueueRetry(item.ID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			result.Action = outcome.Action
 			result.Instance = outcome.Instance
@@ -775,13 +783,13 @@ func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, lim
 			result.Reason = outcome.Reason
 		default:
 			if err := daemon.ResetQueueItemForRetry(daemon.DaemonRoot(teamDir), item); err != nil {
-				return err
+				return nil, err
 			}
 			result.Action = "reset"
 		}
 		results = append(results, result)
 	}
-	return renderQueueRetryResults(w, results, jsonOut)
+	return results, nil
 }
 
 func runQueueSummary(w io.Writer, teamDir string, filters queueListFilters, jsonOut bool) error {

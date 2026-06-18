@@ -139,6 +139,8 @@ agent-team sync [-q] [--dry-run] [--stop-extras] [--agent manager] [--instance m
                                                 # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
 agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
                                                 # run one maintenance cycle, watch cycles, or tick until no immediate schedule/queue/pipeline work remains
+agent-team repair [--dry-run] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--limit N] [--workspace auto|worktree|repo] [--json]
+                                                # recover common unhealthy orchestration state by starting/reconciling the daemon, retrying dead queue items, and ticking work
 agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # show/watch daemon health and current instance snapshot
 agent-team daemon start [--detach=false] [--ready-timeout 3s] [--format '{{.Action}} {{.PID}}'] [--json]
@@ -227,6 +229,8 @@ Shortcuts: `agent-team up` = `start`, `agent-team down` = `stop`, `agent-team ls
 Lifecycle actions (`start`, `stop`, `kill`, `restart`), desired-state previews (`plan`), topology convergence (`sync`), cleanup (`rm`, `prune`), and completion waits (`wait`) accept `--summary` to show aggregate counts for the same selected instances; `--summary --json` emits a `{ "summary": ... }` object for scripts.
 
 Use `monitor --jobs --schedules` or `job triage` plus `schedule next` to inspect what needs attention. Use `tick` to act on ready work: it reconciles stale daemon metadata, fires due schedules, asks the daemon to dispatch ready queued events, and advances ready pipeline jobs. `tick --dry-run` previews schedule, queue, and pipeline work without mutating state; `tick --watch` repeats the cycle in the foreground; `tick --until-idle --max-cycles N` is the finite CI/script mode. `--json` emits one JSON object per cycle for watch mode, or an aggregate cycle result for until-idle mode.
+
+Use `repair --dry-run` when `health` reports dead-letter queue items or stale daemon state. `repair` starts and reconciles the daemon, retries dead-letter queue entries, then runs a maintenance tick; add `--skip-daemon`, `--skip-queue`, or `--skip-tick` to narrow the recovery action.
 
 `status --summary --events N`, `monitor --summary --events N`, and `watch --summary --events N` add compact recent lifecycle event counts; combine `--events` with `--event-action` and `--since` to narrow event tails before summarizing. `status --summary --resources`, `monitor --summary --resources`, and `watch --summary --resources` add aggregate CPU, memory, RSS, lifecycle, and phase counts. `status --summary --plan`, `monitor --summary --plan`, and `watch --summary --plan` add compact desired-state action counts from topology. Combining `--summary` with `--resources`, `--plan`, and `--events` produces one compact operator snapshot instead of full tables.
 
