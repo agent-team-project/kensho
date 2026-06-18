@@ -31,6 +31,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobShowCmd())
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
+	cmd.AddCommand(newJobLogsCmd())
 	cmd.AddCommand(newJobCloseCmd())
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobStepCmd())
@@ -351,6 +352,61 @@ func newJobSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.")
+	return cmd
+}
+
+func newJobLogsCmd() *cobra.Command {
+	var (
+		repo   string
+		follow bool
+		tail   string
+		since  string
+		grep   string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "logs <job-id>",
+		Short: "Show a job's owning instance log.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			instance := strings.TrimSpace(j.Instance)
+			if instance == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: job %q has no owning instance; dispatch it first.\n", j.ID)
+				return exitErr(2)
+			}
+			tailLines, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: %v\n", err)
+				return exitErr(2)
+			}
+			sinceCutoff, err := parseLogSince(since, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: %v\n", err)
+				return exitErr(2)
+			}
+			grepPattern, err := parseLogGrep(grep)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: %v\n", err)
+				return exitErr(2)
+			}
+			return runLogs(cmd, filepath.Dir(teamDir), []string{instance}, logsOptions{
+				Follow:  follow,
+				Tail:    tailLines,
+				TailSet: cmd.Flags().Changed("tail"),
+				Since:   sinceCutoff,
+				Grep:    grepPattern,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail the owning instance log; print new bytes as they appear.")
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
+	cmd.Flags().StringVar(&since, "since", "", "Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.")
+	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
 	return cmd
 }
 

@@ -174,6 +174,78 @@ func TestJobListWatchRendersSnapshot(t *testing.T) {
 	}
 }
 
+func TestJobLogsReadsOwningInstanceLog(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-53",
+		Ticket:    "SQU-53",
+		Target:    "worker",
+		Instance:  "worker-squ-53",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance:  "worker-squ-53",
+		Agent:     "worker",
+		Status:    daemon.StatusStopped,
+		StartedAt: now,
+		Job:       "squ-53",
+		Ticket:    "SQU-53",
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "worker-squ-53", "first\nmiddle\nlast\n")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "logs", "SQU-53", "--repo", tmp, "--tail", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job logs: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != "last\n" {
+		t.Fatalf("job logs output = %q, want last line", got)
+	}
+}
+
+func TestJobLogsRequiresOwningInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-54",
+		Ticket:    "SQU-54",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "logs", "squ-54", "--repo", tmp})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job logs succeeded unexpectedly")
+	}
+	if !strings.Contains(stderr.String(), "has no owning instance") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestJobDispatchAndSend(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
