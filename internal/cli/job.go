@@ -724,9 +724,17 @@ func newJobUnblockCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if j.Status != job.StatusBlocked && !force {
+			statusPreviews, err := statusPreviewsForJob(teamDir, j)
+			if err != nil {
+				return err
+			}
+			statusPreview, hasStatusBlock := blockedStatusPreviewForUnblock(statusPreviews)
+			if j.Status != job.StatusBlocked && !hasStatusBlock && !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job unblock: job %q is %s; pass --force to unblock anyway.\n", j.ID, j.Status)
 				return exitErr(2)
+			}
+			if hasStatusBlock {
+				applyStatusPreviewOwnership(j, statusPreview)
 			}
 			if strings.TrimSpace(j.Instance) == "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job unblock: job %q has no owning instance; use `agent-team job retry %s --dispatch` to start a new attempt.\n", j.ID, j.ID)
@@ -756,6 +764,11 @@ func newJobUnblockCmd() *cobra.Command {
 				"from":     fromLabel,
 				"instance": j.Instance,
 				"status":   string(next),
+			}
+			if hasStatusBlock {
+				data["status_preview"] = "true"
+				data["phase"] = statusPreview.Phase
+				data["matched_by"] = statusPreview.MatchedBy
 			}
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", data); err != nil {
 				return err
@@ -799,6 +812,27 @@ func normalizedJobUnblockSender(from string) string {
 		return "(cli)"
 	}
 	return from
+}
+
+func blockedStatusPreviewForUnblock(previews []jobStatusReconcileResult) (jobStatusReconcileResult, bool) {
+	for _, preview := range previews {
+		if preview.Changed && preview.After == job.StatusBlocked {
+			return preview, true
+		}
+	}
+	return jobStatusReconcileResult{}, false
+}
+
+func applyStatusPreviewOwnership(j *job.Job, preview jobStatusReconcileResult) {
+	if strings.TrimSpace(j.Instance) == "" && strings.TrimSpace(preview.Instance) != "" {
+		j.Instance = strings.TrimSpace(preview.Instance)
+	}
+	if strings.TrimSpace(j.Branch) == "" && strings.TrimSpace(preview.Branch) != "" {
+		j.Branch = strings.TrimSpace(preview.Branch)
+	}
+	if strings.TrimSpace(j.PR) == "" && strings.TrimSpace(preview.PR) != "" {
+		j.PR = strings.TrimSpace(preview.PR)
+	}
 }
 
 func newJobLogsCmd() *cobra.Command {

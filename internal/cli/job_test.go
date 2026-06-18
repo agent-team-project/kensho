@@ -2175,6 +2175,65 @@ func TestJobUnblockSendsMessageAndMarksRunning(t *testing.T) {
 	}
 }
 
+func TestJobUnblockAcceptsBlockedStatusPreview(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now().UTC().Truncate(time.Second)
+	queued := &job.Job{
+		ID:        "squ-84",
+		Ticket:    "SQU-84",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-30 * time.Minute),
+	}
+	if err := job.Write(teamDir, queued); err != nil {
+		t.Fatalf("write queued job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-84"), `[status]
+phase = "blocked"
+description = "needs token"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-84"
+ticket = "SQU-84"
+branch = "worker-squ-84"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "unblock", "SQU-84", "token is configured", "--repo", tmp, "--allow-missing", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job unblock status preview: %v\nstderr=%s", err, stderr.String())
+	}
+	var updated job.Job
+	if err := json.Unmarshal(out.Bytes(), &updated); err != nil {
+		t.Fatalf("decode unblock json: %v\nbody=%s", err, out.String())
+	}
+	if updated.Status != job.StatusRunning || updated.Instance != "worker-squ-84" || updated.Branch != "worker-squ-84" || updated.LastEvent != "unblocked" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	messages, err := daemon.ReadMessages(root, "worker-squ-84")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Body != "token is configured" {
+		t.Fatalf("messages = %+v", messages)
+	}
+	events, err := job.ListEvents(teamDir, "squ-84")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "unblocked" || events[0].Data["status_preview"] != "true" || events[0].Data["phase"] != "blocked" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobUnblockRefusesNonBlockedWithoutForce(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
