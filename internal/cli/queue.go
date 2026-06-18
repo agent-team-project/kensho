@@ -16,6 +16,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -363,6 +364,24 @@ func newQueueDrainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if dryRun {
+				if dc, err := newDaemonClient(teamDir); err == nil {
+					result, err := dc.QueueDrain(true)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drain: %v\n", err)
+						return exitErr(1)
+					}
+					return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+				} else if !errors.Is(err, errDaemonNotRunning) {
+					return err
+				}
+				result, err := previewQueueDrainLocal(teamDir)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drain: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+			}
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
 				if errors.Is(err, errDaemonNotRunning) {
@@ -587,6 +606,57 @@ func filterQueueItems(items []*daemon.QueueItem, filters queueListFilters) []*da
 		}
 	}
 	return out
+}
+
+func previewQueueDrainLocal(teamDir string) (*daemon.QueueDrainResult, error) {
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	result := &daemon.QueueDrainResult{DryRun: true, Outcomes: []daemon.EventOutcome{}}
+	capacityByInstance := map[string]int{}
+	for _, item := range items {
+		switch item.State {
+		case daemon.QueueStatePending:
+			result.Pending++
+		case daemon.QueueStateDead:
+			result.Dead++
+			continue
+		default:
+			continue
+		}
+		if !item.NextRetry.IsZero() && item.NextRetry.After(now) {
+			continue
+		}
+		if top == nil {
+			continue
+		}
+		inst := top.Find(item.Instance)
+		if inst == nil || !inst.Ephemeral {
+			continue
+		}
+		capacity, ok := capacityByInstance[item.Instance]
+		if !ok {
+			capacity = inst.Replicas
+		}
+		if capacity <= 0 {
+			capacityByInstance[item.Instance] = capacity
+			continue
+		}
+		result.WouldDispatch++
+		result.Outcomes = append(result.Outcomes, daemon.EventOutcome{
+			Instance:   item.Instance,
+			Action:     "would_dispatch",
+			InstanceID: item.InstanceID,
+		})
+		capacityByInstance[item.Instance] = capacity - 1
+	}
+	return result, nil
 }
 
 const queuePruneStateAll = "all"

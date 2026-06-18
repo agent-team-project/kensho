@@ -774,3 +774,85 @@ func TestQueueDrainThroughDaemon(t *testing.T) {
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-92")
 }
+
+func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-93",
+			Payload:    map[string]any{"target": "worker", "name": "worker-squ-93", "ticket": "SQU-93"},
+			QueuedAt:   now.Add(-2 * time.Minute),
+			UpdatedAt:  now.Add(-2 * time.Minute),
+		},
+		{
+			ID:         "q-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-94",
+			Payload:    map[string]any{"target": "worker", "name": "worker-squ-94", "ticket": "SQU-94"},
+			NextRetry:  now.Add(time.Hour),
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+		{
+			ID:         "q-dead",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-95",
+			Payload:    map[string]any{"target": "worker", "name": "worker-squ-95", "ticket": "SQU-95"},
+			QueuedAt:   now.Add(-3 * time.Minute),
+			UpdatedAt:  now.Add(-3 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"queue", "drain", "--target", tmp, "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("queue drain dry-run offline: %v\nstderr=%s", err, stderr.String())
+	}
+	var result daemon.QueueDrainResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode offline drain dry-run: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.WouldDispatch != 1 || result.Pending != 2 || result.Dead != 1 || result.Dispatched != 0 {
+		t.Fatalf("offline drain preview = %+v", result)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "would_dispatch" || result.Outcomes[0].InstanceID != "worker-squ-93" {
+		t.Fatalf("offline drain outcomes = %+v", result.Outcomes)
+	}
+	for _, id := range []string{"q-ready", "q-delayed", "q-dead"} {
+		if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id); err != nil {
+			t.Fatalf("dry-run removed queue item %s: %v", id, err)
+		}
+	}
+
+	textCmd := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textCmd.SetOut(textOut)
+	textCmd.SetErr(textErr)
+	textCmd.SetArgs([]string{"queue", "drain", "--target", tmp, "--dry-run"})
+	if err := textCmd.Execute(); err != nil {
+		t.Fatalf("queue drain dry-run offline text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"queue drain dry-run: would_dispatch=1 pending=2 dead=1", "worker-squ-93", "would_dispatch"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("offline drain text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
