@@ -15,6 +15,15 @@ import (
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
+func mustNewJob(t *testing.T, ticket, target string) *job.Job {
+	t.Helper()
+	j, err := job.New(ticket, target, "test kickoff", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	return j
+}
+
 func TestJobCreateListShowClose(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -180,6 +189,127 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	}
 	if body.ID != "squ-109" {
 		t.Fatalf("json body = %+v", body)
+	}
+}
+
+func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-48 * time.Hour)
+
+	failed := mustNewJob(t, "SQU-201", "worker")
+	failed.Status = job.StatusFailed
+	failed.LastStatus = "tests failed"
+	failed.UpdatedAt = old
+	if err := job.Write(teamDir, failed); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	staleRunning := mustNewJob(t, "SQU-202", "worker")
+	staleRunning.Status = job.StatusRunning
+	staleRunning.UpdatedAt = old
+	if err := job.Write(teamDir, staleRunning); err != nil {
+		t.Fatalf("write stale running job: %v", err)
+	}
+
+	staleQueued := mustNewJob(t, "SQU-203", "worker")
+	staleQueued.Status = job.StatusQueued
+	staleQueued.UpdatedAt = old
+	if err := job.Write(teamDir, staleQueued); err != nil {
+		t.Fatalf("write stale queued job: %v", err)
+	}
+
+	queuedDead := mustNewJob(t, "SQU-204", "worker")
+	queuedDead.Instance = "worker-squ-204"
+	if err := job.Write(teamDir, queuedDead); err != nil {
+		t.Fatalf("write queued dead job: %v", err)
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:         "q-triage-dead",
+		State:      daemon.QueueStateDead,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-204",
+		Payload: map[string]any{
+			"job_id": "squ-204",
+			"ticket": "SQU-204",
+			"target": "worker",
+		},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+
+	ready := mustNewJob(t, "SQU-205", "manager")
+	ready.Pipeline = "ticket_to_pr"
+	ready.Steps = []job.Step{
+		{ID: "triage", Target: "ticket-manager", Status: job.StatusDone, StartedAt: old, FinishedAt: old.Add(time.Hour)},
+		{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+	}
+	if err := job.Write(teamDir, ready); err != nil {
+		t.Fatalf("write ready job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job triage: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"jobs: total=5",
+		"queue: total=1 pending=0 dead=1",
+		"Attention:",
+		"squ-201",
+		"failed",
+		"squ-202",
+		"stale_running",
+		"running_without_instance",
+		"squ-203",
+		"stale_queued",
+		"squ-204",
+		"queue_dead",
+		"Ready pipeline steps:",
+		"squ-205",
+		"implement",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("job triage missing %q:\n%s", want, out.String())
+		}
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("job triage json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var snapshot jobTriageSnapshot
+	if err := json.Unmarshal(jsonOut.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode triage json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if snapshot.Summary.Total != 5 || snapshot.Queue.Dead != 1 || len(snapshot.Attention) != 4 || len(snapshot.ReadySteps) != 1 {
+		t.Fatalf("triage snapshot = %+v", snapshot)
+	}
+	reasons := map[string][]string{}
+	for _, item := range snapshot.Attention {
+		reasons[item.JobID] = item.Reasons
+	}
+	if !containsString(reasons["squ-204"], "queue_dead") {
+		t.Fatalf("squ-204 reasons = %v", reasons["squ-204"])
+	}
+	if snapshot.ReadySteps[0].JobID != "squ-205" || snapshot.ReadySteps[0].StepID != "implement" {
+		t.Fatalf("ready steps = %+v", snapshot.ReadySteps)
 	}
 }
 

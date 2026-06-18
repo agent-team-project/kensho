@@ -49,6 +49,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobPruneCmd())
 	cmd.AddCommand(newJobNextCmd())
 	cmd.AddCommand(newJobReadyCmd())
+	cmd.AddCommand(newJobTriageCmd())
 	cmd.AddCommand(newJobStepCmd())
 	cmd.AddCommand(newJobAdvanceCmd())
 	cmd.AddCommand(newJobReconcileCmd())
@@ -1364,6 +1365,42 @@ func newJobReadyCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobTriageCmd() *cobra.Command {
+	var (
+		repo       string
+		staleAfter time.Duration
+		jsonOut    bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "triage",
+		Short: "Show jobs that need operator attention.",
+		Long: "Show a compact work queue triage view from durable jobs, persisted daemon queue items, " +
+			"and ready pipeline steps.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if staleAfter < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job triage: --stale-after must be >= 0.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			snapshot, err := collectJobTriage(teamDir, time.Now().UTC(), staleAfter)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job triage: %v\n", err)
+				return exitErr(1)
+			}
+			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().DurationVar(&staleAfter, "stale-after", 24*time.Hour, "Flag queued or running jobs with no update after this duration (0 disables stale checks).")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit triage snapshot as JSON.")
+	return cmd
+}
+
 func newJobStepCmd() *cobra.Command {
 	var (
 		repo      string
@@ -1861,6 +1898,41 @@ type jobSummary struct {
 	WithPR       int            `json:"with_pr"`
 }
 
+type jobTriageSnapshot struct {
+	CheckedAt  time.Time       `json:"checked_at"`
+	Summary    jobSummary      `json:"summary"`
+	Queue      queueSummary    `json:"queue"`
+	Attention  []jobTriageItem `json:"attention"`
+	ReadySteps []jobReadyRow   `json:"ready_steps,omitempty"`
+}
+
+type jobTriageItem struct {
+	JobID        string     `json:"job_id"`
+	Ticket       string     `json:"ticket"`
+	Status       job.Status `json:"status"`
+	Severity     string     `json:"severity"`
+	Reasons      []string   `json:"reasons"`
+	Message      string     `json:"message,omitempty"`
+	Target       string     `json:"target,omitempty"`
+	Instance     string     `json:"instance,omitempty"`
+	Pipeline     string     `json:"pipeline,omitempty"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	StepID       string     `json:"step_id,omitempty"`
+	StepState    string     `json:"step_state,omitempty"`
+	StepTarget   string     `json:"step_target,omitempty"`
+	QueuePending int        `json:"queue_pending,omitempty"`
+	QueueDead    int        `json:"queue_dead,omitempty"`
+	QueueDelayed int        `json:"queue_delayed,omitempty"`
+	QueueIDs     []string   `json:"queue_ids,omitempty"`
+}
+
+type jobTriageQueueStats struct {
+	Pending int
+	Dead    int
+	Delayed int
+	IDs     []string
+}
+
 func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr string) (jobListFilters, error) {
 	f := jobListFilters{
 		Target:   strings.TrimSpace(target),
@@ -2032,6 +2104,226 @@ func summarizeJobs(jobs []*job.Job) jobSummary {
 		}
 	}
 	return summary
+}
+
+func collectJobTriage(teamDir string, now time.Time, staleAfter time.Duration) (jobTriageSnapshot, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	queueByJob := queueStatsByJob(jobs, queueItems, now)
+	attention := make([]jobTriageItem, 0, len(jobs))
+	for _, j := range jobs {
+		if item, ok := triageJob(j, inspectNextJobStep(j), queueByJob[j.ID], now, staleAfter); ok {
+			attention = append(attention, item)
+		}
+	}
+	sortJobTriageItems(attention)
+	readySteps, err := collectJobReadyRows(teamDir, "", map[string]bool{"ready": true})
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	return jobTriageSnapshot{
+		CheckedAt:  now,
+		Summary:    summarizeJobs(jobs),
+		Queue:      summarizeQueueItems(queueItems, now),
+		Attention:  attention,
+		ReadySteps: readySteps,
+	}, nil
+}
+
+func queueStatsByJob(jobs []*job.Job, items []*daemon.QueueItem, now time.Time) map[string]jobTriageQueueStats {
+	out := make(map[string]jobTriageQueueStats, len(jobs))
+	for _, j := range jobs {
+		var stats jobTriageQueueStats
+		for _, item := range items {
+			if !queueItemMatchesJob(item, j) {
+				continue
+			}
+			stats.IDs = append(stats.IDs, item.ID)
+			switch item.State {
+			case daemon.QueueStatePending:
+				stats.Pending++
+				if !item.NextRetry.IsZero() && item.NextRetry.After(now) {
+					stats.Delayed++
+				}
+			case daemon.QueueStateDead:
+				stats.Dead++
+			}
+		}
+		if stats.Pending > 0 || stats.Dead > 0 {
+			sort.Strings(stats.IDs)
+			out[j.ID] = stats
+		}
+	}
+	return out
+}
+
+func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, now time.Time, staleAfter time.Duration) (jobTriageItem, bool) {
+	item := jobTriageItem{
+		JobID:        j.ID,
+		Ticket:       j.Ticket,
+		Status:       j.Status,
+		Severity:     "info",
+		Target:       j.Target,
+		Instance:     j.Instance,
+		Pipeline:     j.Pipeline,
+		UpdatedAt:    j.UpdatedAt,
+		QueuePending: queueStats.Pending,
+		QueueDead:    queueStats.Dead,
+		QueueDelayed: queueStats.Delayed,
+		QueueIDs:     append([]string(nil), queueStats.IDs...),
+	}
+	if next.Step != nil {
+		item.StepID = next.Step.ID
+		item.StepTarget = next.Step.Target
+	}
+	item.StepState = next.State
+	addTriageReason := func(reason, severity string) {
+		for _, existing := range item.Reasons {
+			if existing == reason {
+				item.Severity = maxJobTriageSeverity(item.Severity, severity)
+				return
+			}
+		}
+		item.Reasons = append(item.Reasons, reason)
+		item.Severity = maxJobTriageSeverity(item.Severity, severity)
+	}
+	switch j.Status {
+	case job.StatusFailed:
+		addTriageReason("failed", "critical")
+	case job.StatusBlocked:
+		addTriageReason("blocked", "warning")
+	case job.StatusRunning:
+		if strings.TrimSpace(j.Instance) == "" {
+			addTriageReason("running_without_instance", "warning")
+		}
+		if staleAfter > 0 && !j.UpdatedAt.IsZero() && j.UpdatedAt.Before(now.Add(-staleAfter)) {
+			addTriageReason("stale_running", "warning")
+		}
+	case job.StatusQueued:
+		if staleAfter > 0 && !j.UpdatedAt.IsZero() && j.UpdatedAt.Before(now.Add(-staleAfter)) && queueStats.Pending == 0 && queueStats.Dead == 0 {
+			addTriageReason("stale_queued", "warning")
+		}
+	}
+	if queueStats.Dead > 0 {
+		addTriageReason("queue_dead", "critical")
+	}
+	switch next.State {
+	case "failed":
+		addTriageReason("failed_step", "critical")
+	case "blocked":
+		addTriageReason("blocked_step", "warning")
+	}
+	if len(item.Reasons) == 0 {
+		return jobTriageItem{}, false
+	}
+	if strings.TrimSpace(j.LastStatus) != "" {
+		item.Message = j.LastStatus
+	} else if strings.TrimSpace(next.Message) != "" {
+		item.Message = next.Message
+	} else {
+		item.Message = strings.Join(item.Reasons, ",")
+	}
+	return item, true
+}
+
+func maxJobTriageSeverity(left, right string) string {
+	if jobTriageSeverityRank(right) < jobTriageSeverityRank(left) {
+		return right
+	}
+	return left
+}
+
+func jobTriageSeverityRank(severity string) int {
+	switch severity {
+	case "critical":
+		return 0
+	case "warning":
+		return 1
+	case "info":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func sortJobTriageItems(items []jobTriageItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left, right := items[i], items[j]
+		if li, ri := jobTriageSeverityRank(left.Severity), jobTriageSeverityRank(right.Severity); li != ri {
+			return li < ri
+		}
+		if !left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.UpdatedAt.Before(right.UpdatedAt)
+		}
+		return left.JobID < right.JobID
+	})
+}
+
+func renderJobTriage(w io.Writer, snapshot jobTriageSnapshot, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(snapshot)
+	}
+	renderJobSummary(w, snapshot.Summary)
+	renderQueueSummary(w, snapshot.Queue)
+	fmt.Fprintln(w)
+	renderJobTriageAttention(w, snapshot.Attention)
+	if len(snapshot.ReadySteps) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Ready pipeline steps:")
+		renderJobReadyTable(w, snapshot.ReadySteps)
+	}
+	return nil
+}
+
+func renderJobTriageAttention(w io.Writer, items []jobTriageItem) {
+	if len(items) == 0 {
+		fmt.Fprintln(w, "(no jobs need attention)")
+		return
+	}
+	fmt.Fprintln(w, "Attention:")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "JOB\tSEVERITY\tSTATUS\tREASONS\tTARGET\tINSTANCE\tQUEUE\tUPDATED\tMESSAGE")
+	for _, item := range items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			item.JobID,
+			item.Severity,
+			item.Status,
+			strings.Join(item.Reasons, ","),
+			emptyDash(item.Target),
+			emptyDash(item.Instance),
+			jobTriageQueueSummary(item),
+			item.UpdatedAt.Format(time.RFC3339),
+			emptyDash(item.Message),
+		)
+	}
+	_ = tw.Flush()
+}
+
+func jobTriageQueueSummary(item jobTriageItem) string {
+	parts := []string{}
+	if item.QueueDead > 0 {
+		parts = append(parts, fmt.Sprintf("dead=%d", item.QueueDead))
+	}
+	if item.QueuePending > 0 {
+		parts = append(parts, fmt.Sprintf("pending=%d", item.QueuePending))
+	}
+	if item.QueueDelayed > 0 {
+		parts = append(parts, fmt.Sprintf("delayed=%d", item.QueueDelayed))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ",")
 }
 
 func renderJobSummary(w io.Writer, summary jobSummary) {
