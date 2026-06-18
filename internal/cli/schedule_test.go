@@ -7,12 +7,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jamesaud/agent-team/internal/daemon"
 )
 
 func TestScheduleListShowAndDryRun(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	writeScheduleTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	lastSeen := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	lastFired := lastSeen.Add(-24 * time.Hour)
+	if err := daemon.WriteScheduleState(daemon.DaemonRoot(teamDir), &daemon.ScheduleState{
+		Name:        "nightly",
+		LastSeenAt:  lastSeen,
+		LastFiredAt: lastFired,
+	}); err != nil {
+		t.Fatalf("WriteScheduleState: %v", err)
+	}
 
 	list := NewRootCmd()
 	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -32,6 +45,15 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 	if schedules[1].Every != "24h0m0s" || !schedules[1].RunOnStart || schedules[1].Payload["workspace"] != "repo" {
 		t.Fatalf("nightly schedule = %+v", schedules[1])
 	}
+	if schedules[1].LastSeenAt == nil || !schedules[1].LastSeenAt.Equal(lastSeen) {
+		t.Fatalf("nightly last_seen = %v, want %s", schedules[1].LastSeenAt, lastSeen)
+	}
+	if schedules[1].LastFiredAt == nil || !schedules[1].LastFiredAt.Equal(lastFired) {
+		t.Fatalf("nightly last_fired = %v, want %s", schedules[1].LastFiredAt, lastFired)
+	}
+	if schedules[1].NextRun == nil || !schedules[1].NextRun.Equal(lastSeen.Add(24*time.Hour)) {
+		t.Fatalf("nightly next_run = %v", schedules[1].NextRun)
+	}
 
 	show := NewRootCmd()
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -41,7 +63,7 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 	if err := show.Execute(); err != nil {
 		t.Fatalf("schedule show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Schedule:     nightly", "Event:        schedule", "Every:        24h0m0s", "workspace=repo"} {
+	for _, want := range []string{"Schedule:     nightly", "Event:        schedule", "Every:        24h0m0s", "Last Seen:    2026-06-18T12:00:00Z", "Last Fired:   2026-06-17T12:00:00Z", "Next Run:     2026-06-19T12:00:00Z", "workspace=repo"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("schedule show missing %q:\n%s", want, showOut.String())
 		}

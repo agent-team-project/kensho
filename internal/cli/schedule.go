@@ -9,7 +9,9 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
+	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
@@ -153,11 +155,14 @@ func scheduleEventPayload(info scheduleInfo, overrideRaw string) (map[string]any
 }
 
 type scheduleInfo struct {
-	Name       string         `json:"name"`
-	Event      string         `json:"event"`
-	Every      string         `json:"every"`
-	RunOnStart bool           `json:"run_on_start"`
-	Payload    map[string]any `json:"payload"`
+	Name        string         `json:"name"`
+	Event       string         `json:"event"`
+	Every       string         `json:"every"`
+	RunOnStart  bool           `json:"run_on_start"`
+	Payload     map[string]any `json:"payload"`
+	LastSeenAt  *time.Time     `json:"last_seen_at,omitempty"`
+	LastFiredAt *time.Time     `json:"last_fired_at,omitempty"`
+	NextRun     *time.Time     `json:"next_run_at,omitempty"`
 }
 
 func loadScheduleInfos(teamDir string) ([]scheduleInfo, error) {
@@ -168,9 +173,13 @@ func loadScheduleInfos(teamDir string) ([]scheduleInfo, error) {
 	if top == nil {
 		return nil, nil
 	}
+	states, err := loadScheduleStateMap(teamDir)
+	if err != nil {
+		return nil, err
+	}
 	infos := make([]scheduleInfo, 0, len(top.Schedules))
 	for _, s := range top.SortedSchedules() {
-		infos = append(infos, scheduleInfoFromTopology(s))
+		infos = append(infos, scheduleInfoFromTopology(s, states[s.Name]))
 	}
 	return infos, nil
 }
@@ -187,17 +196,44 @@ func loadScheduleInfo(teamDir, name string) (scheduleInfo, error) {
 	if top == nil || top.Schedules[name] == nil {
 		return scheduleInfo{}, fmt.Errorf("schedule %q not found", name)
 	}
-	return scheduleInfoFromTopology(top.Schedules[name]), nil
+	states, err := loadScheduleStateMap(teamDir)
+	if err != nil {
+		return scheduleInfo{}, err
+	}
+	return scheduleInfoFromTopology(top.Schedules[name], states[name]), nil
 }
 
-func scheduleInfoFromTopology(s *topology.Schedule) scheduleInfo {
-	return scheduleInfo{
+func loadScheduleStateMap(teamDir string) (map[string]*daemon.ScheduleState, error) {
+	states, err := daemon.ListScheduleStates(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*daemon.ScheduleState, len(states))
+	for _, state := range states {
+		out[state.Name] = state
+	}
+	return out, nil
+}
+
+func scheduleInfoFromTopology(s *topology.Schedule, state *daemon.ScheduleState) scheduleInfo {
+	info := scheduleInfo{
 		Name:       s.Name,
 		Event:      topology.EventSchedule,
 		Every:      s.Every.String(),
 		RunOnStart: s.RunOnStart,
 		Payload:    s.EventPayload(),
 	}
+	if state != nil {
+		lastSeen := state.LastSeenAt
+		lastFired := state.LastFiredAt
+		next := state.LastSeenAt.Add(s.Every)
+		info.LastSeenAt = &lastSeen
+		if !state.LastFiredAt.IsZero() {
+			info.LastFiredAt = &lastFired
+		}
+		info.NextRun = &next
+	}
+	return info
 }
 
 func renderScheduleList(w io.Writer, schedules []scheduleInfo, jsonOut bool) error {
@@ -209,9 +245,10 @@ func renderScheduleList(w io.Writer, schedules []scheduleInfo, jsonOut bool) err
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCHEDULE\tEVERY\tRUN_ON_START\tPAYLOAD")
+	fmt.Fprintln(tw, "SCHEDULE\tEVERY\tRUN_ON_START\tLAST_FIRED\tNEXT_RUN\tPAYLOAD")
 	for _, info := range schedules {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", info.Name, info.Every, yesNo(info.RunOnStart), summariseSchedulePayload(info.Payload))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			info.Name, info.Every, yesNo(info.RunOnStart), scheduleTime(info.LastFiredAt), scheduleTime(info.NextRun), summariseSchedulePayload(info.Payload))
 	}
 	_ = tw.Flush()
 	return nil
@@ -225,6 +262,15 @@ func renderScheduleDetail(w io.Writer, info scheduleInfo, jsonOut bool) error {
 	fmt.Fprintf(w, "Event:        %s\n", info.Event)
 	fmt.Fprintf(w, "Every:        %s\n", info.Every)
 	fmt.Fprintf(w, "Run On Start: %s\n", yesNo(info.RunOnStart))
+	if info.LastSeenAt != nil {
+		fmt.Fprintf(w, "Last Seen:    %s\n", scheduleTime(info.LastSeenAt))
+	}
+	if info.LastFiredAt != nil {
+		fmt.Fprintf(w, "Last Fired:   %s\n", scheduleTime(info.LastFiredAt))
+	}
+	if info.NextRun != nil {
+		fmt.Fprintf(w, "Next Run:     %s\n", scheduleTime(info.NextRun))
+	}
 	fmt.Fprintf(w, "Payload:      %s\n", summariseSchedulePayload(info.Payload))
 	return nil
 }
@@ -269,6 +315,13 @@ func summariseSchedulePayload(payload map[string]any) string {
 		parts = append(parts, fmt.Sprintf("%s=%v", key, payload[key]))
 	}
 	return strings.Join(parts, ",")
+}
+
+func scheduleTime(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "-"
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func copyMap(in map[string]any) map[string]any {

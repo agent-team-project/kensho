@@ -678,16 +678,35 @@ payload.workspace = "repo"
 	}
 	m := NewInstanceManager(root, nil)
 	resolver := NewEventResolver(m, teamDir, top)
-	state := map[string]time.Time{}
+	state := map[string]*ScheduleState{}
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 	if fired := resolver.fireDueSchedules(now, state); len(fired) != 0 {
 		t.Fatalf("first tick fired = %v, want none without run_on_start", fired)
 	}
+	persisted, err := ReadScheduleState(root, "nightly")
+	if err != nil {
+		t.Fatalf("ReadScheduleState after first tick: %v", err)
+	}
+	if !persisted.LastSeenAt.Equal(now) || !persisted.LastFiredAt.IsZero() {
+		t.Fatalf("first persisted state = %+v", persisted)
+	}
 	if fired := resolver.fireDueSchedules(now.Add(500*time.Millisecond), state); len(fired) != 0 {
 		t.Fatalf("early tick fired = %v, want none", fired)
 	}
-	if fired := resolver.fireDueSchedules(now.Add(time.Second), state); len(fired) != 1 || fired[0] != "nightly" {
+	due := now.Add(time.Second)
+	if fired := resolver.fireDueSchedules(due, state); len(fired) != 1 || fired[0] != "nightly" {
 		t.Fatalf("due tick fired = %v, want nightly", fired)
+	}
+	persisted, err = ReadScheduleState(root, "nightly")
+	if err != nil {
+		t.Fatalf("ReadScheduleState after due tick: %v", err)
+	}
+	if !persisted.LastSeenAt.Equal(due) || !persisted.LastFiredAt.Equal(due) {
+		t.Fatalf("due persisted state = %+v", persisted)
+	}
+	loaded := resolver.loadScheduleStates()
+	if loaded["nightly"] == nil || !loaded["nightly"].LastSeenAt.Equal(due) {
+		t.Fatalf("loaded schedule states = %+v", loaded)
 	}
 	messages, err := ReadMessages(root, "manager")
 	if err != nil {
