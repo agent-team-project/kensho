@@ -1049,12 +1049,15 @@ func newJobUpdateCmd() *cobra.Command {
 
 func newJobReopenCmd() *cobra.Command {
 	var (
-		repo    string
-		status  string
-		message string
-		force   bool
-		jsonOut bool
-		format  string
+		repo        string
+		status      string
+		message     string
+		force       bool
+		dispatchNow bool
+		source      string
+		workspace   string
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1062,7 +1065,7 @@ func newJobReopenCmd() *cobra.Command {
 		Aliases: []string{"retry"},
 		Short:   "Reopen a durable job for another attempt.",
 		Long: "Reopen a durable job by resetting its lifecycle status to queued or blocked. " +
-			"Running jobs are refused unless --force is set. Dispatch remains explicit via `agent-team job dispatch`.",
+			"Running jobs are refused unless --force is set. Pass --dispatch to immediately send the reopened job to its target.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -1098,6 +1101,34 @@ func newJobReopenCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"force": fmt.Sprint(force)}); err != nil {
 				return err
 			}
+			if dispatchNow {
+				if len(j.Steps) > 0 {
+					res, err := advanceJob(cmd, teamDir, j, workspace)
+					if err != nil {
+						return err
+					}
+					if jsonOut {
+						return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+					}
+					if tmpl != nil {
+						return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
+					}
+					return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+				}
+				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, "agent-team job reopen")
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				}
+				if tmpl != nil {
+					return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
+				}
+				renderDispatchOutcome(cmd.OutOrStdout(), res.Job.Target, requestedName, res.Event)
+				fmt.Fprintf(cmd.OutOrStdout(), "Job: %s status=%s instance=%s\n", res.Job.ID, res.Job.Status, res.Job.Instance)
+				return nil
+			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
@@ -1105,6 +1136,9 @@ func newJobReopenCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", string(job.StatusQueued), "Reopened status: queued or blocked.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow reopening a job currently marked running.")
+	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the reopened job immediately using the running daemon.")
+	cmd.Flags().StringVar(&source, "source", "", "Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd

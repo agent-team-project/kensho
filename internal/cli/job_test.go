@@ -1054,6 +1054,59 @@ func TestJobReopenResetsStatusAndAudits(t *testing.T) {
 	}
 }
 
+func TestJobRetryDispatchesReopenedJob(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	failed := &job.Job{
+		ID:         "squ-80",
+		Ticket:     "SQU-80",
+		Target:     "worker",
+		Kickoff:    "retry failed worker",
+		Status:     job.StatusFailed,
+		LastEvent:  "dispatch_failed",
+		LastStatus: "spawn failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := job.Write(teamDir, failed); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "retry", "SQU-80", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job retry --dispatch: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode retry dispatch json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.Instance != "worker-squ-80" || result.Job.LastEvent != "dispatched" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.Event.Dispatched) != 1 {
+		t.Fatalf("event = %+v, want one dispatch", result.Event)
+	}
+	events, err := job.ListEvents(teamDir, "squ-80")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 3 ||
+		events[0].Type != "reopened" ||
+		events[1].Type != "dispatched" ||
+		events[1].Actor != "daemon" ||
+		events[2].Type != "dispatched" ||
+		events[2].Actor != "cli" {
+		t.Fatalf("events = %+v", events)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-80")
+}
+
 func TestJobReopenRefusesRunningUnlessForced(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

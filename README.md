@@ -186,6 +186,8 @@ agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source
 agent-team job create <ticket> [kickoff...] [--target worker] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--instance <name>] [--json]
 agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--status queued|running|blocked|done|failed] [--target-agent worker] [--pipeline name] [--instance name] [--json]
 agent-team job show <job-id> | triage [-w] [--no-clear] [--json] | next <job-id> [--json] | ready [--state ready|queued|all] [--json] | events <job-id> [-f] [--tail N|all] [--type closed] [--actor cli] [--since 24h] [--json]
+agent-team job retry <job-id> [--dispatch] [--workspace auto|worktree|repo] [--json]
+                                                # reopen a failed/closed job and optionally dispatch another attempt immediately
 agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reopen|cleanup|rm|prune|step|advance|reconcile ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
 agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--json] | run <pipeline> <ticket> [--dispatch] [--json]
@@ -233,6 +235,8 @@ Lifecycle actions (`start`, `stop`, `kill`, `restart`), desired-state previews (
 Use `monitor --jobs --schedules` or `job triage` plus `schedule next` to inspect what needs attention. Use `tick` to act on ready work: it reconciles stale daemon metadata, fires due schedules, asks the daemon to dispatch ready queued events, and advances ready pipeline jobs. `tick --dry-run` previews schedule, queue, and pipeline work without mutating state; `tick --watch` repeats the cycle in the foreground; `tick --until-idle --max-cycles N` is the finite CI/script mode. `--json` emits one JSON object per cycle for watch mode, or an aggregate cycle result for until-idle mode.
 
 Use `repair --dry-run` when `health` reports dead-letter queue items or stale daemon state. `repair` starts and reconciles the daemon, retries dead-letter queue entries, then runs a maintenance tick; add `--skip-daemon`, `--skip-queue`, or `--skip-tick` to narrow the recovery action.
+
+Use `job retry <job-id> --dispatch` for the common failed-job recovery path: it records a reopen event, then immediately sends the job back through daemon dispatch. For pipeline jobs, it advances the next ready step.
 
 Use `snapshot --output diagnostics.json` when you need one read-only artifact for debugging or handoff. It captures health, desired-state plan, instance rows, jobs, queue items, schedules, runtime profile, and recent lifecycle events; sensitive payload keys are redacted by default, and section-level failures are recorded in the JSON instead of aborting the whole report. Use `--no-redact` only for local debugging when raw payload values are required.
 
