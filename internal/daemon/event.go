@@ -1049,11 +1049,22 @@ func (r *EventResolver) RecoverQueueState() {
 
 // DrainQueues attempts ready queued items while replica capacity is available.
 func (r *EventResolver) DrainQueues() {
+	_, _ = r.DrainQueuesWithResult()
+}
+
+// DrainQueuesWithResult attempts ready queued items while replica capacity is
+// available and returns a summary suitable for operator-facing APIs.
+func (r *EventResolver) DrainQueuesWithResult() (*QueueDrainResult, error) {
+	if err := r.loadPersistedQueue(); err != nil {
+		return nil, err
+	}
+	result := &QueueDrainResult{Outcomes: []EventOutcome{}}
 	for {
 		declared, ev := r.nextDrainableQueuedEvent()
 		if declared == nil || ev == nil {
-			return
+			break
 		}
+		result.Attempted++
 		if _, err := r.spawn(declared, ev.uniqueName, ev.eventType, ev.payload); err != nil {
 			r.recordQueueFailure(declared.Name, ev, err)
 			r.mu.Lock()
@@ -1061,10 +1072,27 @@ func (r *EventResolver) DrainQueues() {
 				tr.running--
 			}
 			r.mu.Unlock()
+			result.Rejected++
+			result.Outcomes = append(result.Outcomes, EventOutcome{Instance: declared.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()})
 			continue
 		}
 		_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
+		result.Dispatched++
+		result.Outcomes = append(result.Outcomes, EventOutcome{Instance: declared.Name, Action: "dispatched", InstanceID: ev.uniqueName})
 	}
+	items, err := ListQueueItems(r.mgr.daemonRoot)
+	if err != nil {
+		return result, err
+	}
+	for _, item := range items {
+		switch item.State {
+		case QueueStatePending:
+			result.Pending++
+		case QueueStateDead:
+			result.Dead++
+		}
+	}
+	return result, nil
 }
 
 func (r *EventResolver) nextDrainableQueuedEvent() (*topology.Instance, *queuedEvent) {

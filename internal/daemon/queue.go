@@ -33,6 +33,16 @@ type QueueItem struct {
 	DeadLetteredAt time.Time      `json:"dead_lettered_at,omitempty"`
 }
 
+// QueueDrainResult describes one explicit queue drain pass.
+type QueueDrainResult struct {
+	Attempted  int            `json:"attempted"`
+	Dispatched int            `json:"dispatched"`
+	Rejected   int            `json:"rejected"`
+	Pending    int            `json:"pending"`
+	Dead       int            `json:"dead"`
+	Outcomes   []EventOutcome `json:"outcomes"`
+}
+
 func QueueRoot(daemonRoot string) string {
 	return filepath.Join(daemonRoot, "queue")
 }

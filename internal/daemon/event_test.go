@@ -595,6 +595,44 @@ func TestEvent_PersistedQueueRecoveryDrainsReadyItem(t *testing.T) {
 	}
 }
 
+func TestEvent_DrainQueuesWithResultReportsOutcomes(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	item := &QueueItem{
+		ID:         "queued-drain",
+		State:      QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-78",
+		Payload:    map[string]any{"target": "worker", "name": "worker-squ-78", "ticket": "SQU-78"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := WriteQueueItem(root, item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	result, err := resolver.DrainQueuesWithResult()
+	if err != nil {
+		t.Fatalf("DrainQueuesWithResult: %v", err)
+	}
+	if result.Attempted != 1 || result.Dispatched != 1 || result.Rejected != 0 || result.Pending != 0 || result.Dead != 0 {
+		t.Fatalf("drain result = %+v", result)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-78" {
+		t.Fatalf("outcomes = %+v", result.Outcomes)
+	}
+	if _, err := ReadQueueItem(root, "queued-drain"); !os.IsNotExist(err) {
+		t.Fatalf("queue item should be removed after drain, err=%v", err)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls=%d, want 1", fake.callCount())
+	}
+}
+
 func TestEvent_PipelineCreatesJobAndDispatchesFirstStep(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

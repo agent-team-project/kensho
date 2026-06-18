@@ -520,6 +520,22 @@ func (c *daemonClient) QueueRetry(id string) (*daemon.EventOutcome, error) {
 	return &out, nil
 }
 
+func (c *daemonClient) QueueDrain() (*daemon.QueueDrainResult, error) {
+	resp, err := c.hc.Post(c.baseURL+"/v1/queue/drain", "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: queue drain: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: queue drain: %s", readErrorBody(resp))
+	}
+	var out daemon.QueueDrainResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: queue drain decode: %w", err)
+	}
+	return &out, nil
+}
+
 // topologyResponse mirrors the wire shape of /v1/topology.
 type topologyResponse struct {
 	Instances []topologyInstance `json:"instances"`

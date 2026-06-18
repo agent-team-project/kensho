@@ -29,6 +29,7 @@ func newQueueCmd() *cobra.Command {
 	cmd.AddCommand(newQueueShowCmd())
 	cmd.AddCommand(newQueueRetryCmd())
 	cmd.AddCommand(newQueueDropCmd())
+	cmd.AddCommand(newQueueDrainCmd())
 	cmd.AddCommand(newQueuePruneCmd())
 	return cmd
 }
@@ -333,6 +334,53 @@ func newQueueRetryCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only retry pending queue items whose next retry is due now.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching queue items; 0 means no limit.")
+	return cmd
+}
+
+func newQueueDrainCmd() *cobra.Command {
+	var (
+		target  string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drain",
+		Short: "Ask the running daemon to dispatch ready pending queue items.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseQueueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drain: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			dc, err := newDaemonClient(teamDir)
+			if err != nil {
+				if errors.Is(err, errDaemonNotRunning) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drain: daemon is not running — start it first with `agent-team daemon start`.")
+					return exitErr(2)
+				}
+				return err
+			}
+			result, err := dc.QueueDrain()
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drain: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.Dispatched}} {{.Pending}}'.")
 	return cmd
 }
 
@@ -896,6 +944,34 @@ func renderQueueRetryResults(w io.Writer, results []queueRetryResult, jsonOut bo
 	for _, result := range results {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			result.ID, result.State, result.Instance, result.InstanceID, result.Action, emptyDash(result.Reason))
+	}
+	return tw.Flush()
+}
+
+func renderQueueDrainResult(w io.Writer, result *daemon.QueueDrainResult, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &daemon.QueueDrainResult{}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	fmt.Fprintf(w, "queue drain: attempted=%d dispatched=%d rejected=%d pending=%d dead=%d\n",
+		result.Attempted, result.Dispatched, result.Rejected, result.Pending, result.Dead)
+	if len(result.Outcomes) == 0 {
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "INSTANCE\tINSTANCE_ID\tACTION\tREASON")
+	for _, outcome := range result.Outcomes {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			outcome.Instance, outcome.InstanceID, outcome.Action, emptyDash(outcome.Reason))
 	}
 	return tw.Flush()
 }

@@ -457,6 +457,23 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		writeJSON(w, http.StatusOK, items)
 	})
 
+	mux.HandleFunc("/v1/queue/drain", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		result, err := events.DrainQueuesWithResult()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("/v1/queue/", func(w http.ResponseWriter, r *http.Request) {
 		id, action, ok := splitQueuePath(r.URL.Path)
 		if !ok {

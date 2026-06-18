@@ -675,3 +675,46 @@ func TestQueueRetryThroughDaemon(t *testing.T) {
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-91")
 }
+
+func TestQueueDrainThroughDaemon(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	item := &daemon.QueueItem{
+		ID:         "q-drain",
+		State:      daemon.QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-92",
+		Payload:    map[string]any{"target": "worker", "name": "worker-squ-92", "ticket": "SQU-92"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+
+	drain := NewRootCmd()
+	drainOut, drainErr := &bytes.Buffer{}, &bytes.Buffer{}
+	drain.SetOut(drainOut)
+	drain.SetErr(drainErr)
+	drain.SetArgs([]string{"queue", "drain", "--target", target, "--json"})
+	if err := drain.Execute(); err != nil {
+		t.Fatalf("queue drain: %v\nstderr=%s", err, drainErr.String())
+	}
+	var result daemon.QueueDrainResult
+	if err := json.Unmarshal(drainOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode drain: %v\nbody=%s", err, drainOut.String())
+	}
+	if result.Attempted != 1 || result.Dispatched != 1 || result.Pending != 0 || result.Dead != 0 {
+		t.Fatalf("drain result = %+v", result)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-92" {
+		t.Fatalf("drain outcomes = %+v", result.Outcomes)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drain"); !os.IsNotExist(err) {
+		t.Fatalf("queue item should be removed after drain, err=%v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-92")
+}
