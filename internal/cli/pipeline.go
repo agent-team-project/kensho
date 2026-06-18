@@ -7,7 +7,9 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -21,6 +23,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineLsCmd())
 	cmd.AddCommand(newPipelineShowCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
+	cmd.AddCommand(newPipelineRunCmd())
 	return cmd
 }
 
@@ -118,6 +121,102 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	return cmd
+}
+
+func newPipelineRunCmd() *cobra.Command {
+	var (
+		repo        string
+		id          string
+		kickoff     string
+		kickoffFile string
+		dispatchNow bool
+		workspace   string
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "run <pipeline> <ticket> [kickoff...]",
+		Short: "Create a durable job from a pipeline declaration.",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline run: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineDef, err := loadJobCreatePipeline(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
+				return exitErr(2)
+			}
+			ticket := args[1]
+			kickoffText, err := dispatchKickoff(ticket, kickoff, kickoffFile, args[2:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
+				return exitErr(2)
+			}
+			j, err := job.New(ticket, pipelineDef.Steps[0].Target, kickoffText, time.Now())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
+				return exitErr(2)
+			}
+			if strings.TrimSpace(id) != "" {
+				normalized := job.NormalizeID(id)
+				if normalized == "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: --id %q produced an empty normalized id.\n", id)
+					return exitErr(2)
+				}
+				j.ID = normalized
+			}
+			j.Pipeline = pipelineDef.Name
+			j.Steps = jobStepsFromPipeline(pipelineDef)
+			j.LastEvent = "created"
+			j.LastStatus = "created"
+			if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: job %q already exists.\n", j.ID)
+				return exitErr(2)
+			}
+			if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, map[string]string{
+				"ticket":   j.Ticket,
+				"target":   j.Target,
+				"pipeline": j.Pipeline,
+			}); err != nil {
+				return err
+			}
+			if dispatchNow {
+				res, err := advanceJob(cmd, teamDir, j, workspace)
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				}
+				if tmpl != nil {
+					return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
+				}
+				return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
+	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")
+	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
+	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the first ready pipeline step immediately using the running daemon.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the created job or advance result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
 

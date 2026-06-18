@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
@@ -157,5 +158,87 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	if !strings.Contains(invalidErr.String(), "unknown job status") {
 		t.Fatalf("invalid status stderr = %q", invalidErr.String())
+	}
+}
+
+func TestPipelineRunCreatesDurableJob(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-304", "--repo", root, "--kickoff", "run pipeline", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, stderr.String())
+	}
+	var created job.Job
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
+		t.Fatalf("decode pipeline run json: %v\nbody=%s", err, out.String())
+	}
+	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 2 {
+		t.Fatalf("created job = %+v", created)
+	}
+	if created.Steps[0].ID != "implement" || created.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("first step = %+v", created.Steps[0])
+	}
+	if created.Steps[1].ID != "review" || created.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("second step = %+v", created.Steps[1])
+	}
+	events, err := job.ListEvents(teamDir, "squ-304")
+	if err != nil {
+		t.Fatalf("list pipeline run events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["pipeline"] != "ticket_to_pr" {
+		t.Fatalf("events = %+v", events)
+	}
+
+	duplicate := NewRootCmd()
+	dupOut, dupErr := &bytes.Buffer{}, &bytes.Buffer{}
+	duplicate.SetOut(dupOut)
+	duplicate.SetErr(dupErr)
+	duplicate.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-304", "--repo", root})
+	if err := duplicate.Execute(); err == nil {
+		t.Fatalf("pipeline run duplicate succeeded")
+	}
+	if !strings.Contains(dupErr.String(), `job "squ-304" already exists`) {
+		t.Fatalf("duplicate stderr = %q", dupErr.String())
+	}
+}
+
+func TestPipelineRunDispatchesFirstStep(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "agent-team-pipeline-run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-305", "--repo", root, "--dispatch", "--workspace", "repo", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline run --dispatch: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline run dispatch json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Step == nil {
+		t.Fatalf("result missing job/step = %+v", result)
+	}
+	if result.Job.Status != job.StatusRunning || result.Job.Pipeline != "ticket_to_pr" {
+		t.Fatalf("advanced job = %+v", result.Job)
+	}
+	if result.Step.ID != "implement" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-305-implement" {
+		t.Fatalf("advanced step = %+v", result.Step)
 	}
 }

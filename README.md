@@ -180,7 +180,7 @@ agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--
 agent-team job show <job-id> | next <job-id> [--json] | ready [--state ready|queued|all] [--json] | events <job-id> [-f] [--tail N|all] [--type closed] [--actor cli] [--since 24h] [--json]
 agent-team job dispatch|start|stop|kill|wait|logs|attach|send|update|close|reopen|cleanup|rm|prune|step|advance ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
-agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json]
+agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | run <pipeline> <ticket> [--dispatch] [--json]
                                                 # inspect declared pipeline workflows from instances.toml
 agent-team queue ls [-w] [--summary] [--state pending|dead] [--json] | show|retry|drop <id> | prune [--state dead|pending|all] [--older-than 24h] [--dry-run]
                                                 # inspect, retry, drop, and prune persisted daemon dispatch queue items
