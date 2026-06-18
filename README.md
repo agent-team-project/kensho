@@ -1,6 +1,6 @@
 # agent-team
 
-A CLI for declaring teams of Claude Code subagents and skills, then instantiating them into any repo from a parameterized template. Each **agent** is a directory under `.agent_team/agents/`; `agent-team run <agent>` launches Claude Code with the team registered for that session.
+A CLI for declaring teams of LLM agents and skills, then instantiating them into any repo from a parameterized template. Each **agent** is a directory under `.agent_team/agents/`; `agent-team run <agent>` launches the selected runtime with the team context registered for that session.
 
 The model is templates-as-images: a template is a versioned, parameterized directory of agents + skills. You pull it (or use the one bundled in the binary), supply parameters once at `init`, and the resolved tree lands in `.agent_team/`. Multiple repos share the same template with different parameters; one repo can host multiple instances of the same agent.
 
@@ -203,7 +203,7 @@ agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [-
                                                 # remove instance state and daemon metadata, using persisted metadata if the daemon is down
 agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished persisted daemon metadata and state
 agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
-                                                # launch Claude Code as <agent>; --detach dispatches via daemon
+                                                # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade --check [--to <ref>]         # compare .template.lock with a template ref
 agent-team doctor [--strict-daemon] [--strict-runtime]
                                                 # validate layout, config, provenance, skill wiring, selected runtime, and daemon binary availability
@@ -253,7 +253,7 @@ With `--detach`, with `--attach`, or with `--prompt` when the daemon is already 
 Runtime selection is environment-driven:
 
 - `AGENT_TEAM_RUNTIME=claude` (default) enables the full daemon, resume, subagent registry, and queue/event dispatch path.
-- `AGENT_TEAM_RUNTIME=codex` launches direct Codex sessions with `codex` or `codex exec`. The chosen agent prompt and task are passed as the initial Codex prompt, and team agents are listed as coordination context. This path currently bypasses daemon dispatch/resume because Codex does not expose the same `--agents` / `--session-id` contract.
+- `AGENT_TEAM_RUNTIME=codex` launches Codex sessions with `codex` or `codex exec`. The chosen agent prompt and task are passed as the initial Codex prompt, and team agents are listed as coordination context. Direct interactive runs work without the daemon; one-shot runs with `--prompt` can also use `--detach`, `--attach`, `--json`, or `--format` for daemon-managed logs and process metadata. Codex-managed daemon runs do not support `start`/resume or native subagent registration because Codex does not expose the same `--agents` / `--session-id` contract.
 - `AGENT_TEAM_RUNTIME_BIN=/path/to/wrapper` overrides the binary for the selected runtime.
 
 Run `agent-team runtime` to confirm the selected profile, resolved binary path, and supported capabilities.

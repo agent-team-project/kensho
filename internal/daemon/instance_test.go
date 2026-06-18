@@ -261,7 +261,41 @@ func TestInstance_DispatchUsesRuntimeBinaryEnv(t *testing.T) {
 	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
 }
 
-func TestInstance_DispatchRejectsNonClaudeRuntime(t *testing.T) {
+func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	meta, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-runtime",
+		Workspace: t.TempDir(),
+		Args:      []string{"exec", "-C", t.TempDir(), "hello"},
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
+		t.Fatalf("metadata = %+v, want codex without Claude session", meta)
+	}
+	args := fake.lastCall()
+	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
+		t.Fatalf("spawn args = %v, want codex exec", args)
+	}
+	if containsString(args, "--session-id") {
+		t.Fatalf("codex args should not include Claude session id: %v", args)
+	}
+	if _, err := m.Stop("worker-runtime"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
+	if _, err := m.Start("worker-runtime"); err == nil || !strings.Contains(err.Error(), "does not support managed resume") {
+		t.Fatalf("start error = %v, want Codex resume rejection", err)
+	}
+}
+
+func TestInstance_DispatchCodexRejectsClaudeArgs(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	root := t.TempDir()
 	fake := newFakeSpawner(2 * time.Second)
@@ -270,11 +304,11 @@ func TestInstance_DispatchRejectsNonClaudeRuntime(t *testing.T) {
 	_, err := m.Dispatch(DispatchInput{
 		Agent:     "worker",
 		Name:      "worker-runtime",
-		Prompt:    "hello",
 		Workspace: t.TempDir(),
+		Args:      []string{"--agents", "{}"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "not Claude-compatible") {
-		t.Fatalf("dispatch error = %v, want Claude-compatible runtime error", err)
+	if err == nil || !strings.Contains(err.Error(), "requires args beginning with exec") {
+		t.Fatalf("dispatch error = %v, want Codex exec args error", err)
 	}
 	if got := fake.callCount(); got != 0 {
 		t.Fatalf("spawn calls = %d, want none", got)

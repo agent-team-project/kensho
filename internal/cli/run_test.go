@@ -274,15 +274,16 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 	}
 }
 
-func TestRun_CodexRuntimeRejectsDaemonOnlyFlags(t *testing.T) {
+func TestRun_CodexRuntimeRequiresPromptForDaemonDispatch(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
 	cases := [][]string{
 		{"run", "manager", "--target", tmp, "--detach"},
-		{"run", "manager", "--target", tmp, "--prompt", "x", "--json"},
-		{"run", "manager", "--target", tmp, "--prompt", "x", "--format", "{{.Instance}}"},
+		{"run", "manager", "--target", tmp, "--attach"},
+		{"run", "manager", "--target", tmp, "--json"},
+		{"run", "manager", "--target", tmp, "--format", "{{.Instance}}"},
 	}
 	for _, args := range cases {
 		cmd := NewRootCmd()
@@ -292,6 +293,78 @@ func TestRun_CodexRuntimeRejectsDaemonOnlyFlags(t *testing.T) {
 		if err := cmd.Execute(); err == nil {
 			t.Fatalf("run %v succeeded, want daemon-only flag rejection", args)
 		}
+	}
+}
+
+func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-codex-detach-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	wantWorkspace, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		wantWorkspace = tmp
+	}
+
+	var (
+		mu       sync.Mutex
+		gotArgs  []string
+		gotSpace string
+	)
+	base := fakeSpawnerForTest(t, 2*time.Second)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		gotSpace = workspace
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "manager" {
+				stopAndWaitForTest(t, mgr, "manager")
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--detach", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("codex run --detach --json: %v\nstderr: %s", err, stderr.String())
+	}
+	var body runDispatchJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("json body: %v\nstdout: %s", err, out.String())
+	}
+	if body.Instance != "manager" || body.Agent != "manager" || body.Runtime != "codex" || body.PID == 0 || body.SessionID != "" || body.Follow == "" {
+		t.Fatalf("dispatch body = %+v", body)
+	}
+
+	mu.Lock()
+	args := append([]string(nil), gotArgs...)
+	workspace := gotSpace
+	mu.Unlock()
+	if workspace != wantWorkspace {
+		t.Fatalf("workspace = %q, want %q", workspace, wantWorkspace)
+	}
+	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
+		t.Fatalf("codex daemon args = %v, want codex exec", args)
+	}
+	if containsString(args, "--session-id") || containsString(args, "--agents") || containsString(args, "--append-system-prompt-file") {
+		t.Fatalf("codex daemon args include Claude-only flags: %v", args)
+	}
+	if !containsString(args, "--add-dir") || !strings.Contains(args[len(args)-1], "codex task") {
+		t.Fatalf("codex daemon args missing add-dir or task prompt: %v", args)
 	}
 }
 

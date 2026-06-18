@@ -71,3 +71,8 @@ func defaultBinary(kind Kind) string {
 	}
 	return DefaultBinary
 }
+
+// DefaultBinaryForKind returns the built-in binary name for a runtime kind.
+func DefaultBinaryForKind(kind Kind) string {
+	return defaultBinary(kind)
+}

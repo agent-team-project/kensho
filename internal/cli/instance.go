@@ -248,6 +248,7 @@ type inspectStateJSON struct {
 type inspectRuntimeJSON struct {
 	Lifecycle string `json:"lifecycle"`
 	Agent     string `json:"agent,omitempty"`
+	Runtime   string `json:"runtime,omitempty"`
 	Job       string `json:"job,omitempty"`
 	Ticket    string `json:"ticket,omitempty"`
 	Branch    string `json:"branch,omitempty"`
@@ -312,6 +313,7 @@ func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectR
 	out := &inspectRuntimeJSON{
 		Lifecycle: metadataStatusKey(meta),
 		Agent:     meta.Agent,
+		Runtime:   meta.Runtime,
 		Job:       meta.Job,
 		Ticket:    meta.Ticket,
 		Branch:    meta.Branch,
@@ -444,6 +446,9 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	fmt.Fprintf(w, "  lifecycle:   %s\n", runtime.Lifecycle)
 	if runtime.Agent != "" {
 		fmt.Fprintf(w, "  agent:       %s\n", runtime.Agent)
+	}
+	if runtime.Runtime != "" {
+		fmt.Fprintf(w, "  runtime:     %s\n", runtime.Runtime)
 	}
 	if runtime.Job != "" {
 		fmt.Fprintf(w, "  job:         %s\n", runtime.Job)

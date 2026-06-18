@@ -14,6 +14,7 @@ import (
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
@@ -809,6 +810,10 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 }
 
 func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, prompt string) ([]string, error) {
+	rt, err := runtimebin.Current()
+	if err != nil {
+		return nil, fmt.Errorf("event runtime: %w", err)
+	}
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, fmt.Errorf("event runtime: load agents: %w", err)
@@ -861,12 +866,48 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	if err != nil {
 		return nil, err
 	}
-	return []string{
-		"--agents", agentsJSON,
-		"--add-dir", runtimeDir,
-		"--append-system-prompt-file", promptFile,
-		"-p", prompt,
-	}, nil
+	switch rt.Kind {
+	case runtimebin.KindClaude:
+		return []string{
+			"--agents", agentsJSON,
+			"--add-dir", runtimeDir,
+			"--append-system-prompt-file", promptFile,
+			"-p", prompt,
+		}, nil
+	case runtimebin.KindCodex:
+		return []string{
+			"exec",
+			"-C", r.teamDirParent(),
+			"--add-dir", runtimeDir,
+			codexEventPrompt(kickoff, prompt, agents),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
+	}
+}
+
+func codexEventPrompt(kickoff, prompt string, agents []*loader.Agent) string {
+	var b strings.Builder
+	b.WriteString(kickoff)
+	b.WriteString("\n\n--- agent-team runtime ---\n\n")
+	b.WriteString("This session is running through the Codex adapter. The current agent prompt is included above. Other team agents are listed for coordination context, but this adapter does not register them as native subagents.\n")
+	if len(agents) > 0 {
+		b.WriteString("\nAvailable team agents:\n")
+		for _, agent := range agents {
+			b.WriteString("- ")
+			b.WriteString(agent.Name)
+			if agent.Description != "" {
+				b.WriteString(": ")
+				b.WriteString(agent.Description)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	if strings.TrimSpace(prompt) != "" {
+		b.WriteString("\n--- task ---\n\n")
+		b.WriteString(prompt)
+	}
+	return b.String()
 }
 
 func (r *EventResolver) prepareEphemeralWorktree(instance string) (string, string, func(), error) {

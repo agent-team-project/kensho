@@ -74,8 +74,8 @@ func TestRuntimeCommand_CodexJSON(t *testing.T) {
 	if info.Runtime != "codex" || info.Binary != "codex" || info.Path != "/opt/homebrew/bin/codex" {
 		t.Fatalf("info = %+v, want codex path", info)
 	}
-	if !info.DirectRun || info.DaemonDispatch || info.Resume || info.Subagents {
-		t.Fatalf("codex capabilities = %+v, want direct-only", info)
+	if !info.DirectRun || !info.DaemonDispatch || info.Resume || info.Subagents {
+		t.Fatalf("codex capabilities = %+v, want direct plus daemon one-shot", info)
 	}
 	if len(info.Notes) == 0 {
 		t.Fatalf("codex info missing limitation notes: %+v", info)

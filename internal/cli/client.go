@@ -70,19 +70,22 @@ func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonC
 
 // dispatchPayload mirrors POST /v1/dispatch's body.
 type dispatchPayload struct {
-	Agent     string   `json:"agent"`
-	Name      string   `json:"name"`
-	Prompt    string   `json:"prompt,omitempty"`
-	Workspace string   `json:"workspace"`
-	Args      []string `json:"args,omitempty"`
-	Env       []string `json:"env,omitempty"`
+	Agent         string   `json:"agent"`
+	Name          string   `json:"name"`
+	Prompt        string   `json:"prompt,omitempty"`
+	Workspace     string   `json:"workspace"`
+	Runtime       string   `json:"runtime,omitempty"`
+	RuntimeBinary string   `json:"runtime_binary,omitempty"`
+	Args          []string `json:"args,omitempty"`
+	Env           []string `json:"env,omitempty"`
 }
 
 type dispatchResponse struct {
 	InstanceID string    `json:"instance_id"`
 	StartedAt  time.Time `json:"started_at"`
 	PID        int       `json:"pid"`
-	SessionID  string    `json:"session_id"`
+	Runtime    string    `json:"runtime,omitempty"`
+	SessionID  string    `json:"session_id,omitempty"`
 }
 
 type messageResponse struct {

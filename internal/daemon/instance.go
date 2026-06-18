@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -74,12 +75,14 @@ func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPa
 // Env, if set, is appended to os.Environ() for the spawned process. The CLI
 // uses this to export AGENT_TEAM_ROOT / AGENT_TEAM_INSTANCE / AGENT_TEAM_STATE_DIR.
 type DispatchInput struct {
-	Agent     string
-	Name      string
-	Prompt    string
-	Workspace string
-	Args      []string
-	Env       []string
+	Agent         string
+	Name          string
+	Prompt        string
+	Workspace     string
+	Runtime       string
+	RuntimeBinary string
+	Args          []string
+	Env           []string
 }
 
 // StopOptions controls graceful stop escalation. The default Stop path sends
@@ -170,21 +173,22 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	}
 	m.mu.Unlock()
 
-	sessionID := newSessionID()
+	rt, err := dispatchRuntime(in)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: %w", err)
+	}
+	sessionID := ""
+	if rt.Kind == runtimebin.KindClaude {
+		sessionID = newSessionID()
+	}
 	if err := os.MkdirAll(instanceDir(m.daemonRoot, in.Name), 0o755); err != nil {
 		return nil, err
 	}
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
 
-	bin, err := runtimebin.ClaudeCompatibleBinary()
+	args, err := dispatchArgs(rt, sessionID, in)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
-	}
-	args := []string{bin, "--session-id", sessionID}
-	if len(in.Args) > 0 {
-		args = append(args, in.Args...)
-	} else if in.Prompt != "" {
-		args = append(args, "-p", in.Prompt)
 	}
 
 	env := os.Environ()
@@ -198,14 +202,16 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 
 	now := time.Now().UTC()
 	meta := &Metadata{
-		Instance:  in.Name,
-		Agent:     in.Agent,
-		Workspace: in.Workspace,
-		PID:       proc.Pid,
-		SessionID: sessionID,
-		StartedAt: now,
-		Status:    StatusRunning,
-		LogPath:   logPath,
+		Instance:      in.Name,
+		Agent:         in.Agent,
+		Runtime:       string(rt.Kind),
+		RuntimeBinary: rt.Binary,
+		Workspace:     in.Workspace,
+		PID:           proc.Pid,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		Status:        StatusRunning,
+		LogPath:       logPath,
 	}
 	if err := WriteMetadata(m.daemonRoot, meta); err != nil {
 		// We've already spawned. Best effort: kill, return error.
@@ -220,6 +226,51 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	m.recordEvent("dispatch", meta, "instance dispatched")
 	go m.reap(in.Name, proc, reaped)
 	return meta, nil
+}
+
+func dispatchRuntime(in DispatchInput) (runtimebin.Runtime, error) {
+	requested := strings.TrimSpace(in.Runtime)
+	if requested == "" {
+		return runtimebin.Current()
+	}
+	kind, err := runtimebin.ParseKind(requested)
+	if err != nil {
+		return runtimebin.Runtime{}, err
+	}
+	bin := strings.TrimSpace(in.RuntimeBinary)
+	if bin == "" {
+		bin = strings.TrimSpace(os.Getenv(runtimebin.EnvBinary))
+	}
+	if bin == "" {
+		bin = runtimebin.DefaultBinaryForKind(kind)
+	}
+	return runtimebin.Runtime{Kind: kind, Binary: bin}, nil
+}
+
+func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]string, error) {
+	switch rt.Kind {
+	case runtimebin.KindClaude:
+		args := []string{rt.Binary, "--session-id", sessionID}
+		if len(in.Args) > 0 {
+			args = append(args, in.Args...)
+		} else if in.Prompt != "" {
+			args = append(args, "-p", in.Prompt)
+		}
+		return args, nil
+	case runtimebin.KindCodex:
+		if len(in.Args) > 0 {
+			if in.Args[0] != "exec" {
+				return nil, errors.New("codex daemon dispatch requires args beginning with exec; use agent-team run --prompt for managed Codex runs")
+			}
+			return append([]string{rt.Binary}, in.Args...), nil
+		}
+		if strings.TrimSpace(in.Prompt) == "" {
+			return nil, errors.New("codex daemon dispatch requires exec args or a prompt")
+		}
+		return []string{rt.Binary, "exec", in.Prompt}, nil
+	default:
+		return nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
+	}
 }
 
 // Stop sends SIGTERM to the instance process group and persists
@@ -527,6 +578,10 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 	if base.Status == StatusRunning {
 		return &base, nil
 	}
+	baseRuntime := metadataRuntimeKind(&base)
+	if baseRuntime != runtimebin.KindClaude {
+		return nil, fmt.Errorf("start: runtime %q does not support managed resume; create a new run instead", baseRuntime)
+	}
 	if base.SessionID == "" {
 		return nil, fmt.Errorf("start: %q has no session_id; cannot resume", instance)
 	}
@@ -538,9 +593,13 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 	if logPath == "" {
 		logPath = filepath.Join(instanceDir(m.daemonRoot, instance), "child.log")
 	}
-	bin, err := runtimebin.ClaudeCompatibleBinary()
-	if err != nil {
-		return nil, fmt.Errorf("start: %w", err)
+	bin := strings.TrimSpace(base.RuntimeBinary)
+	if bin == "" {
+		var err error
+		bin, err = runtimebin.ClaudeCompatibleBinary()
+		if err != nil {
+			return nil, fmt.Errorf("start: %w", err)
+		}
 	}
 	args := []string{bin, "--resume", base.SessionID}
 	proc, err := m.spawner(args, os.Environ(), base.Workspace, logPath, logPath)
@@ -577,6 +636,17 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 	go m.reap(instance, proc, reaped)
 	out := meta
 	return &out, nil
+}
+
+func metadataRuntimeKind(meta *Metadata) runtimebin.Kind {
+	if meta == nil || strings.TrimSpace(meta.Runtime) == "" {
+		return runtimebin.KindClaude
+	}
+	kind, err := runtimebin.ParseKind(meta.Runtime)
+	if err != nil {
+		return runtimebin.KindClaude
+	}
+	return kind
 }
 
 // List returns a snapshot of every instance the manager knows about.

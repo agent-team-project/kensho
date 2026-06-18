@@ -43,12 +43,14 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			return
 		}
 		var body struct {
-			Agent     string   `json:"agent"`
-			Name      string   `json:"name"`
-			Prompt    string   `json:"prompt"`
-			Workspace string   `json:"workspace"`
-			Args      []string `json:"args"`
-			Env       []string `json:"env"`
+			Agent         string   `json:"agent"`
+			Name          string   `json:"name"`
+			Prompt        string   `json:"prompt"`
+			Workspace     string   `json:"workspace"`
+			Runtime       string   `json:"runtime"`
+			RuntimeBinary string   `json:"runtime_binary"`
+			Args          []string `json:"args"`
+			Env           []string `json:"env"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -63,12 +65,14 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			return
 		}
 		meta, err := m.Dispatch(DispatchInput{
-			Agent:     body.Agent,
-			Name:      body.Name,
-			Prompt:    body.Prompt,
-			Workspace: body.Workspace,
-			Args:      body.Args,
-			Env:       body.Env,
+			Agent:         body.Agent,
+			Name:          body.Name,
+			Prompt:        body.Prompt,
+			Workspace:     body.Workspace,
+			Runtime:       body.Runtime,
+			RuntimeBinary: body.RuntimeBinary,
+			Args:          body.Args,
+			Env:           body.Env,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -78,6 +82,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			"instance_id": meta.Instance,
 			"started_at":  meta.StartedAt,
 			"pid":         meta.PID,
+			"runtime":     meta.Runtime,
 			"session_id":  meta.SessionID,
 		})
 	})

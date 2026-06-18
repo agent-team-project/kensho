@@ -84,7 +84,8 @@ func collectRuntimeInfo() (runtimeInfo, error) {
 		info.Resume = true
 		info.Subagents = true
 	case runtimebin.KindCodex:
-		info.Notes = append(info.Notes, "codex direct adapter passes the agent prompt as the initial Codex prompt; daemon dispatch, resume, and native subagent registration are not available yet")
+		info.DaemonDispatch = true
+		info.Notes = append(info.Notes, "codex adapter supports direct launches and daemon-managed one-shot exec runs with --prompt; resume and native subagent registration are not available")
 	default:
 		return runtimeInfo{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}

@@ -115,12 +115,8 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: choose one of --detach or --attach.")
 		return exitErr(2)
 	}
-	if rt.Kind == runtimebin.KindCodex && (cfg.detach || cfg.attach) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %s=codex supports direct launches only; omit --detach/--attach.\n", runtimebin.EnvRuntime)
-		return exitErr(2)
-	}
-	if rt.Kind == runtimebin.KindCodex && (cfg.jsonOut || cfg.format != "") {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %s=codex cannot emit daemon dispatch metadata; omit --json/--format.\n", runtimebin.EnvRuntime)
+	if rt.Kind == runtimebin.KindCodex && (cfg.detach || cfg.attach) && strings.TrimSpace(cfg.prompt) == "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %s=codex daemon dispatch requires --prompt so Codex can run with `codex exec`.\n", runtimebin.EnvRuntime)
 		return exitErr(2)
 	}
 	if cfg.attach && cfg.noDaemon {
@@ -285,7 +281,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			return err
 		}
 	}
-	daemonCapable := rt.Kind == runtimebin.KindClaude
+	daemonCapable := rt.Kind == runtimebin.KindClaude || rt.Kind == runtimebin.KindCodex
 	if !cfg.noDaemon && daemonCapable {
 		dc, err := newDaemonClient(teamDir)
 		if err == nil {
@@ -306,12 +302,14 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			// — the daemon's spawn surface accepts arbitrary trailing argv
 			// via DispatchInput.Args.
 			disp, derr := dispatchClient.Dispatch(dispatchPayload{
-				Agent:     agentName,
-				Name:      instance,
-				Prompt:    cfg.prompt,
-				Workspace: target,
-				Args:      runtimeArgs,
-				Env:       teamEnv,
+				Agent:         agentName,
+				Name:          instance,
+				Prompt:        cfg.prompt,
+				Workspace:     target,
+				Runtime:       string(rt.Kind),
+				RuntimeBinary: rt.Binary,
+				Args:          runtimeArgs,
+				Env:           teamEnv,
 			})
 			if derr != nil {
 				return fmt.Errorf("daemon dispatch: %w", derr)
@@ -319,6 +317,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			row := runDispatchJSON{
 				Instance:  disp.InstanceID,
 				Agent:     agentName,
+				Runtime:   disp.Runtime,
 				PID:       disp.PID,
 				SessionID: disp.SessionID,
 				StartedAt: disp.StartedAt.Format(time.RFC3339),
@@ -332,17 +331,13 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			}
 			if cfg.attach {
 				out := cmd.OutOrStdout()
-				fmt.Fprintf(out,
-					"agent-team: dispatched %s via daemon (pid=%d, session=%s)\n",
-					disp.InstanceID, disp.PID, disp.SessionID)
+				printRunDispatchLine(out, disp)
 				fmt.Fprintf(out, "\nattaching to %s (Ctrl-C to detach)\n", disp.InstanceID)
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 				defer stop()
 				return followLifecycleLog(ctx, out, dispatchClient, disp.InstanceID, tailLines)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(),
-				"agent-team: dispatched %s via daemon (pid=%d, session=%s)\n",
-				disp.InstanceID, disp.PID, disp.SessionID)
+			printRunDispatchLine(cmd.OutOrStdout(), disp)
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"  follow: agent-team logs %s --follow\n", disp.InstanceID)
 			return nil
@@ -425,10 +420,27 @@ func renderRunFormat(w fmtWriter, row runDispatchJSON, tmpl *texttemplate.Templa
 type runDispatchJSON struct {
 	Instance  string `json:"instance"`
 	Agent     string `json:"agent"`
+	Runtime   string `json:"runtime,omitempty"`
 	PID       int    `json:"pid"`
-	SessionID string `json:"session_id"`
+	SessionID string `json:"session_id,omitempty"`
 	StartedAt string `json:"started_at"`
 	Follow    string `json:"follow"`
+}
+
+func printRunDispatchLine(w fmtWriter, disp *dispatchResponse) {
+	runtime := disp.Runtime
+	if runtime == "" {
+		runtime = string(runtimebin.KindClaude)
+	}
+	if disp.SessionID != "" {
+		fmt.Fprintf(w,
+			"agent-team: dispatched %s via daemon (runtime=%s, pid=%d, session=%s)\n",
+			disp.InstanceID, runtime, disp.PID, disp.SessionID)
+		return
+	}
+	fmt.Fprintf(w,
+		"agent-team: dispatched %s via daemon (runtime=%s, pid=%d)\n",
+		disp.InstanceID, runtime, disp.PID)
 }
 
 // execClaude is split out so tests can intercept the exec.

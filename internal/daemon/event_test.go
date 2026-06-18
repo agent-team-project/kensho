@@ -12,6 +12,7 @@ import (
 	"time"
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -214,6 +215,48 @@ func TestEvent_EphemeralDispatchUsesRequestedChildName(t *testing.T) {
 	if !strings.Contains(prompt, `"name":"worker-squ-42"`) {
 		t.Fatalf("prompt missing requested child name: %s", prompt)
 	}
+}
+
+func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	root := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, fixtureTeamDir(t), mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-42","kickoff":"implement SQU-42"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want codex exec", call)
+	}
+	for _, forbidden := range []string{"--session-id", "--agents", "--append-system-prompt-file"} {
+		if containsString(call, forbidden) {
+			t.Fatalf("codex spawn call should not include %q: %#v", forbidden, call)
+		}
+	}
+	for _, want := range []string{"-C", "--add-dir"} {
+		if !containsString(call, want) {
+			t.Fatalf("codex spawn call missing %q: %#v", want, call)
+		}
+	}
+	if !strings.Contains(call[len(call)-1], "implement SQU-42") {
+		t.Fatalf("codex prompt missing kickoff: %s", call[len(call)-1])
+	}
+	meta, err := ReadMetadata(root, "worker-squ-42")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
+		t.Fatalf("metadata = %+v, want codex without Claude session", meta)
+	}
+	_, _ = m.Stop("worker-squ-42")
+	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }
 
 func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
