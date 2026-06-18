@@ -143,6 +143,78 @@ branch = "worker-squ-121"
 	}
 }
 
+func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-122",
+		Ticket:    "SQU-122",
+		Target:    "worker",
+		Kickoff:   "SQU-122: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write ready job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair dry-run preview-routes: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair preview-routes json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Tick.Action != "would_tick" || result.Tick.Result == nil || !result.Tick.Result.DryRun {
+		t.Fatalf("repair route preview result = %+v", result)
+	}
+	if len(result.Tick.Result.Advance) != 1 || result.Tick.Result.Advance[0].Preview == nil || result.Tick.Result.Advance[0].Preview.Step == nil || result.Tick.Result.Advance[0].Preview.Step.ID != "implement" {
+		t.Fatalf("repair route preview advance = %+v", result.Tick.Result.Advance)
+	}
+	dispatch := result.Tick.Result.Advance[0].Preview.Dispatch
+	if dispatch == nil || dispatch.RequestedName != "worker-squ-122-implement" || dispatch.Preview == nil || len(dispatch.Preview.Matched) != 1 || dispatch.Preview.Matched[0] != "worker" {
+		t.Fatalf("repair route dispatch preview = %+v", dispatch)
+	}
+	payload := dispatch.Preview.Payload
+	if payload["job_id"] != "squ-122" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" {
+		t.Fatalf("repair route preview payload = %+v", payload)
+	}
+	unchanged, err := job.Read(teamDir, "squ-122")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("repair route dry-run mutated job = %+v", unchanged)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("repair dry-run preview-routes text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Tick: would_tick", "Routes:", "squ-122 step=implement target=worker instance=worker-squ-122-implement", "Matched: worker"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("repair route preview text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestRepairRetriesDeadQueueOffline(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -190,6 +262,18 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--until-idle cannot be combined with --dry-run") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	previewRoutes := NewRootCmd()
+	previewRoutesOut, previewRoutesErr := &bytes.Buffer{}, &bytes.Buffer{}
+	previewRoutes.SetOut(previewRoutesOut)
+	previewRoutes.SetErr(previewRoutesErr)
+	previewRoutes.SetArgs([]string{"repair", "--preview-routes"})
+	if err := previewRoutes.Execute(); err == nil {
+		t.Fatalf("repair --preview-routes without --dry-run succeeded: stdout=%s", previewRoutesOut.String())
+	}
+	if !strings.Contains(previewRoutesErr.String(), "--preview-routes requires --dry-run") {
+		t.Fatalf("stderr = %q", previewRoutesErr.String())
 	}
 }
 

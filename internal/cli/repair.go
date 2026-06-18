@@ -16,19 +16,20 @@ import (
 
 func newRepairCmd() *cobra.Command {
 	var (
-		target       string
-		workspace    string
-		limit        int
-		dryRun       bool
-		jsonOut      bool
-		skipDaemon   bool
-		skipQueue    bool
-		skipTick     bool
-		includeJobs  bool
-		untilIdle    bool
-		readyTimeout time.Duration
-		interval     time.Duration
-		maxCycles    int
+		target        string
+		workspace     string
+		limit         int
+		dryRun        bool
+		previewRoutes bool
+		jsonOut       bool
+		skipDaemon    bool
+		skipQueue     bool
+		skipTick      bool
+		includeJobs   bool
+		untilIdle     bool
+		readyTimeout  time.Duration
+		interval      time.Duration
+		maxCycles     int
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -62,6 +63,10 @@ func newRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --until-idle cannot be combined with --dry-run.")
 				return exitErr(2)
 			}
+			if previewRoutes && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --preview-routes requires --dry-run.")
+				return exitErr(2)
+			}
 			if untilIdle && skipTick {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --until-idle cannot be combined with --skip-tick.")
 				return exitErr(2)
@@ -74,6 +79,7 @@ func newRepairCmd() *cobra.Command {
 				Workspace:     workspace,
 				Limit:         limit,
 				DryRun:        dryRun,
+				PreviewRoutes: previewRoutes,
 				SkipDaemon:    skipDaemon,
 				SkipQueue:     skipQueue,
 				SkipTick:      skipTick,
@@ -95,6 +101,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for pipeline steps during the maintenance tick: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many dead-letter queue items and advance at most this many ready pipeline jobs; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&skipDaemon, "skip-daemon", false, "Do not start or reconcile the daemon.")
 	cmd.Flags().BoolVar(&skipQueue, "skip-queue", false, "Do not retry dead-letter queue items.")
@@ -111,6 +118,7 @@ type repairOptions struct {
 	Workspace     string
 	Limit         int
 	DryRun        bool
+	PreviewRoutes bool
 	SkipDaemon    bool
 	SkipQueue     bool
 	SkipTick      bool
@@ -278,7 +286,7 @@ func runRepairTickStep(cmd *cobra.Command, teamDir string, opts repairOptions) r
 		}
 		return repairTickStep{Action: action, UntilIdle: until}
 	}
-	tick, err := runTick(cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun})
+	tick, err := runTick(cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes})
 	if err != nil {
 		return repairTickStep{Action: "error", Reason: err.Error()}
 	}
