@@ -90,6 +90,61 @@ func TestDispatchCommandJSON(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-42")
 }
 
+func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"dispatch", "worker", "SQU-242", "preview", "dispatch",
+		"--target", target,
+		"--dry-run",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dispatch --dry-run --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview dispatchRoutePreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode dispatch dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Target != "worker" || preview.RequestedName != "worker-squ-242" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if preview.Preview == nil || preview.Preview.Type != "agent.dispatch" || len(preview.Preview.Matched) != 1 || preview.Preview.Matched[0] != "worker" {
+		t.Fatalf("event preview = %+v", preview.Preview)
+	}
+	if preview.Preview.Payload["workspace"] != "worktree" || preview.Preview.Payload["kickoff"] != "SQU-242: preview dispatch" {
+		t.Fatalf("payload = %+v", preview.Preview.Payload)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "worker-squ-242"); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote daemon metadata, err=%v", err)
+	}
+
+	textCmd := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textCmd.SetOut(textOut)
+	textCmd.SetErr(textErr)
+	textCmd.SetArgs([]string{"dispatch", "worker", "SQU-243", "--target", target, "--dry-run"})
+	if err := textCmd.Execute(); err != nil {
+		t.Fatalf("dispatch --dry-run text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Dispatch: worker instance=worker-squ-243", "Dry run: true", "Matched: worker"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("dry-run text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestDispatchCommandDuplicateSuggestsSend(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

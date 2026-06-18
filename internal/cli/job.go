@@ -600,6 +600,7 @@ func newJobDispatchCmd() *cobra.Command {
 		repo      string
 		source    string
 		workspace string
+		dryRun    bool
 		jsonOut   bool
 		format    string
 	)
@@ -622,6 +623,21 @@ func newJobDispatchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if dryRun {
+				payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, source, workspace)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
+					return exitErr(2)
+				}
+				payload["job_id"] = j.ID
+				payload["job"] = j.ID
+				preview, err := previewDispatchPayload(teamDir, j.Target, requestedName, payload)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
+					return exitErr(1)
+				}
+				return renderJobDispatchPreview(cmd.OutOrStdout(), j, preview, jsonOut, tmpl)
+			}
 			res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, "agent-team job dispatch")
 			if err != nil {
 				return err
@@ -641,8 +657,9 @@ func newJobDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&source, "source", "", "Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon or updating the job.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
-	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template.")
 	return cmd
 }
 
@@ -4631,6 +4648,36 @@ func renderJobCreatePreview(w io.Writer, j *job.Job, jsonOut bool, tmpl *templat
 	fmt.Fprintln(w, "Dry run: true")
 	renderJobDetail(w, j)
 	return nil
+}
+
+type jobDispatchPreview struct {
+	Job      *job.Job              `json:"job"`
+	Dispatch *dispatchRoutePreview `json:"dispatch"`
+	DryRun   bool                  `json:"dry_run"`
+}
+
+func renderJobDispatchPreview(w io.Writer, j *job.Job, dispatch *dispatchRoutePreview, jsonOut bool, tmpl *template.Template) error {
+	result := jobDispatchPreview{Job: j, Dispatch: dispatch, DryRun: true}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	requestedName := ""
+	if dispatch != nil {
+		requestedName = dispatch.RequestedName
+	}
+	fmt.Fprintf(w, "Job: %s dry-run dispatch target=%s instance=%s\n", j.ID, j.Target, requestedName)
+	if dispatch == nil || dispatch.Preview == nil || !eventPublishPreviewHasRoutes(dispatch.Preview) {
+		fmt.Fprintln(w, "(no triggers matched)")
+		return nil
+	}
+	return renderEventPublishRoutePreview(w, dispatch.Preview)
 }
 
 func parseJobShowEventsTail(raw string) (int, error) {

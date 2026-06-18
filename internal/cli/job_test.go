@@ -281,6 +281,71 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestJobDispatchDryRunDoesNotMutate(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	j := mustNewJob(t, "SQU-244", "worker")
+	j.Kickoff = "SQU-244: preview dispatch"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "dispatch", "squ-244", "--repo", tmp, "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job dispatch dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview jobDispatchPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode job dispatch dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-244" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-244" || preview.Dispatch.Target != "worker" {
+		t.Fatalf("dispatch preview = %+v", preview.Dispatch)
+	}
+	if preview.Dispatch.Preview == nil || len(preview.Dispatch.Preview.Matched) != 1 || preview.Dispatch.Preview.Matched[0] != "worker" {
+		t.Fatalf("route preview = %+v", preview.Dispatch.Preview)
+	}
+	payload := preview.Dispatch.Preview.Payload
+	if payload["job_id"] != "squ-244" || payload["job"] != "squ-244" || payload["workspace"] != "worktree" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	unchanged, err := job.Read(teamDir, "squ-244")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.Instance != "" || unchanged.LastEvent != "" {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+	events, err := job.ListEvents(teamDir, "squ-244")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("dry-run wrote job events = %+v", events)
+	}
+
+	textCmd := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textCmd.SetOut(textOut)
+	textCmd.SetErr(textErr)
+	textCmd.SetArgs([]string{"job", "dispatch", "squ-244", "--repo", tmp, "--dry-run"})
+	if err := textCmd.Execute(); err != nil {
+		t.Fatalf("job dispatch dry-run text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Job: squ-244 dry-run dispatch", "instance=worker-squ-244", "Matched: worker"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("dry-run text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestJobCreateFromTicketURLUsesTicketSlugID(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

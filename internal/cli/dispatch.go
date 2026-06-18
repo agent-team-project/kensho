@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,7 @@ func newDispatchCmd() *cobra.Command {
 		workspace   string
 		kickoff     string
 		kickoffFile string
+		dryRun      bool
 		jsonOut     bool
 		format      string
 	)
@@ -56,6 +58,14 @@ func newDispatchCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team dispatch: %v\n", err)
 				return exitErr(2)
 			}
+			if dryRun {
+				preview, err := previewDispatchPayload(teamDir, targetAgent, requestedName, payload)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team dispatch: %v\n", err)
+					return exitErr(1)
+				}
+				return renderDispatchRoutePreview(cmd.OutOrStdout(), preview, jsonOut, formatTemplate)
+			}
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team dispatch: daemon is not running — start it with `agent-team start`.")
@@ -83,9 +93,53 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the dispatched agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
-	cmd.Flags().StringVar(&format, "format", "", "Render the event outcome with a Go template, e.g. '{{len .Matched}} {{len .Dispatched}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template.")
 	return cmd
+}
+
+type dispatchRoutePreview struct {
+	Target        string               `json:"target"`
+	RequestedName string               `json:"requested_name"`
+	Preview       *eventPublishPreview `json:"preview"`
+	DryRun        bool                 `json:"dry_run"`
+}
+
+func previewDispatchPayload(teamDir, target, requestedName string, payload map[string]any) (*dispatchRoutePreview, error) {
+	preview, err := previewEventPublish(teamDir, topology.EventAgentDispatch, payload)
+	if err != nil {
+		return nil, err
+	}
+	return &dispatchRoutePreview{
+		Target:        target,
+		RequestedName: requestedName,
+		Preview:       preview,
+		DryRun:        true,
+	}, nil
+}
+
+func renderDispatchRoutePreview(w io.Writer, result *dispatchRoutePreview, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &dispatchRoutePreview{DryRun: true}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	fmt.Fprintf(w, "Dispatch: %s instance=%s\n", result.Target, result.RequestedName)
+	fmt.Fprintln(w, "Dry run: true")
+	if result.Preview == nil || !eventPublishPreviewHasRoutes(result.Preview) {
+		fmt.Fprintln(w, "(no triggers matched)")
+		return nil
+	}
+	return renderEventPublishRoutePreview(w, result.Preview)
 }
 
 func buildDispatchEventPayload(targetAgent, ticket, kickoff, name, source, workspace string) (map[string]any, string, error) {
