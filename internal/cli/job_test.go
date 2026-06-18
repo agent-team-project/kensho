@@ -462,6 +462,34 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if !containsString(snapshot.ReadySteps[0].Actions, "agent-team job advance squ-205") {
 		t.Fatalf("ready step actions = %+v", snapshot.ReadySteps[0].Actions)
 	}
+
+	criticalCmd := NewRootCmd()
+	criticalOut, criticalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	criticalCmd.SetOut(criticalOut)
+	criticalCmd.SetErr(criticalErr)
+	criticalCmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--min-severity", "critical"})
+	if err := criticalCmd.Execute(); err != nil {
+		t.Fatalf("job triage critical: %v\nstderr=%s", err, criticalErr.String())
+	}
+	if !strings.Contains(criticalOut.String(), "squ-201") || !strings.Contains(criticalOut.String(), "squ-204") || strings.Contains(criticalOut.String(), "squ-202") || strings.Contains(criticalOut.String(), "squ-203") {
+		t.Fatalf("critical triage output =\n%s", criticalOut.String())
+	}
+
+	reasonCmd := NewRootCmd()
+	reasonOut, reasonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reasonCmd.SetOut(reasonOut)
+	reasonCmd.SetErr(reasonErr)
+	reasonCmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--reason", "queue_dead", "--json"})
+	if err := reasonCmd.Execute(); err != nil {
+		t.Fatalf("job triage reason: %v\nstderr=%s", err, reasonErr.String())
+	}
+	var reasonSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(reasonOut.Bytes(), &reasonSnapshot); err != nil {
+		t.Fatalf("decode reason triage json: %v\nbody=%s", err, reasonOut.String())
+	}
+	if len(reasonSnapshot.Attention) != 1 || reasonSnapshot.Attention[0].JobID != "squ-204" {
+		t.Fatalf("reason triage attention = %+v", reasonSnapshot.Attention)
+	}
 }
 
 func TestJobTriageIncludesBlockedStatusPreview(t *testing.T) {
@@ -551,7 +579,7 @@ func TestJobTriageWatchRendersOnceWhenContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var out bytes.Buffer
-	if err := runJobTriageWatch(ctx, &out, teamDir, 24*time.Hour, false, time.Millisecond, false); err != nil {
+	if err := runJobTriageWatch(ctx, &out, teamDir, 24*time.Hour, jobTriageFilters{}, false, time.Millisecond, false); err != nil {
 		t.Fatalf("triage watch: %v", err)
 	}
 	if strings.Contains(out.String(), watchClearSequence) {
@@ -578,6 +606,18 @@ func TestJobTriageRejectsNegativeInterval(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--interval must be >= 0") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	badSeverity := NewRootCmd()
+	badOut, badErr := &bytes.Buffer{}, &bytes.Buffer{}
+	badSeverity.SetOut(badOut)
+	badSeverity.SetErr(badErr)
+	badSeverity.SetArgs([]string{"job", "triage", "--repo", tmp, "--min-severity", "urgent"})
+	if err := badSeverity.Execute(); err == nil {
+		t.Fatalf("job triage bad severity succeeded")
+	}
+	if !strings.Contains(badErr.String(), "--min-severity must be critical, warning, or info") {
+		t.Fatalf("bad severity stderr = %q", badErr.String())
 	}
 }
 

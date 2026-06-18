@@ -1628,12 +1628,14 @@ func newJobReadyCmd() *cobra.Command {
 
 func newJobTriageCmd() *cobra.Command {
 	var (
-		repo       string
-		staleAfter time.Duration
-		watch      bool
-		noClear    bool
-		interval   time.Duration
-		jsonOut    bool
+		repo        string
+		staleAfter  time.Duration
+		minSeverity string
+		reasons     []string
+		watch       bool
+		noClear     bool
+		interval    time.Duration
+		jsonOut     bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1651,6 +1653,11 @@ func newJobTriageCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job triage: --interval must be >= 0.")
 				return exitErr(2)
 			}
+			filters, err := parseJobTriageFilters(minSeverity, reasons)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job triage: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -1658,18 +1665,21 @@ func newJobTriageCmd() *cobra.Command {
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				return runJobTriageWatch(ctx, cmd.OutOrStdout(), teamDir, staleAfter, jsonOut, interval, !noClear)
+				return runJobTriageWatch(ctx, cmd.OutOrStdout(), teamDir, staleAfter, filters, jsonOut, interval, !noClear)
 			}
 			snapshot, err := collectJobTriage(teamDir, time.Now().UTC(), staleAfter)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job triage: %v\n", err)
 				return exitErr(1)
 			}
+			snapshot = filterJobTriageSnapshot(snapshot, filters)
 			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (0 disables stale checks).")
+	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
+	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the triage view until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -2291,7 +2301,76 @@ type jobTriageQueueStats struct {
 	IDs     []string
 }
 
+type jobTriageFilters struct {
+	MinSeverity string
+	Reasons     map[string]bool
+}
+
 const defaultJobTriageStaleAfter = 24 * time.Hour
+
+func parseJobTriageFilters(minSeverity string, reasons []string) (jobTriageFilters, error) {
+	var filters jobTriageFilters
+	severity := strings.ToLower(strings.TrimSpace(minSeverity))
+	if severity != "" {
+		switch severity {
+		case "critical", "warning", "info":
+			filters.MinSeverity = severity
+		default:
+			return filters, fmt.Errorf("--min-severity must be critical, warning, or info")
+		}
+	}
+	reasonSet, err := stringSetFilter(reasons, "--reason", "reason")
+	if err != nil {
+		return filters, err
+	}
+	filters.Reasons = reasonSet
+	return filters, nil
+}
+
+func filterJobTriageSnapshot(snapshot jobTriageSnapshot, filters jobTriageFilters) jobTriageSnapshot {
+	if filters.empty() {
+		return snapshot
+	}
+	out := snapshot
+	out.Attention = filterJobTriageAttention(snapshot.Attention, filters)
+	return out
+}
+
+func filterJobTriageAttention(items []jobTriageItem, filters jobTriageFilters) []jobTriageItem {
+	if filters.empty() {
+		return items
+	}
+	out := make([]jobTriageItem, 0, len(items))
+	for _, item := range items {
+		if filters.match(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (f jobTriageFilters) empty() bool {
+	return f.MinSeverity == "" && len(f.Reasons) == 0
+}
+
+func (f jobTriageFilters) match(item jobTriageItem) bool {
+	if f.MinSeverity != "" && jobTriageSeverityRank(item.Severity) > jobTriageSeverityRank(f.MinSeverity) {
+		return false
+	}
+	if len(f.Reasons) > 0 {
+		found := false
+		for _, reason := range item.Reasons {
+			if f.Reasons[reason] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
 
 func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr string) (jobListFilters, error) {
 	f := jobListFilters{
@@ -2506,7 +2585,7 @@ func collectJobTriage(teamDir string, now time.Time, staleAfter time.Duration) (
 	}, nil
 }
 
-func runJobTriageWatch(ctx context.Context, w io.Writer, teamDir string, staleAfter time.Duration, jsonOut bool, interval time.Duration, clear bool) error {
+func runJobTriageWatch(ctx context.Context, w io.Writer, teamDir string, staleAfter time.Duration, filters jobTriageFilters, jsonOut bool, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -2517,6 +2596,7 @@ func runJobTriageWatch(ctx context.Context, w io.Writer, teamDir string, staleAf
 		if err != nil {
 			return err
 		}
+		snapshot = filterJobTriageSnapshot(snapshot, filters)
 		if jsonOut {
 			if err := json.NewEncoder(w).Encode(snapshot); err != nil {
 				return err
