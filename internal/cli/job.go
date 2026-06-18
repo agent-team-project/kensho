@@ -34,6 +34,8 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobLogsCmd())
 	cmd.AddCommand(newJobAttachCmd())
+	cmd.AddCommand(newJobStopCmd())
+	cmd.AddCommand(newJobKillCmd())
 	cmd.AddCommand(newJobCloseCmd())
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobStepCmd())
@@ -568,6 +570,107 @@ func newJobAttachCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobStopCmd() *cobra.Command {
+	var (
+		repo        string
+		force       bool
+		wait        bool
+		timeout     time.Duration
+		waitTimeout time.Duration
+		dryRun      bool
+		remove      bool
+		quiet       bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "stop <job-id>",
+		Short: "Stop a job's owning instance.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseLifecycleActionFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job stop: %v\n", err)
+				return exitErr(2)
+			}
+			return runJobInstanceDown(cmd, repo, args[0], instanceDownOptions{
+				Force:          force,
+				Wait:           wait,
+				Timeout:        timeout,
+				WaitTimeout:    waitTimeout,
+				WaitTimeoutSet: cmd.Flags().Changed("wait-timeout"),
+				DryRun:         dryRun,
+				Remove:         remove,
+				Quiet:          quiet,
+				JSON:           jsonOut,
+				Format:         formatTemplate,
+			}, job.StatusBlocked)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Escalate to SIGKILL if the owning instance does not stop within --timeout.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the stop action without changing daemon or job state.")
+	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after stopping.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable lifecycle action JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
+	return cmd
+}
+
+func newJobKillCmd() *cobra.Command {
+	var (
+		repo        string
+		timeout     time.Duration
+		wait        bool
+		waitTimeout time.Duration
+		dryRun      bool
+		remove      bool
+		quiet       bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "kill <job-id>",
+		Short: "Force-stop a job's owning instance.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseLifecycleActionFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job kill: %v\n", err)
+				return exitErr(2)
+			}
+			return runJobInstanceDown(cmd, repo, args[0], instanceDownOptions{
+				Force:          true,
+				Wait:           wait,
+				Timeout:        timeout,
+				WaitTimeout:    waitTimeout,
+				WaitTimeoutSet: cmd.Flags().Changed("wait-timeout"),
+				DryRun:         dryRun,
+				Remove:         remove,
+				Quiet:          quiet,
+				Action:         "kill",
+				JSON:           jsonOut,
+				Format:         formatTemplate,
+			}, job.StatusFailed)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Second, "Grace before SIGKILL escalation.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the kill action without changing daemon or job state.")
+	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after killing.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable lifecycle action JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
+	return cmd
+}
+
 func newJobCloseCmd() *cobra.Command {
 	var (
 		repo    string
@@ -1041,6 +1144,47 @@ func jobWaitStatusList(statuses map[job.Status]bool) string {
 		}
 	}
 	return strings.Join(out, "|")
+}
+
+func runJobInstanceDown(cmd *cobra.Command, repo, id string, opts instanceDownOptions, nextStatus job.Status) error {
+	teamDir, j, err := readJobAndTeamDir(cmd, repo, id)
+	if err != nil {
+		return err
+	}
+	instance := strings.TrimSpace(j.Instance)
+	if instance == "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job %s: job %q has no owning instance; dispatch it first.\n", downAction(opts), j.ID)
+		return exitErr(2)
+	}
+	if err := runInstanceDownWithOptions(cmd, filepath.Dir(teamDir), []string{instance}, opts); err != nil {
+		return err
+	}
+	if opts.DryRun {
+		return nil
+	}
+	applyJobInstanceDownUpdate(j, downAction(opts), nextStatus)
+	return job.Write(teamDir, j)
+}
+
+func applyJobInstanceDownUpdate(j *job.Job, action string, nextStatus job.Status) {
+	now := time.Now().UTC()
+	if nextStatus == job.StatusFailed {
+		if j.Status != job.StatusDone {
+			j.Status = job.StatusFailed
+		}
+	} else if nextStatus != "" {
+		switch j.Status {
+		case job.StatusQueued, job.StatusRunning:
+			j.Status = nextStatus
+		}
+	}
+	j.LastEvent = "instance_" + action
+	if strings.TrimSpace(j.Instance) != "" {
+		j.LastStatus = action + " " + j.Instance
+	} else {
+		j.LastStatus = action
+	}
+	j.UpdatedAt = now
 }
 
 func filteredJobs(teamDir string, filters jobListFilters) ([]*job.Job, error) {

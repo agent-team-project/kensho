@@ -471,6 +471,112 @@ func TestJobAttachRequiresOwningInstance(t *testing.T) {
 	}
 }
 
+func TestJobStopStopsOwningInstanceAndBlocksJob(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-stop-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-61", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-61",
+		Ticket:    "SQU-61",
+		Target:    "worker",
+		Instance:  "worker-squ-61",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "stop", "squ-61", "--repo", tmp, "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job stop: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode stop json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "stop" || rows[0].Instance != "worker-squ-61" || rows[0].Status != "stopped" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-61")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusBlocked || updated.LastEvent != "instance_stop" || updated.LastStatus != "stop worker-squ-61" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobKillDryRunDoesNotMutateJob(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-kill-dry-run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-62", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	defer stopAndWaitForTest(t, mgr, "worker-squ-62")
+	now := time.Now().UTC()
+	original := &job.Job{
+		ID:        "squ-62",
+		Ticket:    "SQU-62",
+		Target:    "worker",
+		Instance:  "worker-squ-62",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, original); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "kill", "squ-62", "--repo", tmp, "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job kill --dry-run: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode kill dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != "worker-squ-62" || !rows[0].DryRun {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-62")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.UpdatedAt.Equal(original.UpdatedAt) {
+		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+}
+
 func TestJobDispatchAndSend(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
