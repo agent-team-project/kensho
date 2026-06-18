@@ -182,7 +182,7 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the monitor snapshot until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&plan, "plan", false, "Include desired-state actions from instances.toml and daemon metadata.")
-	cmd.Flags().BoolVar(&jobs, "jobs", false, "Include durable job summary, attention, and ready-step state.")
+	cmd.Flags().BoolVar(&jobs, "jobs", false, "Include durable job summary, attention, ready-step state, and status-file previews.")
 	cmd.Flags().BoolVar(&schedules, "schedules", false, "Include due and upcoming declared schedule state.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "With --plan, preview running topology extras as stop actions.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show compact non-failing fleet health and optional plan summaries instead of the full monitor.")
@@ -252,15 +252,16 @@ func newMonitorOptionsWithInstancesPhasesStaleAndUnhealthy(all bool, statusFilte
 }
 
 type monitorSnapshot struct {
-	Health      *healthResult           `json:"health"`
-	Plan        *planResult             `json:"plan,omitempty"`
-	Jobs        *jobTriageSnapshot      `json:"jobs,omitempty"`
-	Schedules   *scheduleForecast       `json:"schedules,omitempty"`
-	Instances   []psJSONRow             `json:"instances"`
-	Stats       []statsJSONRow          `json:"stats"`
-	StatsError  string                  `json:"stats_error,omitempty"`
-	Events      []daemon.LifecycleEvent `json:"events,omitempty"`
-	EventsError string                  `json:"events_error,omitempty"`
+	Health      *healthResult              `json:"health"`
+	Plan        *planResult                `json:"plan,omitempty"`
+	Jobs        *jobTriageSnapshot         `json:"jobs,omitempty"`
+	JobStatus   []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	Schedules   *scheduleForecast          `json:"schedules,omitempty"`
+	Instances   []psJSONRow                `json:"instances"`
+	Stats       []statsJSONRow             `json:"stats"`
+	StatsError  string                     `json:"stats_error,omitempty"`
+	Events      []daemon.LifecycleEvent    `json:"events,omitempty"`
+	EventsError string                     `json:"events_error,omitempty"`
 
 	instanceRows []instanceRow
 	statsRows    []statsRow
@@ -274,6 +275,7 @@ type monitorSummarySnapshot struct {
 	ResourcesError string                        `json:"resources_error,omitempty"`
 	Plan           *lifecycleActionSummaryResult `json:"plan,omitempty"`
 	Jobs           *jobTriageSnapshot            `json:"jobs,omitempty"`
+	JobStatus      []jobStatusReconcileResult    `json:"job_status_preview,omitempty"`
 	Schedules      *scheduleForecast             `json:"schedules,omitempty"`
 	Events         *eventSummaryJSON             `json:"events,omitempty"`
 	EventsError    string                        `json:"events_error,omitempty"`
@@ -456,6 +458,11 @@ func collectMonitorSummarySnapshot(teamDir string, now time.Time, opts monitorOp
 			return nil, err
 		}
 		snapshot.Jobs = &jobs
+		status, err := reconcileJobsFromStatus(teamDir, true, now)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.JobStatus = status
 	}
 	if opts.IncludeSchedules {
 		schedules, err := collectScheduleForecast(teamDir, now)
@@ -609,6 +616,9 @@ func renderMonitorSummarySnapshot(w io.Writer, snapshot *monitorSummarySnapshot)
 	if snapshot.Jobs != nil {
 		fmt.Fprintln(w)
 		renderMonitorJobsSummary(w, snapshot.Jobs)
+		if snapshot.JobStatus != nil {
+			renderMonitorJobStatusSummary(w, snapshot.JobStatus)
+		}
 	}
 	if snapshot.Schedules != nil {
 		fmt.Fprintln(w)
@@ -629,6 +639,14 @@ func renderMonitorJobsSummary(w io.Writer, snapshot *jobTriageSnapshot) {
 	renderJobSummary(w, snapshot.Summary)
 	renderQueueSummary(w, snapshot.Queue)
 	fmt.Fprintf(w, "triage: attention=%d ready_steps=%d\n", len(snapshot.Attention), len(snapshot.ReadySteps))
+}
+
+func renderMonitorJobStatusSummary(w io.Writer, results []jobStatusReconcileResult) {
+	fmt.Fprintf(w, "job status: previews=%d changes=%d blocked=%d\n",
+		len(results),
+		countChangedJobStatusPreviews(results),
+		countJobStatusPreviewsByAfter(results, "blocked"),
+	)
 }
 
 func renderMonitorJobs(w io.Writer, snapshot *jobTriageSnapshot) {
@@ -712,6 +730,11 @@ func collectMonitorSnapshot(teamDir string, now time.Time, probe processStatsPro
 			return nil, err
 		}
 		snapshot.Jobs = &jobs
+		status, err := reconcileJobsFromStatus(teamDir, true, now)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.JobStatus = status
 	}
 	if opts.IncludeSchedules {
 		schedules, err := collectScheduleForecast(teamDir, now)
@@ -854,6 +877,10 @@ func renderMonitor(w io.Writer, snapshot *monitorSnapshot) error {
 	if snapshot.Jobs != nil {
 		fmt.Fprintln(w)
 		renderMonitorJobs(w, snapshot.Jobs)
+		if snapshot.JobStatus != nil {
+			fmt.Fprintln(w)
+			renderMonitorJobStatusSummary(w, snapshot.JobStatus)
+		}
 	}
 
 	if snapshot.Schedules != nil {

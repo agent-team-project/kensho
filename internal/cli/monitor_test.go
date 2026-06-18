@@ -230,6 +230,20 @@ func TestMonitorJobsJSONIncludesJobTriage(t *testing.T) {
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	blocked := mustNewJob(t, "SQU-702", "worker")
+	if err := job.Write(teamDir, blocked); err != nil {
+		t.Fatalf("write blocked preview job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-702"), `[status]
+phase = "blocked"
+description = "needs credentials"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-702"
+ticket = "SQU-702"
+branch = "worker-squ-702"
+`, time.Now().UTC())
 
 	summary := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -246,6 +260,21 @@ func TestMonitorJobsJSONIncludesJobTriage(t *testing.T) {
 	if summaryBody.Jobs == nil || summaryBody.Jobs.Summary.Failed != 1 || len(summaryBody.Jobs.Attention) != 1 {
 		t.Fatalf("summary jobs = %+v", summaryBody.Jobs)
 	}
+	if len(summaryBody.JobStatus) != 1 || summaryBody.JobStatus[0].JobID != "squ-702" || summaryBody.JobStatus[0].After != job.StatusBlocked || !summaryBody.JobStatus[0].Changed {
+		t.Fatalf("summary job status = %+v", summaryBody.JobStatus)
+	}
+
+	summaryText := NewRootCmd()
+	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryText.SetOut(summaryTextOut)
+	summaryText.SetErr(summaryTextErr)
+	summaryText.SetArgs([]string{"monitor", "--summary", "--jobs", "--target", tmp})
+	if err := summaryText.Execute(); err != nil {
+		t.Fatalf("monitor --summary --jobs text: %v\nstdout=%s\nstderr=%s", err, summaryTextOut.String(), summaryTextErr.String())
+	}
+	if !strings.Contains(summaryTextOut.String(), "job status: previews=1 changes=1 blocked=1") {
+		t.Fatalf("summary text missing job status:\n%s", summaryTextOut.String())
+	}
 
 	full := NewRootCmd()
 	fullOut, fullErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -261,6 +290,9 @@ func TestMonitorJobsJSONIncludesJobTriage(t *testing.T) {
 	}
 	if fullBody.Jobs == nil || len(fullBody.Jobs.Attention) != 1 || fullBody.Jobs.Attention[0].JobID != "squ-701" {
 		t.Fatalf("full jobs = %+v", fullBody.Jobs)
+	}
+	if len(fullBody.JobStatus) != 1 || fullBody.JobStatus[0].JobID != "squ-702" || fullBody.JobStatus[0].After != job.StatusBlocked {
+		t.Fatalf("full job status = %+v", fullBody.JobStatus)
 	}
 }
 
