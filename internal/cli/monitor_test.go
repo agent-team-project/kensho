@@ -234,6 +234,24 @@ func TestMonitorJobsJSONIncludesJobTriage(t *testing.T) {
 	if err := job.Write(teamDir, blocked); err != nil {
 		t.Fatalf("write blocked preview job: %v", err)
 	}
+	now := time.Now().UTC()
+	pipelineJob := &job.Job{
+		ID:        "squ-703",
+		Ticket:    "SQU-703",
+		Target:    "worker",
+		Instance:  "worker-squ-703",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, pipelineJob); err != nil {
+		t.Fatalf("write pipeline job: %v", err)
+	}
 	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-702"), `[status]
 phase = "blocked"
 description = "needs credentials"
@@ -270,6 +288,9 @@ branch = "worker-squ-702"
 	if len(summaryBody.JobStatus) != 1 || summaryBody.JobStatus[0].JobID != "squ-702" || summaryBody.JobStatus[0].After != job.StatusBlocked || !summaryBody.JobStatus[0].Changed {
 		t.Fatalf("summary job status = %+v", summaryBody.JobStatus)
 	}
+	if len(summaryBody.PipelineStatus) == 0 || summaryBody.PipelineStatus[0].Pipeline != "ticket_to_pr" || summaryBody.PipelineStatus[0].ReadySteps != 1 {
+		t.Fatalf("summary pipeline status = %+v", summaryBody.PipelineStatus)
+	}
 
 	summaryText := NewRootCmd()
 	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -279,7 +300,7 @@ branch = "worker-squ-702"
 	if err := summaryText.Execute(); err != nil {
 		t.Fatalf("monitor --summary --jobs text: %v\nstdout=%s\nstderr=%s", err, summaryTextOut.String(), summaryTextErr.String())
 	}
-	if !strings.Contains(summaryTextOut.String(), "job status: previews=1 changes=1 blocked=1") {
+	if !strings.Contains(summaryTextOut.String(), "job status: previews=1 changes=1 blocked=1") || !strings.Contains(summaryTextOut.String(), "pipeline status: pipelines=") {
 		t.Fatalf("summary text missing job status:\n%s", summaryTextOut.String())
 	}
 
@@ -307,6 +328,21 @@ branch = "worker-squ-702"
 	}
 	if len(fullBody.JobStatus) != 1 || fullBody.JobStatus[0].JobID != "squ-702" || fullBody.JobStatus[0].After != job.StatusBlocked {
 		t.Fatalf("full job status = %+v", fullBody.JobStatus)
+	}
+	if len(fullBody.PipelineStatus) == 0 || fullBody.PipelineStatus[0].ReadySteps != 1 {
+		t.Fatalf("full pipeline status = %+v", fullBody.PipelineStatus)
+	}
+
+	fullText := NewRootCmd()
+	fullTextOut, fullTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fullText.SetOut(fullTextOut)
+	fullText.SetErr(fullTextErr)
+	fullText.SetArgs([]string{"monitor", "--jobs", "--target", tmp})
+	if err := fullText.Execute(); err != nil {
+		t.Fatalf("monitor --jobs text: %v\nstdout=%s\nstderr=%s", err, fullTextOut.String(), fullTextErr.String())
+	}
+	if !strings.Contains(fullTextOut.String(), "pipeline status:") || !strings.Contains(fullTextOut.String(), "ticket_to_pr") {
+		t.Fatalf("full text missing pipeline status:\n%s", fullTextOut.String())
 	}
 }
 

@@ -252,16 +252,17 @@ func newMonitorOptionsWithInstancesPhasesStaleAndUnhealthy(all bool, statusFilte
 }
 
 type monitorSnapshot struct {
-	Health      *healthResult              `json:"health"`
-	Plan        *planResult                `json:"plan,omitempty"`
-	Jobs        *jobTriageSnapshot         `json:"jobs,omitempty"`
-	JobStatus   []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
-	Schedules   *scheduleForecast          `json:"schedules,omitempty"`
-	Instances   []psJSONRow                `json:"instances"`
-	Stats       []statsJSONRow             `json:"stats"`
-	StatsError  string                     `json:"stats_error,omitempty"`
-	Events      []daemon.LifecycleEvent    `json:"events,omitempty"`
-	EventsError string                     `json:"events_error,omitempty"`
+	Health         *healthResult              `json:"health"`
+	Plan           *planResult                `json:"plan,omitempty"`
+	Jobs           *jobTriageSnapshot         `json:"jobs,omitempty"`
+	JobStatus      []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	PipelineStatus []pipelineStatusRow        `json:"pipeline_status,omitempty"`
+	Schedules      *scheduleForecast          `json:"schedules,omitempty"`
+	Instances      []psJSONRow                `json:"instances"`
+	Stats          []statsJSONRow             `json:"stats"`
+	StatsError     string                     `json:"stats_error,omitempty"`
+	Events         []daemon.LifecycleEvent    `json:"events,omitempty"`
+	EventsError    string                     `json:"events_error,omitempty"`
 
 	instanceRows []instanceRow
 	statsRows    []statsRow
@@ -276,6 +277,7 @@ type monitorSummarySnapshot struct {
 	Plan           *lifecycleActionSummaryResult `json:"plan,omitempty"`
 	Jobs           *jobTriageSnapshot            `json:"jobs,omitempty"`
 	JobStatus      []jobStatusReconcileResult    `json:"job_status_preview,omitempty"`
+	PipelineStatus []pipelineStatusRow           `json:"pipeline_status,omitempty"`
 	Schedules      *scheduleForecast             `json:"schedules,omitempty"`
 	Events         *eventSummaryJSON             `json:"events,omitempty"`
 	EventsError    string                        `json:"events_error,omitempty"`
@@ -463,6 +465,11 @@ func collectMonitorSummarySnapshot(teamDir string, now time.Time, opts monitorOp
 			return nil, err
 		}
 		snapshot.JobStatus = status
+		pipelines, err := collectPipelineStatusRows(teamDir, "")
+		if err != nil {
+			return nil, err
+		}
+		snapshot.PipelineStatus = pipelines
 	}
 	if opts.IncludeSchedules {
 		schedules, err := collectScheduleForecast(teamDir, now)
@@ -619,6 +626,9 @@ func renderMonitorSummarySnapshot(w io.Writer, snapshot *monitorSummarySnapshot)
 		if snapshot.JobStatus != nil {
 			renderMonitorJobStatusSummary(w, snapshot.JobStatus)
 		}
+		if snapshot.PipelineStatus != nil {
+			renderMonitorPipelineStatusSummary(w, snapshot.PipelineStatus)
+		}
 	}
 	if snapshot.Schedules != nil {
 		fmt.Fprintln(w)
@@ -649,6 +659,14 @@ func renderMonitorJobStatusSummary(w io.Writer, results []jobStatusReconcileResu
 	)
 }
 
+func renderMonitorPipelineStatusSummary(w io.Writer, rows []pipelineStatusRow) {
+	fmt.Fprintf(w, "pipeline status: pipelines=%d jobs=%d ready_steps=%d failed_steps=%d\n",
+		len(rows),
+		countPipelineStatusJobs(rows),
+		countPipelineStatusReadySteps(rows),
+		countPipelineStatusFailedSteps(rows))
+}
+
 func renderMonitorJobs(w io.Writer, snapshot *jobTriageSnapshot) {
 	fmt.Fprintln(w, "job triage:")
 	renderJobSummary(w, snapshot.Summary)
@@ -660,6 +678,11 @@ func renderMonitorJobs(w io.Writer, snapshot *jobTriageSnapshot) {
 		fmt.Fprintln(w, "Ready pipeline steps:")
 		renderJobReadyTable(w, snapshot.ReadySteps)
 	}
+}
+
+func renderMonitorPipelineStatus(w io.Writer, rows []pipelineStatusRow) {
+	fmt.Fprintln(w, "pipeline status:")
+	renderPipelineStatusTable(w, rows)
 }
 
 func renderMonitorSchedulesSummary(w io.Writer, snapshot *scheduleForecast) {
@@ -735,6 +758,11 @@ func collectMonitorSnapshot(teamDir string, now time.Time, probe processStatsPro
 			return nil, err
 		}
 		snapshot.JobStatus = status
+		pipelines, err := collectPipelineStatusRows(teamDir, "")
+		if err != nil {
+			return nil, err
+		}
+		snapshot.PipelineStatus = pipelines
 	}
 	if opts.IncludeSchedules {
 		schedules, err := collectScheduleForecast(teamDir, now)
@@ -880,6 +908,10 @@ func renderMonitor(w io.Writer, snapshot *monitorSnapshot) error {
 		if snapshot.JobStatus != nil {
 			fmt.Fprintln(w)
 			renderMonitorJobStatusSummary(w, snapshot.JobStatus)
+		}
+		if snapshot.PipelineStatus != nil {
+			fmt.Fprintln(w)
+			renderMonitorPipelineStatus(w, snapshot.PipelineStatus)
 		}
 	}
 
