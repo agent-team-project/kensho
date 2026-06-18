@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -114,8 +116,17 @@ func newJobLsCmd() *cobra.Command {
 	var (
 		repo         string
 		statusFilter string
+		targetFilter string
+		instance     string
+		pipeline     string
+		ticket       string
+		branch       string
+		pr           string
+		watch        bool
+		noClear      bool
 		jsonOut      bool
 		format       string
+		interval     time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -127,54 +138,45 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			tmpl, err := parseJobFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
 			}
-			var want job.Status
-			if strings.TrimSpace(statusFilter) != "" {
-				want, err = job.ParseStatus(statusFilter)
-				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
-					return exitErr(2)
-				}
+			filters, err := newJobListFilters(statusFilter, targetFilter, instance, pipeline, ticket, branch, pr)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
+				return exitErr(2)
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			jobs, err := job.List(teamDir)
-			if err != nil {
-				return err
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runJobListWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			filtered := make([]*job.Job, 0, len(jobs))
-			for _, j := range jobs {
-				if want != "" && j.Status != want {
-					continue
-				}
-				filtered = append(filtered, j)
-			}
-			out := cmd.OutOrStdout()
-			if jsonOut {
-				return json.NewEncoder(out).Encode(filtered)
-			}
-			if tmpl != nil {
-				for _, j := range filtered {
-					if err := renderJobTemplate(out, j, tmpl); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-			renderJobTable(out, filtered)
-			return nil
+			return runJobList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status: queued, running, blocked, done, or failed.")
+	cmd.Flags().StringVar(&targetFilter, "target-agent", "", "Filter by target agent.")
+	cmd.Flags().StringVar(&instance, "instance", "", "Filter by owning instance.")
+	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Filter by pipeline name.")
+	cmd.Flags().StringVar(&ticket, "ticket", "", "Filter by ticket id or URL substring.")
+	cmd.Flags().StringVar(&branch, "branch", "", "Filter by branch.")
+	cmd.Flags().StringVar(&pr, "pr", "", "Filter by PR URL or number substring.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the job table until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	return cmd
 }
 
@@ -675,6 +677,124 @@ func readJobAndTeamDir(cmd *cobra.Command, repo, id string) (string, *job.Job, e
 	return teamDir, j, nil
 }
 
+type jobListFilters struct {
+	Status   job.Status
+	Target   string
+	Instance string
+	Pipeline string
+	Ticket   string
+	Branch   string
+	PR       string
+}
+
+func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr string) (jobListFilters, error) {
+	f := jobListFilters{
+		Target:   strings.TrimSpace(target),
+		Instance: strings.TrimSpace(instance),
+		Pipeline: strings.TrimSpace(pipeline),
+		Ticket:   strings.TrimSpace(ticket),
+		Branch:   strings.TrimSpace(branch),
+		PR:       strings.TrimSpace(pr),
+	}
+	if strings.TrimSpace(status) != "" {
+		parsed, err := job.ParseStatus(status)
+		if err != nil {
+			return f, err
+		}
+		f.Status = parsed
+	}
+	return f, nil
+}
+
+func runJobList(w io.Writer, teamDir string, filters jobListFilters, jsonOut bool, tmpl *template.Template) error {
+	filtered, err := filteredJobs(teamDir, filters)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(filtered)
+	}
+	if tmpl != nil {
+		for _, j := range filtered {
+			if err := renderJobTemplate(w, j, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobTable(w, filtered)
+	return nil
+}
+
+func runJobListWatch(ctx context.Context, w io.Writer, teamDir string, filters jobListFilters, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runJobList(w, teamDir, filters, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
+}
+
+func filteredJobs(teamDir string, filters jobListFilters) ([]*job.Job, error) {
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]*job.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if jobMatchesFilters(j, filters) {
+			filtered = append(filtered, j)
+		}
+	}
+	return filtered, nil
+}
+
+func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
+	if filters.Status != "" && j.Status != filters.Status {
+		return false
+	}
+	if filters.Target != "" && j.Target != filters.Target {
+		return false
+	}
+	if filters.Instance != "" && j.Instance != filters.Instance {
+		return false
+	}
+	if filters.Pipeline != "" && j.Pipeline != filters.Pipeline {
+		return false
+	}
+	if filters.Ticket != "" && !containsFold(j.Ticket, filters.Ticket) && !containsFold(j.TicketURL, filters.Ticket) {
+		return false
+	}
+	if filters.Branch != "" && j.Branch != filters.Branch {
+		return false
+	}
+	if filters.PR != "" && !containsFold(j.PR, filters.PR) {
+		return false
+	}
+	return true
+}
+
+func containsFold(value, substr string) bool {
+	return strings.Contains(strings.ToLower(value), strings.ToLower(substr))
+}
+
 func applyDispatchResponseToJob(j *job.Job, requestedName string, res *eventResponse) {
 	now := time.Now().UTC()
 	j.UpdatedAt = now
@@ -1104,10 +1224,10 @@ func renderJobTable(w io.Writer, jobs []*job.Job) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tTARGET\tINSTANCE\tTICKET\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSTATUS\tTARGET\tINSTANCE\tPIPELINE\tTICKET\tUPDATED")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			j.ID, j.Status, j.Target, emptyDash(j.Instance), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			j.ID, j.Status, j.Target, emptyDash(j.Instance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
 	}
 	_ = tw.Flush()
 }

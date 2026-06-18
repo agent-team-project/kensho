@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -84,6 +85,92 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if closed.Status != job.StatusDone || closed.LastEvent != "closed" {
 		t.Fatalf("closed = %+v", closed)
+	}
+}
+
+func TestJobListFilters(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	first := &job.Job{
+		ID:        "squ-50",
+		Ticket:    "SQU-50",
+		Target:    "worker",
+		Instance:  "worker-squ-50",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Branch:    "worktree-worker-squ-50",
+		PR:        "https://github.com/acme/repo/pull/50",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	second := &job.Job{
+		ID:        "squ-51",
+		Ticket:    "SQU-51",
+		Target:    "manager",
+		Instance:  "manager",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, first); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := job.Write(teamDir, second); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "ls",
+		"--repo", tmp,
+		"--target-agent", "worker",
+		"--pipeline", "ticket_to_pr",
+		"--instance", "worker-squ-50",
+		"--branch", "worktree-worker-squ-50",
+		"--pr", "50",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job ls filters: %v\nstderr=%s", err, stderr.String())
+	}
+	var got []job.Job
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode job ls json: %v\nbody=%s", err, out.String())
+	}
+	if len(got) != 1 || got[0].ID != "squ-50" {
+		t.Fatalf("filtered jobs = %+v", got)
+	}
+}
+
+func TestJobListWatchRendersSnapshot(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-52",
+		Ticket:    "SQU-52",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out bytes.Buffer
+	if err := runJobListWatch(ctx, &out, teamDir, jobListFilters{}, false, nil, time.Millisecond, false); err != nil {
+		t.Fatalf("runJobListWatch: %v", err)
+	}
+	if !strings.Contains(out.String(), "squ-52") || strings.Contains(out.String(), watchClearSequence) {
+		t.Fatalf("watch output = %q", out.String())
 	}
 }
 
