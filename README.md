@@ -193,7 +193,7 @@ agent-team job advance <job-id> [--workspace auto|worktree|repo] [--dry-run] [--
 agent-team job step <job-id> <step-id> [--status done|failed|blocked|running|queued] [--advance] [--workspace auto|worktree|repo] [--dry-run] [--json]
 agent-team job start|stop|kill|wait|logs|attach|send|unblock|update|close|reopen|cleanup|rm|prune|reconcile ...
                                                 # create, monitor, dispatch, control, and clean up durable work units
-agent-team pipeline ls [--json] | show <pipeline> [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--preview-routes] [--json] | run <pipeline> <ticket> [--ticket-url <url>] [--dispatch] [--dry-run] [--json]
+agent-team pipeline ls [--json] | show <pipeline> [--json] | status [<pipeline>|--all] [--json] | jobs <pipeline> [--status running] [--json] | ready <pipeline>|--all [--state ready|all] [--json] | advance <pipeline>|--all [--limit N] [--dry-run] [--preview-routes] [--json] | run <pipeline> <ticket> [--ticket-url <url>] [--dispatch] [--dry-run] [--json]
                                                 # inspect declared pipeline workflows from instances.toml
 agent-team schedule ls [--json] | due [--format '{{.Name}} {{.DueReason}}'] [--json] | next [--limit N] [--format '{{.Name}} {{.NextRun}}'] [--json] | fire [--dry-run] [--preview-triggers] [--format '{{.Fired}} {{len .Schedules}}'] [--json] | show <schedule> [--json] | run <schedule> [--payload <json>] [--dry-run] [--preview-triggers] [--json]
                                                 # inspect due/upcoming schedules, fire all due schedule events, or manually publish one declared schedule event

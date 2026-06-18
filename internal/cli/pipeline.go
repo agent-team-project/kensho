@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -24,6 +25,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineLsCmd())
 	cmd.AddCommand(newPipelineShowCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
+	cmd.AddCommand(newPipelineStatusCmd())
 	cmd.AddCommand(newPipelineReadyCmd())
 	cmd.AddCommand(newPipelineAdvanceCmd())
 	cmd.AddCommand(newPipelineRunCmd())
@@ -124,6 +126,63 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	return cmd
+}
+
+func newPipelineStatusCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "status [<pipeline>|--all]",
+		Short: "Summarize pipeline jobs and next steps.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineStatusFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline status: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: pipeline name is required.")
+				return exitErr(2)
+			}
+			rows, err := collectPipelineStatusRows(teamDir, pipelineName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline status: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineStatusRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&all, "all", false, "Summarize all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline status rows as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.")
 	return cmd
 }
 
@@ -389,6 +448,25 @@ type pipelineStepInfo struct {
 	After  []string `json:"after,omitempty"`
 }
 
+type pipelineStatusRow struct {
+	Pipeline     string `json:"pipeline"`
+	Declared     bool   `json:"declared"`
+	Steps        int    `json:"steps"`
+	Jobs         int    `json:"jobs"`
+	Queued       int    `json:"queued"`
+	Running      int    `json:"running"`
+	Blocked      int    `json:"blocked"`
+	Done         int    `json:"done"`
+	Failed       int    `json:"failed"`
+	ReadySteps   int    `json:"ready_steps"`
+	QueuedSteps  int    `json:"queued_steps"`
+	RunningSteps int    `json:"running_steps"`
+	BlockedSteps int    `json:"blocked_steps"`
+	FailedSteps  int    `json:"failed_steps"`
+	DoneSteps    int    `json:"done_steps"`
+	NoStep       int    `json:"no_step"`
+}
+
 type pipelineAdvanceResult struct {
 	JobID      string             `json:"job_id"`
 	Ticket     string             `json:"ticket"`
@@ -449,6 +527,112 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 		Name:    p.Name,
 		Trigger: triggerAsMap(p.Trigger),
 		Steps:   steps,
+	}
+}
+
+func collectPipelineStatusRows(teamDir, pipeline string) ([]pipelineStatusRow, error) {
+	pipeline = strings.TrimSpace(pipeline)
+	infos, err := loadPipelineInfos(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	rows := map[string]*pipelineStatusRow{}
+	declaredOrder := []string{}
+	declared := map[string]bool{}
+	rowFor := func(name string) *pipelineStatusRow {
+		if row := rows[name]; row != nil {
+			return row
+		}
+		row := &pipelineStatusRow{Pipeline: name}
+		rows[name] = row
+		return row
+	}
+	for _, info := range infos {
+		if pipeline != "" && info.Name != pipeline {
+			continue
+		}
+		row := rowFor(info.Name)
+		row.Declared = true
+		row.Steps = len(info.Steps)
+		declared[info.Name] = true
+		declaredOrder = append(declaredOrder, info.Name)
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		name := strings.TrimSpace(j.Pipeline)
+		if name == "" {
+			continue
+		}
+		if pipeline != "" && name != pipeline {
+			continue
+		}
+		applyPipelineStatusJob(rowFor(name), j)
+	}
+	if pipeline != "" {
+		row := rows[pipeline]
+		if row == nil {
+			return nil, fmt.Errorf("pipeline %q not found", pipeline)
+		}
+		return []pipelineStatusRow{*row}, nil
+	}
+	extras := make([]string, 0, len(rows))
+	for name := range rows {
+		if !declared[name] {
+			extras = append(extras, name)
+		}
+	}
+	sort.Strings(extras)
+	out := make([]pipelineStatusRow, 0, len(rows))
+	for _, name := range declaredOrder {
+		if row := rows[name]; row != nil {
+			out = append(out, *row)
+		}
+	}
+	for _, name := range extras {
+		out = append(out, *rows[name])
+	}
+	return out, nil
+}
+
+func applyPipelineStatusJob(row *pipelineStatusRow, j *job.Job) {
+	if row == nil || j == nil {
+		return
+	}
+	row.Jobs++
+	switch j.Status {
+	case job.StatusQueued:
+		row.Queued++
+	case job.StatusRunning:
+		row.Running++
+	case job.StatusBlocked:
+		row.Blocked++
+	case job.StatusDone:
+		row.Done++
+	case job.StatusFailed:
+		row.Failed++
+	}
+	next := inspectNextJobStep(j)
+	switch next.State {
+	case "ready":
+		row.ReadySteps++
+	case "queued":
+		row.QueuedSteps++
+	case "running":
+		row.RunningSteps++
+	case "blocked":
+		row.BlockedSteps++
+	case "failed":
+		row.FailedSteps++
+	case "done":
+		row.DoneSteps++
+	case "none":
+		row.NoStep++
 	}
 }
 
@@ -597,6 +781,85 @@ func parsePipelineAdvanceFormat(format string) (*template.Template, error) {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
 	return tmpl, nil
+}
+
+func parsePipelineStatusFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-status-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderPipelineStatusRows(w io.Writer, rows []pipelineStatusRow, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(rows)
+	}
+	if tmpl != nil {
+		for _, row := range rows {
+			if err := tmpl.Execute(w, row); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderPipelineStatusTable(w, rows)
+	return nil
+}
+
+func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
+	if len(rows) == 0 {
+		fmt.Fprintln(w, "(no pipelines)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PIPELINE\tDECLARED\tSTEPS\tJOBS\tJOB_STATUS\tREADY\tQUEUED\tRUNNING\tBLOCKED\tFAILED\tDONE\tNONE")
+	for _, row := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			row.Pipeline,
+			yesNo(row.Declared),
+			row.Steps,
+			row.Jobs,
+			pipelineStatusJobSummary(row),
+			row.ReadySteps,
+			row.QueuedSteps,
+			row.RunningSteps,
+			row.BlockedSteps,
+			row.FailedSteps,
+			row.DoneSteps,
+			row.NoStep,
+		)
+	}
+	_ = tw.Flush()
+}
+
+func pipelineStatusJobSummary(row pipelineStatusRow) string {
+	parts := []string{}
+	if row.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("queued=%d", row.Queued))
+	}
+	if row.Running > 0 {
+		parts = append(parts, fmt.Sprintf("running=%d", row.Running))
+	}
+	if row.Blocked > 0 {
+		parts = append(parts, fmt.Sprintf("blocked=%d", row.Blocked))
+	}
+	if row.Done > 0 {
+		parts = append(parts, fmt.Sprintf("done=%d", row.Done))
+	}
+	if row.Failed > 0 {
+		parts = append(parts, fmt.Sprintf("failed=%d", row.Failed))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ",")
 }
 
 func renderPipelineAdvanceResults(w io.Writer, results []pipelineAdvanceResult, jsonOut bool, tmpl *template.Template) error {

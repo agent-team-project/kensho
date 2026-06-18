@@ -161,6 +161,172 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 }
 
+func TestPipelineStatusSummarizesJobs(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[pipelines.nightly]
+trigger.event = "schedule"
+trigger.match.name = "nightly"
+
+[[pipelines.nightly.steps]]
+id = "triage"
+target = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-610",
+			Ticket:    "SQU-610",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+		{
+			ID:        "squ-611",
+			Ticket:    "SQU-611",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+		{
+			ID:        "squ-612",
+			Ticket:    "SQU-612",
+			Target:    "manager",
+			Pipeline:  "nightly",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "triage", Target: "manager", Status: job.StatusQueued},
+			},
+		},
+		{
+			ID:        "squ-613",
+			Ticket:    "SQU-613",
+			Target:    "worker",
+			Pipeline:  "ad_hoc",
+			Status:    job.StatusDone,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "status", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline status json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineStatusRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline status json: %v\nbody=%s", err, out.String())
+	}
+	byName := map[string]pipelineStatusRow{}
+	for _, row := range rows {
+		byName[row.Pipeline] = row
+	}
+	if len(byName) != 3 {
+		t.Fatalf("status rows = %+v", rows)
+	}
+	ticket := byName["ticket_to_pr"]
+	if !ticket.Declared || ticket.Steps != 2 || ticket.Jobs != 2 || ticket.Running != 1 || ticket.Failed != 1 || ticket.ReadySteps != 1 || ticket.FailedSteps != 1 {
+		t.Fatalf("ticket status = %+v", ticket)
+	}
+	nightly := byName["nightly"]
+	if !nightly.Declared || nightly.Steps != 1 || nightly.Jobs != 1 || nightly.Queued != 1 || nightly.QueuedSteps != 1 {
+		t.Fatalf("nightly status = %+v", nightly)
+	}
+	adHoc := byName["ad_hoc"]
+	if adHoc.Declared || adHoc.Steps != 0 || adHoc.Jobs != 1 || adHoc.Done != 1 || adHoc.NoStep != 1 {
+		t.Fatalf("ad_hoc status = %+v", adHoc)
+	}
+
+	one := NewRootCmd()
+	oneOut, oneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	one.SetOut(oneOut)
+	one.SetErr(oneErr)
+	one.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--repo", root, "--format", "{{.Pipeline}} {{.Jobs}} {{.ReadySteps}} {{.FailedSteps}}"})
+	if err := one.Execute(); err != nil {
+		t.Fatalf("pipeline status one format: %v\nstderr=%s", err, oneErr.String())
+	}
+	if got := strings.TrimSpace(oneOut.String()); got != "ticket_to_pr 2 1 1" {
+		t.Fatalf("formatted pipeline status = %q", got)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"pipeline", "status", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("pipeline status text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"PIPELINE", "ticket_to_pr", "yes", "running=1,failed=1", "ad_hoc", "no"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("pipeline status text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
+	invalid := NewRootCmd()
+	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalid.SetOut(invalidOut)
+	invalid.SetErr(invalidErr)
+	invalid.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--all", "--repo", root})
+	if err := invalid.Execute(); err == nil {
+		t.Fatalf("pipeline status <pipeline> --all succeeded")
+	}
+	if !strings.Contains(invalidErr.String(), "--all cannot be combined") {
+		t.Fatalf("invalid all stderr = %q", invalidErr.String())
+	}
+
+	missing := NewRootCmd()
+	missingOut, missingErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missing.SetOut(missingOut)
+	missing.SetErr(missingErr)
+	missing.SetArgs([]string{"pipeline", "status", "missing", "--repo", root})
+	if err := missing.Execute(); err == nil {
+		t.Fatalf("pipeline status missing succeeded")
+	}
+	if !strings.Contains(missingErr.String(), `pipeline "missing" not found`) {
+		t.Fatalf("missing stderr = %q", missingErr.String())
+	}
+}
+
 func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
