@@ -183,6 +183,7 @@ func TestQueueListFilters(t *testing.T) {
 		"--target", tmp,
 		"--instance", "worker,manager",
 		"--event-type", "agent.dispatch",
+		"--job", "SQU-96",
 		"--ready",
 		"--json",
 	})
@@ -307,6 +308,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
+		"--job", "SQU-104",
 		"--dry-run",
 		"--json",
 	})
@@ -350,6 +352,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
+		"--job", "SQU-104",
 		"--json",
 	})
 	if err := apply.Execute(); err != nil {
@@ -441,6 +444,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
+		"--job", "SQU-100",
 		"--dry-run",
 		"--json",
 	})
@@ -484,6 +488,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
+		"--job", "SQU-100",
 		"--json",
 	})
 	if err := apply.Execute(); err != nil {

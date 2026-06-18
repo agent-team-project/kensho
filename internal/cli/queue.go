@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,7 @@ func newQueueLsCmd() *cobra.Command {
 		stateFilter string
 		instances   []string
 		eventTypes  []string
+		jobs        []string
 		readyOnly   bool
 		watch       bool
 		noClear     bool
@@ -69,7 +71,7 @@ func newQueueLsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue ls: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := parseQueueListFilters(stateFilter, instances, eventTypes, readyOnly, time.Now().UTC())
+			filters, err := parseQueueListFilters(stateFilter, instances, eventTypes, jobs, readyOnly, time.Now().UTC())
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue ls: %v\n", err)
 				return exitErr(2)
@@ -96,6 +98,7 @@ func newQueueLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the queue table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
@@ -149,6 +152,7 @@ func newQueueDropCmd() *cobra.Command {
 		stateFilter string
 		instances   []string
 		eventTypes  []string
+		jobs        []string
 		readyOnly   bool
 		limit       int
 	)
@@ -179,7 +183,7 @@ func newQueueDropCmd() *cobra.Command {
 						effectiveState = daemon.QueueStatePending
 					}
 				}
-				filters, err := parseQueueListFilters(effectiveState, instances, eventTypes, readyOnly, time.Now().UTC())
+				filters, err := parseQueueListFilters(effectiveState, instances, eventTypes, jobs, readyOnly, time.Now().UTC())
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drop: %v\n", err)
 					return exitErr(2)
@@ -190,8 +194,8 @@ func newQueueDropCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: requires one id unless --all is set.")
 				return exitErr(2)
 			}
-			if dryRun || stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --dry-run, --state, --instance, --event-type, --ready, and --limit require --all.")
+			if dryRun || stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || readyOnly || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --dry-run, --state, --instance, --event-type, --job, --ready, and --limit require --all.")
 				return exitErr(2)
 			}
 			id := args[0]
@@ -225,6 +229,7 @@ func newQueueDropCmd() *cobra.Command {
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "With --all, filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
 	return cmd
@@ -239,6 +244,7 @@ func newQueueRetryCmd() *cobra.Command {
 		stateFilter string
 		instances   []string
 		eventTypes  []string
+		jobs        []string
 		readyOnly   bool
 		limit       int
 	)
@@ -269,7 +275,7 @@ func newQueueRetryCmd() *cobra.Command {
 						effectiveState = daemon.QueueStatePending
 					}
 				}
-				filters, err := parseQueueListFilters(effectiveState, instances, eventTypes, readyOnly, time.Now().UTC())
+				filters, err := parseQueueListFilters(effectiveState, instances, eventTypes, jobs, readyOnly, time.Now().UTC())
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue retry: %v\n", err)
 					return exitErr(2)
@@ -280,8 +286,8 @@ func newQueueRetryCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: requires one id unless --all is set.")
 				return exitErr(2)
 			}
-			if dryRun || stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --dry-run, --state, --instance, --event-type, --ready, and --limit require --all.")
+			if dryRun || stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || readyOnly || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --dry-run, --state, --instance, --event-type, --job, --ready, and --limit require --all.")
 				return exitErr(2)
 			}
 			id := args[0]
@@ -324,6 +330,7 @@ func newQueueRetryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "With --all, filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only retry pending queue items whose next retry is due now.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching queue items; 0 means no limit.")
 	return cmd
@@ -413,11 +420,12 @@ type queueListFilters struct {
 	state      string
 	instances  map[string]bool
 	eventTypes map[string]bool
+	jobs       map[string]bool
 	readyOnly  bool
 	now        time.Time
 }
 
-func parseQueueListFilters(stateRaw string, instancesRaw, eventTypesRaw []string, readyOnly bool, now time.Time) (queueListFilters, error) {
+func parseQueueListFilters(stateRaw string, instancesRaw, eventTypesRaw, jobsRaw []string, readyOnly bool, now time.Time) (queueListFilters, error) {
 	state, err := parseQueueStateFilter(stateRaw)
 	if err != nil {
 		return queueListFilters{}, err
@@ -430,6 +438,10 @@ func parseQueueListFilters(stateRaw string, instancesRaw, eventTypesRaw []string
 	if err != nil {
 		return queueListFilters{}, err
 	}
+	jobs, err := jobIDSetFilter(jobsRaw, "--job")
+	if err != nil {
+		return queueListFilters{}, err
+	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -437,9 +449,29 @@ func parseQueueListFilters(stateRaw string, instancesRaw, eventTypesRaw []string
 		state:      state,
 		instances:  instances,
 		eventTypes: eventTypes,
+		jobs:       jobs,
 		readyOnly:  readyOnly,
 		now:        now,
 	}, nil
+}
+
+func jobIDSetFilter(values []string, flagName string) (map[string]bool, error) {
+	raw, err := stringSetFilter(values, flagName, "job")
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]bool, len(raw))
+	for value := range raw {
+		id := job.NormalizeID(value)
+		if id == "" {
+			return nil, fmt.Errorf("%s value %q produced an empty job id", flagName, value)
+		}
+		out[id] = true
+	}
+	return out, nil
 }
 
 func (f queueListFilters) withNow(now time.Time) queueListFilters {
@@ -451,7 +483,7 @@ func (f queueListFilters) withNow(now time.Time) queueListFilters {
 }
 
 func (f queueListFilters) empty() bool {
-	return f.state == "" && len(f.instances) == 0 && len(f.eventTypes) == 0 && !f.readyOnly
+	return f.state == "" && len(f.instances) == 0 && len(f.eventTypes) == 0 && len(f.jobs) == 0 && !f.readyOnly
 }
 
 func (f queueListFilters) match(item *daemon.QueueItem) bool {
@@ -462,6 +494,9 @@ func (f queueListFilters) match(item *daemon.QueueItem) bool {
 		return false
 	}
 	if len(f.eventTypes) > 0 && !f.eventTypes[item.EventType] {
+		return false
+	}
+	if len(f.jobs) > 0 && !queueItemMatchesJobIDs(item, f.jobs) {
 		return false
 	}
 	if f.readyOnly {
@@ -477,6 +512,18 @@ func (f queueListFilters) match(item *daemon.QueueItem) bool {
 		}
 	}
 	return true
+}
+
+func queueItemMatchesJobIDs(item *daemon.QueueItem, ids map[string]bool) bool {
+	if item == nil || len(ids) == 0 {
+		return true
+	}
+	for _, key := range []string{"job_id", "job", "ticket"} {
+		if id := job.NormalizeID(queuePayloadString(item.Payload, key)); id != "" && ids[id] {
+			return true
+		}
+	}
+	return false
 }
 
 func filterQueueItems(items []*daemon.QueueItem, filters queueListFilters) []*daemon.QueueItem {
