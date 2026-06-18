@@ -534,9 +534,9 @@ func (c *daemonClient) StopInstanceWithOptions(instance string, force bool, time
 	return nil
 }
 
-// StartInstance hits POST /v1/start. Used by `start` / `instance up` when a
-// stopped persistent instance already has daemon metadata and can resume its
-// prior session.
+// StartInstance hits POST /v1/start to resume a previously-stopped persistent
+// instance via `claude --resume <session-id>`. Used by `start` / `instance up`
+// and by interactive `attach` to re-adopt the instance after the user exits.
 func (c *daemonClient) StartInstance(instance string) error {
 	body, _ := json.Marshal(map[string]string{"instance": instance})
 	resp, err := c.hc.Post(c.baseURL+"/v1/start", "application/json", bytes.NewReader(body))

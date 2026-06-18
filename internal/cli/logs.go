@@ -129,7 +129,7 @@ func newLogsCmd() *cobra.Command {
 	return cmd
 }
 
-func newAttachCmd() *cobra.Command {
+func newLogAttachCmd() *cobra.Command {
 	var (
 		target    string
 		all       bool

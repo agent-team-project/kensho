@@ -34,6 +34,7 @@ Think Docker containers:
 | **create + start** | `agent-team run <agent>` (exec claude directly) | `agent-team run <agent>` → POST /dispatch → daemon spawns claude as a child |
 | **stop** | Ctrl-C the claude session | `agent-team stop <instance>` → daemon SIGTERMs the instance process group, persists session ID |
 | **start (resume)** | (not possible — session ends with claude) | `agent-team start <instance>` → daemon spawns claude with `--resume <session-id>`, conversation continues |
+| **attach (interactive resume)** | (not possible) | `agent-team attach <instance>` → daemon SIGTERMs the child, then the CLI exec's `claude --resume <session-id>` directly in the user's terminal. On exit, the daemon `start`s the instance back up unless `--no-resume` was passed. Brief downtime by design (Shape A); state files / channel cursors / mailbox cursor are untouched across the handoff. Ephemeral instances cannot be attached — use `agent-team logs --follow` to watch their output. |
 | **list running** | (none) | `agent-team ps` (or `instance ls --running`) |
 | **list all** | `agent-team instance ls` | `agent-team ps -a` (or current `instance ls`) |
 | **inspect** | `agent-team instance show <instance>` | `agent-team inspect <instance>` shows runtime metadata + state |
@@ -185,8 +186,8 @@ agent-team stats [<instance>...] [--all] [--latest | --last N] [-w] [--no-clear]
                                   # CPU/memory snapshot or watch stream; falls back to metadata-only rows if the daemon is down
 agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--no-prefix] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [--tail N|all] [--since 10m] [--grep 'error|panic'] [-f]
                                   # list/show/follow instance or daemon logs; reads daemon-managed logs locally if the daemon is down
-agent-team attach [<instance> | --all | --latest | --last N | --agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--tail N|all] [--no-follow [--since 10m] [--grep 'error|panic']]
-                                  # follow one instance's daemon-captured stdout/stderr stream
+agent-team attach <instance> [--no-resume]
+                                  # interactive `claude --resume` handoff; daemon resumes supervision afterward
 agent-team events [--tail N] [--latest | --last N] [--since 24h] [--summary] [-f] [--format '{{.Action}} {{.Instance}}'] [--action dispatch] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--json]
                                   # lifecycle event history or follow stream; phase/stale/unhealthy narrow by current status.toml; reads local history if the daemon is down
 agent-team start [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status stopped] [--phase idle] [--stale] [--unhealthy] [--dry-run] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--attach --tail N|all] [--json]

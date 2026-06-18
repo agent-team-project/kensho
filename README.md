@@ -103,6 +103,21 @@ agent-team run manager     # or any other agent name from .agent_team/agents/
 
 …and you're in a Claude Code session as that agent, with the rest of the team available as subagents it can dispatch.
 
+## One-shot run
+
+For try-out, CI, or a fresh sandbox — anywhere the two-step `init` + `run` is friction — collapse both into a single command:
+
+```sh
+agent-team template run bundled manager \
+    --set linear.team_id=<your-team-uuid> \
+    --set linear.ticket_prefix=APP \
+    -p "kickoff message"
+```
+
+This instantiates the template into a tempdir under `~/.agent-team/runs/<timestamp>-<agent>/` (or `$XDG_CACHE_HOME/agent-team/runs/...`), spawns the agent against it, and removes the tempdir when the agent exits. Pass `--keep` to preserve the tempdir, or `--target <dir>` to use a specific directory (which is always preserved). `--no-input` fails if required parameters are missing — useful in CI.
+
+The daemon is bypassed; claude is exec'd directly. For long-lived setups where you want `instance ps` / `logs --follow` visibility, use `init` + `run` separately.
+
 ## Commands
 
 ```sh
@@ -150,8 +165,8 @@ agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manage
                                                 # show runtime metadata, state, status, and topology; reads persisted runtime metadata if the daemon is down
 agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--no-prefix] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
                                                 # list/show/follow instance or daemon logs; reads daemon-managed logs locally if the daemon is down
-agent-team attach [<instance> | --all | --latest | --last N | --agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--tail N|all] [--no-follow [--since 10m] [--grep 'error|panic']]
-                                                # follow one daemon-managed instance's captured output
+agent-team attach <instance> [--no-resume]
+                                                # interactive claude --resume handoff; daemon resumes supervision afterward
 agent-team events [-f] [--tail N] [--latest | --last N] [--since 24h] [--summary] [--format '{{.Action}} {{.Instance}}'] [--action dispatch] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--json]
                                                 # show/follow lifecycle events; phase/stale/unhealthy narrow by current status.toml; reads local history if the daemon is down
 agent-team wait [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--until terminal|running|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json]
@@ -178,6 +193,8 @@ agent-team template ls                          # list bundled + cached template
 agent-team template show [<ref>]                # print manifest (default: bundled)
 agent-team template pull <path> [--as <n>]      # copy a local template into the cache
 agent-team template rm <ref>                    # remove a cached template
+agent-team template run <ref> <agent> [--target <dir>] [--keep] [--set k=v]... [-p "..."]
+                                                # one-shot: init into a (temp)dir + spawn the agent
 
 agent-team instance ls                          # list instance state dirs (.agent_team/state/*)
 agent-team instance show <name>                 # show an instance's state files

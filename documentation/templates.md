@@ -176,6 +176,11 @@ agent-team template show <ref>
 agent-team template rm <ref>
     Remove a template from the local cache.
 
+agent-team template run <ref> <agent> [--target <dir>] [--keep] [--force] [--set k=v]... [-p "..."]
+    One-shot: instantiate a template into a (temp)dir and spawn the named agent
+    against it. Tempdir is removed on exit unless --target or --keep is given.
+    The daemon is bypassed (see § Worked example step 8 for the rationale).
+
 agent-team run <agent> [--set k=v]... [--instance-config <path>]
     Spawn an instance. CLI --set flags and --instance-config layer on top of repo config.
 ```
@@ -483,6 +488,54 @@ If the user accepts the default and there's no conflict:
 ```
 
 User edits to authored files are preserved when the upstream didn't touch the same regions; conflicts surface explicitly rather than silently overwriting.
+
+### 8. Consumer: one-shot ephemeral run
+
+For try-out / CI / fresh-sandbox use cases, the two-step `init` + `run` collapse into a single command:
+
+```sh
+$ agent-team template run github.com/acme/eng-team@v1.0.0 manager \
+    --set linear.team_id=72986798-f8b4-4f57-afe2-c76d4868db0f \
+    --set linear.ticket_prefix=APP \
+    -p "kick off the platform-q3 initiative"
+Resolving template github.com/acme/eng-team@v1.0.0 ... ✓ (cached)
+Using tempdir /home/alice/.agent-team/runs/20260427T143052-manager-abc123 (removed on exit; pass --keep to preserve)
+Vendoring team into /home/alice/.agent-team/runs/20260427T143052-manager-abc123/.agent_team
+  + .agent_team/agents/manager
+  + .agent_team/agents/worker
+  + .agent_team/agents/ticket-manager
+  ...
+  + .agent_team/config.toml (resolved)
+[claude session runs, attached to terminal]
+[on exit: tempdir is removed]
+```
+
+Surface (full flag set):
+
+```
+agent-team template run <ref> <agent> [--target <dir>] [--keep] [--force] \
+    [--set k=v]... [--no-input] [-n <instance>] [-p "<kickoff>"] \
+    [-- <claude-args>...]
+```
+
+Resolution flow:
+
+1. **Ref**: same resolver as `init` — `bundled`, local path, or cached pull.
+2. **Target dir**:
+   - `--target <dir>` given: use it; pre-existing `.agent_team/` is rejected unless `--force`.
+   - else: auto-create `<runsRoot>/<timestamp>-<agent>-<random>/`, where `<runsRoot>` is `$XDG_CACHE_HOME/agent-team/runs` (Linux with XDG set) or `~/.agent-team/runs` (macOS / fallback). Predictable so users who pass `--keep` can find their preserved runs.
+3. **Parameter resolution**: same as `init` — `--set` flags + interactive prompts for required params, `--no-input` fails fast in CI.
+4. **Render**: `.agent_team/` is written into the target dir.
+5. **Spawn**: same as `run`, with the daemon explicitly bypassed (see below).
+6. **Cleanup**: when the agent's claude session exits, if the dir was auto-created and `--keep` is unset, the dir is removed. `--target` directories are always preserved. SIGINT / SIGTERM trigger best-effort cleanup before re-raising the signal so the parent shell sees the conventional exit status.
+
+#### Why the daemon is bypassed
+
+`template run` is for one-shot ephemeral spawns. Bringing up a tempdir-scoped daemon to dispatch a single instance and then tearing it down adds lifecycle complexity for no gain in this use case — the user has nothing to follow up with via `instance ps` or `logs --follow` because the tempdir is about to vanish. So `template run` always exec's claude directly.
+
+The tradeoff: a `template run` instance is invisible from another terminal (no `instance ps`, no `logs --follow`). Acceptable for ephemeral spawns. For long-lived setups where multi-terminal observability matters, use `init` + `run` separately — the daemon-aware path is preserved there.
+
+A future `--daemon` flag could opt into spinning up a tempdir-scoped daemon for the run's duration, but this is deferred until concrete demand surfaces.
 
 ### Summary of the model in one paragraph
 
