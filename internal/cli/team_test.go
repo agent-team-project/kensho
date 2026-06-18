@@ -99,6 +99,34 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team info = %+v", info)
 	}
 
+	jobs := NewRootCmd()
+	jobsOut, jobsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobs.SetOut(jobsOut)
+	jobs.SetErr(jobsErr)
+	jobs.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--status", "running", "--json"})
+	if err := jobs.Execute(); err != nil {
+		t.Fatalf("team jobs: %v\nstderr=%s", err, jobsErr.String())
+	}
+	var ownedJobs []job.Job
+	if err := json.Unmarshal(jobsOut.Bytes(), &ownedJobs); err != nil {
+		t.Fatalf("decode team jobs: %v\nbody=%s", err, jobsOut.String())
+	}
+	if len(ownedJobs) != 1 || ownedJobs[0].ID != "squ-801" {
+		t.Fatalf("owned jobs = %+v", ownedJobs)
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--format", "{{.ID}} {{.Pipeline}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("team jobs format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got := strings.TrimSpace(formatOut.String()); got != "squ-801 ticket_to_pr" {
+		t.Fatalf("team jobs format = %q", got)
+	}
+
 	status := NewRootCmd()
 	statusOut, statusErr := &bytes.Buffer{}, &bytes.Buffer{}
 	status.SetOut(statusOut)

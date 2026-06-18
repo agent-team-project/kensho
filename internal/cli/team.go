@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"text/template"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/job"
@@ -25,6 +26,7 @@ func newTeamCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTeamLsCmd())
 	cmd.AddCommand(newTeamShowCmd())
+	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamStatusCmd())
 	return cmd
 }
@@ -82,6 +84,62 @@ func newTeamShowCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team as JSON.")
+	return cmd
+}
+
+func newTeamJobsCmd() *cobra.Command {
+	var (
+		repo    string
+		status  string
+		sortBy  string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "jobs <team>",
+		Short: "List jobs owned by one team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team jobs: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
+				return exitErr(2)
+			}
+			sortMode, err := parseJobSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
+				return exitErr(2)
+			}
+			var statusFilter job.Status
+			if strings.TrimSpace(status) != "" {
+				statusFilter, err = job.ParseStatus(status)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
+					return exitErr(2)
+				}
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			jobs, err := collectTeamJobs(teamDir, args[0], statusFilter, sortMode)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
+				return exitErr(1)
+			}
+			return renderTeamJobs(cmd.OutOrStdout(), jobs, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
+	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team jobs as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
 
@@ -235,6 +293,29 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	}
 	snapshot.Actions = teamStatusActions(top, team, snapshot)
 	return snapshot, nil
+}
+
+func collectTeamJobs(teamDir, name string, status job.Status, sortMode string) ([]*job.Job, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	owned := teamJobs(top, team, jobs)
+	if status != "" {
+		filtered := owned[:0]
+		for _, j := range owned {
+			if j.Status == status {
+				filtered = append(filtered, j)
+			}
+		}
+		owned = filtered
+	}
+	sortJobs(owned, sortMode)
+	return owned, nil
 }
 
 func runTeamStatusWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
@@ -499,5 +580,21 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool) e
 	for _, action := range snapshot.Actions {
 		fmt.Fprintf(w, "  %s\n", action)
 	}
+	return nil
+}
+
+func renderTeamJobs(w io.Writer, jobs []*job.Job, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(jobs)
+	}
+	if tmpl != nil {
+		for _, j := range jobs {
+			if err := renderJobTemplate(w, j, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobTable(w, jobs)
 	return nil
 }
