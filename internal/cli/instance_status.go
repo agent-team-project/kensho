@@ -33,6 +33,7 @@ type statusSection struct {
 }
 
 type workSection struct {
+	Job    string `toml:"job"`
 	Ticket string `toml:"ticket"`
 	PR     string `toml:"pr"`
 	Branch string `toml:"branch"`
@@ -55,7 +56,12 @@ type instanceRow struct {
 	Stale     bool
 	HasFile   bool   // false → row was inferred from the empty state dir
 	Lifecycle string // daemon-reported (running/stopped/exited/crashed); empty when no daemon
-	PID       int    // daemon-reported; 0 when no daemon
+	Job       string
+	Ticket    string
+	Branch    string
+	PR        string
+	Workspace string
+	PID       int // daemon-reported; 0 when no daemon
 	StartedAt time.Time
 	StoppedAt time.Time
 	ExitedAt  time.Time
@@ -124,6 +130,12 @@ func instanceRowFor(stateRoot, instance string, agentNames map[string]bool, now 
 	row.Phase = sf.Status.Phase
 	row.Age = formatAge(now.Sub(st.ModTime()))
 	row.Summary = formatSummary(sf)
+	if sf.Work != nil {
+		row.Job = sf.Work.Job
+		row.Ticket = sf.Work.Ticket
+		row.Branch = sf.Work.Branch
+		row.PR = sf.Work.PR
+	}
 
 	if sf.Status.Phase != "idle" && sf.Status.Phase != "done" {
 		if now.Sub(st.ModTime()) > staleAfter {

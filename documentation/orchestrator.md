@@ -315,7 +315,7 @@ ask_to = "manager"              # instance name or role this instance is asking
 ### Writer surface
 
 ```sh
-status set <phase> [--desc "..."] [--ticket <id>] [--pr <url>] [--branch <name>] [--last-action "..."]
+status set <phase> [--desc "..."] [--job <id>] [--ticket <id>] [--pr <url>] [--branch <name>] [--last-action "..."]
 status block --reason "..." --ask <instance-name|role>
 status clear-block                     # transitions back to the prior phase
 status show                             # debug: print the current file

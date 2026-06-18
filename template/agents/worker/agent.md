@@ -213,13 +213,14 @@ Call it at these transitions, no more:
 
 1. **After fetching the ticket and confirming branch / cwd:**
    ```sh
-   "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set planning \
-     --desc "Reading <TICKET-ID>: <short title>" \
-     --ticket "<TICKET-ID>" \
-     --branch "$(git branch --show-current)"
+     "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set planning \
+       --desc "Reading <TICKET-ID>: <short title>" \
+       --job "<JOB-ID-if-present>" \
+       --ticket "<TICKET-ID>" \
+       --branch "$(git branch --show-current)"
    ```
 
-2. **Before the first code edit:** `status set implementing --desc "<one-line summary of what you're building>"`.
+2. **Before the first code edit:** `status set implementing --desc "<one-line summary of what you're building>" --job "<JOB-ID-if-present>"`.
 
 3. **Right after the PR is created** (so reviewers see the link): `status set awaiting_review --desc "PR open, awaiting review" --pr "<PR URL>"`.
 

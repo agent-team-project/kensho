@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -747,6 +748,11 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 			rows[idx].Agent = m.Agent
 		}
 		rows[idx].Lifecycle = metadataStatusKey(m)
+		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
+		rows[idx].Ticket = firstNonEmpty(rows[idx].Ticket, m.Ticket)
+		rows[idx].Branch = firstNonEmpty(rows[idx].Branch, m.Branch)
+		rows[idx].PR = firstNonEmpty(rows[idx].PR, m.PR)
+		rows[idx].Workspace = m.Workspace
 		rows[idx].PID = m.PID
 		rows[idx].StartedAt = m.StartedAt
 		rows[idx].StoppedAt = m.StoppedAt
@@ -762,7 +768,7 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "INSTANCE\tAGENT\tSTATUS\tPHASE\tPID\tAGE\tSUMMARY")
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tJOB\tSTATUS\tPHASE\tPID\tAGE\tSUMMARY")
 	for _, r := range rows {
 		phase := r.Phase
 		if r.Stale {
@@ -776,8 +782,8 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 		if r.PID > 0 {
 			pid = strconv.Itoa(r.PID)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Instance, r.Agent, life, phase, pid, r.Age, r.Summary)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.Instance, r.Agent, emptyDash(r.Job), life, phase, pid, r.Age, r.Summary)
 	}
 	return tw.Flush()
 }
@@ -789,6 +795,11 @@ type psJSONRow struct {
 	Phase     string `json:"phase"`
 	Age       string `json:"age"`
 	Summary   string `json:"summary,omitempty"`
+	Job       string `json:"job,omitempty"`
+	Ticket    string `json:"ticket,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	PR        string `json:"pr,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
 	Stale     bool   `json:"stale"`
 	HasStatus bool   `json:"has_status"`
 	PID       int    `json:"pid,omitempty"`
@@ -807,6 +818,11 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 			Phase:     psPhaseKey(r),
 			Age:       r.Age,
 			Summary:   r.Summary,
+			Job:       r.Job,
+			Ticket:    r.Ticket,
+			Branch:    r.Branch,
+			PR:        r.PR,
+			Workspace: filepath.ToSlash(r.Workspace),
 			Stale:     r.Stale,
 			HasStatus: r.HasFile,
 			PID:       r.PID,
@@ -840,9 +856,23 @@ func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool) instanceRow 
 		Phase:     "—",
 		Age:       "—",
 		Lifecycle: metadataStatusKey(m),
+		Job:       m.Job,
+		Ticket:    m.Ticket,
+		Branch:    m.Branch,
+		PR:        m.PR,
+		Workspace: m.Workspace,
 		PID:       m.PID,
 		StartedAt: m.StartedAt,
 		StoppedAt: m.StoppedAt,
 		ExitedAt:  m.ExitedAt,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

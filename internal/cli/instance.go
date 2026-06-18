@@ -248,6 +248,10 @@ type inspectStateJSON struct {
 type inspectRuntimeJSON struct {
 	Lifecycle string `json:"lifecycle"`
 	Agent     string `json:"agent,omitempty"`
+	Job       string `json:"job,omitempty"`
+	Ticket    string `json:"ticket,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	PR        string `json:"pr,omitempty"`
 	PID       int    `json:"pid,omitempty"`
 	Workspace string `json:"workspace,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
@@ -270,6 +274,7 @@ type inspectStatusJSON struct {
 }
 
 type inspectWorkJSON struct {
+	Job    string `json:"job,omitempty"`
 	Ticket string `json:"ticket,omitempty"`
 	PR     string `json:"pr,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -307,6 +312,10 @@ func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectR
 	out := &inspectRuntimeJSON{
 		Lifecycle: metadataStatusKey(meta),
 		Agent:     meta.Agent,
+		Job:       meta.Job,
+		Ticket:    meta.Ticket,
+		Branch:    meta.Branch,
+		PR:        meta.PR,
 		PID:       meta.PID,
 		Workspace: filepath.ToSlash(meta.Workspace),
 		SessionID: meta.SessionID,
@@ -349,6 +358,7 @@ func inspectStatusJSONFor(stateDir string, now time.Time) (*inspectStatusJSON, s
 	}
 	if sf.Work != nil {
 		out.Work = &inspectWorkJSON{
+			Job:    sf.Work.Job,
 			Ticket: sf.Work.Ticket,
 			PR:     sf.Work.PR,
 			Branch: sf.Work.Branch,
@@ -435,6 +445,18 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	if runtime.Agent != "" {
 		fmt.Fprintf(w, "  agent:       %s\n", runtime.Agent)
 	}
+	if runtime.Job != "" {
+		fmt.Fprintf(w, "  job:         %s\n", runtime.Job)
+	}
+	if runtime.Ticket != "" {
+		fmt.Fprintf(w, "  ticket:      %s\n", runtime.Ticket)
+	}
+	if runtime.Branch != "" {
+		fmt.Fprintf(w, "  branch:      %s\n", runtime.Branch)
+	}
+	if runtime.PR != "" {
+		fmt.Fprintf(w, "  pr:          %s\n", runtime.PR)
+	}
 	if runtime.PID != 0 {
 		fmt.Fprintf(w, "  pid:         %d\n", runtime.PID)
 	}
@@ -490,6 +512,9 @@ func printInspectStatus(w fmtWriter, info *inspectJSON) {
 	}
 	if status.Work != nil {
 		fmt.Fprintln(w, "work:")
+		if status.Work.Job != "" {
+			fmt.Fprintf(w, "  job:     %s\n", status.Work.Job)
+		}
 		if status.Work.Ticket != "" {
 			fmt.Fprintf(w, "  ticket:  %s\n", status.Work.Ticket)
 		}

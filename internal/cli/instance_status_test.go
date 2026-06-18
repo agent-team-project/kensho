@@ -66,6 +66,7 @@ description = "Porting status emission"
 since = "2026-04-29T00:00:00Z"
 
 [work]
+job = "tst-1"
 ticket = "TST-1"
 pr = "https://example/pulls/1"
 branch = "tst-1"
@@ -200,6 +201,7 @@ description = "PR open"
 since = "2026-04-29T00:00:00Z"
 
 [work]
+job = "tst-9"
 ticket = "TST-9"
 pr = "https://example/pulls/9"
 branch = "tst-9"
@@ -220,6 +222,7 @@ branch = "tst-9"
 		"phase:        awaiting_review",
 		"description:  PR open",
 		"work:",
+		"job:     tst-9",
 		"ticket:  TST-9",
 		"pr:      https://example/pulls/9",
 	} {

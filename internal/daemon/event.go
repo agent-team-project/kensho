@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/loader"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -274,12 +275,15 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		return nil, err
 	}
 	workspace := r.teamDirParent()
+	worktreePath := ""
+	branch := ""
 	cleanupWorkspace := func() {}
 	if payloadString(payload, "workspace") == "worktree" || payloadString(payload, "isolation") == "worktree" {
-		workspace, cleanupWorkspace, err = r.prepareEphemeralWorktree(name)
+		workspace, branch, cleanupWorkspace, err = r.prepareEphemeralWorktree(name)
 		if err != nil {
 			return nil, err
 		}
+		worktreePath = workspace
 	}
 	meta, err := r.mgr.Dispatch(DispatchInput{
 		Agent:     inst.Agent,
@@ -292,7 +296,54 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		cleanupWorkspace()
 		return nil, err
 	}
+	r.attachSpawnOwnership(meta, payload, branch, worktreePath)
 	return meta, nil
+}
+
+func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]any, branch, worktreePath string) {
+	if meta == nil {
+		return
+	}
+	meta.Job = eventJobID(payload)
+	meta.Ticket = payloadString(payload, "ticket")
+	meta.Branch = branch
+	meta.PR = payloadString(payload, "pr")
+	if err := WriteMetadata(r.mgr.daemonRoot, meta); err != nil {
+		return
+	}
+	if meta.Job == "" {
+		return
+	}
+	j, err := jobstore.Read(r.teamDir, meta.Job)
+	if err != nil {
+		return
+	}
+	j.Instance = meta.Instance
+	if meta.Ticket != "" {
+		j.Ticket = meta.Ticket
+	}
+	if branch != "" {
+		j.Branch = branch
+	}
+	if worktreePath != "" {
+		j.Worktree = worktreePath
+	}
+	if meta.PR != "" {
+		j.PR = meta.PR
+	}
+	j.Status = jobstore.StatusRunning
+	j.LastEvent = "dispatched"
+	j.LastStatus = "running"
+	j.UpdatedAt = time.Now().UTC()
+	_ = jobstore.Write(r.teamDir, j)
+}
+
+func eventJobID(payload map[string]any) string {
+	id := payloadString(payload, "job_id")
+	if id == "" {
+		id = payloadString(payload, "job")
+	}
+	return jobstore.NormalizeID(id)
 }
 
 type ephemeralRuntime struct {
@@ -450,26 +501,26 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	}, nil
 }
 
-func (r *EventResolver) prepareEphemeralWorktree(instance string) (string, func(), error) {
+func (r *EventResolver) prepareEphemeralWorktree(instance string) (string, string, func(), error) {
 	repoRoot := r.teamDirParent()
 	if repoRoot == "" {
-		return "", nil, errors.New("event worktree: repo root is required")
+		return "", "", nil, errors.New("event worktree: repo root is required")
 	}
 	tag := newSessionID()[0:8]
 	branch := "worktree-" + instance + "-" + tag
 	worktreePath := filepath.Join(repoRoot, ".claude", "worktrees", instance+"-"+tag)
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
-		return "", nil, fmt.Errorf("event worktree: create parent: %w", err)
+		return "", "", nil, fmt.Errorf("event worktree: create parent: %w", err)
 	}
 	cmd := exec.Command("git", "-C", repoRoot, "worktree", "add", "-b", branch, worktreePath, "HEAD")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", nil, fmt.Errorf("event worktree: git worktree add: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", "", nil, fmt.Errorf("event worktree: git worktree add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	cleanup := func() {
 		_ = exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", worktreePath).Run()
 		_ = exec.Command("git", "-C", repoRoot, "branch", "-D", branch).Run()
 	}
-	return worktreePath, cleanup, nil
+	return worktreePath, branch, cleanup, nil
 }
 
 func buildAgentsJSON(agents []*loader.Agent) (string, error) {

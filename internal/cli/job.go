@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -27,6 +29,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobCloseCmd())
+	cmd.AddCommand(newJobCleanupCmd())
 	return cmd
 }
 
@@ -249,6 +252,9 @@ func newJobDispatchCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
 				return exitErr(1)
 			}
+			if latest, err := job.Read(teamDir, j.ID); err == nil {
+				j = latest
+			}
 			applyDispatchResponseToJob(j, requestedName, res)
 			if err := job.Write(teamDir, j); err != nil {
 				return err
@@ -389,6 +395,67 @@ func newJobCloseCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobCleanupCmd() *cobra.Command {
+	var (
+		repo    string
+		merged  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "cleanup <job-id>",
+		Short: "Remove a job-owned worker worktree and branch after merge.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if !merged {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: pass --merged after confirming the job's PR has merged.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			repoRoot := filepath.Dir(teamDir)
+			summary, err := cleanupJobOwnedWorktree(repoRoot, j)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
+				return exitErr(1)
+			}
+			j.Worktree = ""
+			j.Branch = ""
+			j.LastEvent = "cleanup"
+			j.LastStatus = summary
+			j.UpdatedAt = time.Now().UTC()
+			if err := job.Write(teamDir, j); err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
+			}
+			if tmpl != nil {
+				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Job: %s cleanup complete (%s)\n", j.ID, summary)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the job's PR has merged before removing its worktree and branch.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.LastStatus}}'.")
+	return cmd
+}
+
 func readJobFromRepo(cmd *cobra.Command, repo, id string) (*job.Job, error) {
 	_, j, err := readJobAndTeamDir(cmd, repo, id)
 	return j, err
@@ -458,6 +525,80 @@ func applyDispatchResponseToJob(j *job.Job, requestedName string, res *eventResp
 		j.LastEvent = "dispatch_no_match"
 		j.LastStatus = "no triggers matched"
 	}
+}
+
+func cleanupJobOwnedWorktree(repoRoot string, j *job.Job) (string, error) {
+	if strings.TrimSpace(j.Worktree) == "" && strings.TrimSpace(j.Branch) == "" {
+		return "nothing to clean", nil
+	}
+	removed := make([]string, 0, 2)
+	if strings.TrimSpace(j.Worktree) != "" {
+		if err := validateJobOwnedWorktree(repoRoot, j.Worktree); err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(j.Worktree); err == nil {
+			if out, err := exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", j.Worktree).CombinedOutput(); err != nil {
+				return "", fmt.Errorf("remove worktree %s: %w: %s", j.Worktree, err, strings.TrimSpace(string(out)))
+			}
+			removed = append(removed, "worktree")
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+	}
+	if strings.TrimSpace(j.Branch) != "" {
+		exists, err := gitBranchExists(repoRoot, j.Branch)
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			if out, err := exec.Command("git", "-C", repoRoot, "branch", "-d", j.Branch).CombinedOutput(); err != nil {
+				return "", fmt.Errorf("remove branch %s: %w: %s", j.Branch, err, strings.TrimSpace(string(out)))
+			}
+			removed = append(removed, "branch")
+		}
+	}
+	if len(removed) == 0 {
+		return "nothing to clean", nil
+	}
+	return "removed " + strings.Join(removed, " and "), nil
+}
+
+func validateJobOwnedWorktree(repoRoot, worktreePath string) error {
+	root, err := filepath.Abs(filepath.Join(repoRoot, ".claude", "worktrees"))
+	if err != nil {
+		return err
+	}
+	if resolvedRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolvedRoot
+	}
+	path, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return err
+	}
+	if resolvedPath, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolvedPath
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("refusing to remove worktree outside %s: %s", root, path)
+	}
+	return nil
+}
+
+func gitBranchExists(repoRoot, branch string) (bool, error) {
+	out, err := exec.Command("git", "-C", repoRoot, "branch", "--list", branch, "--format", "%(refname:short)").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("list branch %s: %w: %s", branch, err, strings.TrimSpace(string(out)))
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == branch {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func parseJobFormat(format string) (*template.Template, error) {

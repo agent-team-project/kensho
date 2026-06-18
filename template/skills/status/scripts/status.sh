@@ -18,7 +18,7 @@ VALID_PHASES="planning implementing awaiting_review idle done"
 usage() {
     cat <<'EOF' >&2
 usage:
-  status.sh set <phase> [--desc TEXT] [--ticket ID] [--pr URL] [--branch NAME] [--last-action TEXT]
+  status.sh set <phase> [--desc TEXT] [--job ID] [--ticket ID] [--pr URL] [--branch NAME] [--last-action TEXT]
   status.sh block --reason TEXT --ask NAME
   status.sh clear-block
   status.sh show
@@ -61,10 +61,11 @@ case "$verb" in
             echo "status.sh: invalid phase: $phase (valid: $VALID_PHASES; for blocked use 'status block')" >&2
             exit 2
         fi
-        desc="" ticket="" pr="" branch="" last_action=""
+        desc="" job="" ticket="" pr="" branch="" last_action=""
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --desc) desc="$2"; shift 2 ;;
+                --job) job="$2"; shift 2 ;;
                 --ticket) ticket="$2"; shift 2 ;;
                 --pr) pr="$2"; shift 2 ;;
                 --branch) branch="$2"; shift 2 ;;
@@ -77,6 +78,7 @@ case "$verb" in
         STATUS_VERB=set \
         STATUS_PHASE="$phase" \
         STATUS_DESC="$desc" \
+        STATUS_JOB="$job" \
         STATUS_TICKET="$ticket" \
         STATUS_PR="$pr" \
         STATUS_BRANCH="$branch" \

@@ -35,7 +35,7 @@ Pick the phase that best matches *what an observer would care about*:
 ## Surface
 
 ```sh
-status set <phase> [--desc "..."] [--ticket <id>] [--pr <url>] [--branch <name>] [--last-action "..."]
+status set <phase> [--desc "..."] [--job <id>] [--ticket <id>] [--pr <url>] [--branch <name>] [--last-action "..."]
 status block --reason "..." --ask <instance|role>
 status clear-block                          # transitions back to the prior phase
 status show                                  # debug: print the current file
@@ -52,6 +52,7 @@ Anything not passed is preserved from the prior write. The skill auto-manages `s
 ```sh
 "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set planning \
   --desc "Reading SQU-25 ticket and supporting docs" \
+  --job squ-25 \
   --ticket SQU-25 \
   --branch "$(git branch --show-current)"
 ```

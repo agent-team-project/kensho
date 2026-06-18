@@ -93,6 +93,7 @@ def _apply_set(existing: dict) -> dict:
         status["last_action"] = last_action
 
     for envk, tomlk in (
+        ("STATUS_JOB", "job"),
         ("STATUS_TICKET", "ticket"),
         ("STATUS_PR", "pr"),
         ("STATUS_BRANCH", "branch"),
@@ -155,7 +156,7 @@ def _serialize(data: dict) -> str:
 
     work = data.get("work") or {}
     if work:
-        order = ["ticket", "pr", "branch"]
+        order = ["job", "ticket", "pr", "branch"]
         sections.append(_format_section("work", work, order))
 
     blocking = data.get("blocking") or {}
