@@ -139,11 +139,12 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 
 func newIntakeScheduleCmd() *cobra.Command {
 	var (
-		target  string
-		payload string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		target        string
+		payload       string
+		dryRun        bool
+		previewRoutes bool
+		jsonOut       bool
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -160,6 +161,10 @@ func newIntakeScheduleCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: %v\n", err)
 				return exitErr(2)
 			}
+			if previewRoutes && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake schedule: --preview-triggers requires --dry-run.")
+				return exitErr(2)
+			}
 			body := map[string]any{"source": "schedule", "name": args[0]}
 			if strings.TrimSpace(payload) != "" {
 				if err := json.Unmarshal([]byte(payload), &body); err != nil {
@@ -171,7 +176,19 @@ func newIntakeScheduleCmd() *cobra.Command {
 			}
 			ev := &intake.Event{Type: "schedule", Payload: body}
 			if dryRun {
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil)
+				var triggerPreview *eventPublishPreview
+				if previewRoutes {
+					teamDir, err := resolveTeamDir(cmd, target)
+					if err != nil {
+						return err
+					}
+					triggerPreview, err = previewEventPublish(teamDir, ev.Type, ev.Payload)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: %v\n", err)
+						return exitErr(1)
+					}
+				}
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, triggerPreview)
 			}
 			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 		},
@@ -179,6 +196,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the schedule payload.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
 	return cmd

@@ -396,6 +396,75 @@ func TestIntakeScheduleDryRunText(t *testing.T) {
 	}
 }
 
+func TestIntakeScheduleDryRunPreviewTriggers(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake schedule dry-run preview: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode schedule dry-run preview json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Event == nil || result.Event.Type != "schedule" {
+		t.Fatalf("schedule dry-run preview result = %+v", result)
+	}
+	if result.Preview == nil || len(result.Preview.Pipelines) != 1 || result.Preview.Pipelines[0] != "nightly" {
+		t.Fatalf("schedule trigger preview = %+v", result.Preview)
+	}
+	if len(result.Preview.PipelineJobs) != 1 {
+		t.Fatalf("schedule pipeline job preview = %+v", result.Preview)
+	}
+	pipelineJob := result.Preview.PipelineJobs[0]
+	if pipelineJob.Action != "would_create" || pipelineJob.Pipeline != "nightly" || pipelineJob.Target != "manager" || !pipelineJob.GeneratedTicket || pipelineJob.JobID != "" {
+		t.Fatalf("schedule pipeline job preview = %+v", pipelineJob)
+	}
+	if len(pipelineJob.Steps) != 1 || pipelineJob.Steps[0].ID != "triage" || pipelineJob.Steps[0].Target != "manager" {
+		t.Fatalf("schedule pipeline steps = %+v", pipelineJob.Steps)
+	}
+	textCmd := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textCmd.SetOut(textOut)
+	textCmd.SetErr(textErr)
+	textCmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--target", target, "--dry-run", "--preview-triggers"})
+	if err := textCmd.Execute(); err != nil {
+		t.Fatalf("intake schedule dry-run preview text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Pipelines: nightly", "Jobs:", "pipeline:nightly", "would_create", "target=manager", "ticket=<generated>", "steps=triage"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("schedule preview text missing %q:\n%s", want, textOut.String())
+		}
+	}
+	entries, err := os.ReadDir(job.Directory(teamDir))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read jobs dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("dry-run schedule preview wrote jobs = %+v", entries)
+	}
+}
+
+func TestIntakeSchedulePreviewTriggersRequiresDryRun(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--preview-triggers"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("intake schedule --preview-triggers without dry-run succeeded: stdout=%s", out.String())
+	}
+	if !strings.Contains(stderr.String(), "--preview-triggers requires --dry-run") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func setupIntakePipelineRepo(t *testing.T) (target string, mgr *daemon.InstanceManager, cleanup func()) {
 	t.Helper()
 	target, err := os.MkdirTemp("/tmp", "agent-team-intake-")
