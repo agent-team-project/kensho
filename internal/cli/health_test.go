@@ -592,6 +592,79 @@ func TestHealthCommandJobsReportsJobAttention(t *testing.T) {
 	}
 }
 
+func TestHealthCommandJobsReportsBlockedStatusPreview(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-92",
+		Ticket:    "SQU-92",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-92"), `[status]
+phase = "blocked"
+description = "needs credentials"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-92"
+ticket = "SQU-92"
+branch = "worker-squ-92"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--jobs", "--json", "--target", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("health --jobs succeeded unexpectedly")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	var body healthResult
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode health jobs json: %v\nbody=%s stderr=%s", err, out.String(), stderr.String())
+	}
+	if len(body.JobStatus) != 1 || body.JobStatus[0].JobID != "squ-92" || body.JobStatus[0].After != job.StatusBlocked || !body.JobStatus[0].Changed {
+		t.Fatalf("job status preview = %+v", body.JobStatus)
+	}
+	var sawIssue bool
+	for _, issue := range body.Issues {
+		if issue.Code == "job_status_blocked" && issue.Job == "squ-92" && issue.Phase == "blocked" {
+			sawIssue = true
+			break
+		}
+	}
+	if !sawIssue {
+		t.Fatalf("issues = %+v, missing job_status_blocked", body.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"health", "--jobs", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("health --jobs text succeeded unexpectedly")
+	}
+	for _, want := range []string{"job status: previews=1 changes=1 blocked=1", "job_status_blocked", "job=squ-92"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestHealthCommandLatestUsesLocalNewestMatchingMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -162,7 +163,7 @@ func newHealthCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only check instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only check crashed or stale instances. Daemon health remains global.")
 	cmd.Flags().BoolVar(&strictTopology, "strict-topology", false, "Treat running daemon-known instances not declared in instances.toml as unhealthy.")
-	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include durable job triage and treat jobs needing attention as unhealthy.")
+	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include durable job triage and status-file previews; treat jobs needing attention as unhealthy.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch or --wait.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	return cmd
@@ -191,15 +192,16 @@ func newHealthOptionsWithInstancesAndUnhealthy(statusFilters, agentFilters, phas
 }
 
 type healthResult struct {
-	Healthy   bool               `json:"healthy"`
-	Daemon    healthDaemon       `json:"daemon"`
-	Summary   psSummaryJSON      `json:"summary"`
-	Queue     queueSummary       `json:"queue"`
-	Jobs      *jobTriageSnapshot `json:"jobs,omitempty"`
-	Declared  healthDeclared     `json:"declared"`
-	Issues    []healthIssue      `json:"issues"`
-	CheckedAt string             `json:"checked_at"`
-	Instances []healthInstance   `json:"instances,omitempty"`
+	Healthy   bool                       `json:"healthy"`
+	Daemon    healthDaemon               `json:"daemon"`
+	Summary   psSummaryJSON              `json:"summary"`
+	Queue     queueSummary               `json:"queue"`
+	Jobs      *jobTriageSnapshot         `json:"jobs,omitempty"`
+	JobStatus []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	Declared  healthDeclared             `json:"declared"`
+	Issues    []healthIssue              `json:"issues"`
+	CheckedAt string                     `json:"checked_at"`
+	Instances []healthInstance           `json:"instances,omitempty"`
 }
 
 type healthDaemon struct {
@@ -522,6 +524,21 @@ func addJobHealth(result *healthResult, teamDir string, now time.Time) error {
 	for _, item := range snapshot.Attention {
 		result.addJobIssue(item)
 	}
+	statusPreview, err := reconcileJobsFromStatus(teamDir, true, now.UTC())
+	if err != nil {
+		return err
+	}
+	result.JobStatus = statusPreview
+	for _, preview := range statusPreview {
+		if !preview.Changed || preview.After != job.StatusBlocked {
+			continue
+		}
+		message := fmt.Sprintf("job %q status file reports blocked", preview.JobID)
+		if strings.TrimSpace(preview.Message) != "" {
+			message += ": " + strings.TrimSpace(preview.Message)
+		}
+		result.addIssueWithSeverity("job_status_blocked", "error", preview.Instance, preview.JobID, string(preview.After), preview.Phase, message)
+	}
 	return nil
 }
 
@@ -672,6 +689,13 @@ func renderHealth(w io.Writer, result *healthResult) {
 			len(result.Jobs.ReadySteps),
 		)
 	}
+	if result.JobStatus != nil {
+		fmt.Fprintf(w, "job status: previews=%d changes=%d blocked=%d\n",
+			len(result.JobStatus),
+			countChangedJobStatusPreviews(result.JobStatus),
+			countJobStatusPreviewsByAfter(result.JobStatus, job.StatusBlocked),
+		)
+	}
 	fmt.Fprint(w, "phases:")
 	for _, phase := range lifecyclePhaseSummaryOrder() {
 		fmt.Fprintf(w, " %s=%d", phase, result.Summary.Phases[phase])
@@ -705,4 +729,14 @@ func renderHealth(w io.Writer, result *healthResult) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", issue.Code, inst, detail)
 	}
 	_ = tw.Flush()
+}
+
+func countJobStatusPreviewsByAfter(results []jobStatusReconcileResult, status job.Status) int {
+	count := 0
+	for _, result := range results {
+		if result.Changed && result.After == status {
+			count++
+		}
+	}
+	return count
 }
