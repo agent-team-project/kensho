@@ -1105,8 +1105,17 @@ func newJobReopenCmd() *cobra.Command {
 			} else {
 				j.LastStatus = "reopened as " + string(nextStatus)
 			}
+			data := map[string]string{"force": fmt.Sprint(force)}
+			if dispatchNow && len(j.Steps) > 0 {
+				if stepID := resetFailedPipelineStepForRetry(j); stepID != "" {
+					data["step"] = stepID
+					if strings.TrimSpace(message) == "" {
+						j.LastStatus = "reopened step " + stepID + " for retry"
+					}
+				}
+			}
 			j.UpdatedAt = time.Now().UTC()
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"force": fmt.Sprint(force)}); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", data); err != nil {
 				return err
 			}
 			if dispatchNow {
@@ -3663,6 +3672,24 @@ func nextReadyJobStep(j *job.Job) *job.Step {
 		}
 	}
 	return nil
+}
+
+func resetFailedPipelineStepForRetry(j *job.Job) string {
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Status != job.StatusFailed {
+			continue
+		}
+		if len(unmetJobStepDependencies(j, step)) > 0 {
+			continue
+		}
+		step.Status = job.StatusBlocked
+		step.Instance = ""
+		step.StartedAt = time.Time{}
+		step.FinishedAt = time.Time{}
+		return step.ID
+	}
+	return ""
 }
 
 func allJobStepsDone(j *job.Job) bool {

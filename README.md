@@ -236,7 +236,7 @@ Use `monitor --jobs --schedules` or `job triage` plus `schedule next` to inspect
 
 Use `repair --dry-run` when `health` reports dead-letter queue items or stale daemon state. `repair` starts and reconciles the daemon, retries dead-letter queue entries, then runs a maintenance tick; add `--skip-daemon`, `--skip-queue`, or `--skip-tick` to narrow the recovery action.
 
-Use `job retry <job-id> --dispatch` for the common failed-job recovery path: it records a reopen event, then immediately sends the job back through daemon dispatch. For pipeline jobs, it advances the next ready step.
+Use `job retry <job-id> --dispatch` for the common failed-job recovery path: it records a reopen event, then immediately sends the job back through daemon dispatch. For pipeline jobs, it resets the first failed step whose dependencies are satisfied, then advances the next ready step.
 
 Use `snapshot --output diagnostics.json` when you need one read-only artifact for debugging or handoff. It captures health, desired-state plan, instance rows, jobs, queue items, schedules, runtime profile, and recent lifecycle events; sensitive payload keys are redacted by default, and section-level failures are recorded in the JSON instead of aborting the whole report. Use `--no-redact` only for local debugging when raw payload values are required.
 

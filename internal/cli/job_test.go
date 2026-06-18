@@ -1117,6 +1117,65 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-80")
 }
 
+func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-81",
+		Ticket:     "SQU-81",
+		Target:     "manager",
+		Kickoff:    "retry failed review",
+		Pipeline:   "ticket_triage",
+		Status:     job.StatusFailed,
+		LastEvent:  "step_failed",
+		LastStatus: "review failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now.Add(-3 * time.Hour), FinishedAt: now.Add(-2 * time.Hour)},
+			{ID: "review", Target: "manager", Status: job.StatusFailed, Instance: "manager-old", After: []string{"triage"}, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write failed pipeline job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "retry", "squ-81", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job retry pipeline --dispatch: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode retry pipeline json: %v\nbody=%s", err, out.String())
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != "manager" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-81")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.Steps[1].Status != job.StatusRunning || updated.Steps[1].Instance != "manager" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.Steps[1].FinishedAt.IsZero() == false {
+		t.Fatalf("retry should clear old finished_at, got %+v", updated.Steps[1])
+	}
+	events, err := job.ListEvents(teamDir, "squ-81")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) < 1 || events[0].Type != "reopened" || events[0].Data["step"] != "review" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobReopenRefusesRunningUnlessForced(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
