@@ -5082,7 +5082,7 @@ func previewTeamScheduleFire(teamDir string, team *topology.Team, now time.Time)
 	rows := dueScheduleRows(teamSchedules(team, schedules), now)
 	result := &daemon.ScheduleFireResult{DryRun: true, Schedules: []daemon.ScheduleFireItem{}}
 	for _, row := range rows {
-		payload, err := scheduleEventPayload(row, "")
+		payload, err := scheduleEventPayload(row, nil, "")
 		if err != nil {
 			return nil, err
 		}

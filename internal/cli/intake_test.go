@@ -1572,6 +1572,48 @@ func TestIntakeScheduleDryRunText(t *testing.T) {
 	}
 }
 
+func TestIntakeScheduleAcceptsPayloadFileAndRejectsConflict(t *testing.T) {
+	tmp := t.TempDir()
+	payloadFile := filepath.Join(tmp, "schedule-payload.json")
+	if err := os.WriteFile(payloadFile, []byte(`{"workspace":"file","from_file":true,"name":"ignored"}`), 0o644); err != nil {
+		t.Fatalf("write payload file: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload-file", payloadFile, "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake schedule payload-file dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake schedule payload-file json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Event == nil || result.Event.Type != "schedule" {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Event.Payload["workspace"] != "file" || result.Event.Payload["from_file"] != true {
+		t.Fatalf("payload-file result = %+v", result.Event.Payload)
+	}
+	if result.Event.Payload["name"] != "nightly" || result.Event.Payload["source"] != "schedule" {
+		t.Fatalf("identity fields should be preserved: %+v", result.Event.Payload)
+	}
+
+	conflict := NewRootCmd()
+	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	conflict.SetOut(conflictOut)
+	conflict.SetErr(conflictErr)
+	conflict.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{}`, "--payload-file", payloadFile, "--dry-run"})
+	if err := conflict.Execute(); err == nil {
+		t.Fatalf("intake schedule payload conflict succeeded: stdout=%s", conflictOut.String())
+	}
+	if !strings.Contains(conflictErr.String(), "choose one of --payload or --payload-file") {
+		t.Fatalf("conflict stderr = %q", conflictErr.String())
+	}
+}
+
 func TestIntakeScheduleDryRunPreviewTriggers(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()

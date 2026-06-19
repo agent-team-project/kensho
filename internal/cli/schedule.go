@@ -243,6 +243,7 @@ func newScheduleRunCmd() *cobra.Command {
 	var (
 		repo          string
 		payload       string
+		payloadFile   string
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -276,7 +277,12 @@ func newScheduleRunCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
 				return exitErr(1)
 			}
-			eventPayload, err := scheduleEventPayload(info, payload)
+			override, label, err := optionalPayloadInput(payload, payloadFile)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
+				return exitErr(2)
+			}
+			eventPayload, err := scheduleEventPayload(info, override, label)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
 				return exitErr(2)
@@ -298,6 +304,7 @@ func newScheduleRunCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the declared schedule payload.")
+	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the schedule event without publishing it.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the event and outcome as JSON.")
@@ -305,13 +312,15 @@ func newScheduleRunCmd() *cobra.Command {
 	return cmd
 }
 
-func scheduleEventPayload(info scheduleInfo, overrideRaw string) (map[string]any, error) {
+func scheduleEventPayload(info scheduleInfo, overrideRaw []byte, overrideLabel string) (map[string]any, error) {
 	payload := copyMap(info.Payload)
-	overrideRaw = strings.TrimSpace(overrideRaw)
-	if overrideRaw != "" {
+	if overrideLabel == "" {
+		overrideLabel = "--payload"
+	}
+	if strings.TrimSpace(string(overrideRaw)) != "" {
 		var extra map[string]any
-		if err := json.Unmarshal([]byte(overrideRaw), &extra); err != nil {
-			return nil, fmt.Errorf("--payload is not valid JSON: %w", err)
+		if err := json.Unmarshal(overrideRaw, &extra); err != nil {
+			return nil, fmt.Errorf("%s is not valid JSON: %w", overrideLabel, err)
 		}
 		for key, value := range extra {
 			payload[key] = value
@@ -334,7 +343,7 @@ func previewScheduleFire(teamDir string, previewRoutes bool) (*daemon.ScheduleFi
 		previews = map[string]*eventPublishPreview{}
 	}
 	for _, row := range rows {
-		payload, err := scheduleEventPayload(row, "")
+		payload, err := scheduleEventPayload(row, nil, "")
 		if err != nil {
 			return nil, nil, err
 		}

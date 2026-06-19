@@ -112,6 +112,35 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 	if overridden.Event.Payload["name"] != "nightly" || overridden.Event.Payload["source"] != "schedule" {
 		t.Fatalf("identity fields should be preserved: %+v", overridden.Event.Payload)
 	}
+
+	payloadFile := filepath.Join(tmp, "schedule-payload.json")
+	if err := os.WriteFile(payloadFile, []byte(`{"workspace":"file","from_file":true,"name":"ignored"}`), 0o644); err != nil {
+		t.Fatalf("write payload file: %v", err)
+	}
+	fileOverride := NewRootCmd()
+	fileOut, fileErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fileOverride.SetOut(fileOut)
+	fileOverride.SetErr(fileErr)
+	fileOverride.SetArgs([]string{
+		"schedule", "run", "nightly",
+		"--repo", tmp,
+		"--payload-file", payloadFile,
+		"--dry-run",
+		"--json",
+	})
+	if err := fileOverride.Execute(); err != nil {
+		t.Fatalf("schedule run payload-file dry-run: %v\nstderr=%s", err, fileErr.String())
+	}
+	var fileResult intakePublishResult
+	if err := json.Unmarshal(fileOut.Bytes(), &fileResult); err != nil {
+		t.Fatalf("decode schedule payload-file json: %v\nbody=%s", err, fileOut.String())
+	}
+	if fileResult.Event.Payload["workspace"] != "file" || fileResult.Event.Payload["from_file"] != true {
+		t.Fatalf("payload-file override = %+v", fileResult.Event.Payload)
+	}
+	if fileResult.Event.Payload["name"] != "nightly" || fileResult.Event.Payload["source"] != "schedule" {
+		t.Fatalf("payload-file identity fields should be preserved: %+v", fileResult.Event.Payload)
+	}
 }
 
 func TestScheduleRunDryRunPreviewTriggers(t *testing.T) {
@@ -465,6 +494,38 @@ func TestScheduleRunRejectsInvalidPayload(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--payload is not valid JSON") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	payloadFile := filepath.Join(tmp, "payload.json")
+	if err := os.WriteFile(payloadFile, []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatalf("write payload file: %v", err)
+	}
+	conflict := NewRootCmd()
+	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	conflict.SetOut(conflictOut)
+	conflict.SetErr(conflictErr)
+	conflict.SetArgs([]string{"schedule", "run", "nightly", "--repo", tmp, "--payload", `{}`, "--payload-file", payloadFile, "--dry-run"})
+	if err := conflict.Execute(); err == nil {
+		t.Fatalf("schedule run payload conflict succeeded: stdout=%s", conflictOut.String())
+	}
+	if !strings.Contains(conflictErr.String(), "choose one of --payload or --payload-file") {
+		t.Fatalf("conflict stderr = %q", conflictErr.String())
+	}
+
+	badPayloadFile := filepath.Join(tmp, "bad-payload.json")
+	if err := os.WriteFile(badPayloadFile, []byte(`{`), 0o644); err != nil {
+		t.Fatalf("write bad payload file: %v", err)
+	}
+	badFile := NewRootCmd()
+	badFileOut, badFileErr := &bytes.Buffer{}, &bytes.Buffer{}
+	badFile.SetOut(badFileOut)
+	badFile.SetErr(badFileErr)
+	badFile.SetArgs([]string{"schedule", "run", "nightly", "--repo", tmp, "--payload-file", badPayloadFile, "--dry-run"})
+	if err := badFile.Execute(); err == nil {
+		t.Fatalf("schedule run invalid payload-file succeeded: stdout=%s", badFileOut.String())
+	}
+	if !strings.Contains(badFileErr.String(), "--payload-file is not valid JSON") {
+		t.Fatalf("bad file stderr = %q", badFileErr.String())
 	}
 }
 

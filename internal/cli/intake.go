@@ -156,6 +156,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 	var (
 		target        string
 		payload       string
+		payloadFile   string
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -180,10 +181,15 @@ func newIntakeScheduleCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake schedule: --preview-triggers requires --dry-run.")
 				return exitErr(2)
 			}
+			override, label, err := optionalPayloadInput(payload, payloadFile)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: %v\n", err)
+				return exitErr(2)
+			}
 			body := map[string]any{"source": "schedule", "name": args[0]}
-			if strings.TrimSpace(payload) != "" {
-				if err := json.Unmarshal([]byte(payload), &body); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: --payload is not valid JSON: %v\n", err)
+			if strings.TrimSpace(string(override)) != "" {
+				if err := json.Unmarshal(override, &body); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake schedule: %s is not valid JSON: %v\n", label, err)
 					return exitErr(2)
 				}
 				body["source"] = "schedule"
@@ -210,6 +216,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the schedule payload.")
+	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
@@ -583,6 +590,25 @@ func intakePayload(payload, payloadFile string) ([]byte, error) {
 		return []byte(payload), nil
 	}
 	return readPayloadFile(payloadFile)
+}
+
+func optionalPayloadInput(payload, payloadFile string) ([]byte, string, error) {
+	hasPayload := strings.TrimSpace(payload) != ""
+	hasFile := strings.TrimSpace(payloadFile) != ""
+	if hasPayload && hasFile {
+		return nil, "", fmt.Errorf("choose one of --payload or --payload-file")
+	}
+	if hasPayload {
+		return []byte(payload), "--payload", nil
+	}
+	if hasFile {
+		body, err := readPayloadFile(payloadFile)
+		if err != nil {
+			return nil, "", err
+		}
+		return body, "--payload-file", nil
+	}
+	return nil, "", nil
 }
 
 func readPayloadFile(payloadFile string) ([]byte, error) {
