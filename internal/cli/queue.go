@@ -740,13 +740,14 @@ type queueRetryResult struct {
 }
 
 type queueSummary struct {
-	Total     int            `json:"total"`
-	Pending   int            `json:"pending"`
-	Dead      int            `json:"dead"`
-	Delayed   int            `json:"delayed"`
-	Attempts  int            `json:"attempts"`
-	Instances map[string]int `json:"instances"`
-	Events    map[string]int `json:"events"`
+	Total       int            `json:"total"`
+	Pending     int            `json:"pending"`
+	Dead        int            `json:"dead"`
+	Delayed     int            `json:"delayed"`
+	Attempts    int            `json:"attempts"`
+	Quarantined int            `json:"quarantined,omitempty"`
+	Instances   map[string]int `json:"instances"`
+	Events      map[string]int `json:"events"`
 }
 
 func parseQueuePruneState(raw string) (string, error) {

@@ -230,6 +230,46 @@ func TestOverviewRecommendsQueueDoctorForQueueParseErrors(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsQueueQuarantineInventory(t *testing.T) {
+	root := writeOverviewQuarantineFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview quarantine json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview quarantine: %v\nbody=%s", err, out.String())
+	}
+	if overview.OK || overview.State != "attention" || overview.Queue.Quarantined != 1 {
+		t.Fatalf("overview = %+v", overview)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team queue quarantine ls") {
+		t.Fatalf("actions missing quarantine ls: %+v", overview.Actions)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview quarantine text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{
+		"quarantined=1",
+		"agent-team queue quarantine ls",
+	} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("overview quarantine text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestOverviewIgnoresRecoveredIntakeErrors(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -561,6 +601,21 @@ func writeOverviewCorruptQueueFixture(t *testing.T) string {
 	initInto(t, root)
 	teamDir := filepath.Join(root, ".agent_team")
 	queueDir := filepath.Join(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), daemon.QueueStatePending)
+	if err := os.MkdirAll(queueDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueDir, "bad.json"), []byte("{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func writeOverviewQuarantineFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	queueDir := filepath.Join(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), "quarantine", "20260619T000000.000000000Z", daemon.QueueStatePending)
 	if err := os.MkdirAll(queueDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

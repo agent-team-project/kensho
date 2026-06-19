@@ -240,6 +240,12 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 		out.Intake = overviewIntakeFromDeliveries(deliveries)
 	}
 
+	if quarantined, err := listQueueQuarantine(teamDir); err != nil {
+		out.addError("queue_quarantine", err)
+	} else {
+		out.Queue.Quarantined = len(quarantined)
+	}
+
 	out.Actions = overviewActions(out, health)
 	out.OK = overviewOK(out, health)
 	out.State = overviewState(out)
@@ -491,6 +497,9 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 			add("agent-team queue drain --dry-run")
 		}
 	}
+	if teamName == "" && out.Queue.Quarantined > 0 {
+		add("agent-team queue quarantine ls")
+	}
 	if out.Jobs.Attention > 0 {
 		if teamName != "" {
 			add(fmt.Sprintf("agent-team team triage %s", teamName))
@@ -574,6 +583,7 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 	}
 	return out.Queue.Dead == 0 &&
 		out.Queue.Pending <= out.Queue.Delayed &&
+		out.Queue.Quarantined == 0 &&
 		out.Jobs.Attention == 0 &&
 		out.Jobs.ReadySteps == 0 &&
 		out.Jobs.StatusChanges == 0 &&
@@ -593,6 +603,7 @@ func overviewState(out *overviewResult) string {
 		out.Health.Warnings > 0 ||
 		(out.Topology != nil && !out.Topology.OK) ||
 		out.Queue.Dead > 0 ||
+		out.Queue.Quarantined > 0 ||
 		out.Jobs.Attention > 0 ||
 		out.Pipelines.BlockedSteps > 0 ||
 		out.Pipelines.FailedSteps > 0 ||
@@ -695,12 +706,13 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool) error {
 		result.Jobs.CleanupReady,
 		result.Jobs.ReadySteps,
 		result.Jobs.StatusChanges)
-	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
+	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d quarantined=%d\n",
 		result.Queue.Total,
 		result.Queue.Pending,
 		result.Queue.Dead,
 		result.Queue.Delayed,
-		result.Queue.Attempts)
+		result.Queue.Attempts,
+		result.Queue.Quarantined)
 	fmt.Fprintf(w, "pipelines: total=%d jobs=%d ready_steps=%d blocked_steps=%d failed_steps=%d\n",
 		result.Pipelines.Total,
 		result.Pipelines.Jobs,

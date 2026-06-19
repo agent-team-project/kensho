@@ -131,6 +131,27 @@ func TestNextCommandReportsQueueDoctorAction(t *testing.T) {
 	}
 }
 
+func TestNextCommandReportsQueueQuarantineAction(t *testing.T) {
+	root := writeOverviewQuarantineFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next queue quarantine json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode next queue quarantine json: %v\nbody=%s", err, out.String())
+	}
+	if !stringSliceContains(result.Actions, "agent-team queue quarantine ls") {
+		t.Fatalf("actions missing queue quarantine ls: %+v", result.Actions)
+	}
+}
+
 func TestNextActionResultHandlesNoActions(t *testing.T) {
 	result := nextActionResultFromOverview(&overviewResult{
 		OK:    true,
