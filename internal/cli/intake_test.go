@@ -2,7 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -280,6 +284,84 @@ func TestIntakeServeErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIntakeServeLinearSignatureAndTimestamp(t *testing.T) {
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	secret := "linear-secret"
+	body := []byte(`{"action":"Issue created","webhookTimestamp":` + mustMillisString(now) + `,"data":{"identifier":"SQU-203","title":"Signed Linear"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/linear", bytes.NewReader(body))
+	req.Header.Set("Linear-Signature", hmacSHA256Hex(secret, body, ""))
+	rec := httptest.NewRecorder()
+	newIntakeServeHandler(t.TempDir(), intakeServeOptions{
+		DryRun:       true,
+		LinearSecret: secret,
+		Now:          func() time.Time { return now },
+	}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	stale := []byte(`{"action":"Issue created","webhookTimestamp":` + mustMillisString(now.Add(-2*time.Minute)) + `,"data":{"identifier":"SQU-204","title":"Stale Linear"}}`)
+	staleReq := httptest.NewRequest(http.MethodPost, "/linear", bytes.NewReader(stale))
+	staleReq.Header.Set("Linear-Signature", hmacSHA256Hex(secret, stale, ""))
+	staleRec := httptest.NewRecorder()
+	newIntakeServeHandler(t.TempDir(), intakeServeOptions{
+		DryRun:       true,
+		LinearSecret: secret,
+		Now:          func() time.Time { return now },
+	}).ServeHTTP(staleRec, staleReq)
+	if staleRec.Code != http.StatusUnauthorized {
+		t.Fatalf("stale status = %d body=%s", staleRec.Code, staleRec.Body.String())
+	}
+
+	badReq := httptest.NewRequest(http.MethodPost, "/linear", bytes.NewReader(body))
+	badReq.Header.Set("Linear-Signature", "bad")
+	badRec := httptest.NewRecorder()
+	newIntakeServeHandler(t.TempDir(), intakeServeOptions{
+		DryRun:       true,
+		LinearSecret: secret,
+		Now:          func() time.Time { return now },
+	}).ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad signature status = %d body=%s", badRec.Code, badRec.Body.String())
+	}
+}
+
+func TestIntakeServeGitHubSignature(t *testing.T) {
+	secret := "github-secret"
+	body := []byte(`{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":203,"merged":false,"html_url":"https://github.com/acme/repo/pull/203","head":{"ref":"worker-squ-203"}}}`)
+	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", hmacSHA256Hex(secret, body, "sha256="))
+	rec := httptest.NewRecorder()
+	newIntakeServeHandler(t.TempDir(), intakeServeOptions{DryRun: true, GitHubSecret: secret}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode signed github response: %v\nbody=%s", err, rec.Body.String())
+	}
+	if result.Event == nil || result.Event.Type != "pr.opened" {
+		t.Fatalf("signed github event = %+v", result.Event)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	missingRec := httptest.NewRecorder()
+	newIntakeServeHandler(t.TempDir(), intakeServeOptions{DryRun: true, GitHubSecret: secret}).ServeHTTP(missingRec, missingReq)
+	if missingRec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing signature status = %d body=%s", missingRec.Code, missingRec.Body.String())
+	}
+}
+
+func hmacSHA256Hex(secret string, body []byte, prefix string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	return prefix + hex.EncodeToString(mac.Sum(nil))
+}
+
+func mustMillisString(t time.Time) string {
+	return fmt.Sprintf("%d", t.UnixMilli())
 }
 
 func TestIntakePreviewTriggersRequiresDryRun(t *testing.T) {

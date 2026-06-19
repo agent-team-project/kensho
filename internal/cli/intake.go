@@ -2,6 +2,9 @@ package cli
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -213,6 +217,10 @@ type intakeServeOptions struct {
 	PreviewTriggers     bool
 	GitHubReconcileJob  bool
 	GitHubCleanupMerged bool
+	LinearSecret        string
+	GitHubSecret        string
+	LinearMaxAge        time.Duration
+	Now                 func() time.Time
 	MaxBodyBytes        int64
 }
 
@@ -236,6 +244,12 @@ func newIntakeServeCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-cleanup-merged requires --github-reconcile-job.")
 				return exitErr(2)
 			}
+			if opts.LinearMaxAge <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --linear-max-age must be > 0.")
+				return exitErr(2)
+			}
+			opts.LinearSecret = firstNonEmpty(opts.LinearSecret, os.Getenv("LINEAR_WEBHOOK_SECRET"))
+			opts.GitHubSecret = firstNonEmpty(opts.GitHubSecret, os.Getenv("GITHUB_WEBHOOK_SECRET"))
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -281,12 +295,21 @@ func newIntakeServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.PreviewTriggers, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&opts.GitHubReconcileJob, "github-reconcile-job", false, "For GitHub PR events, also reconcile the owning durable job.")
 	cmd.Flags().BoolVar(&opts.GitHubCleanupMerged, "github-cleanup-merged", false, "With --github-reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
+	cmd.Flags().StringVar(&opts.LinearSecret, "linear-secret", "", "Linear webhook signing secret. Defaults to LINEAR_WEBHOOK_SECRET when set.")
+	cmd.Flags().StringVar(&opts.GitHubSecret, "github-secret", "", "GitHub webhook secret. Defaults to GITHUB_WEBHOOK_SECRET when set.")
+	cmd.Flags().DurationVar(&opts.LinearMaxAge, "linear-max-age", time.Minute, "Maximum accepted Linear webhook age after signature verification.")
 	return cmd
 }
 
 func newIntakeServeHandler(teamDir string, opts intakeServeOptions) http.Handler {
 	if opts.MaxBodyBytes <= 0 {
 		opts.MaxBodyBytes = 1 << 20
+	}
+	if opts.LinearMaxAge == 0 {
+		opts.LinearMaxAge = time.Minute
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -321,6 +344,10 @@ func handleIntakeServeWebhook(w http.ResponseWriter, r *http.Request, teamDir, p
 		writeIntakeServeError(w, http.StatusBadRequest, fmt.Sprintf("read request body: %v", err))
 		return
 	}
+	if status, err := verifyIntakeServeWebhook(provider, r.Header, body, opts); err != nil {
+		writeIntakeServeError(w, status, err.Error())
+		return
+	}
 	ev, err := normalize(body)
 	if err != nil {
 		writeIntakeServeError(w, http.StatusBadRequest, err.Error())
@@ -332,6 +359,85 @@ func handleIntakeServeWebhook(w http.ResponseWriter, r *http.Request, teamDir, p
 		return
 	}
 	writeIntakeServeJSON(w, status, result)
+}
+
+func verifyIntakeServeWebhook(provider string, header http.Header, body []byte, opts intakeServeOptions) (int, error) {
+	switch provider {
+	case "linear":
+		if opts.LinearSecret == "" {
+			return http.StatusOK, nil
+		}
+		signature := header.Get("Linear-Signature")
+		if signature == "" {
+			return http.StatusUnauthorized, errors.New("missing Linear-Signature header")
+		}
+		if !verifyHexHMACSHA256(opts.LinearSecret, body, signature, "") {
+			return http.StatusUnauthorized, errors.New("invalid Linear-Signature header")
+		}
+		sentAt, err := linearWebhookTimestamp(body)
+		if err != nil {
+			return http.StatusUnauthorized, err
+		}
+		now := opts.Now().UTC()
+		if sentAt.After(now.Add(opts.LinearMaxAge)) || sentAt.Before(now.Add(-opts.LinearMaxAge)) {
+			return http.StatusUnauthorized, errors.New("stale Linear webhook timestamp")
+		}
+	case "github":
+		if opts.GitHubSecret == "" {
+			return http.StatusOK, nil
+		}
+		signature := header.Get("X-Hub-Signature-256")
+		if signature == "" {
+			return http.StatusUnauthorized, errors.New("missing X-Hub-Signature-256 header")
+		}
+		if !verifyHexHMACSHA256(opts.GitHubSecret, body, signature, "sha256=") {
+			return http.StatusUnauthorized, errors.New("invalid X-Hub-Signature-256 header")
+		}
+	}
+	return http.StatusOK, nil
+}
+
+func verifyHexHMACSHA256(secret string, body []byte, headerValue, prefix string) bool {
+	value := strings.TrimSpace(headerValue)
+	if prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = strings.TrimPrefix(value, prefix)
+	}
+	actual, err := hex.DecodeString(value)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	expected := mac.Sum(nil)
+	return hmac.Equal(actual, expected)
+}
+
+func linearWebhookTimestamp(body []byte) (time.Time, error) {
+	var raw struct {
+		WebhookTimestamp json.RawMessage `json:"webhookTimestamp"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return time.Time{}, fmt.Errorf("decode Linear webhook timestamp: %w", err)
+	}
+	if len(raw.WebhookTimestamp) == 0 {
+		return time.Time{}, errors.New("missing Linear webhook timestamp")
+	}
+	var millis int64
+	if err := json.Unmarshal(raw.WebhookTimestamp, &millis); err != nil {
+		var asString string
+		if stringErr := json.Unmarshal(raw.WebhookTimestamp, &asString); stringErr != nil {
+			return time.Time{}, errors.New("invalid Linear webhook timestamp")
+		}
+		parsed, parseErr := strconv.ParseInt(asString, 10, 64)
+		if parseErr != nil {
+			return time.Time{}, errors.New("invalid Linear webhook timestamp")
+		}
+		millis = parsed
+	}
+	return time.UnixMilli(millis).UTC(), nil
 }
 
 func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts intakeServeOptions) (*intakePublishResult, int, error) {
