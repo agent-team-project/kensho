@@ -227,6 +227,8 @@ agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run]
                                   # operator maintenance cycle, watch loop, or finite drain until no immediate schedule/queue/pipeline work remains
 agent-team team tick <team> [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--preview-routes] [--skip-schedules] [--skip-drain] [--skip-advance] [--limit N] [--workspace auto|worktree|repo] [--json]
                                   # scoped run, watch loop, finite drain, or preview for one team's due schedules, queue, and pipeline steps
+agent-team team doctor <team> [--json]
+                                  # validate that team-owned pipelines and schedules route back into the team
 agent-team team repair <team> [--dry-run] [--jobs] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--limit N] [--workspace auto|worktree|repo] [--json]
                                   # scoped recovery loop for one team's daemon readiness, dead-letter queue, and tickable work
 agent-team team wait <team> [<instance>...] [-q] [--latest | --last N] [--status running] [--phase idle] [--stale] [--unhealthy] [--until running|terminal|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json]

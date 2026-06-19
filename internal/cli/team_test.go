@@ -320,6 +320,123 @@ func TestTeamShowMissingFails(t *testing.T) {
 	}
 }
 
+func TestTeamDoctorReportsScopedTopologyHealth(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team doctor default: %v\nstderr=%s", err, stderr.String())
+	}
+	var result teamDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team doctor: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || result.Team.Name != "delivery" || len(result.Problems) != 0 {
+		t.Fatalf("doctor result = %+v", result)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "doctor", "delivery", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team doctor text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "agent-team team doctor: OK (delivery)") {
+		t.Fatalf("team doctor text = %q", textOut.String())
+	}
+}
+
+func TestTeamDoctorFindsTopologyLeaks(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[instances.other]
+agent = "other"
+
+[[instances.other.triggers]]
+event = "schedule"
+match.name = "nightly"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "other"
+
+[pipelines.platform_schedule]
+trigger.event = "schedule"
+trigger.match.name = "nightly"
+
+[[pipelines.platform_schedule.steps]]
+id = "run"
+target = "other"
+
+[schedules.nightly]
+every = "24h"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+schedules = ["nightly"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("team doctor unexpectedly succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var result teamDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team doctor leak: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || len(result.Problems) != 1 || result.Problems[0].Code != "pipeline_target_outside_team" || result.Problems[0].Target != "other" {
+		t.Fatalf("problems = %+v", result.Problems)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Code != "schedule_routes_outside_team" {
+		t.Fatalf("warnings = %+v", result.Warnings)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "doctor", "delivery", "--repo", root})
+	if err := text.Execute(); err == nil {
+		t.Fatal("team doctor text unexpectedly succeeded")
+	}
+	if !strings.Contains(textErr.String(), `pipeline "ticket_to_pr" step "implement" targets "other"`) || !strings.Contains(textErr.String(), `schedule "nightly" also matches`) {
+		t.Fatalf("team doctor stderr = %q", textErr.String())
+	}
+}
+
 func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)
