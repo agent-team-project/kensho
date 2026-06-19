@@ -483,6 +483,7 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		{"team", "restart", "delivery", "--quiet", "--json"},
 		{"team", "plan", "delivery", "--format", "{{.Instance}}", "--json"},
 		{"team", "queue", "delivery", "--format", "{{.ID}}", "--json"},
+		{"team", "logs", "delivery", "--json"},
 	} {
 		cmd := NewRootCmd()
 		stderr := &bytes.Buffer{}
@@ -495,6 +496,110 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		if strings.TrimSpace(stderr.String()) == "" {
 			t.Fatalf("%v produced empty stderr", args)
 		}
+	}
+}
+
+func TestTeamLogsScopesRowsAndStreams(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[instances.other]
+agent = "other"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["other", "build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "worker-squ-201", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "build-worker-1", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
+		{Instance: "other", Agent: "other", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
+	} {
+		if err := daemon.WriteMetadata(daemonRoot, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+	writeChildLogForTest(t, daemonRoot, "manager", "manager first\nmanager second\n")
+	writeChildLogForTest(t, daemonRoot, "worker-squ-201", "worker first\nworker latest\n")
+	writeChildLogForTest(t, daemonRoot, "build-worker-1", "build worker log\n")
+	writeChildLogForTest(t, daemonRoot, "other", "other log\n")
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--list", "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("team logs list: %v\nstderr=%s", err, listErr.String())
+	}
+	var rows []logListRow
+	if err := json.Unmarshal(listOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team logs list: %v\nbody=%s", err, listOut.String())
+	}
+	if got := logRowInstances(rows); strings.Join(got, ",") != "manager,worker-squ-201" {
+		t.Fatalf("team log rows = %v", got)
+	}
+
+	formatted := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formatOut)
+	formatted.SetErr(formatErr)
+	formatted.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--list", "--format", "{{.Instance}} {{.Size}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("team logs format: %v\nstderr=%s", err, formatErr.String())
+	}
+	formatBody := formatOut.String()
+	for _, want := range []string{"manager ", "worker-squ-201 "} {
+		if !strings.Contains(formatBody, want) {
+			t.Fatalf("team logs format missing %q:\n%s", want, formatBody)
+		}
+	}
+	if strings.Contains(formatBody, "build-worker") || strings.Contains(formatBody, "other") {
+		t.Fatalf("team logs format leaked unrelated rows:\n%s", formatBody)
+	}
+
+	logs := NewRootCmd()
+	logsOut, logsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	logs.SetOut(logsOut)
+	logs.SetErr(logsErr)
+	logs.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--tail", "1"})
+	if err := logs.Execute(); err != nil {
+		t.Fatalf("team logs: %v\nstderr=%s", err, logsErr.String())
+	}
+	body := logsOut.String()
+	for _, want := range []string{"manager              | manager second", "worker-squ-201       | worker latest"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("team logs missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "build worker") || strings.Contains(body, "other log") {
+		t.Fatalf("team logs leaked unrelated content:\n%s", body)
+	}
+
+	latest := NewRootCmd()
+	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	latest.SetOut(latestOut)
+	latest.SetErr(latestErr)
+	latest.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--latest", "--tail", "1"})
+	if err := latest.Execute(); err != nil {
+		t.Fatalf("team logs latest: %v\nstderr=%s", err, latestErr.String())
+	}
+	if got := latestOut.String(); got != "worker latest\n" {
+		t.Fatalf("team logs latest = %q", got)
 	}
 }
 
@@ -813,6 +918,14 @@ func queueItemIDs(items []daemon.QueueItem) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {
 		out = append(out, item.ID)
+	}
+	return out
+}
+
+func logRowInstances(rows []logListRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Instance)
 	}
 	return out
 }

@@ -35,6 +35,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamQueueCmd())
+	cmd.AddCommand(newTeamLogsCmd())
 	cmd.AddCommand(newTeamPipelinesCmd())
 	cmd.AddCommand(newTeamSchedulesCmd())
 	cmd.AddCommand(newTeamHealthCmd())
@@ -268,6 +269,130 @@ func newTeamQueueCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team queue rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	return cmd
+}
+
+func newTeamLogsCmd() *cobra.Command {
+	var (
+		repo      string
+		follow    bool
+		latest    bool
+		last      int
+		list      bool
+		jsonOut   bool
+		noPrefix  bool
+		statuses  []string
+		phases    []string
+		staleOnly bool
+		unhealthy bool
+		tail      string
+		since     string
+		grep      string
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "logs <team>",
+		Short: "Show daemon-captured logs for one team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if jsonOut && !list {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --json requires --list.")
+				return exitErr(2)
+			}
+			if format != "" && !list {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --format requires --list.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if list && (follow || cmd.Flags().Changed("tail")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --list cannot be combined with --follow or --tail.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseLogListFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
+				return exitErr(2)
+			}
+			tailLines, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
+				return exitErr(2)
+			}
+			sinceCutoff, err := parseLogSince(since, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
+				return exitErr(2)
+			}
+			grepPattern, err := parseLogGrep(grep)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
+				return exitErr(2)
+			}
+			if sinceCutoff != nil && follow {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --since cannot be combined with --follow because captured logs are not timestamped.")
+				return exitErr(2)
+			}
+			if grepPattern != nil && follow {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --grep cannot be combined with --follow.")
+				return exitErr(2)
+			}
+			if grepPattern != nil && list {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --grep cannot be combined with --list.")
+				return exitErr(2)
+			}
+			listOpts, err := newLogListOptionsWithUnhealthy(statuses, nil, phases, staleOnly, unhealthy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			opts := logsOptions{
+				Follow:    follow,
+				Latest:    latest,
+				Limit:     last,
+				List:      list,
+				JSON:      jsonOut,
+				NoPrefix:  noPrefix,
+				Tail:      tailLines,
+				TailSet:   cmd.Flags().Changed("tail"),
+				Since:     sinceCutoff,
+				Grep:      grepPattern,
+				Format:    formatTemplate,
+				Unhealthy: unhealthy,
+			}
+			return runTeamLogs(cmd, teamDir, args[0], opts, listOpts)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail selected team logs.")
+	cmd.Flags().BoolVar(&latest, "latest", false, "Show the most recently started team instance log.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show logs for the N most recently started team instances (0 = all).")
+	cmd.Flags().BoolVar(&list, "list", false, "List team log streams instead of printing log content.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with --list.")
+	cmd.Flags().BoolVar(&noPrefix, "no-prefix", false, "Do not prefix lines when streaming multiple team logs.")
+	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for team instances whose status.toml is stale.")
+	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed or stale team instances.")
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
+	cmd.Flags().StringVar(&since, "since", "", "Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
+	cmd.Flags().StringVar(&format, "format", "", "With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.")
 	return cmd
 }
 
@@ -1435,6 +1560,79 @@ func runTeamQueueSummaryWatch(ctx context.Context, w io.Writer, teamDir, name st
 	}
 }
 
+func runTeamLogs(cmd *cobra.Command, teamDir, name string, opts logsOptions, listOpts logListOptions) error {
+	rows, err := collectTeamLogRows(teamDir, name, listOpts, opts.Since, opts.Limit)
+	if err != nil {
+		return err
+	}
+	if opts.Latest {
+		rows = latestLogListRowsLimit(rows, 1)
+	}
+	if opts.List {
+		if opts.JSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
+		}
+		if opts.Format != nil {
+			return renderLogListFormat(cmd.OutOrStdout(), rows, opts.Format)
+		}
+		renderLogList(cmd.OutOrStdout(), rows)
+		return nil
+	}
+	if len(rows) == 0 {
+		if opts.Since != nil || opts.Grep != nil {
+			fmt.Fprintln(cmd.OutOrStdout(), "(no matching logs)")
+			return nil
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "(no instances)")
+		return nil
+	}
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer cancel()
+	if len(rows) == 1 {
+		if opts.Follow {
+			if err := streamLocalLog(ctx, cmd.OutOrStdout(), rows[0].path, true, opts.Tail, nil); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: log not found at %s.\n", rows[0].LogPath)
+					return exitErr(1)
+				}
+				return err
+			}
+			return nil
+		}
+		if err := streamLogRowOnce(ctx, cmd.OutOrStdout(), rows[0], opts); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: log not found at %s.\n", rows[0].LogPath)
+				return exitErr(1)
+			}
+			return err
+		}
+		return nil
+	}
+	if opts.Follow {
+		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix)
+	}
+	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep)
+}
+
+func collectTeamLogRows(teamDir, name string, opts logListOptions, since *time.Time, limit int) ([]logListRow, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := collectLocalLogListRows(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	rows = teamLogRows(top, team, rows)
+	rows = filterLogListRows(rows, opts)
+	rows = filterLogListRowsSince(rows, since)
+	rows = latestLogListRowsLimit(rows, limit)
+	if rows == nil {
+		return []logListRow{}, nil
+	}
+	return rows, nil
+}
+
 func collectTeamPipelineStatus(teamDir, name string) ([]pipelineStatusRow, error) {
 	_, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
@@ -1621,6 +1819,30 @@ func teamPlanRows(top *topology.Topology, team *topology.Team, rows []planRow, i
 		if includeExtras && row.Kind == "extra" && agents[row.Agent] {
 			out = append(out, row)
 			seen[row.Instance] = true
+		}
+	}
+	return out
+}
+
+func teamLogRows(top *topology.Topology, team *topology.Team, rows []logListRow) []logListRow {
+	if top == nil || team == nil {
+		return nil
+	}
+	instanceNames := stringSliceSet(team.Instances)
+	ephemeralOwners := map[string]bool{}
+	for _, name := range team.Instances {
+		if inst := top.Instances[name]; inst != nil && inst.Ephemeral {
+			ephemeralOwners[inst.Name] = true
+		}
+	}
+	out := make([]logListRow, 0, len(rows))
+	for _, row := range rows {
+		if instanceNames[row.Instance] {
+			out = append(out, row)
+			continue
+		}
+		if owner, ok := declaredEphemeralOwner(top, row.Instance, row.Agent); ok && ephemeralOwners[owner.Name] {
+			out = append(out, row)
 		}
 	}
 	return out
