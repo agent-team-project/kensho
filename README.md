@@ -217,7 +217,7 @@ agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-tim
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade --check [--to <ref>]         # compare .template.lock with a template ref
 agent-team doctor [--strict-daemon] [--strict-runtime] [--json]
-                                                # validate layout, config, provenance, skill wiring, selected runtime, and daemon binary availability
+                                                # validate layout, config, provenance, skill wiring, pipeline workflows, selected runtime, and daemon binary availability
 agent-team --version                            # print version
 
 agent-team template ls                          # list bundled + cached templates

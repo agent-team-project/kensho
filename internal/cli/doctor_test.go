@@ -269,6 +269,59 @@ func TestDoctorJSONReportsProblems(t *testing.T) {
 	}
 }
 
+func TestDoctorFailsOnPipelineWorkflowProblem(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	instancesPath := filepath.Join(tmp, ".agent_team", "instances.toml")
+	if err := os.WriteFile(instancesPath, []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+after = ["review"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "worker"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor to fail on pipeline dependency cycle")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.OK || !containsDoctorMessage(result.Problems, "dependency cycle") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write pipeline problems to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctor_NoTeamDir(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
@@ -357,4 +410,13 @@ content_hash = "not-sha256"
 	if !strings.Contains(errOut.String(), "not valid template provenance") {
 		t.Errorf("expected lock validation error, got: %s", errOut.String())
 	}
+}
+
+func containsDoctorMessage(messages []string, needle string) bool {
+	for _, message := range messages {
+		if strings.Contains(message, needle) {
+			return true
+		}
+	}
+	return false
 }

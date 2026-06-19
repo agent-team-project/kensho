@@ -28,7 +28,7 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Sanity-check the vendored team.",
 		Long: "Sanity-check the vendored team: .agent_team/ layout, config.toml validity, " +
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
-			"the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
+			"pipeline workflow wiring, the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDoctor(cmd, target, strictDaemon, strictRuntime, jsonOut)
 		},
@@ -138,6 +138,20 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, j
 					problems = append(problems, err.Error())
 				}
 			}
+		}
+	}
+
+	if pipelineDoctor, err := collectPipelineDoctor(teamDir, ""); err != nil {
+		problems = append(problems, fmt.Sprintf("pipeline workflow validation failed: %v", err))
+	} else if pipelineDoctor != nil {
+		for _, problem := range pipelineDoctor.Problems {
+			problems = append(problems, "pipeline workflow: "+problem.Message)
+		}
+		for _, warning := range pipelineDoctor.Warnings {
+			if warning.Code == "no_pipelines" {
+				continue
+			}
+			warnings = append(warnings, "pipeline workflow: "+warning.Message)
 		}
 	}
 
