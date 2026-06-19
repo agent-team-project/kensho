@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNextCommandReportsRecommendedActions(t *testing.T) {
@@ -75,5 +77,32 @@ func TestNextActionResultHandlesNoActions(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "actions: none") {
 		t.Fatalf("rendered next:\n%s", out.String())
+	}
+}
+
+func TestNextWatchRendersUntilContextDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &bytes.Buffer{}
+	calls := 0
+
+	err := runNextWatch(ctx, out, func(now time.Time) (*overviewResult, error) {
+		calls++
+		cancel()
+		return &overviewResult{
+			OK:         false,
+			State:      "active",
+			CapturedAt: now.UTC().Format(time.RFC3339),
+			Actions:    []string{"agent-team queue drain --dry-run"},
+		}, nil
+	}, 0, false, time.Millisecond, false)
+	if err != nil {
+		t.Fatalf("runNextWatch: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+	if !strings.Contains(out.String(), "next: active") || !strings.Contains(out.String(), "agent-team queue drain --dry-run") {
+		t.Fatalf("next watch output:\n%s", out.String())
 	}
 }

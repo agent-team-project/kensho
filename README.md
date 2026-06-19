@@ -145,7 +145,7 @@ agent-team repair [--dry-run] [--preview-routes] [--jobs] [--skip-daemon] [--ski
                                                 # recover common unhealthy orchestration state by starting/reconciling the daemon, retrying dead queue items, and ticking work
 agent-team overview [-w] [--no-clear] [--interval 2s] [--schedule-limit N] [--json]
                                                 # show a read-only operator overview with health, topology, jobs, queue, pipelines, schedules, and action hints
-agent-team next [--team delivery] [--limit N] [--schedule-limit N] [--json]
+agent-team next [-w] [--no-clear] [--interval 2s] [--team delivery] [--limit N] [--schedule-limit N] [--json]
                                                 # print the recommended next operator commands from the current overview
 agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # show/watch daemon health and current instance snapshot

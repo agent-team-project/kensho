@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -17,6 +19,9 @@ func newNextCmd() *cobra.Command {
 		teamName      string
 		limit         int
 		scheduleLimit int
+		watch         bool
+		noClear       bool
+		interval      time.Duration
 		jsonOut       bool
 	)
 	cwd, _ := os.Getwd()
@@ -27,6 +32,10 @@ func newNextCmd() *cobra.Command {
 			"Use --team to scope recommendations to one declared team.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team next: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team next: --limit must be >= 0.")
 				return exitErr(2)
@@ -39,16 +48,25 @@ func newNextCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			now := time.Now().UTC()
-			var overview *overviewResult
-			if strings.TrimSpace(teamName) != "" {
-				overview, err = collectTeamOverview(teamDir, teamName, now, scheduleLimit)
-				if err != nil {
+			collect := func(now time.Time) (*overviewResult, error) {
+				if strings.TrimSpace(teamName) != "" {
+					return collectTeamOverview(teamDir, teamName, now, scheduleLimit)
+				}
+				return collectOverview(teamDir, now, scheduleLimit), nil
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, limit, jsonOut, interval, !noClear && !jsonOut); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
 					return exitErr(1)
 				}
-			} else {
-				overview = collectOverview(teamDir, now, scheduleLimit)
+				return nil
+			}
+			overview, err := collect(time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
+				return exitErr(1)
 			}
 			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverview(overview, limit), jsonOut)
 		},
@@ -57,6 +75,9 @@ func newNextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&teamName, "team", "", "Scope recommendations to this declared team.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
 	return cmd
 }
@@ -113,4 +134,34 @@ func renderNextActionResult(w io.Writer, result nextActionResult, jsonOut bool) 
 		fmt.Fprintf(w, "  ... %d more\n", result.HiddenActions)
 	}
 	return nil
+}
+
+func runNextWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), limit int, jsonOut bool, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		overview, err := collect(time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if err := renderNextActionResult(w, nextActionResultFromOverview(overview, limit), jsonOut); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
