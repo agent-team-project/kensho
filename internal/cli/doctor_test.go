@@ -580,6 +580,62 @@ content_hash = "not-sha256"
 	}
 }
 
+func TestDoctorStrictTemplateDetectsLockDrift(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	lockPath := filepath.Join(tmp, ".agent_team", ".template.lock")
+	body, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(body), "\n")
+	replaced := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "content_hash = ") {
+			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			lines[i] = indent + `content_hash = "sha256:` + strings.Repeat("0", 64) + `"`
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		t.Fatalf("lock missing content_hash:\n%s", body)
+	}
+	if err := os.WriteFile(lockPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	nonStrict := NewRootCmd()
+	nonStrict.SetOut(&bytes.Buffer{})
+	nonStrict.SetErr(&bytes.Buffer{})
+	nonStrict.SetArgs([]string{"doctor", "--target", tmp})
+	if err := nonStrict.Execute(); err != nil {
+		t.Fatalf("non-strict doctor should not fail on drift: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--strict-template", "--target", tmp})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected strict template drift to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Errorf("expected exit 1, got %v", err)
+	}
+	for _, want := range []string{"template lock drift", "agent-team upgrade --check --strict"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Fatalf("strict template stderr missing %q:\n%s", want, errOut.String())
+		}
+	}
+	if strings.Contains(out.String(), "agent-team doctor: OK") {
+		t.Fatalf("strict template drift should not print OK: %s", out.String())
+	}
+}
+
 func containsDoctorMessage(messages []string, needle string) bool {
 	for _, message := range messages {
 		if strings.Contains(message, needle) {

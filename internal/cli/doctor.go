@@ -16,10 +16,11 @@ import (
 
 func newDoctorCmd() *cobra.Command {
 	var (
-		target        string
-		strictDaemon  bool
-		strictRuntime bool
-		jsonOut       bool
+		target         string
+		strictDaemon   bool
+		strictRuntime  bool
+		strictTemplate bool
+		jsonOut        bool
 	)
 	cwd, _ := os.Getwd()
 
@@ -30,17 +31,18 @@ func newDoctorCmd() *cobra.Command {
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
 			"pipeline workflow wiring, the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, target, strictDaemon, strictRuntime, jsonOut)
+			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, jsonOut)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail when the companion agent-teamd binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when the selected LLM runtime binary is not discoverable.")
+	cmd.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail when .template.lock no longer matches its resolved template ref.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, jsonOut bool) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate, jsonOut bool) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return exitErr(2)
@@ -105,8 +107,15 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, j
 		}
 	} else if st.IsDir() {
 		problems = append(problems, fmt.Sprintf("%s is a directory, expected a lock file", lockPath))
-	} else if _, err := template.LoadLock(lockPath); err != nil {
-		problems = append(problems, fmt.Sprintf("%s is not valid template provenance: %v", lockPath, err))
+	} else {
+		lock, err := template.LoadLock(lockPath)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s is not valid template provenance: %v", lockPath, err))
+		} else if strictTemplate {
+			if err := checkDoctorTemplateLock(lock); err != nil {
+				problems = append(problems, err.Error())
+			}
+		}
 	}
 
 	agentsDir := filepath.Join(teamDir, "agents")
@@ -212,6 +221,25 @@ func isPipelineWorkflowFindingCode(code string) bool {
 	default:
 		return false
 	}
+}
+
+func checkDoctorTemplateLock(lock *template.Lock) error {
+	if lock == nil {
+		return fmt.Errorf("template lock is nil")
+	}
+	resolver := newResolver()
+	rt, err := resolver.Resolve(lock.Template.Ref)
+	if err != nil {
+		return fmt.Errorf("template lock ref %q cannot be resolved: %v", lock.Template.Ref, err)
+	}
+	currentHash, err := template.ContentHash(rt)
+	if err != nil {
+		return fmt.Errorf("template lock ref %q cannot be hashed: %v", lock.Template.Ref, err)
+	}
+	if currentHash != lock.Template.ContentHash {
+		return fmt.Errorf("template lock drift: ref %q recorded %s but resolves to %s; run `agent-team upgrade --check --strict` to inspect the drift", lock.Template.Ref, lock.Template.ContentHash, currentHash)
+	}
+	return nil
 }
 
 type doctorResult struct {
