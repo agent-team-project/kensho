@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/spf13/cobra"
 )
@@ -32,6 +33,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 	var (
 		target  string
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -39,6 +41,15 @@ func newIntakeDoctorCmd() *cobra.Command {
 		Short: "Validate the recorded intake delivery ledger.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake doctor: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakeDoctorFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake doctor: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -48,7 +59,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake doctor: %v\n", err)
 				return exitErr(1)
 			}
-			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut); err != nil {
+			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl); err != nil {
 				return err
 			}
 			if !result.OK {
@@ -59,6 +70,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ledger doctor findings as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the intake doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
 }
 
@@ -193,9 +205,12 @@ func validateIntakeDeliveryRecord(line int, delivery intakeDelivery, seenIDs map
 	}
 }
 
-func renderIntakeDoctor(stdout, stderr io.Writer, result intakeDoctorResult, jsonOut bool) error {
+func renderIntakeDoctor(stdout, stderr io.Writer, result intakeDoctorResult, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(result)
+	}
+	if tmpl != nil {
+		return renderIntakeDoctorFormat(stdout, result, tmpl)
 	}
 	if result.OK {
 		fmt.Fprintln(stdout, "agent-team intake doctor: OK")
@@ -220,4 +235,23 @@ func renderIntakeDoctor(stdout, stderr io.Writer, result intakeDoctorResult, jso
 		fmt.Fprintf(stderr, "  warning: %s\n", warning.Message)
 	}
 	return nil
+}
+
+func parseIntakeDoctorFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("intake-doctor-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderIntakeDoctorFormat(w io.Writer, result intakeDoctorResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }

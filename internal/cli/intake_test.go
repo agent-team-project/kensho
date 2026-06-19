@@ -703,6 +703,21 @@ func TestIntakeDoctorReportsLedgerFindings(t *testing.T) {
 	if !hasIntakeDoctorFinding(result.Warnings, "not_replayable") {
 		t.Fatalf("warnings missing not_replayable: %+v", result.Warnings)
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"intake", "doctor", "--target", target, "--format", "{{.OK}} {{.Deliveries}} {{len .Problems}} {{len .Warnings}}"})
+	if err := format.Execute(); err == nil {
+		t.Fatal("expected intake doctor format to fail on ledger problems")
+	}
+	if got, want := formatOut.String(), "false 4 3 1\n"; got != want {
+		t.Fatalf("intake doctor format output = %q, want %q", got, want)
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("intake doctor format stderr = %q", formatErr.String())
+	}
 }
 
 func TestIntakeDoctorOKWithWarnings(t *testing.T) {
@@ -729,6 +744,52 @@ func TestIntakeDoctorOKWithWarnings(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "cannot be replayed") {
 		t.Fatalf("doctor stderr missing warning: %q", stderr.String())
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"intake", "doctor", "--target", target, "--format", "{{.OK}} {{.Summary.Unresolved}} {{len .Warnings}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("intake doctor format warnings should not fail: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := formatOut.String(), "true 1 1\n"; got != want {
+		t.Fatalf("intake doctor warning format output = %q, want %q", got, want)
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("intake doctor warning format stderr = %q", formatErr.String())
+	}
+}
+
+func TestIntakeDoctorFormatValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"intake", "doctor", "--format", "{{.OK}}", "--json"}, "--format cannot be combined"},
+		{[]string{"intake", "doctor", "--format", "{{"}, "invalid --format template"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
