@@ -828,6 +828,16 @@ func pruneQueueItems(teamDir, state string, olderThan time.Duration, now time.Ti
 	if err != nil {
 		return nil, err
 	}
+	matches := make([]*daemon.QueueItem, 0, len(items))
+	for _, item := range items {
+		if queueItemMatchesPrune(item, state, olderThan, now) {
+			matches = append(matches, item)
+		}
+	}
+	return pruneQueueItemMatches(teamDir, matches, dryRun)
+}
+
+func pruneQueueItemMatches(teamDir string, items []*daemon.QueueItem, dryRun bool) ([]queuePruneResult, error) {
 	var dc *daemonClient
 	if !dryRun {
 		client, err := newDaemonClient(teamDir)
@@ -839,7 +849,7 @@ func pruneQueueItems(teamDir, state string, olderThan time.Duration, now time.Ti
 	}
 	results := make([]queuePruneResult, 0, len(items))
 	for _, item := range items {
-		if !queueItemMatchesPrune(item, state, olderThan, now) {
+		if item == nil {
 			continue
 		}
 		result := queuePruneResult{

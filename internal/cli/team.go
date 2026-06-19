@@ -1011,6 +1011,7 @@ func newTeamQueueCmd() *cobra.Command {
 	cmd.AddCommand(newTeamQueueQuarantineCmd())
 	cmd.AddCommand(newTeamQueueRetryCmd())
 	cmd.AddCommand(newTeamQueueDropCmd())
+	cmd.AddCommand(newTeamQueuePruneCmd())
 	return cmd
 }
 
@@ -1543,6 +1544,56 @@ func newTeamQueueDropCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
+	return cmd
+}
+
+func newTeamQueuePruneCmd() *cobra.Command {
+	var (
+		repo      string
+		stateFlag string
+		olderThan time.Duration
+		dryRun    bool
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "prune <team>",
+		Short: "Prune team-owned queue items.",
+		Long:  "Prune team-owned queue items. By default this removes dead-letter items owned by the selected team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue prune: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue prune: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parseQueuePruneFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue prune: %v\n", err)
+				return exitErr(2)
+			}
+			state, err := parseQueuePruneState(stateFlag)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue prune: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			return runTeamQueuePrune(cmd.OutOrStdout(), teamDir, args[0], state, olderThan, time.Now().UTC(), dryRun, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune team-owned items older than this duration based on retry/dead-letter/update time.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned queue items that would be pruned without dropping them.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
 }
 
@@ -4643,6 +4694,24 @@ func runTeamQueueDropAll(w io.Writer, teamDir, name string, filters queueListFil
 		results = append(results, result)
 	}
 	return renderQueueDropResults(w, results, jsonOut, tmpl)
+}
+
+func runTeamQueuePrune(w io.Writer, teamDir, name, state string, olderThan time.Duration, now time.Time, dryRun, jsonOut bool, tmpl *template.Template) error {
+	items, err := collectTeamQueueItems(teamDir, name, queueListFilters{}, now)
+	if err != nil {
+		return err
+	}
+	matches := make([]*daemon.QueueItem, 0, len(items))
+	for _, item := range items {
+		if queueItemMatchesPrune(item, state, olderThan, now) {
+			matches = append(matches, item)
+		}
+	}
+	results, err := pruneQueueItemMatches(teamDir, matches, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueuePruneResults(w, results, jsonOut, tmpl)
 }
 
 func runTeamQueueRetryAll(w io.Writer, teamDir, name string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
