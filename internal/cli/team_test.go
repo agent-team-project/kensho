@@ -99,6 +99,43 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team info = %+v", info)
 	}
 
+	ps := NewRootCmd()
+	psOut, psErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ps.SetOut(psOut)
+	ps.SetErr(psErr)
+	ps.SetArgs([]string{"team", "ps", "delivery", "--repo", root, "--json"})
+	if err := ps.Execute(); err != nil {
+		t.Fatalf("team ps: %v\nstderr=%s", err, psErr.String())
+	}
+	var instanceRows []psJSONRow
+	if err := json.Unmarshal(psOut.Bytes(), &instanceRows); err != nil {
+		t.Fatalf("decode team ps: %v\nbody=%s", err, psOut.String())
+	}
+	if len(instanceRows) != 3 {
+		t.Fatalf("team ps rows = %+v", instanceRows)
+	}
+	instances := map[string]psJSONRow{}
+	for _, row := range instanceRows {
+		instances[row.Instance] = row
+	}
+	if instances["manager"].Phase != "idle" || instances["ticket-manager"].Agent != "ticket-manager" || instances["worker"].Agent != "worker" {
+		t.Fatalf("team ps instances = %+v", instances)
+	}
+
+	psAlias := NewRootCmd()
+	psAliasOut, psAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	psAlias.SetOut(psAliasOut)
+	psAlias.SetErr(psAliasErr)
+	psAlias.SetArgs([]string{"team", "instances", "delivery", "--repo", root})
+	if err := psAlias.Execute(); err != nil {
+		t.Fatalf("team instances alias: %v\nstderr=%s", err, psAliasErr.String())
+	}
+	for _, want := range []string{"INSTANCE", "manager", "ticket-manager", "worker"} {
+		if !strings.Contains(psAliasOut.String(), want) {
+			t.Fatalf("team ps text missing %q:\n%s", want, psAliasOut.String())
+		}
+	}
+
 	jobs := NewRootCmd()
 	jobsOut, jobsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jobs.SetOut(jobsOut)
@@ -231,6 +268,47 @@ instances = ["manager"]
 	}
 }
 
+func TestTeamPsWatchRendersSnapshot(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[teams.delivery]
+instances = ["manager"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out bytes.Buffer
+	if err := runTeamPsWatch(ctx, &out, teamDir, "delivery", time.Millisecond, false, false); err != nil {
+		t.Fatalf("team ps watch: %v", err)
+	}
+	if !strings.Contains(out.String(), "INSTANCE") || !strings.Contains(out.String(), "manager") {
+		t.Fatalf("watch output missing instance rows:\n%s", out.String())
+	}
+
+	jsonCtx, jsonCancel := context.WithCancel(context.Background())
+	jsonCancel()
+	var jsonOut bytes.Buffer
+	if err := runTeamPsWatch(jsonCtx, &jsonOut, teamDir, "delivery", time.Millisecond, true, false); err != nil {
+		t.Fatalf("team ps watch json: %v", err)
+	}
+	var rows []psJSONRow
+	if err := json.Unmarshal(bytes.TrimSpace(jsonOut.Bytes()), &rows); err != nil {
+		t.Fatalf("decode watch json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "manager" {
+		t.Fatalf("watch json rows = %+v", rows)
+	}
+}
+
 func TestTeamStatusRejectsNegativeInterval(t *testing.T) {
 	cmd := NewRootCmd()
 	stderr := &bytes.Buffer{}
@@ -239,6 +317,20 @@ func TestTeamStatusRejectsNegativeInterval(t *testing.T) {
 	cmd.SetArgs([]string{"team", "status", "delivery", "--watch", "--interval", "-1s"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("team status negative interval succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--interval must be >= 0") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestTeamPsRejectsNegativeInterval(t *testing.T) {
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "ps", "delivery", "--watch", "--interval", "-1s"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("team ps negative interval succeeded")
 	}
 	if !strings.Contains(stderr.String(), "--interval must be >= 0") {
 		t.Fatalf("stderr = %q", stderr.String())

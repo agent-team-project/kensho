@@ -26,6 +26,7 @@ func newTeamCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTeamLsCmd())
 	cmd.AddCommand(newTeamShowCmd())
+	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamStatusCmd())
 	return cmd
@@ -84,6 +85,51 @@ func newTeamShowCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team as JSON.")
+	return cmd
+}
+
+func newTeamPsCmd() *cobra.Command {
+	var (
+		repo     string
+		watch    bool
+		noClear  bool
+		interval time.Duration
+		jsonOut  bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "ps <team>",
+		Aliases: []string{"instances"},
+		Short:   "List instances owned by one team.",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team ps: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				clear := !noClear && !jsonOut
+				return runTeamPsWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear)
+			}
+			rows, err := collectTeamPsRows(teamDir, args[0], time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team ps: %v\n", err)
+				return exitErr(1)
+			}
+			return renderTeamPs(cmd.OutOrStdout(), rows, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team instances until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team instances as JSON.")
 	return cmd
 }
 
@@ -295,6 +341,18 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	return snapshot, nil
 }
 
+func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := collectPsRows(teamDir, now)
+	if err != nil {
+		return nil, err
+	}
+	return teamInstanceRows(top, team, rows), nil
+}
+
 func collectTeamJobs(teamDir, name string, status job.Status, sortMode string) ([]*job.Job, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
@@ -316,6 +374,31 @@ func collectTeamJobs(teamDir, name string, status job.Status, sortMode string) (
 	}
 	sortJobs(owned, sortMode)
 	return owned, nil
+}
+
+func runTeamPsWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		rows, err := collectTeamPsRows(teamDir, name, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if err := renderTeamPsWithClear(w, rows, jsonOut, clear); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func runTeamStatusWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
@@ -581,6 +664,20 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool) e
 		fmt.Fprintf(w, "  %s\n", action)
 	}
 	return nil
+}
+
+func renderTeamPs(w io.Writer, rows []instanceRow, jsonOut bool) error {
+	return renderTeamPsWithClear(w, rows, jsonOut, false)
+}
+
+func renderTeamPsWithClear(w io.Writer, rows []instanceRow, jsonOut bool, clear bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(psJSONRows(rows))
+	}
+	if err := writeWatchClear(w, clear); err != nil {
+		return err
+	}
+	return renderPsTable(w, rows)
 }
 
 func renderTeamJobs(w io.Writer, jobs []*job.Job, jsonOut bool, tmpl *template.Template) error {
