@@ -109,9 +109,287 @@ func newJobQueueCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	cmd.AddCommand(newJobQueueQuarantineCmd())
 	cmd.AddCommand(newJobQueueRetryCmd())
 	cmd.AddCommand(newJobQueueDropCmd())
 	cmd.AddCommand(newJobQueuePruneCmd())
+	return cmd
+}
+
+func newJobQueueQuarantineCmd() *cobra.Command {
+	var (
+		repo         string
+		stateFilter  string
+		eventTypes   []string
+		restorable   bool
+		unrestorable bool
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "quarantine <job-id>",
+		Short: "List quarantined queue files owned by one job.",
+		Long:  "List quarantined queue files owned by one durable job.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team job queue quarantine", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, nil, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			items, err := collectJobQueueQuarantineItems(teamDir, j, filters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine: %v\n", err)
+				return exitErr(1)
+			}
+			items = filterQueueQuarantineRestorable(items, restorable, unrestorable)
+			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "Only show quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "Only show quarantined files that cannot be restored.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit quarantined queue files as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
+	cmd.AddCommand(newJobQueueQuarantineShowCmd())
+	cmd.AddCommand(newJobQueueQuarantineRestoreCmd())
+	cmd.AddCommand(newJobQueueQuarantineDropCmd())
+	return cmd
+}
+
+func newJobQueueQuarantineShowCmd() *cobra.Command {
+	var (
+		repo    string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "show <job-id> <quarantine-path>",
+		Short: "Show one job-owned quarantined queue file.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team job queue quarantine show", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			item, err := readJobQueueQuarantineItem(teamDir, j, args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := showQueueQuarantine(teamDir, item.Path)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			result.ScopeJob = j.ID
+			return renderQueueQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the quarantined queue file as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the quarantined queue file with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	return cmd
+}
+
+func newJobQueueQuarantineRestoreCmd() *cobra.Command {
+	var (
+		repo        string
+		restoreAll  bool
+		dryRun      bool
+		force       bool
+		stateFilter string
+		eventTypes  []string
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "restore <job-id> [quarantine-path]",
+		Short: "Restore job-owned quarantined queue files.",
+		Long:  "Restore one job-owned quarantined queue file by path, or restore a filtered batch of job-owned restorable files with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team job queue quarantine restore", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, nil, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: %v\n", err)
+				return exitErr(2)
+			}
+			if restoreAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: --all requires exactly one job and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+				if err != nil {
+					return err
+				}
+				items, err := collectJobQueueQuarantineItems(teamDir, j, filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterQueueQuarantineRestorable(items, true, false)
+				results, err := restoreQueueQuarantineItems(teamDir, items, dryRun, force)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueQuarantineRestoreMany(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: requires <job-id> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if !filters.empty() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: filters require --all.")
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if _, err := readJobQueueQuarantineItem(teamDir, j, args[1]); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := restoreQueueQuarantine(teamDir, args[1], dryRun, force)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching job-owned restorable quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active queue file with the same restore path.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	return cmd
+}
+
+func newJobQueueQuarantineDropCmd() *cobra.Command {
+	var (
+		repo         string
+		dropAll      bool
+		dryRun       bool
+		stateFilter  string
+		eventTypes   []string
+		restorable   bool
+		unrestorable bool
+		olderThan    time.Duration
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drop <job-id> [quarantine-path]",
+		Short: "Drop job-owned quarantined queue files after inspection.",
+		Long:  "Drop one job-owned quarantined queue file by path, or drop a filtered job-owned batch with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team job queue quarantine drop", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, nil, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: %v\n", err)
+				return exitErr(2)
+			}
+			if dropAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: --all requires exactly one job and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+				if err != nil {
+					return err
+				}
+				items, err := collectJobQueueQuarantineItems(teamDir, j, filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterQueueQuarantineRestorable(items, restorable, unrestorable)
+				results, err := dropQueueQuarantineItems(teamDir, items, dryRun, olderThan, unrestorable, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueQuarantineDrop(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: requires <job-id> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if olderThan > 0 || restorable || unrestorable || !filters.empty() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: filters require --all.")
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			item, err := readJobQueueQuarantineItem(teamDir, j, args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := dropQueueQuarantineItem(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), item, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching job-owned quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "With --all, only drop quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "With --all, only drop quarantined files that cannot be restored.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "With --all, only drop files older than this duration based on file mtime.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
 
@@ -4088,6 +4366,61 @@ func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListF
 	}
 	renderQueueTable(w, filtered)
 	return nil
+}
+
+func collectJobQueueQuarantineItems(teamDir string, j *job.Job, filters queueListFilters) ([]queueQuarantineItem, error) {
+	items, err := listQueueQuarantine(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	items = jobQueueQuarantineItems(j, items)
+	return filterQueueQuarantineItems(items, filters), nil
+}
+
+func readJobQueueQuarantineItem(teamDir string, j *job.Job, rawPath string) (queueQuarantineItem, error) {
+	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	rel, err := normalizeQueueQuarantinePath(rawPath)
+	if err != nil {
+		return queueQuarantineItem{}, err
+	}
+	item, err := inspectQueueQuarantineFile(queueRoot, rel)
+	if err != nil {
+		return queueQuarantineItem{}, err
+	}
+	if !queueQuarantineItemMatchesJob(item, j) {
+		id := ""
+		if j != nil {
+			id = j.ID
+		}
+		return queueQuarantineItem{}, fmt.Errorf("quarantined queue file %q is not owned by job %q", item.Path, id)
+	}
+	return item, nil
+}
+
+func jobQueueQuarantineItems(j *job.Job, items []queueQuarantineItem) []queueQuarantineItem {
+	if j == nil {
+		return nil
+	}
+	out := make([]queueQuarantineItem, 0, len(items))
+	for _, item := range items {
+		if queueQuarantineItemMatchesJob(item, j) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func queueQuarantineItemMatchesJob(item queueQuarantineItem, j *job.Job) bool {
+	if j == nil {
+		return false
+	}
+	if id := job.NormalizeID(item.Job); id != "" && id == j.ID {
+		return true
+	}
+	if strings.TrimSpace(j.Instance) != "" && item.InstanceID == j.Instance {
+		return true
+	}
+	return false
 }
 
 func filteredQueueItemsForJob(teamDir string, j *job.Job, filters queueListFilters, limit int, now time.Time) ([]*daemon.QueueItem, error) {

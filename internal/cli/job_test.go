@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,15 @@ func mustNewJob(t *testing.T, ticket, target string) *job.Job {
 		t.Fatalf("job.New: %v", err)
 	}
 	return j
+}
+
+func queueQuarantineItemIDs(items []queueQuarantineItem) string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.ID)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 func TestJobCreateListShowClose(t *testing.T) {
@@ -793,6 +803,166 @@ func TestJobQueueRetryDropScopesOwnedItems(t *testing.T) {
 	}
 	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-dead"); err != nil || item.State != daemon.QueueStateDead {
 		t.Fatalf("unrelated drop item changed=%+v err=%v", item, err)
+	}
+}
+
+func TestJobQueueQuarantineScopesOwnedFiles(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	j, err := job.New("SQU-123", "worker", "recover quarantined work", time.Now())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Instance = "worker-squ-123"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	stamp := "20260619T010203.000000000Z"
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-job-quarantined-restore",
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-123",
+			Payload:    map[string]any{"job_id": "squ-123", "ticket": "SQU-123", "target": "worker"},
+			QueuedAt:   now.Add(-2 * time.Hour),
+			UpdatedAt:  now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-job-quarantined-drop",
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-123",
+			Payload:        map[string]any{"job_id": "squ-123", "ticket": "SQU-123", "target": "worker"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-3 * time.Hour),
+			DeadLetteredAt: now.Add(-3 * time.Hour),
+		},
+		{
+			ID:             "q-other-quarantined",
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-124",
+			Payload:        map[string]any{"job_id": "squ-124", "ticket": "SQU-124", "target": "worker"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now.Add(-time.Hour),
+			DeadLetteredAt: now.Add(-time.Hour),
+		},
+	} {
+		state := daemon.QueueStateDead
+		if item.ID == "q-job-quarantined-restore" {
+			state = daemon.QueueStatePending
+		}
+		writeQuarantinedQueueItem(t, teamDir, stamp, state, item)
+	}
+	restorePath := filepath.Join("quarantine", stamp, daemon.QueueStatePending, "q-job-quarantined-restore.json")
+	dropPath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-job-quarantined-drop.json")
+	otherPath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-other-quarantined.json")
+	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"job", "queue", "quarantine", "SQU-123", "--repo", tmp, "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("job queue quarantine list: %v\nstderr=%s", err, listErr.String())
+	}
+	var listed []queueQuarantineItem
+	if err := json.Unmarshal(listOut.Bytes(), &listed); err != nil {
+		t.Fatalf("decode job quarantine list: %v\nbody=%s", err, listOut.String())
+	}
+	if len(listed) != 2 || queueQuarantineItemIDs(listed) != "q-job-quarantined-drop,q-job-quarantined-restore" {
+		t.Fatalf("listed job quarantined items = %+v", listed)
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"job", "queue", "quarantine", "show", "SQU-123", restorePath, "--repo", tmp})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("job queue quarantine show: %v\nstderr=%s", err, showErr.String())
+	}
+	for _, want := range []string{"q-job-quarantined-restore", "Actions:", "agent-team job queue quarantine restore squ-123", "Payload:", "SQU-123"} {
+		if !strings.Contains(showOut.String(), want) {
+			t.Fatalf("show output missing %q:\n%s", want, showOut.String())
+		}
+	}
+
+	restoreAllDry := NewRootCmd()
+	restoreAllDryOut, restoreAllDryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restoreAllDry.SetOut(restoreAllDryOut)
+	restoreAllDry.SetErr(restoreAllDryErr)
+	restoreAllDry.SetArgs([]string{"job", "queue", "quarantine", "restore", "SQU-123", "--repo", tmp, "--all", "--state", "pending", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
+	if err := restoreAllDry.Execute(); err != nil {
+		t.Fatalf("job queue quarantine restore --all dry-run: %v\nstderr=%s", err, restoreAllDryErr.String())
+	}
+	if got, want := restoreAllDryOut.String(), "q-job-quarantined-restore would_restore true\n"; got != want {
+		t.Fatalf("restore --all format = %q, want %q", got, want)
+	}
+
+	restore := NewRootCmd()
+	restoreOut, restoreErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restore.SetOut(restoreOut)
+	restore.SetErr(restoreErr)
+	restore.SetArgs([]string{"job", "queue", "quarantine", "restore", "SQU-123", restorePath, "--repo", tmp, "--json"})
+	if err := restore.Execute(); err != nil {
+		t.Fatalf("job queue quarantine restore: %v\nstderr=%s", err, restoreErr.String())
+	}
+	var restored queueQuarantineRestoreResult
+	if err := json.Unmarshal(restoreOut.Bytes(), &restored); err != nil {
+		t.Fatalf("decode restore: %v\nbody=%s", err, restoreOut.String())
+	}
+	if restored.ID != "q-job-quarantined-restore" || restored.Action != "restored" {
+		t.Fatalf("restored = %+v", restored)
+	}
+	if _, err := os.Stat(filepath.Join(queueRoot, restorePath)); !os.IsNotExist(err) {
+		t.Fatalf("restore source still exists: %v", err)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-quarantined-restore"); err != nil {
+		t.Fatalf("restored active item missing: %v", err)
+	}
+
+	dropOther := NewRootCmd()
+	dropOtherOut, dropOtherErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dropOther.SetOut(dropOtherOut)
+	dropOther.SetErr(dropOtherErr)
+	dropOther.SetArgs([]string{"job", "queue", "quarantine", "drop", "SQU-123", otherPath, "--repo", tmp, "--dry-run"})
+	if err := dropOther.Execute(); err == nil {
+		t.Fatalf("job queue quarantine drop unrelated file unexpectedly succeeded: stdout=%s", dropOtherOut.String())
+	}
+	if !strings.Contains(dropOtherErr.String(), "not owned by job") {
+		t.Fatalf("drop unrelated stderr = %q", dropOtherErr.String())
+	}
+
+	drop := NewRootCmd()
+	dropOut, dropErr := &bytes.Buffer{}, &bytes.Buffer{}
+	drop.SetOut(dropOut)
+	drop.SetErr(dropErr)
+	drop.SetArgs([]string{"job", "queue", "quarantine", "drop", "SQU-123", dropPath, "--repo", tmp, "--json"})
+	if err := drop.Execute(); err != nil {
+		t.Fatalf("job queue quarantine drop: %v\nstderr=%s", err, dropErr.String())
+	}
+	var dropped []queueQuarantineDropResult
+	if err := json.Unmarshal(dropOut.Bytes(), &dropped); err != nil {
+		t.Fatalf("decode drop: %v\nbody=%s", err, dropOut.String())
+	}
+	if len(dropped) != 1 || dropped[0].ID != "q-job-quarantined-drop" || dropped[0].Action != "dropped" {
+		t.Fatalf("dropped = %+v", dropped)
+	}
+	if _, err := os.Stat(filepath.Join(queueRoot, dropPath)); !os.IsNotExist(err) {
+		t.Fatalf("drop source still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(queueRoot, otherPath)); err != nil {
+		t.Fatalf("unrelated quarantine file changed: %v", err)
 	}
 }
 

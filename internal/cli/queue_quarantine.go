@@ -57,6 +57,7 @@ type queueQuarantineDropResult struct {
 type queueQuarantineShowResult struct {
 	queueQuarantineItem
 	Team      string            `json:"team,omitempty"`
+	ScopeJob  string            `json:"scope_job,omitempty"`
 	QueueItem *daemon.QueueItem `json:"queue_item,omitempty"`
 }
 
@@ -853,7 +854,9 @@ func queueQuarantineShowActions(result queueQuarantineShowResult) []string {
 		return nil
 	}
 	var prefix string
-	if result.Team != "" {
+	if result.ScopeJob != "" {
+		prefix = fmt.Sprintf("agent-team job queue quarantine %%s %s %s", result.ScopeJob, result.Path)
+	} else if result.Team != "" {
 		prefix = fmt.Sprintf("agent-team team queue quarantine %%s %s %s", result.Team, result.Path)
 	} else {
 		prefix = fmt.Sprintf("agent-team queue quarantine %%s %s", result.Path)
