@@ -1606,6 +1606,162 @@ func TestTeamTickRejectsInvalidLoopFlags(t *testing.T) {
 	}
 }
 
+func TestTeamRepairScopesQueueAndHealth(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.other]
+agent = "other"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+
+[teams.platform]
+instances = ["other"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	teamJob := &job.Job{
+		ID:         "squ-300",
+		Ticket:     "SQU-300",
+		Target:     "worker",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastStatus: "worker failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusFailed},
+		},
+	}
+	if err := job.Write(teamDir, teamJob); err != nil {
+		t.Fatalf("write team job: %v", err)
+	}
+	otherJob := &job.Job{
+		ID:         "oth-300",
+		Ticket:     "OTH-300",
+		Target:     "other",
+		Status:     job.StatusFailed,
+		LastStatus: "other failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := job.Write(teamDir, otherJob); err != nil {
+		t.Fatalf("write other job: %v", err)
+	}
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:             "q-team-repair",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-300",
+			Payload:        map[string]any{"job_id": "squ-300", "target": "worker", "ticket": "SQU-300"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now,
+			DeadLetteredAt: now,
+		},
+		{
+			ID:             "q-other-repair",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "other",
+			InstanceID:     "other-oth-300",
+			Payload:        map[string]any{"job_id": "oth-300", "target": "other", "ticket": "OTH-300"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now,
+			DeadLetteredAt: now,
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--jobs", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("team repair dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview teamRepairResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode team repair dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if preview.Team.Name != "delivery" || !preview.DryRun || preview.Daemon.Action != "skipped" || preview.Queue.Action != "would_retry" {
+		t.Fatalf("team repair preview = %+v", preview)
+	}
+	if preview.HealthBefore == nil || preview.HealthBefore.Queue.Dead != 1 || preview.HealthBefore.Jobs == nil || preview.HealthBefore.Jobs.Summary.Total != 1 {
+		t.Fatalf("team repair health before = %+v", preview.HealthBefore)
+	}
+	if len(preview.Queue.Results) != 1 || preview.Queue.Results[0].ID != "q-team-repair" || preview.Queue.Results[0].Action != "would_retry" {
+		t.Fatalf("team repair queue preview = %+v", preview.Queue.Results)
+	}
+	if strings.Contains(dryOut.String(), "q-other-repair") || strings.Contains(dryOut.String(), "oth-300") {
+		t.Fatalf("team repair dry-run leaked unrelated work:\n%s", dryOut.String())
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-team-repair"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("dry-run changed team queue item=%+v err=%v", item, err)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--jobs"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team repair text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Team: delivery", "Health before:", "q-team-repair", "pipeline_failed_step"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("team repair text missing %q:\n%s", want, textOut.String())
+		}
+	}
+	if strings.Contains(textOut.String(), "q-other-repair") || strings.Contains(textOut.String(), "oth-300") {
+		t.Fatalf("team repair text leaked unrelated work:\n%s", textOut.String())
+	}
+
+	run := NewRootCmd()
+	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
+	run.SetOut(runOut)
+	run.SetErr(runErr)
+	run.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--skip-daemon", "--skip-tick", "--json"})
+	if err := run.Execute(); err != nil {
+		t.Fatalf("team repair retry: %v\nstderr=%s", err, runErr.String())
+	}
+	var repaired teamRepairResult
+	if err := json.Unmarshal(runOut.Bytes(), &repaired); err != nil {
+		t.Fatalf("decode team repair retry: %v\nbody=%s", err, runOut.String())
+	}
+	if repaired.DryRun || repaired.Queue.Action != "retried" || len(repaired.Queue.Results) != 1 || repaired.Queue.Results[0].ID != "q-team-repair" {
+		t.Fatalf("team repair retry result = %+v", repaired)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-team-repair"); err != nil || item.State != daemon.QueueStatePending || item.LastError != "" {
+		t.Fatalf("team queue item not retried=%+v err=%v", item, err)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-repair"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("unrelated queue item changed=%+v err=%v", item, err)
+	}
+}
+
 func setupTeamScopedPlanFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

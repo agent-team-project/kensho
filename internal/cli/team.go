@@ -40,6 +40,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamEventsCmd())
 	cmd.AddCommand(newTeamSendCmd())
 	cmd.AddCommand(newTeamTickCmd())
+	cmd.AddCommand(newTeamRepairCmd())
 	cmd.AddCommand(newTeamPipelinesCmd())
 	cmd.AddCommand(newTeamSchedulesCmd())
 	cmd.AddCommand(newTeamHealthCmd())
@@ -981,6 +982,105 @@ func newTeamTickCmd() *cobra.Command {
 	return cmd
 }
 
+func newTeamRepairCmd() *cobra.Command {
+	var (
+		repo          string
+		workspace     string
+		limit         int
+		dryRun        bool
+		previewRoutes bool
+		jsonOut       bool
+		skipDaemon    bool
+		skipQueue     bool
+		skipTick      bool
+		includeJobs   bool
+		untilIdle     bool
+		readyTimeout  time.Duration
+		interval      time.Duration
+		maxCycles     int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "repair <team>",
+		Short: "Recover unhealthy orchestration state for one team.",
+		Long: "Recover unhealthy orchestration state scoped to one team: ensure the daemon is ready, retry team-owned dead-letter queue items, " +
+			"and run a scoped team tick. Use --dry-run to preview.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if readyTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --ready-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if maxCycles <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --max-cycles must be > 0.")
+				return exitErr(2)
+			}
+			if cmd.Flags().Changed("max-cycles") && !untilIdle {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --max-cycles requires --until-idle.")
+				return exitErr(2)
+			}
+			if untilIdle && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --until-idle cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if untilIdle && skipTick {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --until-idle cannot be combined with --skip-tick.")
+				return exitErr(2)
+			}
+			if previewRoutes && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --preview-routes requires --dry-run.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			result, err := runTeamRepair(cmd, repo, teamDir, args[0], teamRepairOptions{
+				Workspace:     workspace,
+				Limit:         limit,
+				DryRun:        dryRun,
+				PreviewRoutes: previewRoutes,
+				SkipDaemon:    skipDaemon,
+				SkipQueue:     skipQueue,
+				SkipTick:      skipTick,
+				IncludeJobs:   includeJobs,
+				UntilIdle:     untilIdle,
+				ReadyTimeout:  readyTimeout,
+				Interval:      interval,
+				MaxCycles:     maxCycles,
+			})
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team repair: %v\n", err)
+				return exitErr(1)
+			}
+			return renderTeamRepairResult(cmd.OutOrStdout(), result, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for pipeline steps during the scoped team tick: auto, worktree, or repo.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many team dead-letter queue items and advance at most this many ready team pipeline jobs; 0 means no limit.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team repair actions without mutating state or starting the daemon.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready team pipeline steps.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().BoolVar(&skipDaemon, "skip-daemon", false, "Do not start or reconcile the daemon.")
+	cmd.Flags().BoolVar(&skipQueue, "skip-queue", false, "Do not retry team-owned dead-letter queue items.")
+	cmd.Flags().BoolVar(&skipTick, "skip-tick", false, "Do not run a scoped team tick after queue retry.")
+	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include team-owned durable job and pipeline health.")
+	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.")
+	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Delay between --until-idle scoped team tick cycles.")
+	cmd.Flags().IntVar(&maxCycles, "max-cycles", 20, "With --until-idle, stop after this many cycles if work keeps appearing.")
+	return cmd
+}
+
 func newTeamUpCmd() *cobra.Command {
 	var (
 		repo         string
@@ -1496,6 +1596,38 @@ type teamTickUntilIdleResult struct {
 	Idle      bool              `json:"idle"`
 	HitLimit  bool              `json:"hit_limit,omitempty"`
 	Cycles    []*teamTickResult `json:"cycles"`
+}
+
+type teamRepairOptions struct {
+	Workspace     string
+	Limit         int
+	DryRun        bool
+	PreviewRoutes bool
+	SkipDaemon    bool
+	SkipQueue     bool
+	SkipTick      bool
+	IncludeJobs   bool
+	UntilIdle     bool
+	ReadyTimeout  time.Duration
+	Interval      time.Duration
+	MaxCycles     int
+}
+
+type teamRepairResult struct {
+	Team         teamInfo           `json:"team"`
+	DryRun       bool               `json:"dry_run,omitempty"`
+	HealthBefore *healthResult      `json:"health_before,omitempty"`
+	Daemon       repairStepResult   `json:"daemon"`
+	Queue        repairQueueStep    `json:"queue"`
+	Tick         teamRepairTickStep `json:"tick"`
+	HealthAfter  *healthResult      `json:"health_after,omitempty"`
+}
+
+type teamRepairTickStep struct {
+	Action    string                   `json:"action"`
+	Reason    string                   `json:"reason,omitempty"`
+	Result    *teamTickResult          `json:"result,omitempty"`
+	UntilIdle *teamTickUntilIdleResult `json:"until_idle,omitempty"`
 }
 
 func loadTeamInfos(teamDir string) ([]teamInfo, error) {
@@ -2395,9 +2527,17 @@ func runTeamQueueDropAll(w io.Writer, teamDir, name string, filters queueListFil
 }
 
 func runTeamQueueRetryAll(w io.Writer, teamDir, name string, filters queueListFilters, limit int, dryRun, jsonOut bool) error {
-	matches, err := collectTeamQueueItems(teamDir, name, filters, time.Now().UTC())
+	results, err := teamQueueRetryResults(teamDir, name, filters, limit, dryRun)
 	if err != nil {
 		return err
+	}
+	return renderQueueRetryResults(w, results, jsonOut)
+}
+
+func teamQueueRetryResults(teamDir, name string, filters queueListFilters, limit int, dryRun bool) ([]queueRetryResult, error) {
+	matches, err := collectTeamQueueItems(teamDir, name, filters, time.Now().UTC())
+	if err != nil {
+		return nil, err
 	}
 	if limit > 0 && len(matches) > limit {
 		matches = matches[:limit]
@@ -2408,7 +2548,7 @@ func runTeamQueueRetryAll(w io.Writer, teamDir, name string, filters queueListFi
 		if err == nil {
 			dc = client
 		} else if !errors.Is(err, errDaemonNotRunning) {
-			return err
+			return nil, err
 		}
 	}
 	results := make([]queueRetryResult, 0, len(matches))
@@ -2426,7 +2566,7 @@ func runTeamQueueRetryAll(w io.Writer, teamDir, name string, filters queueListFi
 		case dc != nil:
 			outcome, err := dc.QueueRetry(item.ID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			result.Action = outcome.Action
 			result.Instance = outcome.Instance
@@ -2434,13 +2574,13 @@ func runTeamQueueRetryAll(w io.Writer, teamDir, name string, filters queueListFi
 			result.Reason = outcome.Reason
 		default:
 			if err := daemon.ResetQueueItemForRetry(daemon.DaemonRoot(teamDir), item); err != nil {
-				return err
+				return nil, err
 			}
 			result.Action = "reset"
 		}
 		results = append(results, result)
 	}
-	return renderQueueRetryResults(w, results, jsonOut)
+	return results, nil
 }
 
 func runTeamQueueList(w io.Writer, teamDir, name string, filters queueListFilters, jsonOut bool, tmpl *template.Template) error {
@@ -2810,6 +2950,124 @@ func teamTickResultIsIdle(result *teamTickResult) bool {
 	return tickResultIsIdle(&result.Tick)
 }
 
+func runTeamRepair(cmd *cobra.Command, repo, teamDir, name string, opts teamRepairOptions) (*teamRepairResult, error) {
+	if opts.MaxCycles <= 0 {
+		opts.MaxCycles = 1
+	}
+	_, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	result := &teamRepairResult{
+		Team:   teamInfoFromTopology(team),
+		DryRun: opts.DryRun,
+	}
+	before, err := collectTeamHealth(teamDir, name, time.Now().UTC(), opts.IncludeJobs)
+	if err != nil {
+		return nil, err
+	}
+	result.HealthBefore = before.Health
+
+	beforeDaemon := collectDaemonStatus(teamDir)
+	result.Daemon = repairDaemonStepResult(beforeDaemon, repairOptions{
+		DryRun:     opts.DryRun,
+		SkipDaemon: opts.SkipDaemon,
+	})
+	if !opts.SkipDaemon && !opts.DryRun {
+		if err := ensureDaemonReadyWithTimeout(cmd, repo, true, opts.ReadyTimeout); err != nil {
+			return nil, err
+		}
+		dc, err := newDaemonClient(teamDir)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := dc.TopologyReload(); err != nil {
+			return nil, fmt.Errorf("reload topology: %w", err)
+		}
+		rec, err := dc.Reconcile()
+		if err != nil {
+			return nil, err
+		}
+		afterDaemon := collectDaemonStatus(teamDir)
+		result.Daemon.Action = "reconciled"
+		if !beforeDaemon.Running {
+			result.Daemon.Action = "started"
+		}
+		result.Daemon.Running = afterDaemon.Running
+		result.Daemon.Ready = afterDaemon.Ready
+		result.Daemon.PID = afterDaemon.PID
+		result.Daemon.Reconcile = rec
+	}
+
+	if opts.SkipQueue {
+		result.Queue = repairQueueStep{Action: "skipped", Reason: "--skip-queue set"}
+	} else {
+		filters, err := parseQueueListFilters(daemon.QueueStateDead, nil, nil, nil, false, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		retries, err := teamQueueRetryResults(teamDir, name, filters, opts.Limit, opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		result.Queue = repairQueueStep{Action: "retried", Results: retries}
+		if opts.DryRun {
+			result.Queue.Action = "would_retry"
+		}
+		if len(retries) == 0 {
+			result.Queue.Action = "none"
+		}
+	}
+
+	result.Tick = runTeamRepairTickStep(cmd, teamDir, name, opts)
+	if result.Tick.Action == "error" {
+		return nil, fmt.Errorf("tick: %s", result.Tick.Reason)
+	}
+
+	if !opts.DryRun {
+		after, err := collectTeamHealth(teamDir, name, time.Now().UTC(), opts.IncludeJobs)
+		if err != nil {
+			return nil, err
+		}
+		result.HealthAfter = after.Health
+	}
+	return result, nil
+}
+
+func runTeamRepairTickStep(cmd *cobra.Command, teamDir, name string, opts teamRepairOptions) teamRepairTickStep {
+	if opts.SkipTick {
+		return teamRepairTickStep{Action: "skipped", Reason: "--skip-tick set"}
+	}
+	status := collectDaemonStatus(teamDir)
+	if !opts.DryRun && (!status.Running || !status.Ready) {
+		return teamRepairTickStep{Action: "skipped", Reason: "daemon is not running"}
+	}
+	if opts.UntilIdle {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		until, err := runTeamTickUntilIdle(ctx, cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{}, opts.MaxCycles, opts.Interval)
+		if err != nil {
+			return teamRepairTickStep{Action: "error", Reason: err.Error()}
+		}
+		action := "until_idle"
+		if until.HitLimit {
+			action = "hit_limit"
+		}
+		return teamRepairTickStep{Action: action, UntilIdle: until}
+	}
+	tick, err := runTeamTick(cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes})
+	if err != nil {
+		return teamRepairTickStep{Action: "error", Reason: err.Error()}
+	}
+	action := "tick"
+	if opts.DryRun {
+		action = "would_tick"
+	}
+	return teamRepairTickStep{Action: action, Result: tick}
+}
+
 func previewTeamScheduleFire(teamDir string, team *topology.Team, now time.Time) (*daemon.ScheduleFireResult, error) {
 	schedules, err := loadScheduleInfos(teamDir)
 	if err != nil {
@@ -2972,6 +3230,55 @@ func renderTeamTickUntilIdleResult(w io.Writer, result *teamTickUntilIdleResult,
 		fmt.Fprintf(w, "team tick: hit max cycles (%d) before idle\n", result.CyclesRun)
 	} else {
 		fmt.Fprintf(w, "team tick: stopped after %d cycle(s)\n", result.CyclesRun)
+	}
+	return nil
+}
+
+func renderTeamRepairResult(w io.Writer, result *teamRepairResult, jsonOut bool) error {
+	if result == nil {
+		result = &teamRepairResult{}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	fmt.Fprintf(w, "Team: %s\n", result.Team.Name)
+	if result.Team.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", result.Team.Description)
+	}
+	if result.DryRun {
+		fmt.Fprintln(w, "Repair dry-run: true")
+	} else {
+		fmt.Fprintln(w, "Repair dry-run: false")
+	}
+	if result.HealthBefore != nil {
+		fmt.Fprintf(w, "Health before: %s\n", repairHealthState(result.HealthBefore))
+		renderRepairHealthActions(w, result.HealthBefore)
+	}
+	renderRepairDaemonStep(w, result.Daemon)
+	fmt.Fprintln(w)
+	renderRepairQueueStep(w, result.Queue)
+	fmt.Fprintln(w)
+	if err := renderTeamRepairTickStep(w, result.Tick); err != nil {
+		return err
+	}
+	if result.HealthAfter != nil {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Health after: %s\n", repairHealthState(result.HealthAfter))
+	}
+	return nil
+}
+
+func renderTeamRepairTickStep(w io.Writer, step teamRepairTickStep) error {
+	fmt.Fprintf(w, "Tick: %s", emptyDash(step.Action))
+	if step.Reason != "" {
+		fmt.Fprintf(w, " (%s)", step.Reason)
+	}
+	fmt.Fprintln(w)
+	if step.Result != nil {
+		return renderTeamTickResult(w, step.Result, false, nil)
+	}
+	if step.UntilIdle != nil {
+		return renderTeamTickUntilIdleResult(w, step.UntilIdle, false, nil)
 	}
 	return nil
 }
