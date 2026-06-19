@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -107,6 +109,172 @@ func newJobQueueCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	cmd.AddCommand(newJobQueueRetryCmd())
+	cmd.AddCommand(newJobQueueDropCmd())
+	return cmd
+}
+
+func newJobQueueRetryCmd() *cobra.Command {
+	var (
+		repo        string
+		jsonOut     bool
+		format      string
+		retryAll    bool
+		dryRun      bool
+		stateFilter string
+		eventTypes  []string
+		readyOnly   bool
+		limit       int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "retry <job-id> [id]",
+		Short: "Retry queue items owned by one job.",
+		Long:  "Retry one job-owned queue item by id, or retry a filtered job-owned batch with --all. Batch retries default to dead-letter items.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue retry: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseQueueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue retry: %v\n", err)
+				return exitErr(2)
+			}
+			if retryAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue retry: --all requires exactly one job and cannot be combined with an id.")
+					return exitErr(2)
+				}
+				if limit < 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue retry: --limit must be >= 0.")
+					return exitErr(2)
+				}
+				effectiveState := strings.TrimSpace(stateFilter)
+				if effectiveState == "" {
+					effectiveState = daemon.QueueStateDead
+					if readyOnly {
+						effectiveState = daemon.QueueStatePending
+					}
+				}
+				filters, err := parseQueueListFilters(effectiveState, nil, eventTypes, nil, readyOnly, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue retry: %v\n", err)
+					return exitErr(2)
+				}
+				teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+				if err != nil {
+					return err
+				}
+				return runJobQueueRetryAll(cmd.OutOrStdout(), teamDir, j, filters, limit, dryRun, jsonOut, tmpl)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue retry: requires <job-id> and one id unless --all is set.")
+				return exitErr(2)
+			}
+			if stateFilter != "" || len(eventTypes) > 0 || readyOnly || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue retry: --state, --event-type, --ready, and --limit require --all.")
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			return runJobQueueRetryOne(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, j, args[1], dryRun, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching job-owned queue items instead of one id.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching job-owned queue items without retrying them.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only retry pending queue items whose next retry is due now.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching queue items; 0 means no limit.")
+	return cmd
+}
+
+func newJobQueueDropCmd() *cobra.Command {
+	var (
+		repo        string
+		jsonOut     bool
+		format      string
+		dropAll     bool
+		dryRun      bool
+		stateFilter string
+		eventTypes  []string
+		readyOnly   bool
+		limit       int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drop <job-id> [id]",
+		Short: "Drop queue items owned by one job.",
+		Long:  "Drop one job-owned queue item by id, or drop a filtered job-owned batch with --all. Batch drops default to dead-letter items.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue drop: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseQueueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue drop: %v\n", err)
+				return exitErr(2)
+			}
+			if dropAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue drop: --all requires exactly one job and cannot be combined with an id.")
+					return exitErr(2)
+				}
+				if limit < 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue drop: --limit must be >= 0.")
+					return exitErr(2)
+				}
+				effectiveState := strings.TrimSpace(stateFilter)
+				if effectiveState == "" {
+					effectiveState = daemon.QueueStateDead
+					if readyOnly {
+						effectiveState = daemon.QueueStatePending
+					}
+				}
+				filters, err := parseQueueListFilters(effectiveState, nil, eventTypes, nil, readyOnly, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue drop: %v\n", err)
+					return exitErr(2)
+				}
+				teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+				if err != nil {
+					return err
+				}
+				return runJobQueueDropAll(cmd.OutOrStdout(), teamDir, j, filters, limit, dryRun, jsonOut, tmpl)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue drop: requires <job-id> and one id unless --all is set.")
+				return exitErr(2)
+			}
+			if stateFilter != "" || len(eventTypes) > 0 || readyOnly || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue drop: --state, --event-type, --ready, and --limit require --all.")
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			return runJobQueueDropOne(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, j, args[1], dryRun, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching job-owned queue items instead of one id.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching job-owned queue items without dropping them.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
 
@@ -3869,6 +4037,82 @@ func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListF
 	}
 	renderQueueTable(w, filtered)
 	return nil
+}
+
+func filteredQueueItemsForJob(teamDir string, j *job.Job, filters queueListFilters, limit int, now time.Time) ([]*daemon.QueueItem, error) {
+	items, err := queueItemsForJob(teamDir, j)
+	if err != nil {
+		return nil, err
+	}
+	matches := filterQueueItems(items, filters.withNow(now))
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
+	}
+	return matches, nil
+}
+
+func runJobQueueRetryAll(w io.Writer, teamDir string, j *job.Job, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+	matches, err := filteredQueueItemsForJob(teamDir, j, filters, limit, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	results, err := retryQueueItemMatches(teamDir, matches, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueueRetryResults(w, results, jsonOut, tmpl)
+}
+
+func runJobQueueDropAll(w io.Writer, teamDir string, j *job.Job, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+	matches, err := filteredQueueItemsForJob(teamDir, j, filters, limit, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	results, err := dropQueueItemMatches(teamDir, matches, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueueDropResults(w, results, jsonOut, tmpl)
+}
+
+func readJobQueueItem(cmdErr io.Writer, teamDir string, j *job.Job, id, verb string) (*daemon.QueueItem, error) {
+	item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(cmdErr, "agent-team job queue %s: queue item %q not found.\n", verb, id)
+			return nil, exitErr(2)
+		}
+		return nil, err
+	}
+	if !queueItemMatchesJob(item, j) {
+		fmt.Fprintf(cmdErr, "agent-team job queue %s: queue item %q is not owned by job %q.\n", verb, id, j.ID)
+		return nil, exitErr(2)
+	}
+	return item, nil
+}
+
+func runJobQueueRetryOne(w, cmdErr io.Writer, teamDir string, j *job.Job, id string, dryRun, jsonOut bool, tmpl *template.Template) error {
+	item, err := readJobQueueItem(cmdErr, teamDir, j, id, "retry")
+	if err != nil {
+		return err
+	}
+	results, err := retryQueueItemMatches(teamDir, []*daemon.QueueItem{item}, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueueRetryResults(w, results, jsonOut, tmpl)
+}
+
+func runJobQueueDropOne(w, cmdErr io.Writer, teamDir string, j *job.Job, id string, dryRun, jsonOut bool, tmpl *template.Template) error {
+	item, err := readJobQueueItem(cmdErr, teamDir, j, id, "drop")
+	if err != nil {
+		return err
+	}
+	results, err := dropQueueItemMatches(teamDir, []*daemon.QueueItem{item}, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueueDropResults(w, results, jsonOut, tmpl)
 }
 
 func statusPreviewsForJob(teamDir string, j *job.Job) ([]jobStatusReconcileResult, error) {

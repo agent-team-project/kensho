@@ -656,6 +656,146 @@ func TestJobQueueListsOwnedItems(t *testing.T) {
 	}
 }
 
+func TestJobQueueRetryDropScopesOwnedItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	j, err := job.New("SQU-121", "worker", "recover queued work", time.Now())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Instance = "worker-squ-121"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-job-pending",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-121",
+			Payload: map[string]any{
+				"job_id": "squ-121",
+				"target": "worker",
+			},
+			QueuedAt:  now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:         "q-job-dead",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-121",
+			Payload: map[string]any{
+				"job_id": "squ-121",
+				"ticket": "SQU-121",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-3 * time.Hour),
+			DeadLetteredAt: now.Add(-3 * time.Hour),
+		},
+		{
+			ID:         "q-other-dead",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-122",
+			Payload: map[string]any{
+				"job_id": "squ-122",
+				"ticket": "SQU-122",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now.Add(-time.Hour),
+			DeadLetteredAt: now.Add(-time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	retryDry := NewRootCmd()
+	retryDryOut, retryDryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retryDry.SetOut(retryDryOut)
+	retryDry.SetErr(retryDryErr)
+	retryDry.SetArgs([]string{"job", "queue", "retry", "SQU-121", "--repo", tmp, "--all", "--dry-run", "--json"})
+	if err := retryDry.Execute(); err != nil {
+		t.Fatalf("job queue retry --all dry-run: %v\nstderr=%s", err, retryDryErr.String())
+	}
+	var retryDryResults []queueRetryResult
+	if err := json.Unmarshal(retryDryOut.Bytes(), &retryDryResults); err != nil {
+		t.Fatalf("decode retry dry-run: %v\nbody=%s", err, retryDryOut.String())
+	}
+	if len(retryDryResults) != 1 || retryDryResults[0].ID != "q-job-dead" || retryDryResults[0].Action != "would_retry" || !retryDryResults[0].DryRun {
+		t.Fatalf("retry dry-run results = %+v", retryDryResults)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-dead"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("retry dry-run changed item=%+v err=%v", item, err)
+	}
+
+	retry := NewRootCmd()
+	retryOut, retryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retry.SetOut(retryOut)
+	retry.SetErr(retryErr)
+	retry.SetArgs([]string{"job", "queue", "retry", "SQU-121", "q-job-dead", "--repo", tmp, "--format", "{{.ID}} {{.Action}} {{.State}}"})
+	if err := retry.Execute(); err != nil {
+		t.Fatalf("job queue retry single: %v\nstderr=%s", err, retryErr.String())
+	}
+	if got, want := strings.TrimSpace(retryOut.String()), "q-job-dead reset dead"; got != want {
+		t.Fatalf("retry output = %q, want %q", got, want)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-dead"); err != nil || item.State != daemon.QueueStatePending || item.LastError != "" || !item.DeadLetteredAt.IsZero() {
+		t.Fatalf("retried item=%+v err=%v", item, err)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-dead"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("unrelated retry item changed=%+v err=%v", item, err)
+	}
+
+	dropOther := NewRootCmd()
+	dropOtherOut, dropOtherErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dropOther.SetOut(dropOtherOut)
+	dropOther.SetErr(dropOtherErr)
+	dropOther.SetArgs([]string{"job", "queue", "drop", "SQU-121", "q-other-dead", "--repo", tmp, "--dry-run"})
+	if err := dropOther.Execute(); err == nil {
+		t.Fatalf("job queue drop unrelated item unexpectedly succeeded: stdout=%s", dropOtherOut.String())
+	}
+	if !strings.Contains(dropOtherErr.String(), "not owned by job") {
+		t.Fatalf("drop unrelated stderr = %q", dropOtherErr.String())
+	}
+
+	drop := NewRootCmd()
+	dropOut, dropErr := &bytes.Buffer{}, &bytes.Buffer{}
+	drop.SetOut(dropOut)
+	drop.SetErr(dropErr)
+	drop.SetArgs([]string{"job", "queue", "drop", "SQU-121", "q-job-pending", "--repo", tmp, "--json"})
+	if err := drop.Execute(); err != nil {
+		t.Fatalf("job queue drop single: %v\nstderr=%s", err, dropErr.String())
+	}
+	var dropResults []queueDropResult
+	if err := json.Unmarshal(dropOut.Bytes(), &dropResults); err != nil {
+		t.Fatalf("decode drop result: %v\nbody=%s", err, dropOut.String())
+	}
+	if len(dropResults) != 1 || dropResults[0].ID != "q-job-pending" || dropResults[0].Action != "dropped" {
+		t.Fatalf("drop results = %+v", dropResults)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-pending"); !os.IsNotExist(err) {
+		t.Fatalf("dropped item err=%v, want not exist", err)
+	}
+	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-dead"); err != nil || item.State != daemon.QueueStateDead {
+		t.Fatalf("unrelated drop item changed=%+v err=%v", item, err)
+	}
+}
+
 func TestJobQueueRejectsFormatCombinations(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -696,6 +836,74 @@ func TestJobQueueRejectsFormatCombinations(t *testing.T) {
 			var code ExitCode
 			if !errors.As(err, &code) || int(code) != 2 {
 				t.Fatalf("job queue err = %v, want exit code 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestJobQueueRetryDropRejectsFormatCombinations(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "retry format with json",
+			args: []string{"job", "queue", "retry", "SQU-121", "--format", "{{.ID}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "retry invalid format",
+			args: []string{"job", "queue", "retry", "SQU-121", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "retry negative limit",
+			args: []string{"job", "queue", "retry", "SQU-121", "--all", "--limit", "-1"},
+			want: "--limit must be >= 0",
+		},
+		{
+			name: "retry filter without all",
+			args: []string{"job", "queue", "retry", "SQU-121", "q-job-dead", "--state", "dead"},
+			want: "--state, --event-type, --ready, and --limit require --all",
+		},
+		{
+			name: "drop format with json",
+			args: []string{"job", "queue", "drop", "SQU-121", "--format", "{{.ID}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "drop invalid format",
+			args: []string{"job", "queue", "drop", "SQU-121", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "drop negative limit",
+			args: []string{"job", "queue", "drop", "SQU-121", "--all", "--limit", "-1"},
+			want: "--limit must be >= 0",
+		},
+		{
+			name: "drop filter without all",
+			args: []string{"job", "queue", "drop", "SQU-121", "q-job-dead", "--ready"},
+			want: "--state, --event-type, --ready, and --limit require --all",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("job queue control validation succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("job queue control err = %v, want exit code 2", err)
 			}
 			if !strings.Contains(stderr.String(), tc.want) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)

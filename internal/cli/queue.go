@@ -888,13 +888,21 @@ func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, limi
 	if limit > 0 && len(matches) > limit {
 		matches = matches[:limit]
 	}
+	results, err := dropQueueItemMatches(teamDir, matches, dryRun)
+	if err != nil {
+		return err
+	}
+	return renderQueueDropResults(w, results, jsonOut, tmpl)
+}
+
+func dropQueueItemMatches(teamDir string, matches []*daemon.QueueItem, dryRun bool) ([]queueDropResult, error) {
 	var dc *daemonClient
 	if !dryRun {
 		client, err := newDaemonClient(teamDir)
 		if err == nil {
 			dc = client
 		} else if !errors.Is(err, errDaemonNotRunning) {
-			return err
+			return nil, err
 		}
 	}
 	results := make([]queueDropResult, 0, len(matches))
@@ -911,16 +919,16 @@ func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, limi
 		} else {
 			if dc != nil {
 				if err := dc.QueueDrop(item.ID); err != nil {
-					return err
+					return nil, err
 				}
 			} else if err := daemon.RemoveQueueItem(daemon.DaemonRoot(teamDir), item.ID); err != nil {
-				return err
+				return nil, err
 			}
 			result.Action = "dropped"
 		}
 		results = append(results, result)
 	}
-	return renderQueueDropResults(w, results, jsonOut, tmpl)
+	return results, nil
 }
 
 func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
@@ -940,6 +948,10 @@ func queueRetryAllResults(teamDir string, filters queueListFilters, limit int, d
 	if limit > 0 && len(matches) > limit {
 		matches = matches[:limit]
 	}
+	return retryQueueItemMatches(teamDir, matches, dryRun)
+}
+
+func retryQueueItemMatches(teamDir string, matches []*daemon.QueueItem, dryRun bool) ([]queueRetryResult, error) {
 	var dc *daemonClient
 	if !dryRun {
 		client, err := newDaemonClient(teamDir)

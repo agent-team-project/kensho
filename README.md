@@ -192,8 +192,8 @@ agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source
 agent-team job create <ticket> [kickoff...] [--target worker] [--ticket-url <url>] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--instance <name>] [--dry-run] [--json]
 agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--status queued|running|blocked|done|failed] [--target-agent worker] [--pipeline name] [--instance name] [--json]
 agent-team job show <job-id> [--events N|all] [--json] | show <job-id> [--format '{{.ID}} {{.Status}}'] | triage [-w] [--min-severity critical|warning|info] [--reason queue_dead] [--no-clear] [--format '{{.Summary.Total}} {{len .Attention}}'] [--json] | next <job-id> [--format '{{.State}} {{.Step.ID}}'] [--json] | ready [--state ready|queued|all] [--format '{{.JobID}} {{.State}}'] [--json] | events <job-id> [-f] [--tail N|all] [--type closed] [--actor cli] [--since 24h] [--format '{{.Type}} {{.Status}}'] [--json]
-agent-team job queue <job-id> [--summary] [--state pending|dead] [--event-type agent.dispatch] [--ready] [--format '{{.ID}} {{.State}}'] [--json]
-                                                # list active daemon queue items owned by one durable job
+agent-team job queue <job-id> [--summary] [--state pending|dead] [--event-type agent.dispatch] [--ready] [--format '{{.ID}} {{.State}}'] [--json] | queue retry <job-id> <id>|--all [--dry-run] [--state pending|dead] [--ready] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | queue drop <job-id> <id>|--all [--dry-run] [--state pending|dead] [--ready] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json]
+                                                # list, retry, or drop active daemon queue items owned by one durable job
 agent-team job retry <job-id> [--dispatch] [--workspace auto|worktree|repo] [--dry-run] [--json]
                                                 # reopen a failed/closed job and optionally dispatch another attempt immediately
 agent-team job dispatch <job-id> [--source <instance>] [--workspace auto|worktree|repo] [--dry-run] [--format <template>] [--json]
