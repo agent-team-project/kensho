@@ -32,6 +32,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobCreateCmd())
 	cmd.AddCommand(newJobLsCmd())
 	cmd.AddCommand(newJobShowCmd())
+	cmd.AddCommand(newJobQueueCmd())
 	cmd.AddCommand(newJobEventsCmd())
 	cmd.AddCommand(newJobWaitCmd())
 	cmd.AddCommand(newJobStartCmd())
@@ -54,6 +55,58 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobStepCmd())
 	cmd.AddCommand(newJobAdvanceCmd())
 	cmd.AddCommand(newJobReconcileCmd())
+	return cmd
+}
+
+func newJobQueueCmd() *cobra.Command {
+	var (
+		repo        string
+		stateFilter string
+		eventTypes  []string
+		readyOnly   bool
+		summary     bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "queue <job-id>",
+		Short: "List queue items owned by one job.",
+		Long:  "List persisted daemon queue items owned by one durable job.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if format != "" && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			tmpl, err := parseQueueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue: %v\n", err)
+				return exitErr(2)
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, nil, readyOnly, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			return runJobQueueList(cmd.OutOrStdout(), teamDir, j, filters, summary, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
 }
 
@@ -3791,6 +3844,31 @@ func queueItemsForJob(teamDir string, j *job.Job) ([]*daemon.QueueItem, error) {
 		}
 	}
 	return matches, nil
+}
+
+func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListFilters, summary, jsonOut bool, tmpl *template.Template) error {
+	items, err := queueItemsForJob(teamDir, j)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	filtered := filterQueueItems(items, filters.withNow(now))
+	if summary {
+		queueSummary := summarizeQueueItems(filtered, now)
+		if jsonOut {
+			return json.NewEncoder(w).Encode(queueSummary)
+		}
+		renderQueueSummary(w, queueSummary)
+		return nil
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(filtered)
+	}
+	if tmpl != nil {
+		return renderQueueItemsFormat(w, filtered, tmpl)
+	}
+	renderQueueTable(w, filtered)
+	return nil
 }
 
 func statusPreviewsForJob(teamDir string, j *job.Job) ([]jobStatusReconcileResult, error) {

@@ -534,6 +534,176 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	}
 }
 
+func TestJobQueueListsOwnedItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	j, err := job.New("SQU-120", "worker", "inspect queued work", time.Now())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Instance = "worker-squ-120"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-job-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-120",
+			Payload: map[string]any{
+				"target": "worker",
+			},
+			QueuedAt:  now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:         "q-job-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-120-delayed",
+			Payload: map[string]any{
+				"job_id": "squ-120",
+				"target": "worker",
+			},
+			NextRetry: now.Add(time.Hour),
+			QueuedAt:  now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:         "q-other",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-121",
+			Payload: map[string]any{
+				"job_id": "squ-121",
+				"target": "worker",
+			},
+			QueuedAt:  now.Add(-30 * time.Minute),
+			UpdatedAt: now.Add(-30 * time.Minute),
+		},
+		{
+			ID:         "q-job-dead",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-120",
+			Payload: map[string]any{
+				"job_id": "squ-120",
+				"ticket": "SQU-120",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-3 * time.Hour),
+			DeadLetteredAt: now.Add(-3 * time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"job", "queue", "SQU-120", "--repo", tmp, "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("job queue json: %v\nstderr=%s", err, listErr.String())
+	}
+	var items []daemon.QueueItem
+	if err := json.Unmarshal(listOut.Bytes(), &items); err != nil {
+		t.Fatalf("decode job queue json: %v\nbody=%s", err, listOut.String())
+	}
+	if got := strings.Join(queueItemIDs(items), ","); got != "q-job-dead,q-job-ready,q-job-delayed" {
+		t.Fatalf("job queue ids = %s", got)
+	}
+
+	ready := NewRootCmd()
+	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ready.SetOut(readyOut)
+	ready.SetErr(readyErr)
+	ready.SetArgs([]string{"job", "queue", "SQU-120", "--repo", tmp, "--ready", "--format", "{{.ID}} {{.State}}"})
+	if err := ready.Execute(); err != nil {
+		t.Fatalf("job queue ready format: %v\nstderr=%s", err, readyErr.String())
+	}
+	if got, want := strings.TrimSpace(readyOut.String()), "q-job-ready pending"; got != want {
+		t.Fatalf("job queue ready output = %q, want %q", got, want)
+	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"job", "queue", "SQU-120", "--repo", tmp, "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("job queue summary json: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var queueSummary queueSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &queueSummary); err != nil {
+		t.Fatalf("decode job queue summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if queueSummary.Total != 3 || queueSummary.Pending != 2 || queueSummary.Dead != 1 || queueSummary.Delayed != 1 || queueSummary.Attempts != daemon.MaxQueueAttempts {
+		t.Fatalf("job queue summary = %+v", queueSummary)
+	}
+}
+
+func TestJobQueueRejectsFormatCombinations(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format with json",
+			args: []string{"job", "queue", "SQU-120", "--format", "{{.ID}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "format with summary",
+			args: []string{"job", "queue", "SQU-120", "--format", "{{.ID}}", "--summary"},
+			want: "--format cannot be combined with --summary",
+		},
+		{
+			name: "invalid format",
+			args: []string{"job", "queue", "SQU-120", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "invalid state",
+			args: []string{"job", "queue", "SQU-120", "--state", "stuck"},
+			want: "--state must be pending or dead",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("job queue validation succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("job queue err = %v, want exit code 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
