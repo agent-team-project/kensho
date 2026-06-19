@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
@@ -340,6 +341,41 @@ func TestDoctorIncludesQueueProblems(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("doctor --json should not write queue problems to stderr: %s", errOut.String())
+	}
+}
+
+func TestDoctorWarnsOnQueueQuarantine(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-doctor-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-110",
+		Payload:    map[string]any{"target": "worker", "ticket": "SQU-110"},
+		QueuedAt:   now.Add(-time.Minute),
+		UpdatedAt:  now,
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor queue quarantine warning should not fail: %v\nstderr=%s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if !result.OK || !containsDoctorMessage(result.Warnings, "queue quarantine: 1 file") || !containsDoctorMessage(result.Warnings, "agent-team queue quarantine ls") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write quarantine warnings to stderr: %s", errOut.String())
 	}
 }
 

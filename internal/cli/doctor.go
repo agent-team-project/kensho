@@ -190,6 +190,11 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, j
 			warnings = append(warnings, "queue: "+warning.Message)
 		}
 	}
+	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
+		problems = append(problems, fmt.Sprintf("queue quarantine validation failed: %v", err))
+	} else if len(quarantine) > 0 {
+		warnings = append(warnings, fmt.Sprintf("queue quarantine: %d file(s) preserved under .agent_team/daemon/queue/quarantine — inspect with `agent-team queue quarantine ls`.", len(quarantine)))
+	}
 
 	return reportDoctor(cmd, problems, warnings, jsonOut)
 }

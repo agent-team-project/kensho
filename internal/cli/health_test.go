@@ -547,6 +547,67 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	}
 }
 
+func TestHealthCommandReportsQueueQuarantine(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-health-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-109",
+		Payload:    map[string]any{"target": "worker", "ticket": "SQU-109"},
+		QueuedAt:   now.Add(-time.Minute),
+		UpdatedAt:  now,
+	})
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health quarantine json: %v\nbody=%s", err, stdout.String())
+	}
+	if body.Queue.Quarantined != 1 {
+		t.Fatalf("queue = %+v, want one quarantined item", body.Queue)
+	}
+	var sawQuarantineIssue bool
+	for _, issue := range body.Issues {
+		if issue.Code == "queue_quarantined" {
+			if issue.Severity != "warning" || !containsString(issue.Actions, "agent-team queue quarantine ls") || !containsString(issue.Actions, "agent-team snapshot --json") {
+				t.Fatalf("queue quarantine issue = %+v", issue)
+			}
+			sawQuarantineIssue = true
+			break
+		}
+	}
+	if !sawQuarantineIssue {
+		t.Fatalf("issues = %+v, missing queue_quarantined", body.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"health", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("health text succeeded unexpectedly")
+	}
+	for _, want := range []string{"quarantined=1", "queue_quarantined", "agent-team queue quarantine ls"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("health text missing %q:\n%s\nstderr=%s", want, textOut.String(), textErr.String())
+		}
+	}
+}
+
 func TestHealthCommandReportsIntakeFailures(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

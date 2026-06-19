@@ -510,6 +510,11 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 		return err
 	}
 	result.Queue = summarizeQueueItems(items, now.UTC())
+	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
+		return err
+	} else {
+		result.Queue.Quarantined = len(quarantine)
+	}
 	if result.Queue.Dead > 0 {
 		result.addIssueWithSeverityAndActions(
 			"queue_dead_letter",
@@ -520,6 +525,18 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 			"",
 			fmt.Sprintf("queue has %d dead-letter item(s)", result.Queue.Dead),
 			[]string{"agent-team queue retry --all", "agent-team repair --skip-tick"},
+		)
+	}
+	if result.Queue.Quarantined > 0 {
+		result.addIssueWithSeverityAndActions(
+			"queue_quarantined",
+			"warning",
+			"",
+			"",
+			"",
+			"",
+			fmt.Sprintf("queue has %d quarantined file(s)", result.Queue.Quarantined),
+			[]string{"agent-team queue quarantine ls", "agent-team snapshot --json"},
 		)
 	}
 	return nil
@@ -816,13 +833,14 @@ func renderHealth(w io.Writer, result *healthResult) {
 		result.Summary.Crashed,
 		result.Summary.Stale,
 	)
-	if result.Queue.Total > 0 {
-		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
+	if result.Queue.Total > 0 || result.Queue.Quarantined > 0 {
+		fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d quarantined=%d\n",
 			result.Queue.Total,
 			result.Queue.Pending,
 			result.Queue.Dead,
 			result.Queue.Delayed,
 			result.Queue.Attempts,
+			result.Queue.Quarantined,
 		)
 	}
 	if result.Intake.Deliveries > 0 {
