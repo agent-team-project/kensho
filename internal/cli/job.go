@@ -760,6 +760,8 @@ func newJobUnblockCmd() *cobra.Command {
 	var (
 		repo         string
 		from         string
+		message      string
+		messageFile  string
 		status       string
 		force        bool
 		allowMissing bool
@@ -769,11 +771,11 @@ func newJobUnblockCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "unblock <job-id> <message...>",
+		Use:   "unblock <job-id> [message...]",
 		Short: "Answer a blocked job and mark it ready to continue.",
 		Long: "Send an answer to a blocked job's owning instance, then mark the durable job running or queued. " +
 			"Use this when a worker reported blocked and the operator has supplied the missing input.",
-		Args: cobra.MinimumNArgs(2),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job unblock: --format cannot be combined with --json.")
@@ -785,6 +787,11 @@ func newJobUnblockCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job unblock: %v\n", err)
+				return exitErr(2)
+			}
+			body, err := sendMessageBody(message, messageFile, args[1:])
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job unblock: %v\n", err)
 				return exitErr(2)
@@ -807,11 +814,6 @@ func newJobUnblockCmd() *cobra.Command {
 			}
 			if strings.TrimSpace(j.Instance) == "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job unblock: job %q has no owning instance; use `agent-team job retry %s --dispatch` to start a new attempt.\n", j.ID, j.ID)
-				return exitErr(2)
-			}
-			body := strings.TrimSpace(strings.Join(args[1:], " "))
-			if body == "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job unblock: message body is required.")
 				return exitErr(2)
 			}
 			client, err := sendClientForTeamDir(teamDir)
@@ -872,6 +874,8 @@ func newJobUnblockCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the unblock message.")
+	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&status, "status", string(job.StatusRunning), "Status after unblocking: running or queued.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow unblocking a job not currently marked blocked.")
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an owning instance the daemon does not know yet.")

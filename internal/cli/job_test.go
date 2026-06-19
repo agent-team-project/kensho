@@ -2666,12 +2666,16 @@ func TestJobUnblockSendsMessageAndMarksRunning(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
+	answerFile := filepath.Join(tmp, "answer.txt")
+	if err := os.WriteFile(answerFile, []byte("credentials are now configured\ncontinue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "unblock", "SQU-82", "credentials are now configured", "--repo", tmp, "--json"})
+	cmd.SetArgs([]string{"job", "unblock", "SQU-82", "--message-file", answerFile, "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job unblock: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2679,14 +2683,14 @@ func TestJobUnblockSendsMessageAndMarksRunning(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &updated); err != nil {
 		t.Fatalf("decode unblock json: %v\nbody=%s", err, out.String())
 	}
-	if updated.Status != job.StatusRunning || updated.LastEvent != "unblocked" || updated.LastStatus != "credentials are now configured" {
+	if updated.Status != job.StatusRunning || updated.LastEvent != "unblocked" || updated.LastStatus != "credentials are now configured\ncontinue" {
 		t.Fatalf("updated = %+v", updated)
 	}
 	messages, err := daemon.ReadMessages(root, "worker-squ-82")
 	if err != nil {
 		t.Fatalf("read messages: %v", err)
 	}
-	if len(messages) != 1 || messages[0].From != "(cli)" || messages[0].Body != "credentials are now configured" {
+	if len(messages) != 1 || messages[0].From != "(cli)" || messages[0].Body != "credentials are now configured\ncontinue" {
 		t.Fatalf("messages = %+v", messages)
 	}
 	events, err := job.ListEvents(teamDir, "squ-82")
@@ -2695,6 +2699,39 @@ func TestJobUnblockSendsMessageAndMarksRunning(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "unblocked" || events[0].Status != job.StatusRunning || events[0].Data["instance"] != "worker-squ-82" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobUnblockMessageSourceValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"job", "unblock", "SQU-82", "--repo", t.TempDir()}, "message body is required"},
+		{[]string{"job", "unblock", "SQU-82", "hello", "--message", "also"}, "provide message text using only one"},
+		{[]string{"job", "unblock", "SQU-82", "--message-file", filepath.Join(t.TempDir(), "missing.txt")}, "--message-file:"},
+		{[]string{"job", "unblock", "SQU-82", "--message", "hello", "--json", "--format", "{{.ID}}"}, "--format cannot be combined"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
