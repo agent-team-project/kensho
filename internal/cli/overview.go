@@ -498,7 +498,11 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 		}
 	}
 	if out.Queue.Quarantined > 0 {
-		add("agent-team queue quarantine ls")
+		if teamName != "" {
+			add(fmt.Sprintf("agent-team team queue quarantine %s", teamName))
+		} else {
+			add("agent-team queue quarantine ls")
+		}
 	}
 	if out.Jobs.Attention > 0 {
 		if teamName != "" {

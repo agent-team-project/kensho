@@ -411,7 +411,7 @@ since = "2026-06-18T12:00:00Z"
 	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all") {
 		t.Fatalf("actions missing team queue retry hint: %+v", snapshot.Actions)
 	}
-	if !containsString(snapshot.Actions, "agent-team queue quarantine ls") || !containsString(snapshot.Actions, "agent-team team snapshot delivery --json") {
+	if !containsString(snapshot.Actions, "agent-team team queue quarantine delivery") || !containsString(snapshot.Actions, "agent-team team snapshot delivery --json") {
 		t.Fatalf("actions missing quarantine hints: %+v", snapshot.Actions)
 	}
 	if containsString(snapshot.Actions, "agent-team start worker") {
@@ -426,7 +426,7 @@ since = "2026-06-18T12:00:00Z"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team queue quarantine ls", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes"} {
+	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team team queue quarantine delivery", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team status text missing %q:\n%s", want, textOut.String())
 		}
@@ -1953,6 +1953,34 @@ instances = ["other"]
 	}
 	if queueSummary.Total != 1 || queueSummary.Dead != 1 || queueSummary.Quarantined != 1 || queueSummary.Instances["worker"] != 1 {
 		t.Fatalf("queue summary = %+v", queueSummary)
+	}
+
+	quarantine := NewRootCmd()
+	quarantineOut, quarantineErr := &bytes.Buffer{}, &bytes.Buffer{}
+	quarantine.SetOut(quarantineOut)
+	quarantine.SetErr(quarantineErr)
+	quarantine.SetArgs([]string{"team", "queue", "quarantine", "delivery", "--repo", root, "--state", "dead", "--job", "SQU-501", "--json"})
+	if err := quarantine.Execute(); err != nil {
+		t.Fatalf("team queue quarantine: %v\nstderr=%s", err, quarantineErr.String())
+	}
+	var quarantineItems []queueQuarantineItem
+	if err := json.Unmarshal(quarantineOut.Bytes(), &quarantineItems); err != nil {
+		t.Fatalf("decode team queue quarantine: %v\nbody=%s", err, quarantineOut.String())
+	}
+	if len(quarantineItems) != 1 || quarantineItems[0].ID != "q-team-quarantined" || quarantineItems[0].Job != "squ-501" {
+		t.Fatalf("team queue quarantine items = %+v", quarantineItems)
+	}
+
+	quarantineText := NewRootCmd()
+	quarantineTextOut, quarantineTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	quarantineText.SetOut(quarantineTextOut)
+	quarantineText.SetErr(quarantineTextErr)
+	quarantineText.SetArgs([]string{"team", "queue", "quarantine", "delivery", "--repo", root})
+	if err := quarantineText.Execute(); err != nil {
+		t.Fatalf("team queue quarantine text: %v\nstderr=%s", err, quarantineTextErr.String())
+	}
+	if !strings.Contains(quarantineTextOut.String(), "q-team-quarantined") || strings.Contains(quarantineTextOut.String(), "q-other-quarantined") {
+		t.Fatalf("team queue quarantine text =\n%s", quarantineTextOut.String())
 	}
 
 	jobFiltered := NewRootCmd()
@@ -3728,7 +3756,7 @@ pipelines = ["ticket_to_pr"]
 		if issue.Code == "queue_dead_letter" && containsString(issue.Actions, "agent-team team queue retry delivery --all --job squ-901") {
 			sawScopedQueueAction = true
 		}
-		if issue.Code == "queue_quarantined" && containsString(issue.Actions, "agent-team queue quarantine ls") && containsString(issue.Actions, "agent-team team snapshot delivery --json") {
+		if issue.Code == "queue_quarantined" && containsString(issue.Actions, "agent-team team queue quarantine delivery") && containsString(issue.Actions, "agent-team team snapshot delivery --json") {
 			sawQuarantineAction = true
 		}
 	}
@@ -3755,7 +3783,7 @@ pipelines = ["ticket_to_pr"]
 	if err := text.Execute(); err == nil {
 		t.Fatal("team health text unexpectedly succeeded")
 	}
-	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team queue quarantine ls"} {
+	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team team queue quarantine delivery"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team health text missing %q:\n%s", want, textOut.String())
 		}

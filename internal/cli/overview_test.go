@@ -350,7 +350,7 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	for _, want := range []string{
 		"agent-team team repair delivery --dry-run --jobs",
 		"agent-team team queue retry delivery --all --dry-run",
-		"agent-team queue quarantine ls",
+		"agent-team team queue quarantine delivery",
 		"agent-team team triage delivery",
 		"agent-team team advance delivery --dry-run --preview-routes",
 		"agent-team team tick delivery --dry-run --skip-drain --skip-advance",

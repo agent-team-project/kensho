@@ -922,8 +922,48 @@ func newTeamQueueCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team queue rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.AddCommand(newTeamQueueQuarantineCmd())
 	cmd.AddCommand(newTeamQueueRetryCmd())
 	cmd.AddCommand(newTeamQueueDropCmd())
+	return cmd
+}
+
+func newTeamQueueQuarantineCmd() *cobra.Command {
+	var (
+		repo        string
+		stateFilter string
+		eventTypes  []string
+		jobs        []string
+		jsonOut     bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "quarantine <team>",
+		Short: "List quarantined queue files scoped to one team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, jobs, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue quarantine: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			items, err := collectTeamQueueQuarantineItems(teamDir, args[0], filters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue quarantine: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team-owned quarantined queue files as JSON.")
 	return cmd
 }
 
@@ -3855,7 +3895,7 @@ func addTeamQueueHealth(result *healthResult, teamDir string, top *topology.Topo
 			"",
 			"",
 			fmt.Sprintf("team %q queue has %d quarantined file(s)", team.Name, result.Queue.Quarantined),
-			[]string{"agent-team queue quarantine ls", fmt.Sprintf("agent-team team snapshot %s --json", team.Name)},
+			[]string{fmt.Sprintf("agent-team team queue quarantine %s", team.Name), fmt.Sprintf("agent-team team snapshot %s --json", team.Name)},
 		)
 	}
 	return nil
@@ -4079,6 +4119,22 @@ func collectTeamQueueQuarantine(teamDir string, top *topology.Topology, team *to
 		return nil, err
 	}
 	return teamQueueQuarantineItems(top, team, ownedJobs, items), nil
+}
+
+func collectTeamQueueQuarantineItems(teamDir, name string, filters queueListFilters) ([]queueQuarantineItem, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	items, err := collectTeamQueueQuarantine(teamDir, top, team, teamJobs(top, team, jobs))
+	if err != nil {
+		return nil, err
+	}
+	return filterQueueQuarantineItems(items, filters), nil
 }
 
 func readTeamQueueItem(cmd *cobra.Command, teamDir, name, id, verb string) (*daemon.QueueItem, error) {
@@ -5543,7 +5599,7 @@ func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *te
 		add(fmt.Sprintf("agent-team team queue retry %s --all", team.Name))
 	}
 	if snapshot.Queue.Quarantined > 0 {
-		add("agent-team queue quarantine ls")
+		add(fmt.Sprintf("agent-team team queue quarantine %s", team.Name))
 		add(fmt.Sprintf("agent-team team snapshot %s --json", team.Name))
 	}
 	if snapshot.Queue.Pending > 0 {
