@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"text/tabwriter"
 	"text/template"
 	"time"
@@ -370,6 +371,29 @@ func intakeDeliveryLogPath(teamDir string) string {
 	return filepath.Join(teamDir, "daemon", "intake.jsonl")
 }
 
+func intakeDeliveryLockPath(teamDir string) string {
+	return filepath.Join(teamDir, "daemon", "intake.lock")
+}
+
+func withIntakeDeliveryExclusiveLock(teamDir string, fn func() error) error {
+	path := intakeDeliveryLogPath(teamDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("intake deliveries: mkdir: %w", err)
+	}
+	intakeDeliveryLogMu.Lock()
+	defer intakeDeliveryLogMu.Unlock()
+	lockFile, err := os.OpenFile(intakeDeliveryLockPath(teamDir), os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("intake deliveries: lock open: %w", err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("intake deliveries: lock: %w", err)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	return fn()
+}
+
 func newIntakeDeliveryRecord(provider string, r *http.Request, now time.Time, dryRun bool) intakeDelivery {
 	return intakeDelivery{
 		ID:         nextIntakeDeliveryID(now),
@@ -404,25 +428,21 @@ func appendIntakeDelivery(teamDir string, delivery intakeDelivery) error {
 	if strings.TrimSpace(delivery.Status) == "" {
 		delivery.Status = intakeDeliveryStatusOK
 	}
-	path := intakeDeliveryLogPath(teamDir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("intake deliveries: mkdir: %w", err)
-	}
-	intakeDeliveryLogMu.Lock()
-	defer intakeDeliveryLogMu.Unlock()
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-	if err != nil {
-		return fmt.Errorf("intake deliveries: open: %w", err)
-	}
-	encErr := json.NewEncoder(f).Encode(delivery)
-	closeErr := f.Close()
-	if encErr != nil {
-		return fmt.Errorf("intake deliveries: encode: %w", encErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("intake deliveries: close: %w", closeErr)
-	}
-	return nil
+	return withIntakeDeliveryExclusiveLock(teamDir, func() error {
+		f, err := os.OpenFile(intakeDeliveryLogPath(teamDir), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			return fmt.Errorf("intake deliveries: open: %w", err)
+		}
+		encErr := json.NewEncoder(f).Encode(delivery)
+		closeErr := f.Close()
+		if encErr != nil {
+			return fmt.Errorf("intake deliveries: encode: %w", encErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("intake deliveries: close: %w", closeErr)
+		}
+		return nil
+	})
 }
 
 func listIntakeDeliveries(teamDir string) ([]intakeDelivery, error) {
@@ -715,71 +735,72 @@ func markIntakeDeliveryReplays(teamDir string, results []intakeReplayResult, now
 		return nil
 	}
 	now = now.UTC()
-	intakeDeliveryLogMu.Lock()
-	defer intakeDeliveryLogMu.Unlock()
-	deliveries, err := listIntakeDeliveries(teamDir)
-	if err != nil {
-		return err
-	}
-	changed := false
-	for i := range deliveries {
-		result, ok := byID[deliveries[i].ID]
-		if !ok {
-			continue
+	return withIntakeDeliveryExclusiveLock(teamDir, func() error {
+		deliveries, err := listIntakeDeliveries(teamDir)
+		if err != nil {
+			return err
 		}
-		deliveries[i].ReplayStatus = intakeDeliveryReplayStatusError
-		deliveries[i].ReplayError = strings.TrimSpace(result.Error)
-		if result.OK {
-			deliveries[i].ReplayStatus = intakeDeliveryReplayStatusOK
-			deliveries[i].ReplayError = ""
-		} else if deliveries[i].ReplayError == "" {
-			deliveries[i].ReplayError = "replay failed"
+		changed := false
+		for i := range deliveries {
+			result, ok := byID[deliveries[i].ID]
+			if !ok {
+				continue
+			}
+			deliveries[i].ReplayStatus = intakeDeliveryReplayStatusError
+			deliveries[i].ReplayError = strings.TrimSpace(result.Error)
+			if result.OK {
+				deliveries[i].ReplayStatus = intakeDeliveryReplayStatusOK
+				deliveries[i].ReplayError = ""
+			} else if deliveries[i].ReplayError == "" {
+				deliveries[i].ReplayError = "replay failed"
+			}
+			replayedAt := now
+			deliveries[i].ReplayedAt = &replayedAt
+			changed = true
 		}
-		replayedAt := now
-		deliveries[i].ReplayedAt = &replayedAt
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-	return writeIntakeDeliveries(teamDir, deliveries)
+		if !changed {
+			return nil
+		}
+		return writeIntakeDeliveries(teamDir, deliveries)
+	})
 }
 
 func pruneIntakeDeliveries(teamDir string, filter intakeDeliveryFilter, olderThan time.Duration, now time.Time, dryRun bool) ([]intakePruneResult, error) {
-	deliveries, err := listIntakeDeliveries(teamDir)
-	if err != nil {
-		return nil, err
-	}
-	retained := make([]intakeDelivery, 0, len(deliveries))
 	results := []intakePruneResult{}
-	for _, delivery := range deliveries {
-		if !intakeDeliveryPruneMatch(delivery, filter, olderThan, now) {
-			retained = append(retained, delivery)
-			continue
+	err := withIntakeDeliveryExclusiveLock(teamDir, func() error {
+		deliveries, err := listIntakeDeliveries(teamDir)
+		if err != nil {
+			return err
 		}
-		results = append(results, intakePruneResult{
-			ID:           delivery.ID,
-			Time:         delivery.Time,
-			Provider:     delivery.Provider,
-			Status:       delivery.Status,
-			ReplayStatus: delivery.ReplayStatus,
-			HTTPStatus:   delivery.HTTPStatus,
-			EventType:    delivery.EventType,
-			Ticket:       delivery.Ticket,
-			PR:           delivery.PR,
-			DryRun:       dryRun,
-			Dropped:      !dryRun,
-		})
-		if dryRun {
-			retained = append(retained, delivery)
+		retained := make([]intakeDelivery, 0, len(deliveries))
+		for _, delivery := range deliveries {
+			if !intakeDeliveryPruneMatch(delivery, filter, olderThan, now) {
+				retained = append(retained, delivery)
+				continue
+			}
+			results = append(results, intakePruneResult{
+				ID:           delivery.ID,
+				Time:         delivery.Time,
+				Provider:     delivery.Provider,
+				Status:       delivery.Status,
+				ReplayStatus: delivery.ReplayStatus,
+				HTTPStatus:   delivery.HTTPStatus,
+				EventType:    delivery.EventType,
+				Ticket:       delivery.Ticket,
+				PR:           delivery.PR,
+				DryRun:       dryRun,
+				Dropped:      !dryRun,
+			})
+			if dryRun {
+				retained = append(retained, delivery)
+			}
 		}
-	}
-	if dryRun || len(results) == 0 {
-		return results, nil
-	}
-	intakeDeliveryLogMu.Lock()
-	defer intakeDeliveryLogMu.Unlock()
-	if err := writeIntakeDeliveries(teamDir, retained); err != nil {
+		if dryRun || len(results) == 0 {
+			return nil
+		}
+		return writeIntakeDeliveries(teamDir, retained)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return results, nil
