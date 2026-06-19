@@ -89,6 +89,27 @@ func TestNextCommandReportsIntakeReplayAction(t *testing.T) {
 	}
 }
 
+func TestNextCommandReportsBatchCleanupAction(t *testing.T) {
+	root := writeOverviewCleanupFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next cleanup json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode next cleanup json: %v\nbody=%s", err, out.String())
+	}
+	if !stringSliceContains(result.Actions, "agent-team job cleanup --all --dry-run") {
+		t.Fatalf("actions missing batch cleanup: %+v", result.Actions)
+	}
+}
+
 func TestNextActionResultHandlesNoActions(t *testing.T) {
 	result := nextActionResultFromOverview(&overviewResult{
 		OK:    true,

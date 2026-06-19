@@ -126,6 +126,52 @@ func TestOverviewReportsIntakeErrors(t *testing.T) {
 	}
 }
 
+func TestOverviewRecommendsBatchCleanupReadyJobs(t *testing.T) {
+	root := writeOverviewCleanupFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview cleanup json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview cleanup: %v\nbody=%s", err, out.String())
+	}
+	if overview.Jobs.Summary.Total != 1 || overview.Jobs.Summary.Done != 1 || overview.Jobs.Attention != 1 || overview.Jobs.CleanupReady != 1 {
+		t.Fatalf("jobs = %+v", overview.Jobs)
+	}
+	for _, want := range []string{
+		"agent-team job triage",
+		"agent-team job cleanup --all --dry-run",
+	} {
+		if !stringSliceContains(overview.Actions, want) {
+			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
+		}
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview cleanup text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{
+		"cleanup_ready=1",
+		"agent-team job cleanup --all --dry-run",
+	} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("overview cleanup text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestOverviewRecommendsIntakeDoctorForLedgerParseErrors(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -243,6 +289,33 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 		if !stringSliceContains(overview.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
 		}
+	}
+}
+
+func TestTeamOverviewRecommendsScopedCleanupTriage(t *testing.T) {
+	root := writeOverviewCleanupFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team overview cleanup json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode team overview cleanup: %v\nbody=%s", err, out.String())
+	}
+	if overview.Team == nil || overview.Team.Name != "delivery" || overview.Jobs.CleanupReady != 1 {
+		t.Fatalf("team overview = %+v", overview)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team team triage delivery --reason cleanup_ready") {
+		t.Fatalf("actions missing scoped cleanup triage: %+v", overview.Actions)
+	}
+	if stringSliceContains(overview.Actions, "agent-team job cleanup --all --dry-run") {
+		t.Fatalf("team actions should not include unscoped batch cleanup: %+v", overview.Actions)
 	}
 }
 
@@ -414,6 +487,42 @@ schedules = ["nightly"]
 	}
 	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
 		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	return root
+}
+
+func writeOverviewCleanupFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	instances := `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["worker"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	j := &job.Job{
+		ID:        "squ-710",
+		Ticket:    "SQU-710",
+		Target:    "worker",
+		Status:    job.StatusDone,
+		Branch:    "worktree-worker-squ-710",
+		Worktree:  filepath.Join(root, ".claude", "worktrees", "worker-squ-710"),
+		PR:        "https://github.com/acme/repo/pull/710",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
 	}
 	return root
 }
