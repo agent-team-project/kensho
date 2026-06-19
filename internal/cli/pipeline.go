@@ -116,6 +116,7 @@ func newPipelineDoctorCmd() *cobra.Command {
 		repo    string
 		all     bool
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -125,6 +126,10 @@ func newPipelineDoctorCmd() *cobra.Command {
 			"step targets should resolve through agent.dispatch topology routes, and schedule-triggered pipelines should have a matching schedule source.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
 			if all && len(args) > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --all cannot be combined with a pipeline argument.")
 				return exitErr(2)
@@ -141,6 +146,11 @@ func newPipelineDoctorCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: pipeline name is required.")
 				return exitErr(2)
 			}
+			tmpl, err := parsePipelineDoctorFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline doctor: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -150,12 +160,13 @@ func newPipelineDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline doctor: %v\n", err)
 				return exitErr(1)
 			}
-			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut)
+			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline doctor findings as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
 }
 
@@ -1178,12 +1189,21 @@ func renderPipelineInfoFormat(w io.Writer, info pipelineInfo, tmpl *template.Tem
 	return err
 }
 
-func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult, jsonOut bool) error {
+func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &pipelineDoctorResult{OK: true}
 	}
 	if jsonOut {
 		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if tmpl != nil {
+		if err := renderPipelineDoctorFormat(stdout, result, tmpl); err != nil {
 			return err
 		}
 		if !result.OK {
@@ -1218,6 +1238,25 @@ func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult
 		fmt.Fprintf(stderr, "  warning: %s\n", warning.Message)
 	}
 	return exitErr(1)
+}
+
+func parsePipelineDoctorFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-doctor-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderPipelineDoctorFormat(w io.Writer, result *pipelineDoctorResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {

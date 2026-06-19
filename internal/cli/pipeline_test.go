@@ -214,6 +214,18 @@ after = ["implement"]
 	if !strings.Contains(textOut.String(), "agent-team pipeline doctor: OK (ticket_to_pr)") {
 		t.Fatalf("doctor text = %q", textOut.String())
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"pipeline", "doctor", "ticket_to_pr", "--repo", root, "--format", "{{.OK}} {{len .Pipelines}} {{len .Problems}} {{len .Warnings}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("pipeline doctor format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := formatOut.String(), "true 1 0 0\n"; got != want {
+		t.Fatalf("pipeline doctor format output = %q, want %q", got, want)
+	}
 }
 
 func TestPipelineDoctorFindsWorkflowProblems(t *testing.T) {
@@ -277,6 +289,21 @@ after = ["implement"]
 			t.Fatalf("doctor stderr missing %q:\n%s", want, textErr.String())
 		}
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"pipeline", "doctor", "broken", "--repo", root, "--format", "{{.OK}} {{len .Problems}} {{len .Warnings}}"})
+	if err := format.Execute(); err == nil {
+		t.Fatal("pipeline doctor format unexpectedly succeeded")
+	}
+	if got, want := formatOut.String(), "false 2 2\n"; got != want {
+		t.Fatalf("pipeline doctor failure format output = %q, want %q", got, want)
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("pipeline doctor failure format stderr = %q", formatErr.String())
+	}
 }
 
 func TestPipelineDoctorRejectsInvalidArguments(t *testing.T) {
@@ -299,6 +326,35 @@ func TestPipelineDoctorRejectsInvalidArguments(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--all cannot be combined") {
 		t.Fatalf("invalid all stderr = %q", stderr.String())
+	}
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"pipeline", "doctor", "--format", "{{.OK}}", "--json", "--repo", root}, "--format cannot be combined"},
+		{[]string{"pipeline", "doctor", "--format", "{{", "--repo", root}, "invalid --format template"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
