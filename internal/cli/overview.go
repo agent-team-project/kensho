@@ -507,11 +507,7 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 		}
 	}
 	if out.Queue.Dead > 0 {
-		if teamName != "" {
-			add(fmt.Sprintf("agent-team team queue retry %s --all --dry-run", teamName))
-		} else {
-			add("agent-team queue retry --all --dry-run")
-		}
+		add(overviewQueueDeadRetryAction(health, teamName))
 	}
 	if out.Queue.Pending > out.Queue.Delayed {
 		if teamName != "" {
@@ -579,6 +575,25 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 		}
 	}
 	return actions
+}
+
+func overviewQueueDeadRetryAction(health *healthResult, teamName string) string {
+	if teamName != "" {
+		return fmt.Sprintf("agent-team team queue retry %s --all --dry-run", teamName)
+	}
+	if health != nil {
+		for _, issue := range health.Issues {
+			if issue.Code != "queue_dead_letter" {
+				continue
+			}
+			for _, action := range issue.Actions {
+				if strings.HasPrefix(action, "agent-team job queue retry ") || action == "agent-team queue retry --all" {
+					return action + " --dry-run"
+				}
+			}
+		}
+	}
+	return "agent-team queue retry --all --dry-run"
 }
 
 func overviewHasQueueSectionError(out *overviewResult) bool {

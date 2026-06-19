@@ -524,7 +524,7 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 			"",
 			"",
 			fmt.Sprintf("queue has %d dead-letter item(s)", result.Queue.Dead),
-			[]string{"agent-team queue retry --all", "agent-team repair --skip-tick"},
+			queueDeadLetterHealthActions(teamDir, items),
 		)
 	}
 	if result.Queue.Quarantined > 0 {
@@ -540,6 +540,60 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 		)
 	}
 	return nil
+}
+
+func queueDeadLetterHealthActions(teamDir string, items []*daemon.QueueItem) []string {
+	retry := "agent-team queue retry --all"
+	if id := singleDeadQueueJobID(teamDir, items); id != "" {
+		retry = fmt.Sprintf("agent-team job queue retry %s --all", id)
+	}
+	return []string{retry, "agent-team repair --skip-tick"}
+}
+
+func singleDeadQueueJobID(teamDir string, items []*daemon.QueueItem) string {
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return ""
+	}
+	return singleDeadQueueJobIDForJobs(items, jobs)
+}
+
+func singleDeadQueueJobIDForJobs(items []*daemon.QueueItem, jobs []*job.Job) string {
+	var found string
+	var dead int
+	for _, item := range items {
+		if item == nil || item.State != daemon.QueueStateDead {
+			continue
+		}
+		dead++
+		matches := map[string]bool{}
+		for _, j := range jobs {
+			if j == nil || strings.TrimSpace(j.ID) == "" {
+				continue
+			}
+			if queueItemMatchesJob(item, j) {
+				matches[j.ID] = true
+			}
+		}
+		if len(matches) != 1 {
+			return ""
+		}
+		var id string
+		for match := range matches {
+			id = match
+		}
+		if found == "" {
+			found = id
+			continue
+		}
+		if found != id {
+			return ""
+		}
+	}
+	if dead == 0 {
+		return ""
+	}
+	return found
 }
 
 func queueQuarantineHealthActions(summary queueSummary, teamName string) []string {

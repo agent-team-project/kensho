@@ -547,6 +547,79 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	}
 }
 
+func TestHealthCommandReportsJobScopedQueueDeadLetterAction(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j, err := job.New("SQU-91", "worker", "recover queue failure", now)
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.Instance = "worker-squ-91"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:             "q-job-health-dead",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-91",
+		Payload:        map[string]any{"target": "worker", "ticket": "SQU-91", "job_id": "squ-91"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-2 * time.Hour),
+		UpdatedAt:      now.Add(-time.Hour),
+		DeadLetteredAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	err = cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health json: %v\nbody=%s", err, stdout.String())
+	}
+	var queueIssue *healthIssue
+	for i := range body.Issues {
+		if body.Issues[i].Code == "queue_dead_letter" {
+			queueIssue = &body.Issues[i]
+			break
+		}
+	}
+	if queueIssue == nil {
+		t.Fatalf("issues = %+v, missing queue_dead_letter", body.Issues)
+	}
+	if !containsString(queueIssue.Actions, "agent-team job queue retry squ-91 --all") || containsString(queueIssue.Actions, "agent-team queue retry --all") {
+		t.Fatalf("queue issue actions = %+v", queueIssue.Actions)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"health", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("health text succeeded unexpectedly")
+	}
+	for _, want := range []string{"queue_dead_letter", "action=agent-team job queue retry squ-91 --all; agent-team repair --skip-tick"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestHealthCommandReportsQueueQuarantine(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

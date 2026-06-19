@@ -55,7 +55,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	for _, want := range []string{
 		"agent-team repair --dry-run --jobs",
 		"agent-team daemon start",
-		"agent-team queue retry --all --dry-run",
+		"agent-team job queue retry squ-700 --all --dry-run",
 		"agent-team job triage",
 		"agent-team schedule fire --dry-run --preview-triggers",
 	} {
