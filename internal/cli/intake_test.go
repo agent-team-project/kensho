@@ -1022,6 +1022,18 @@ target = "manager"
 	if result.Preview == nil || len(result.Preview.Matched) != 1 || result.Preview.Matched[0] != "manager" || len(result.Preview.Pipelines) != 1 || result.Preview.Pipelines[0] != "ticket_triage" {
 		t.Fatalf("replay preview = %+v", result.Preview)
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--format", `{{.Event.Type}} {{index .Event.Payload "ticket"}} {{.DryRun}} {{len .Preview.Matched}}`})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("intake replay dry-run format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := formatOut.String(), "ticket.created SQU-206 true 1\n"; got != want {
+		t.Fatalf("intake replay dry-run format = %q, want %q", got, want)
+	}
 }
 
 func TestIntakeReplayPublishesDelivery(t *testing.T) {
@@ -1156,6 +1168,18 @@ target = "manager"
 	}
 	if result.Preview == nil || len(result.Preview.Matched) != 1 || result.Preview.Matched[0] != "manager" || len(result.Preview.Pipelines) != 1 || result.Preview.Pipelines[0] != "ticket_triage" {
 		t.Fatalf("preview = %+v", result.Preview)
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--provider", "linear", "--limit", "1", "--dry-run", "--preview-triggers", "--format", "{{.DeliveryID}} {{.OK}} {{.DryRun}} {{len .Preview.Pipelines}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("intake replay all dry-run format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := formatOut.String(), "linear-first true true 1\n"; got != want {
+		t.Fatalf("intake replay all dry-run format = %q, want %q", got, want)
 	}
 }
 
