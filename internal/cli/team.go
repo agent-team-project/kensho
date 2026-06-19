@@ -2590,6 +2590,7 @@ func newTeamRepairCmd() *cobra.Command {
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
+		format        string
 		skipDaemon    bool
 		skipQueue     bool
 		skipTick      bool
@@ -2639,6 +2640,15 @@ func newTeamRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --preview-routes requires --dry-run.")
 				return exitErr(2)
 			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseTeamRepairFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team repair: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -2661,7 +2671,7 @@ func newTeamRepairCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team repair: %v\n", err)
 				return exitErr(1)
 			}
-			return renderTeamRepairResult(cmd.OutOrStdout(), result, jsonOut)
+			return renderTeamRepairResult(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
@@ -2670,6 +2680,7 @@ func newTeamRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready team pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the team repair result with a Go template, e.g. '{{.Team.Name}} {{.Queue.Action}}'.")
 	cmd.Flags().BoolVar(&skipDaemon, "skip-daemon", false, "Do not start or reconcile the daemon.")
 	cmd.Flags().BoolVar(&skipQueue, "skip-queue", false, "Do not retry team-owned dead-letter queue items.")
 	cmd.Flags().BoolVar(&skipTick, "skip-tick", false, "Do not run a scoped team tick after queue retry.")
@@ -5240,12 +5251,26 @@ func renderTeamTickUntilIdleResult(w io.Writer, result *teamTickUntilIdleResult,
 	return nil
 }
 
-func renderTeamRepairResult(w io.Writer, result *teamRepairResult, jsonOut bool) error {
+func parseTeamRepairFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("team-repair-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderTeamRepairResult(w io.Writer, result *teamRepairResult, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &teamRepairResult{}
 	}
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		return renderTeamRepairFormat(w, result, tmpl)
 	}
 	fmt.Fprintf(w, "Team: %s\n", result.Team.Name)
 	if result.Team.Description != "" {
@@ -5272,6 +5297,14 @@ func renderTeamRepairResult(w io.Writer, result *teamRepairResult, jsonOut bool)
 		fmt.Fprintf(w, "Health after: %s\n", repairHealthState(result.HealthAfter))
 	}
 	return nil
+}
+
+func renderTeamRepairFormat(w io.Writer, result *teamRepairResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func renderTeamRepairTickStep(w io.Writer, step teamRepairTickStep) error {

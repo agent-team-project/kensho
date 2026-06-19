@@ -3547,6 +3547,21 @@ instances = ["other"]
 		t.Fatalf("team repair text leaked unrelated work:\n%s", textOut.String())
 	}
 
+	formatted := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formatOut)
+	formatted.SetErr(formatErr)
+	formatted.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--jobs", "--format", "{{.Team.Name}} {{.DryRun}} {{.Daemon.Action}} {{.Queue.Action}} {{len .Queue.Results}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("team repair format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("team repair format stderr = %q", formatErr.String())
+	}
+	if got, want := formatOut.String(), "delivery true skipped would_retry 1\n"; got != want {
+		t.Fatalf("team repair format output = %q, want %q", got, want)
+	}
+
 	run := NewRootCmd()
 	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(runOut)
@@ -3567,6 +3582,44 @@ instances = ["other"]
 	}
 	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-repair"); err != nil || item.State != daemon.QueueStateDead {
 		t.Fatalf("unrelated queue item changed=%+v err=%v", item, err)
+	}
+}
+
+func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format with json",
+			args: []string{"team", "repair", "delivery", "--format", "{{.Team.Name}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "invalid format",
+			args: []string{"team", "repair", "delivery", "--format", "{{"},
+			want: "invalid --format template",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("team repair invalid flags succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("team repair err = %v, want exit code 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
 	}
 }
 
