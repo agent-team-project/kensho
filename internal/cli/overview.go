@@ -128,6 +128,7 @@ type overviewResult struct {
 	Queue         queueSummary            `json:"queue"`
 	Pipelines     overviewPipelineSummary `json:"pipelines"`
 	Schedules     overviewScheduleSummary `json:"schedules"`
+	Intake        overviewIntakeSummary   `json:"intake"`
 	Actions       []string                `json:"actions,omitempty"`
 	SectionErrors map[string]string       `json:"section_errors,omitempty"`
 }
@@ -167,6 +168,14 @@ type overviewScheduleSummary struct {
 	Due      int      `json:"due"`
 	Upcoming int      `json:"upcoming"`
 	DueNames []string `json:"due_names,omitempty"`
+}
+
+type overviewIntakeSummary struct {
+	Deliveries    int    `json:"deliveries"`
+	Errors        int    `json:"errors"`
+	Replayable    int    `json:"replayable"`
+	LatestErrorID string `json:"latest_error_id,omitempty"`
+	LatestError   string `json:"latest_error,omitempty"`
 }
 
 func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overviewResult {
@@ -221,6 +230,12 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 		out.addError("schedules", err)
 	} else {
 		out.Schedules = overviewSchedulesFromRows(schedules, now, scheduleLimit)
+	}
+
+	if deliveries, err := listIntakeDeliveries(teamDir); err != nil {
+		out.addError("intake", err)
+	} else {
+		out.Intake = overviewIntakeFromDeliveries(deliveries)
 	}
 
 	out.Actions = overviewActions(out, health)
@@ -395,6 +410,26 @@ func overviewSchedulesFromRows(schedules []scheduleInfo, now time.Time, limit in
 	return out
 }
 
+func overviewIntakeFromDeliveries(deliveries []intakeDelivery) overviewIntakeSummary {
+	out := overviewIntakeSummary{Deliveries: len(deliveries)}
+	var latest time.Time
+	for _, delivery := range deliveries {
+		if delivery.Status != intakeDeliveryStatusError {
+			continue
+		}
+		out.Errors++
+		if strings.TrimSpace(delivery.EventType) != "" && len(delivery.Payload) > 0 {
+			out.Replayable++
+		}
+		if out.LatestErrorID == "" || delivery.Time.After(latest) {
+			latest = delivery.Time
+			out.LatestErrorID = delivery.ID
+			out.LatestError = delivery.Error
+		}
+	}
+	return out
+}
+
 func overviewActions(out *overviewResult, health *healthResult) []string {
 	return overviewActionsForScope(out, health, "")
 }
@@ -475,6 +510,12 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 			add("agent-team schedule fire --dry-run --preview-triggers")
 		}
 	}
+	if teamName == "" && out.Intake.Errors > 0 {
+		add("agent-team intake deliveries --status error")
+		if out.Intake.Replayable > 0 && out.Intake.LatestErrorID != "" {
+			add(fmt.Sprintf("agent-team intake replay %s --dry-run --preview-triggers", out.Intake.LatestErrorID))
+		}
+	}
 	if len(out.SectionErrors) > 0 {
 		if teamName != "" {
 			add(fmt.Sprintf("agent-team team snapshot %s --json", teamName))
@@ -506,7 +547,8 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 		out.Pipelines.ReadySteps == 0 &&
 		out.Pipelines.BlockedSteps == 0 &&
 		out.Pipelines.FailedSteps == 0 &&
-		out.Schedules.Due == 0
+		out.Schedules.Due == 0 &&
+		out.Intake.Errors == 0
 }
 
 func overviewState(out *overviewResult) string {
@@ -520,7 +562,8 @@ func overviewState(out *overviewResult) string {
 		out.Queue.Dead > 0 ||
 		out.Jobs.Attention > 0 ||
 		out.Pipelines.BlockedSteps > 0 ||
-		out.Pipelines.FailedSteps > 0 {
+		out.Pipelines.FailedSteps > 0 ||
+		out.Intake.Errors > 0 {
 		return "attention"
 	}
 	return "active"
@@ -634,6 +677,11 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool) error {
 		result.Schedules.Declared,
 		result.Schedules.Due,
 		result.Schedules.Upcoming)
+	fmt.Fprintf(w, "intake: deliveries=%d errors=%d replayable=%d latest_error=%s\n",
+		result.Intake.Deliveries,
+		result.Intake.Errors,
+		result.Intake.Replayable,
+		emptyDash(result.Intake.LatestErrorID))
 	if len(result.Actions) == 0 {
 		fmt.Fprintln(w, "actions: none")
 	} else {

@@ -93,6 +93,38 @@ func TestOverviewTextRendersOperatorSummary(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsIntakeErrors(t *testing.T) {
+	root := writeIntakeErrorFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview intake json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview intake: %v\nbody=%s", err, out.String())
+	}
+	if overview.OK || overview.State != "attention" {
+		t.Fatalf("overview state = ok:%v state:%q", overview.OK, overview.State)
+	}
+	if overview.Intake.Deliveries != 1 || overview.Intake.Errors != 1 || overview.Intake.Replayable != 1 || overview.Intake.LatestErrorID != "intake-failed" {
+		t.Fatalf("intake summary = %+v", overview.Intake)
+	}
+	for _, want := range []string{
+		"agent-team intake deliveries --status error",
+		"agent-team intake replay intake-failed --dry-run --preview-triggers",
+	} {
+		if !stringSliceContains(overview.Actions, want) {
+			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
+		}
+	}
+}
+
 func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	root := writeOverviewAttentionFixture(t)
 
@@ -302,6 +334,29 @@ schedules = ["nightly"]
 	}
 	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
 		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	return root
+}
+
+func writeIntakeErrorFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendIntakeDelivery(teamDir, intakeDelivery{
+		ID:         "intake-failed",
+		Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Provider:   "linear",
+		Status:     intakeDeliveryStatusError,
+		HTTPStatus: 503,
+		EventType:  "ticket.created",
+		Payload:    map[string]any{"source": "linear", "ticket": "SQU-800", "title": "Failed intake"},
+		Ticket:     "SQU-800",
+		Error:      "daemon is not running",
+	}); err != nil {
+		t.Fatalf("append intake delivery: %v", err)
 	}
 	return root
 }

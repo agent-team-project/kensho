@@ -62,6 +62,32 @@ func TestNextCommandCanScopeToTeam(t *testing.T) {
 	}
 }
 
+func TestNextCommandReportsIntakeReplayAction(t *testing.T) {
+	root := writeIntakeErrorFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next intake json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode next intake json: %v\nbody=%s", err, out.String())
+	}
+	for _, want := range []string{
+		"agent-team intake deliveries --status error",
+		"agent-team intake replay intake-failed --dry-run --preview-triggers",
+	} {
+		if !stringSliceContains(result.Actions, want) {
+			t.Fatalf("actions missing %q: %+v", want, result.Actions)
+		}
+	}
+}
+
 func TestNextActionResultHandlesNoActions(t *testing.T) {
 	result := nextActionResultFromOverview(&overviewResult{
 		OK:    true,
