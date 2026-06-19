@@ -287,10 +287,11 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		summary := summarizeQueueItems(teamQueue, now)
 		out.QueueSummary = &summary
 	}
+	var teamQuarantine []queueQuarantineItem
 	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
 		out.addError("queue_quarantine", err)
 	} else {
-		teamQuarantine := teamQueueQuarantineItems(top, team, ownedJobs, quarantine)
+		teamQuarantine = teamQueueQuarantineItems(top, team, ownedJobs, quarantine)
 		out.QueueQuarantine = teamQuarantine
 		applyQueueQuarantineSummary(ensureSnapshotQueueSummary(out, now), teamQuarantine)
 	}
@@ -299,6 +300,7 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 	} else {
 		triage.Summary = summarizeJobs(ownedJobs)
 		triage.Queue = summarizeQueueItems(teamQueue, now)
+		applyQueueQuarantineSummary(&triage.Queue, teamQuarantine)
 		triage.Attention = filterJobTriageItemsByJobIDs(triage.Attention, ownedJobIDs)
 		triage.ReadySteps = filterJobReadyRowsByJobIDs(triage.ReadySteps, ownedJobIDs)
 		triage.StatusPreviews = filterJobStatusPreviewsByJobIDs(triage.StatusPreviews, ownedJobIDs)

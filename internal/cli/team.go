@@ -4516,12 +4516,18 @@ func collectTeamTriage(teamDir, name string, now time.Time, staleAfter time.Dura
 		return jobTriageSnapshot{}, err
 	}
 	teamQueue := teamQueueItems(top, team, ownedJobs, queueItems)
+	quarantineItems, err := listQueueQuarantine(teamDir)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	teamQuarantine := teamQueueQuarantineItems(top, team, ownedJobs, quarantineItems)
 	snapshot, err := collectJobTriage(teamDir, now, staleAfter)
 	if err != nil {
 		return jobTriageSnapshot{}, err
 	}
 	snapshot.Summary = summarizeJobs(ownedJobs)
 	snapshot.Queue = summarizeQueueItems(teamQueue, now)
+	applyQueueQuarantineSummary(&snapshot.Queue, teamQuarantine)
 	snapshot.Attention = filterJobTriageItemsByJobIDs(snapshot.Attention, ownedIDs)
 	snapshot.ReadySteps = filterJobReadyRowsByJobIDs(snapshot.ReadySteps, ownedIDs)
 	snapshot.StatusPreviews = filterJobStatusPreviewsByJobIDs(snapshot.StatusPreviews, ownedIDs)

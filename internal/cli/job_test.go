@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -512,6 +513,34 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
 		t.Fatalf("WriteQueueItem: %v", err)
 	}
+	stamp := "20260619T010203.000000000Z"
+	quarantinePath := filepath.Join("quarantine", stamp, daemon.QueueStatePending, "q-job-show-quarantined.json")
+	writeQuarantinedQueueItem(t, teamDir, stamp, daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-job-show-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-109",
+		Payload: map[string]any{
+			"job_id": "squ-109",
+			"ticket": "SQU-109",
+			"target": "worker",
+		},
+		QueuedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-2 * time.Hour),
+	})
+	writeQuarantinedQueueItem(t, teamDir, stamp, daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-job-show-other",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-999",
+		Payload: map[string]any{
+			"job_id": "squ-999",
+			"ticket": "SQU-999",
+			"target": "worker",
+		},
+		QueuedAt:  now.Add(-30 * time.Minute),
+		UpdatedAt: now.Add(-30 * time.Minute),
+	})
 
 	show := NewRootCmd()
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -521,10 +550,26 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	if err := show.Execute(); err != nil {
 		t.Fatalf("job show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Queue:", "q-job-show", "state=dead", "instance_id=worker-squ-109", "Actions:", "agent-team job queue retry squ-109 q-job-show"} {
+	for _, want := range []string{
+		"Queue:",
+		"q-job-show",
+		"state=dead",
+		"instance_id=worker-squ-109",
+		"Queue Quarantine:",
+		quarantinePath,
+		"q-job-show-quarantined",
+		"restorable=yes",
+		"Actions:",
+		"agent-team job queue retry squ-109 q-job-show",
+		"agent-team job queue quarantine squ-109",
+		fmt.Sprintf("agent-team job queue quarantine restore squ-109 %s --dry-run", quarantinePath),
+	} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
 		}
+	}
+	if strings.Contains(showOut.String(), "q-job-show-other") {
+		t.Fatalf("job show leaked unrelated quarantined item:\n%s", showOut.String())
 	}
 
 	showJSON := NewRootCmd()
@@ -1340,6 +1385,27 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		t.Fatalf("write cleanup-ready job: %v", err)
 	}
 
+	quarantined := mustNewJob(t, "SQU-207", "worker")
+	quarantined.Instance = "worker-squ-207"
+	if err := job.Write(teamDir, quarantined); err != nil {
+		t.Fatalf("write quarantined job: %v", err)
+	}
+	quarantineStamp := "20260619T020304.000000000Z"
+	quarantinePath := filepath.Join("quarantine", quarantineStamp, daemon.QueueStatePending, "q-triage-quarantined.json")
+	writeQuarantinedQueueItem(t, teamDir, quarantineStamp, daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-triage-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-207",
+		Payload: map[string]any{
+			"job_id": "squ-207",
+			"ticket": "SQU-207",
+			"target": "worker",
+		},
+		QueuedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-2 * time.Hour),
+	})
+
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -1349,8 +1415,9 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		t.Fatalf("job triage: %v\nstderr=%s", err, stderr.String())
 	}
 	for _, want := range []string{
-		"jobs: total=6",
+		"jobs: total=7",
 		"queue: total=1 pending=0 dead=1",
+		"quarantined=1 restorable=1 unrestorable=0",
 		"Attention:",
 		"squ-201",
 		"failed",
@@ -1372,6 +1439,10 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		"squ-206",
 		"cleanup_ready",
 		"agent-team job cleanup squ-206 --dry-run",
+		"squ-207",
+		"queue_quarantined",
+		"agent-team job queue quarantine squ-207",
+		fmt.Sprintf("agent-team job queue quarantine restore squ-207 %s --dry-run", quarantinePath),
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("job triage missing %q:\n%s", want, out.String())
@@ -1390,7 +1461,7 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &snapshot); err != nil {
 		t.Fatalf("decode triage json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if snapshot.Summary.Total != 6 || snapshot.Queue.Dead != 1 || len(snapshot.Attention) != 5 || len(snapshot.ReadySteps) != 1 {
+	if snapshot.Summary.Total != 7 || snapshot.Queue.Dead != 1 || snapshot.Queue.Quarantined != 1 || snapshot.Queue.QuarantineRestorable != 1 || len(snapshot.Attention) != 6 || len(snapshot.ReadySteps) != 1 {
 		t.Fatalf("triage snapshot = %+v", snapshot)
 	}
 	reasons := map[string][]string{}
@@ -1414,6 +1485,12 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if !containsString(actions["squ-206"], "agent-team job cleanup squ-206 --dry-run") {
 		t.Fatalf("squ-206 actions = %v", actions["squ-206"])
 	}
+	if !containsString(reasons["squ-207"], "queue_quarantined") {
+		t.Fatalf("squ-207 reasons = %v", reasons["squ-207"])
+	}
+	if !containsString(actions["squ-207"], "agent-team job queue quarantine squ-207") || !containsString(actions["squ-207"], fmt.Sprintf("agent-team job queue quarantine restore squ-207 %s --dry-run", quarantinePath)) {
+		t.Fatalf("squ-207 actions = %v", actions["squ-207"])
+	}
 	if snapshot.ReadySteps[0].JobID != "squ-205" || snapshot.ReadySteps[0].StepID != "implement" {
 		t.Fatalf("ready steps = %+v", snapshot.ReadySteps)
 	}
@@ -1429,7 +1506,7 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if err := formatCmd.Execute(); err != nil {
 		t.Fatalf("job triage format: %v\nstderr=%s", err, formatErr.String())
 	}
-	if got, want := formatOut.String(), "6 1 5 1\n"; got != want {
+	if got, want := formatOut.String(), "7 1 6 1\n"; got != want {
 		t.Fatalf("job triage format = %q, want %q", got, want)
 	}
 
@@ -1459,6 +1536,22 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	}
 	if len(reasonSnapshot.Attention) != 1 || reasonSnapshot.Attention[0].JobID != "squ-204" {
 		t.Fatalf("reason triage attention = %+v", reasonSnapshot.Attention)
+	}
+
+	quarantineReasonCmd := NewRootCmd()
+	quarantineReasonOut, quarantineReasonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	quarantineReasonCmd.SetOut(quarantineReasonOut)
+	quarantineReasonCmd.SetErr(quarantineReasonErr)
+	quarantineReasonCmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--reason", "queue_quarantined", "--json"})
+	if err := quarantineReasonCmd.Execute(); err != nil {
+		t.Fatalf("job triage quarantine reason: %v\nstderr=%s", err, quarantineReasonErr.String())
+	}
+	var quarantineReasonSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(quarantineReasonOut.Bytes(), &quarantineReasonSnapshot); err != nil {
+		t.Fatalf("decode quarantine reason triage json: %v\nbody=%s", err, quarantineReasonOut.String())
+	}
+	if len(quarantineReasonSnapshot.Attention) != 1 || quarantineReasonSnapshot.Attention[0].JobID != "squ-207" {
+		t.Fatalf("quarantine reason triage attention = %+v", quarantineReasonSnapshot.Attention)
 	}
 
 	cleanupReasonCmd := NewRootCmd()
