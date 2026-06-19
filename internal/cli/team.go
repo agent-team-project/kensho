@@ -125,8 +125,8 @@ func newTeamDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor <team>",
 		Short: "Validate one team's topology wiring.",
-		Long: "Validate a declared team's topology wiring: pipeline step targets must be owned by the team, " +
-			"and team schedules should route back to team-owned instances or pipelines.",
+		Long: "Validate a declared team's topology wiring: team-owned pipeline workflows must be runnable, " +
+			"pipeline step targets must be owned by the team, and team schedules should route back to team-owned instances or pipelines.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			teamDir, err := resolveTeamDir(cmd, repo)
@@ -154,12 +154,15 @@ type teamDoctorResult struct {
 }
 
 type teamDoctorFinding struct {
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	Pipeline string `json:"pipeline,omitempty"`
-	Step     string `json:"step,omitempty"`
-	Target   string `json:"target,omitempty"`
-	Schedule string `json:"schedule,omitempty"`
+	Code         string   `json:"code"`
+	Message      string   `json:"message"`
+	Pipeline     string   `json:"pipeline,omitempty"`
+	Step         string   `json:"step,omitempty"`
+	Target       string   `json:"target,omitempty"`
+	Routes       []string `json:"routes,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Cycle        []string `json:"cycle,omitempty"`
+	Schedule     string   `json:"schedule,omitempty"`
 }
 
 func collectTeamDoctor(teamDir, name string) (*teamDoctorResult, error) {
@@ -186,12 +189,14 @@ func collectTeamDoctor(teamDir, name string) (*teamDoctorResult, error) {
 		if pipeline == nil {
 			continue
 		}
+		pipelineReport := doctorPipeline(top, pipeline)
+		for _, problem := range pipelineReport.Problems {
+			result.Problems = append(result.Problems, teamDoctorFindingFromPipeline(problem))
+		}
+		for _, warning := range pipelineReport.Warnings {
+			result.Warnings = append(result.Warnings, teamDoctorFindingFromPipeline(warning))
+		}
 		if len(pipeline.Steps) == 0 {
-			result.Problems = append(result.Problems, teamDoctorFinding{
-				Code:     "pipeline_no_steps",
-				Message:  fmt.Sprintf("pipeline %q has no steps", pipeline.Name),
-				Pipeline: pipeline.Name,
-			})
 			continue
 		}
 		for _, step := range pipeline.Steps {
@@ -233,6 +238,19 @@ func collectTeamDoctor(teamDir, name string) (*teamDoctorResult, error) {
 	}
 	result.OK = len(result.Problems) == 0
 	return result, nil
+}
+
+func teamDoctorFindingFromPipeline(finding pipelineDoctorFinding) teamDoctorFinding {
+	return teamDoctorFinding{
+		Code:         finding.Code,
+		Message:      finding.Message,
+		Pipeline:     finding.Pipeline,
+		Step:         finding.Step,
+		Target:       finding.Target,
+		Routes:       append([]string(nil), finding.Routes...),
+		Dependencies: append([]string(nil), finding.Dependencies...),
+		Cycle:        append([]string(nil), finding.Cycle...),
+	}
 }
 
 func teamTargetSet(top *topology.Topology, team *topology.Team) map[string]bool {

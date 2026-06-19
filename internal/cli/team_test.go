@@ -486,6 +486,10 @@ match.target = "worker"
 agent = "other"
 
 [[instances.other.triggers]]
+event = "agent.dispatch"
+match.target = "other"
+
+[[instances.other.triggers]]
 event = "schedule"
 match.name = "nightly"
 
@@ -549,6 +553,72 @@ schedules = ["nightly"]
 	}
 	if !strings.Contains(textErr.String(), `pipeline "ticket_to_pr" step "implement" targets "other"`) || !strings.Contains(textErr.String(), `schedule "nightly" also matches`) {
 		t.Fatalf("team doctor stderr = %q", textErr.String())
+	}
+}
+
+func TestTeamDoctorIncludesPipelineWorkflowFindings(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+after = ["review"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "worker"
+after = ["implement"]
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("team doctor unexpectedly succeeded")
+	}
+	var result teamDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team doctor workflow: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || !hasTeamDoctorFinding(result.Problems, "dependency_cycle") {
+		t.Fatalf("team doctor problems = %+v", result.Problems)
+	}
+	if !hasTeamDoctorFinding(result.Warnings, "first_step_has_dependencies") {
+		t.Fatalf("team doctor warnings = %+v", result.Warnings)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "doctor", "delivery", "--repo", root})
+	if err := text.Execute(); err == nil {
+		t.Fatal("team doctor text unexpectedly succeeded")
+	}
+	if textOut.Len() != 0 || !strings.Contains(textErr.String(), "dependency cycle") {
+		t.Fatalf("team doctor text stdout=%q stderr=%q", textOut.String(), textErr.String())
 	}
 }
 
@@ -3441,4 +3511,13 @@ func TestTeamPsRejectsNegativeInterval(t *testing.T) {
 	if !strings.Contains(stderr.String(), "--interval must be >= 0") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+}
+
+func hasTeamDoctorFinding(findings []teamDoctorFinding, code string) bool {
+	for _, finding := range findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }
