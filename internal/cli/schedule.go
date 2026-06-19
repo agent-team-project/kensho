@@ -37,6 +37,7 @@ func newScheduleLsCmd() *cobra.Command {
 	var (
 		repo    string
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -44,6 +45,15 @@ func newScheduleLsCmd() *cobra.Command {
 		Short: "List declared schedules.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule ls: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseScheduleDueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule ls: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -53,11 +63,12 @@ func newScheduleLsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule ls: %v\n", err)
 				return exitErr(1)
 			}
-			return renderScheduleList(cmd.OutOrStdout(), schedules, jsonOut)
+			return renderScheduleList(cmd.OutOrStdout(), schedules, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schedules as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.")
 	return cmd
 }
 
@@ -65,6 +76,7 @@ func newScheduleShowCmd() *cobra.Command {
 	var (
 		repo    string
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -72,6 +84,15 @@ func newScheduleShowCmd() *cobra.Command {
 		Short: "Show one declared schedule.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule show: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseScheduleDueFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule show: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -81,11 +102,12 @@ func newScheduleShowCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule show: %v\n", err)
 				return exitErr(1)
 			}
-			return renderScheduleDetail(cmd.OutOrStdout(), info, jsonOut)
+			return renderScheduleDetail(cmd.OutOrStdout(), info, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the schedule as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.")
 	return cmd
 }
 
@@ -450,9 +472,20 @@ func scheduleInfoFromTopology(s *topology.Schedule, state *daemon.ScheduleState)
 	return info
 }
 
-func renderScheduleList(w io.Writer, schedules []scheduleInfo, jsonOut bool) error {
+func renderScheduleList(w io.Writer, schedules []scheduleInfo, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(schedules)
+	}
+	if tmpl != nil {
+		for _, info := range schedules {
+			if err := tmpl.Execute(w, info); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if len(schedules) == 0 {
 		fmt.Fprintln(w, "(no schedules declared)")
@@ -468,9 +501,16 @@ func renderScheduleList(w io.Writer, schedules []scheduleInfo, jsonOut bool) err
 	return nil
 }
 
-func renderScheduleDetail(w io.Writer, info scheduleInfo, jsonOut bool) error {
+func renderScheduleDetail(w io.Writer, info scheduleInfo, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(info)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, info); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
 	}
 	fmt.Fprintf(w, "Schedule:     %s\n", info.Name)
 	fmt.Fprintf(w, "Event:        %s\n", info.Event)

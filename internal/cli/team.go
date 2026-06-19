@@ -6191,5 +6191,5 @@ func renderTeamSchedules(w io.Writer, schedules []scheduleInfo, jsonOut bool, tm
 		}
 		return nil
 	}
-	return renderScheduleList(w, schedules, false)
+	return renderScheduleList(w, schedules, false, nil)
 }

@@ -55,6 +55,18 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 		t.Fatalf("nightly next_run = %v", schedules[1].NextRun)
 	}
 
+	listFormat := NewRootCmd()
+	listFormatOut, listFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	listFormat.SetOut(listFormatOut)
+	listFormat.SetErr(listFormatErr)
+	listFormat.SetArgs([]string{"schedule", "ls", "--repo", tmp, "--format", "{{.Name}} {{.Every}} {{.RunOnStart}}"})
+	if err := listFormat.Execute(); err != nil {
+		t.Fatalf("schedule ls format: %v\nstderr=%s", err, listFormatErr.String())
+	}
+	if got := strings.Split(strings.TrimSpace(listFormatOut.String()), "\n"); strings.Join(got, ",") != "hourly 1h0m0s false,nightly 24h0m0s true" {
+		t.Fatalf("schedule ls format = %q", listFormatOut.String())
+	}
+
 	show := NewRootCmd()
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(showOut)
@@ -67,6 +79,18 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("schedule show missing %q:\n%s", want, showOut.String())
 		}
+	}
+
+	showFormat := NewRootCmd()
+	showFormatOut, showFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	showFormat.SetOut(showFormatOut)
+	showFormat.SetErr(showFormatErr)
+	showFormat.SetArgs([]string{"schedule", "show", "nightly", "--repo", tmp, "--format", "{{.Name}} {{.Event}} {{.Every}} {{.Payload.workspace}}"})
+	if err := showFormat.Execute(); err != nil {
+		t.Fatalf("schedule show format: %v\nstderr=%s", err, showFormatErr.String())
+	}
+	if got, want := showFormatOut.String(), "nightly schedule 24h0m0s repo\n"; got != want {
+		t.Fatalf("schedule show format = %q, want %q", got, want)
 	}
 
 	run := NewRootCmd()
@@ -476,6 +500,53 @@ func TestScheduleShowMissing(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `schedule "missing" not found`) {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestScheduleListShowRejectFormatCombinations(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "list format with json",
+			args: []string{"schedule", "ls", "--repo", tmp, "--format", "{{.Name}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "list invalid format",
+			args: []string{"schedule", "ls", "--repo", tmp, "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "show format with json",
+			args: []string{"schedule", "show", "nightly", "--repo", tmp, "--format", "{{.Name}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "show invalid format",
+			args: []string{"schedule", "show", "nightly", "--repo", tmp, "--format", "{{"},
+			want: "invalid --format template",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("schedule format validation succeeded: stdout=%s", out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
 	}
 }
 
