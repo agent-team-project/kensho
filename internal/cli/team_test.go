@@ -487,6 +487,8 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		{"team", "plan", "delivery", "--format", "{{.Instance}}", "--json"},
 		{"team", "queue", "delivery", "--format", "{{.ID}}", "--json"},
 		{"team", "logs", "delivery", "--json"},
+		{"team", "events", "delivery", "--format", "{{.Instance}}", "--json"},
+		{"team", "events", "delivery", "--summary", "--follow"},
 	} {
 		cmd := NewRootCmd()
 		stderr := &bytes.Buffer{}
@@ -499,6 +501,96 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		if strings.TrimSpace(stderr.String()) == "" {
 			t.Fatalf("%v produced empty stderr", args)
 		}
+	}
+}
+
+func TestTeamEventsScopesLifecycleEvents(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[instances.other]
+agent = "other"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["other", "build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	base := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for _, ev := range []*daemon.LifecycleEvent{
+		{TS: base, Action: "start", Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, Message: "manager up"},
+		{TS: base.Add(time.Minute), Action: "stop", Instance: "build-worker-1", Agent: "worker", Status: daemon.StatusStopped, Message: "platform stop"},
+		{TS: base.Add(2 * time.Minute), Action: "dispatch", Instance: "worker-squ-501", Agent: "worker", Status: daemon.StatusRunning, Message: "delivery worker"},
+		{TS: base.Add(3 * time.Minute), Action: "stop", Instance: "other", Agent: "other", Status: daemon.StatusStopped, Message: "other stop"},
+		{TS: base.Add(4 * time.Minute), Action: "stop", Instance: "worker-squ-501", Agent: "worker", Status: daemon.StatusStopped, Message: "delivery done"},
+	} {
+		if err := daemon.AppendLifecycleEvent(daemonRoot, ev); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+	}
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"team", "events", "delivery", "--repo", root, "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("team events json: %v\nstderr=%s", err, listErr.String())
+	}
+	events := decodeLifecycleEventJSONL(t, listOut.String())
+	if got := lifecycleEventInstances(events); strings.Join(got, ",") != "manager,worker-squ-501,worker-squ-501" {
+		t.Fatalf("team events instances = %v\nbody=%s", got, listOut.String())
+	}
+
+	formatted := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formatOut)
+	formatted.SetErr(formatErr)
+	formatted.SetArgs([]string{"team", "events", "delivery", "--repo", root, "--tail", "1", "--format", "{{.Instance}} {{.Action}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("team events format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got := strings.TrimSpace(formatOut.String()); got != "worker-squ-501 stop" {
+		t.Fatalf("team events tail format = %q", got)
+	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"team", "events", "delivery", "--repo", root, "--summary", "--action", "stop", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("team events summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var eventSummary eventSummaryJSON
+	if err := json.Unmarshal(summaryOut.Bytes(), &eventSummary); err != nil {
+		t.Fatalf("decode team events summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if eventSummary.Total != 1 || eventSummary.Actions["stop"] != 1 || eventSummary.Instances["worker-squ-501"] != 1 {
+		t.Fatalf("team events summary = %+v", eventSummary)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "events", "delivery", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team events text: %v\nstderr=%s", err, textErr.String())
+	}
+	if strings.Contains(textOut.String(), "build-worker-1") || strings.Contains(textOut.String(), "other stop") {
+		t.Fatalf("team events text leaked unrelated event:\n%s", textOut.String())
 	}
 }
 
@@ -1114,6 +1206,31 @@ func logRowInstances(rows []logListRow) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.Instance)
+	}
+	return out
+}
+
+func decodeLifecycleEventJSONL(t *testing.T, body string) []daemon.LifecycleEvent {
+	t.Helper()
+	var events []daemon.LifecycleEvent
+	for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var ev daemon.LifecycleEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("decode lifecycle event %q: %v\nbody=%s", line, err, body)
+		}
+		events = append(events, ev)
+	}
+	return events
+}
+
+func lifecycleEventInstances(events []daemon.LifecycleEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, ev := range events {
+		out = append(out, ev.Instance)
 	}
 	return out
 }

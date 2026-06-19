@@ -37,6 +37,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamQueueCmd())
 	cmd.AddCommand(newTeamLogsCmd())
+	cmd.AddCommand(newTeamEventsCmd())
 	cmd.AddCommand(newTeamPipelinesCmd())
 	cmd.AddCommand(newTeamSchedulesCmd())
 	cmd.AddCommand(newTeamHealthCmd())
@@ -605,6 +606,76 @@ func newTeamLogsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&since, "since", "", "Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
 	cmd.Flags().StringVar(&format, "format", "", "With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.")
+	return cmd
+}
+
+func newTeamEventsCmd() *cobra.Command {
+	var (
+		repo          string
+		follow        bool
+		tail          int
+		jsonOut       bool
+		summary       bool
+		format        string
+		actionFilters []string
+		statusFilters []string
+		sinceRaw      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "events <team>",
+		Short: "Show lifecycle events scoped to one team.",
+		Long:  "Show or follow daemon lifecycle events for one declared team, including ephemeral children owned by that team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if tail < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team events: --tail must be >= 0.")
+				return exitErr(2)
+			}
+			if summary && follow {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team events: --summary cannot be combined with --follow.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team events: --format cannot be combined with --json or --summary.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseEventFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team events: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			filters, err := teamEventFilters(teamDir, args[0], actionFilters, statusFilters, sinceRaw, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team events: %v\n", err)
+				return exitErr(2)
+			}
+			var client eventsClient
+			if dc, err := newDaemonClient(teamDir); err == nil {
+				client = dc
+			} else if errors.Is(err, errDaemonNotRunning) {
+				client = localEventsClient{daemonRoot: daemon.DaemonRoot(teamDir)}
+			} else {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			return runEvents(ctx, cmd.OutOrStdout(), client, eventsOptions{Follow: follow, Tail: tail, JSON: jsonOut, Summary: summary, Format: formatTemplate, Filters: filters})
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming new lifecycle events.")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N matching team events before returning or following (0 = all).")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit raw JSONL events.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching team events by action, status, agent, and instance.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show events with this action. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show events with this lifecycle status. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&sinceRaw, "since", "", "Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	return cmd
 }
 
@@ -2278,6 +2349,35 @@ func collectTeamLogRows(teamDir, name string, opts logListOptions, since *time.T
 		return []logListRow{}, nil
 	}
 	return rows, nil
+}
+
+func teamEventFilters(teamDir, name string, actionFilters, statusFilters []string, sinceRaw string, now func() time.Time) (eventFilters, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return eventFilters{}, err
+	}
+	filters, err := newEventFilters(actionFilters, nil, nil, statusFilters, sinceRaw, now)
+	if err != nil {
+		return eventFilters{}, err
+	}
+	instances := map[string]bool{}
+	prefixes := map[string]bool{}
+	for _, name := range team.Instances {
+		inst := top.Instances[name]
+		if inst == nil {
+			continue
+		}
+		instances[inst.Name] = true
+		if inst.Ephemeral {
+			prefixes[inst.Name+"-"] = true
+		}
+	}
+	if len(instances) == 0 && len(prefixes) == 0 {
+		instances[""] = false
+	}
+	filters.instances = instances
+	filters.instancePrefixes = prefixes
+	return filters, nil
 }
 
 func collectTeamPipelineStatus(teamDir, name string) ([]pipelineStatusRow, error) {

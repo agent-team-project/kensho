@@ -154,11 +154,12 @@ type eventFormatRow struct {
 }
 
 type eventFilters struct {
-	actions   map[string]bool
-	instances map[string]bool
-	agents    map[string]bool
-	statuses  map[string]bool
-	since     *time.Time
+	actions          map[string]bool
+	instances        map[string]bool
+	instancePrefixes map[string]bool
+	agents           map[string]bool
+	statuses         map[string]bool
+	since            *time.Time
 }
 
 type eventsClient interface {
@@ -283,7 +284,7 @@ func stringSetFilter(values []string, flagName, noun string) (map[string]bool, e
 }
 
 func (f eventFilters) empty() bool {
-	return len(f.actions) == 0 && len(f.instances) == 0 && len(f.agents) == 0 && len(f.statuses) == 0 && f.since == nil
+	return len(f.actions) == 0 && len(f.instances) == 0 && len(f.instancePrefixes) == 0 && len(f.agents) == 0 && len(f.statuses) == 0 && f.since == nil
 }
 
 func applyCurrentEventInstanceFilter(teamDir string, filters eventFilters, phases map[string]bool, staleOnly, unhealthyOnly bool, now time.Time) (eventFilters, error) {
@@ -352,7 +353,7 @@ func latestEventMetadataLimit(metas []*daemon.Metadata, filters eventFilters, li
 		if meta == nil {
 			continue
 		}
-		if len(filters.instances) > 0 && !filters.instances[meta.Instance] {
+		if eventFiltersHaveInstanceScope(filters) && !eventFilterMatchesInstance(filters, meta.Instance) {
 			continue
 		}
 		if len(filters.agents) > 0 && !filters.agents[meta.Agent] {
@@ -373,7 +374,7 @@ func (f eventFilters) match(ev daemon.LifecycleEvent) bool {
 	if len(f.actions) > 0 && !f.actions[ev.Action] {
 		return false
 	}
-	if len(f.instances) > 0 && !f.instances[ev.Instance] {
+	if eventFiltersHaveInstanceScope(f) && !eventFilterMatchesInstance(f, ev.Instance) {
 		return false
 	}
 	if len(f.agents) > 0 && !f.agents[ev.Agent] {
@@ -383,6 +384,22 @@ func (f eventFilters) match(ev daemon.LifecycleEvent) bool {
 		return false
 	}
 	return true
+}
+
+func eventFiltersHaveInstanceScope(filters eventFilters) bool {
+	return len(filters.instances) > 0 || len(filters.instancePrefixes) > 0
+}
+
+func eventFilterMatchesInstance(filters eventFilters, instance string) bool {
+	if filters.instances[instance] {
+		return true
+	}
+	for prefix := range filters.instancePrefixes {
+		if strings.HasPrefix(instance, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseEventSince(raw string, now func() time.Time) (time.Time, error) {
