@@ -481,6 +481,9 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		{"team", "up", "delivery", "--tail", "10", "--dry-run"},
 		{"team", "down", "delivery", "--quiet", "--json"},
 		{"team", "restart", "delivery", "--quiet", "--json"},
+		{"team", "sync", "delivery", "--quiet", "--json"},
+		{"team", "sync", "delivery", "--format", "{{.Instance}}", "--json"},
+		{"team", "sync", "delivery", "--dry-run", "--wait"},
 		{"team", "plan", "delivery", "--format", "{{.Instance}}", "--json"},
 		{"team", "queue", "delivery", "--format", "{{.ID}}", "--json"},
 		{"team", "logs", "delivery", "--json"},
@@ -756,7 +759,8 @@ instances = ["other"]
 	}
 }
 
-func TestTeamPlanScopesRowsAndStopExtras(t *testing.T) {
+func setupTeamScopedPlanFixture(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
@@ -794,6 +798,11 @@ instances = ["other", "build-worker"]
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
 		}
 	}
+	return root
+}
+
+func TestTeamPlanScopesRowsAndStopExtras(t *testing.T) {
+	root := setupTeamScopedPlanFixture(t)
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -887,6 +896,74 @@ instances = ["other", "build-worker"]
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team plan text missing %q:\n%s", want, textOut.String())
 		}
+	}
+}
+
+func TestTeamSyncDryRunScopesRowsAndFilters(t *testing.T) {
+	root := setupTeamScopedPlanFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "sync", "delivery", "--repo", root, "--dry-run", "--stop-extras", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team sync dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot teamPlanSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team sync dry-run: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Team.Name != "delivery" || snapshot.Plan == nil {
+		t.Fatalf("sync snapshot = %+v", snapshot)
+	}
+	rows := planRowsByInstance(snapshot.Plan.Instances)
+	for _, want := range []string{"manager", "ticket-manager", "worker", "worker-squ-101", "adhoc-worker"} {
+		if _, ok := rows[want]; !ok {
+			t.Fatalf("team sync rows = %+v, missing %s", snapshot.Plan.Instances, want)
+		}
+	}
+	for _, unwanted := range []string{"build-worker", "build-worker-1", "other"} {
+		if _, ok := rows[unwanted]; ok {
+			t.Fatalf("team sync rows = %+v, included %s", snapshot.Plan.Instances, unwanted)
+		}
+	}
+	if rows["adhoc-worker"].Action != "stop" || rows["adhoc-worker"].Kind != "extra" {
+		t.Fatalf("adhoc-worker row = %+v, want stop extra", rows["adhoc-worker"])
+	}
+
+	startOnly := NewRootCmd()
+	startOut, startErr := &bytes.Buffer{}, &bytes.Buffer{}
+	startOnly.SetOut(startOut)
+	startOnly.SetErr(startErr)
+	startOnly.SetArgs([]string{"team", "sync", "delivery", "--repo", root, "--dry-run", "--action", "start", "--json"})
+	if err := startOnly.Execute(); err != nil {
+		t.Fatalf("team sync action start: %v\nstderr=%s", err, startErr.String())
+	}
+	var startSnapshot teamPlanSnapshot
+	if err := json.Unmarshal(startOut.Bytes(), &startSnapshot); err != nil {
+		t.Fatalf("decode team sync action start: %v\nbody=%s", err, startOut.String())
+	}
+	if startSnapshot.Plan.Summary.Total != 1 || startSnapshot.Plan.Summary.Start != 1 || startSnapshot.Plan.Instances[0].Instance != "ticket-manager" {
+		t.Fatalf("start-filtered sync = %+v", startSnapshot.Plan)
+	}
+
+	formatted := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formatOut)
+	formatted.SetErr(formatErr)
+	formatted.SetArgs([]string{"team", "sync", "delivery", "--repo", root, "--dry-run", "--format", "{{.Instance}} {{.Action}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("team sync format: %v\nstderr=%s", err, formatErr.String())
+	}
+	formatBody := formatOut.String()
+	for _, want := range []string{"manager keep", "ticket-manager start", "worker on-demand", "worker-squ-101 keep"} {
+		if !strings.Contains(formatBody, want) {
+			t.Fatalf("formatted team sync missing %q:\n%s", want, formatBody)
+		}
+	}
+	if strings.Contains(formatBody, "adhoc-worker") || strings.Contains(formatBody, "build-worker") {
+		t.Fatalf("formatted team sync included unrelated/extra rows:\n%s", formatBody)
 	}
 }
 

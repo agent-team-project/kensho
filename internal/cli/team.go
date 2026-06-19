@@ -31,6 +31,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamUpCmd())
 	cmd.AddCommand(newTeamDownCmd())
 	cmd.AddCommand(newTeamRestartCmd())
+	cmd.AddCommand(newTeamSyncCmd())
 	cmd.AddCommand(newTeamPlanCmd())
 	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
@@ -709,6 +710,90 @@ func newTeamRestartCmd() *cobra.Command {
 	return cmd
 }
 
+func newTeamSyncCmd() *cobra.Command {
+	var (
+		repo         string
+		dryRun       bool
+		wait         bool
+		stopExtras   bool
+		timeout      time.Duration
+		readyTimeout time.Duration
+		summary      bool
+		quiet        bool
+		jsonOut      bool
+		format       string
+		actions      []string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "sync <team>",
+		Short: "Sync one team's declared persistent instances.",
+		Long: "Reload topology, reconcile daemon metadata, then start or resume the selected team's " +
+			"declared persistent instances. With --stop-extras, running daemon-known extras for the team's agents are stopped.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if timeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: --timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if readyTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: --ready-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if dryRun && wait {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: --dry-run cannot be combined with --wait.")
+				return exitErr(2)
+			}
+			if quiet && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: choose one of --quiet or --json.")
+				return exitErr(2)
+			}
+			if quiet && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: choose one of --quiet or --summary.")
+				return exitErr(2)
+			}
+			if format != "" && (quiet || jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: --format cannot be combined with --quiet, --json, or --summary.")
+				return exitErr(2)
+			}
+			actionFilters, err := planActionFilterSet(actions)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+				return exitErr(2)
+			}
+			formatTemplate, err := parseLifecycleActionFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+				return exitErr(2)
+			}
+			return runTeamSync(cmd, repo, args[0], syncOptions{
+				DryRun:       dryRun,
+				Wait:         wait,
+				StopExtras:   stopExtras,
+				Timeout:      timeout,
+				ReadyTimeout: readyTimeout,
+				Summary:      summary,
+				Quiet:        quiet,
+				JSON:         jsonOut,
+				Format:       formatTemplate,
+				Actions:      actionFilters,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team topology convergence without starting the daemon or instances.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected team instances to become healthy after syncing.")
+	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Also stop running daemon-known extras for this team's agents.")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each sync action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
+	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	return cmd
+}
+
 func newTeamPlanCmd() *cobra.Command {
 	var (
 		repo          string
@@ -1000,6 +1085,240 @@ func collectTeamPlan(teamDir, name string, stopExtras bool, actions map[string]b
 		Team: teamInfoFromTopology(team),
 		Plan: result,
 	}, nil
+}
+
+func runTeamSync(cmd *cobra.Command, repo, name string, opts syncOptions) error {
+	teamDir, err := resolveTeamDir(cmd, repo)
+	if err != nil {
+		return err
+	}
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(1)
+	}
+	if opts.DryRun {
+		snapshot, err := collectTeamPlan(teamDir, name, opts.StopExtras, opts.Actions)
+		if err != nil {
+			return err
+		}
+		return renderTeamSyncDryRun(cmd.OutOrStdout(), snapshot, opts)
+	}
+	if err := ensureDaemonReadyWithTimeout(cmd, repo, opts.JSON || opts.Quiet, opts.ReadyTimeout); err != nil {
+		return err
+	}
+	dc, err := newDaemonClient(teamDir)
+	if err != nil {
+		if errors.Is(err, errDaemonNotRunning) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team sync: daemon is not running — start it with `agent-team start`.")
+			return exitErr(1)
+		}
+		return err
+	}
+	if _, err := dc.TopologyReload(); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: reload: %v\n", err)
+		return exitErr(1)
+	}
+	if _, err := dc.Reconcile(); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: reconcile: %v\n", err)
+		return exitErr(1)
+	}
+	if opts.StopExtras {
+		return runTeamSyncWithStopExtras(cmd, repo, teamDir, dc, top, team, opts)
+	}
+	names, err := teamSyncTargetNamesFromCurrentPlan(teamDir, top, team, opts.Actions)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(1)
+	}
+	if len(names) == 0 {
+		return renderSyncNoActions(cmd.OutOrStdout(), opts)
+	}
+	return runInstanceUpWithOptions(cmd, repo, "", names, instanceUpOptions{
+		Wait:    opts.Wait,
+		Timeout: opts.Timeout,
+		Summary: opts.Summary,
+		Quiet:   opts.Quiet,
+		JSON:    opts.JSON,
+		Format:  opts.Format,
+		Health:  teamLifecycleHealthOptions(names),
+	})
+}
+
+func renderTeamSyncDryRun(w io.Writer, snapshot *teamPlanSnapshot, opts syncOptions) error {
+	if snapshot == nil || snapshot.Plan == nil {
+		return renderSyncNoActions(w, opts)
+	}
+	rows := snapshot.Plan.Instances
+	if opts.JSON {
+		if opts.Summary {
+			return json.NewEncoder(w).Encode(lifecycleActionSummaryResult{
+				Summary: summarizeLifecycleActions(planRowsToLifecycleActionResults(rows, true), true),
+			})
+		}
+		return json.NewEncoder(w).Encode(snapshot)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if opts.Format != nil {
+		return renderPlanFormat(w, rows, opts.Format)
+	}
+	if opts.Summary {
+		renderLifecycleActionSummary(w, summarizeLifecycleActions(planRowsToLifecycleActionResults(rows, true), true))
+		return nil
+	}
+	renderTeamPlan(w, snapshot)
+	return nil
+}
+
+func teamSyncTargetNamesFromCurrentPlan(teamDir string, top *topology.Topology, team *topology.Team, actions map[string]bool) ([]string, error) {
+	result, err := collectPlan(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	rows := teamPlanRows(top, team, result.Instances, false)
+	rows = filterPlanRowsWithActions(rows, psOptions{}, actions)
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		switch row.Action {
+		case "start", "resume", "keep":
+			if row.Kind == "persistent" {
+				names = append(names, row.Instance)
+			}
+		}
+	}
+	return names, nil
+}
+
+func runTeamSyncWithStopExtras(cmd *cobra.Command, repo, teamDir string, dc *daemonClient, top *topology.Topology, team *topology.Team, opts syncOptions) error {
+	metas, err := dc.Instances()
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(1)
+	}
+	out := cmd.OutOrStdout()
+	results := teamSyncStopExtraResults(out, dc, top, team, metas, opts)
+	metas, err = dc.Instances()
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(1)
+	}
+	names, err := teamSyncTargetNamesFromCurrentPlan(teamDir, top, team, opts.Actions)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(1)
+	}
+	if len(names) == 0 {
+		if len(results) == 0 {
+			return renderSyncNoActions(cmd.OutOrStdout(), opts)
+		}
+		return renderSyncActionResults(cmd, teamDir, dc, results, opts)
+	}
+	targets, err := selectLifecycleTargets(top, metas, names)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team sync: %v\n", err)
+		return exitErr(2)
+	}
+	for _, lt := range targets {
+		if lt.running() {
+			result := lifecycleActionResult{
+				Action:   "skip",
+				Instance: lt.name,
+				Agent:    lt.agent,
+				Status:   string(daemon.StatusRunning),
+				Detail:   "already running",
+			}
+			if lt.meta != nil {
+				result.PID = lt.meta.PID
+			}
+			results = append(results, result)
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+				fmt.Fprintf(out, "  skip   %-20s already running\n", lt.name)
+			}
+			continue
+		}
+		if lt.meta != nil {
+			if err := dc.StartInstance(lt.name); err != nil {
+				results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: err.Error()})
+				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+					fmt.Fprintf(out, "  error  %-20s %v\n", lt.name, err)
+				}
+				continue
+			}
+			results = append(results, lifecycleActionResult{Action: "resume", Instance: lt.name, Agent: lt.agent})
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+				fmt.Fprintf(out, "  resume %-20s %s\n", lt.name, lt.agent)
+			}
+			continue
+		}
+		kickoff := fmt.Sprintf("Team sync: you are %q, an instance of %q.", lt.name, lt.agent)
+		runErr := runMaybeSuppressStdout(cmd, opts.JSON || opts.Quiet || opts.Format != nil || opts.Summary, func() error {
+			return upOne(cmd, repo, lt.declared, kickoff)
+		})
+		if runErr != nil {
+			results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: runErr.Error()})
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+				fmt.Fprintf(out, "  error  %-20s %v\n", lt.name, runErr)
+			}
+			continue
+		}
+		results = append(results, lifecycleActionResult{Action: "start", Instance: lt.name, Agent: lt.agent})
+		if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+			fmt.Fprintf(out, "  start  %-20s %s\n", lt.name, lt.agent)
+		}
+	}
+	return renderSyncActionResults(cmd, teamDir, dc, results, opts)
+}
+
+func teamSyncStopExtraResults(w io.Writer, dc *daemonClient, top *topology.Topology, team *topology.Team, metas []*daemon.Metadata, opts syncOptions) []lifecycleActionResult {
+	if len(opts.Actions) > 0 && !opts.Actions["stop"] {
+		return nil
+	}
+	agents := teamAgentSet(top, team)
+	declared := map[string]bool{}
+	if top != nil {
+		for _, inst := range top.SortedInstances() {
+			declared[inst.Name] = true
+		}
+	}
+	extras := make([]*daemon.Metadata, 0, len(metas))
+	for _, meta := range metas {
+		if meta == nil || meta.Status != daemon.StatusRunning || declared[meta.Instance] {
+			continue
+		}
+		if _, ok := declaredEphemeralOwner(top, meta.Instance, meta.Agent); ok {
+			continue
+		}
+		if !agents[meta.Agent] {
+			continue
+		}
+		extras = append(extras, meta)
+	}
+	sort.Slice(extras, func(i, j int) bool { return extras[i].Instance < extras[j].Instance })
+	results := make([]lifecycleActionResult, 0, len(extras))
+	for _, meta := range extras {
+		result := lifecycleActionResult{
+			Action:   "stop",
+			Instance: meta.Instance,
+			Agent:    meta.Agent,
+			Status:   string(daemon.StatusStopped),
+			PID:      meta.PID,
+			Detail:   "team-agent extra",
+		}
+		if err := dc.StopInstanceWithOptions(meta.Instance, false, 0); err != nil {
+			result.Action = "error"
+			result.Status = "error"
+			result.Error = err.Error()
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+				fmt.Fprintf(w, "  error  %-20s %v\n", meta.Instance, err)
+			}
+		} else if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+			fmt.Fprintf(w, "  stop   %-20s team-agent extra\n", meta.Instance)
+		}
+		results = append(results, result)
+	}
+	return results
 }
 
 func collectTeamHealth(teamDir, name string, now time.Time, includeJobs bool) (*teamHealthSnapshot, error) {
@@ -1786,15 +2105,12 @@ func teamPlanRows(top *topology.Topology, team *topology.Team, rows []planRow, i
 		return nil
 	}
 	instances := stringSliceSet(team.Instances)
-	agents := map[string]bool{}
+	agents := teamAgentSet(top, team)
 	ephemeralOwners := map[string]bool{}
 	for _, name := range team.Instances {
 		inst := top.Instances[name]
 		if inst == nil {
 			continue
-		}
-		if strings.TrimSpace(inst.Agent) != "" {
-			agents[inst.Agent] = true
 		}
 		if inst.Ephemeral {
 			ephemeralOwners[inst.Name] = true
@@ -1909,17 +2225,25 @@ func teamJobs(top *topology.Topology, team *topology.Team, jobs []*job.Job) []*j
 	return out
 }
 
-func teamQueueItems(top *topology.Topology, team *topology.Team, jobs []*job.Job, items []*daemon.QueueItem) []*daemon.QueueItem {
-	if team == nil {
-		return nil
-	}
-	instanceNames := stringSliceSet(team.Instances)
+func teamAgentSet(top *topology.Topology, team *topology.Team) map[string]bool {
 	agents := map[string]bool{}
+	if top == nil || team == nil {
+		return agents
+	}
 	for _, name := range team.Instances {
 		if inst := top.Instances[name]; inst != nil && strings.TrimSpace(inst.Agent) != "" {
 			agents[inst.Agent] = true
 		}
 	}
+	return agents
+}
+
+func teamQueueItems(top *topology.Topology, team *topology.Team, jobs []*job.Job, items []*daemon.QueueItem) []*daemon.QueueItem {
+	if team == nil {
+		return nil
+	}
+	instanceNames := stringSliceSet(team.Instances)
+	agents := teamAgentSet(top, team)
 	out := make([]*daemon.QueueItem, 0, len(items))
 	for _, item := range items {
 		if item == nil {
