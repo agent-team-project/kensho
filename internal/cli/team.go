@@ -31,6 +31,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamShowCmd())
 	cmd.AddCommand(newTeamDoctorCmd())
 	cmd.AddCommand(newTeamOverviewCmd())
+	cmd.AddCommand(newTeamNextCmd())
 	cmd.AddCommand(newTeamRunCmd())
 	cmd.AddCommand(newTeamUpCmd())
 	cmd.AddCommand(newTeamDownCmd())

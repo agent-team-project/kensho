@@ -82,6 +82,70 @@ func newNextCmd() *cobra.Command {
 	return cmd
 }
 
+func newTeamNextCmd() *cobra.Command {
+	var (
+		repo          string
+		limit         int
+		scheduleLimit int
+		watch         bool
+		noClear       bool
+		interval      time.Duration
+		jsonOut       bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "next <team>",
+		Short: "Print recommended next actions scoped to one team.",
+		Long:  "Print recommended next operator actions from the read-only team overview.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team next: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team next: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if scheduleLimit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team next: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			teamName := args[0]
+			collect := func(now time.Time) (*overviewResult, error) {
+				return collectTeamOverview(teamDir, teamName, now, scheduleLimit)
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, limit, jsonOut, interval, !noClear && !jsonOut); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team next: %v\n", err)
+					return exitErr(1)
+				}
+				return nil
+			}
+			overview, err := collect(time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team next: %v\n", err)
+				return exitErr(1)
+			}
+			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverview(overview, limit), jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
+	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
+	return cmd
+}
+
 type nextActionResult struct {
 	OK            bool      `json:"ok"`
 	State         string    `json:"state"`

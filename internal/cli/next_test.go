@@ -62,6 +62,52 @@ func TestNextCommandCanScopeToTeam(t *testing.T) {
 	}
 }
 
+func TestTeamNextCommandReportsScopedActions(t *testing.T) {
+	root := writeOverviewAttentionFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "next", "delivery", "--repo", root, "--limit", "2", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team next json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team next json: %v\nbody=%s", err, out.String())
+	}
+	if result.Team == nil || result.Team.Name != "delivery" || result.OK || result.State != "attention" {
+		t.Fatalf("team next result = %+v", result)
+	}
+	if len(result.Actions) != 2 || result.HiddenActions == 0 {
+		t.Fatalf("team next actions = %+v", result)
+	}
+	for _, want := range []string{
+		"agent-team team repair delivery --dry-run --jobs",
+		"agent-team daemon start",
+	} {
+		if !stringSliceContains(result.Actions, want) {
+			t.Fatalf("actions missing %q: %+v", want, result.Actions)
+		}
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "next", "delivery", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team next text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"next: attention", "team: delivery", "agent-team team queue retry delivery --all --dry-run"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("team next text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestNextCommandReportsIntakeReplayAction(t *testing.T) {
 	root := writeIntakeErrorFixture(t)
 
