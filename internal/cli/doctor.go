@@ -180,6 +180,16 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, j
 			warnings = append(warnings, "intake ledger: "+warning.Message)
 		}
 	}
+	if queueDoctor, err := collectQueueDoctor(teamDir); err != nil {
+		problems = append(problems, fmt.Sprintf("queue validation failed: %v", err))
+	} else {
+		for _, problem := range queueDoctor.Problems {
+			problems = append(problems, "queue: "+problem.Message)
+		}
+		for _, warning := range queueDoctor.Warnings {
+			warnings = append(warnings, "queue: "+warning.Message)
+		}
+	}
 
 	return reportDoctor(cmd, problems, warnings, jsonOut)
 }

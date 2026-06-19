@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,156 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	}
 	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-local"); !os.IsNotExist(err) {
 		t.Fatalf("queue item still exists or unexpected err=%v", err)
+	}
+}
+
+func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	now := time.Now().UTC().Truncate(time.Second)
+	valid := &daemon.QueueItem{
+		ID:         "q-valid",
+		State:      daemon.QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-120",
+		Payload:    map[string]any{"target": "worker", "ticket": "SQU-120"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), valid); err != nil {
+		t.Fatalf("WriteQueueItem valid: %v", err)
+	}
+	duplicate := *valid
+	duplicate.State = daemon.QueueStateDead
+	duplicate.DeadLetteredAt = now
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &duplicate); err != nil {
+		t.Fatalf("WriteQueueItem duplicate: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(queueRoot, daemon.QueueStatePending), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(queueRoot, daemon.QueueStateDead), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueRoot, daemon.QueueStatePending, "bad-json.json"), []byte("{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueRoot, daemon.QueueStatePending, "missing-id.json"), []byte(fmt.Sprintf(`{
+  "state": "pending",
+  "event_type": "agent.dispatch",
+  "instance": "worker",
+  "instance_id": "worker-squ-121",
+  "payload": {},
+  "queued_at": %q,
+  "updated_at": %q
+}`, now.Format(time.RFC3339), now.Format(time.RFC3339))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueRoot, daemon.QueueStateDead, "mismatch.json"), []byte(fmt.Sprintf(`{
+  "id": "stored-id",
+  "state": "pending",
+  "event_type": "",
+  "instance": "worker",
+  "instance_id": "worker-squ-122",
+  "payload": {},
+  "queued_at": %q,
+  "updated_at": %q
+}`, now.Format(time.RFC3339), now.Format(time.RFC3339))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueRoot, daemon.QueueStatePending, "notes.txt"), []byte("not a queue item\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"queue", "doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("queue doctor succeeded unexpectedly")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("queue doctor json wrote stderr: %s", stderr.String())
+	}
+	var result queueDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode queue doctor json: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || result.Summary.Files != 5 || result.Summary.Items != 4 || result.Summary.Valid != 2 || result.Summary.Invalid != 3 || result.Summary.Ignored != 1 || result.Summary.Duplicates != 1 {
+		t.Fatalf("queue doctor result = %+v", result)
+	}
+	codes := map[string]bool{}
+	for _, problem := range result.Problems {
+		codes[problem.Code] = true
+	}
+	for _, want := range []string{"invalid_json", "duplicate_id", "id_path_mismatch", "state_path_mismatch", "missing_event_type"} {
+		if !codes[want] {
+			t.Fatalf("queue doctor problems missing %q: %+v", want, result.Problems)
+		}
+	}
+	warningCodes := map[string]bool{}
+	for _, warning := range result.Warnings {
+		warningCodes[warning.Code] = true
+	}
+	for _, want := range []string{"missing_id", "unexpected_file"} {
+		if !warningCodes[want] {
+			t.Fatalf("queue doctor warnings missing %q: %+v", want, result.Warnings)
+		}
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"queue", "doctor", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("queue doctor text succeeded unexpectedly")
+	}
+	for _, want := range []string{"agent-team queue doctor: problems found", "bad-json.json is not valid JSON", "duplicates queue id"} {
+		if !strings.Contains(textErr.String(), want) {
+			t.Fatalf("queue doctor text missing %q:\nstdout=%s\nstderr=%s", want, textOut.String(), textErr.String())
+		}
+	}
+}
+
+func TestQueueDoctorOKWithWarnings(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := os.MkdirAll(filepath.Join(queueRoot, daemon.QueueStatePending), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(queueRoot, daemon.QueueStatePending, "missing-id.json"), []byte(fmt.Sprintf(`{
+  "state": "pending",
+  "event_type": "agent.dispatch",
+  "instance": "worker",
+  "instance_id": "worker-squ-123",
+  "payload": {},
+  "queued_at": %q,
+  "updated_at": %q
+}`, now.Format(time.RFC3339), now.Format(time.RFC3339))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"queue", "doctor", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("queue doctor warning-only failed: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "agent-team queue doctor: OK") || !strings.Contains(out.String(), "valid=1") {
+		t.Fatalf("queue doctor stdout = %q", out.String())
+	}
+	if !strings.Contains(stderr.String(), "warning:") || !strings.Contains(stderr.String(), "no id field") {
+		t.Fatalf("queue doctor stderr = %q", stderr.String())
 	}
 }
 

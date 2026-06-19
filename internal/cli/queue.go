@@ -32,6 +32,7 @@ func newQueueCmd() *cobra.Command {
 	cmd.AddCommand(newQueueDropCmd())
 	cmd.AddCommand(newQueueDrainCmd())
 	cmd.AddCommand(newQueuePruneCmd())
+	cmd.AddCommand(newQueueDoctorCmd())
 	return cmd
 }
 
