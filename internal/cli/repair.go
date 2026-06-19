@@ -135,6 +135,7 @@ type repairResult struct {
 	HealthBefore *healthResult    `json:"health_before,omitempty"`
 	Daemon       repairStepResult `json:"daemon"`
 	Queue        repairQueueStep  `json:"queue"`
+	Intake       repairIntakeStep `json:"intake"`
 	Tick         repairTickStep   `json:"tick"`
 	HealthAfter  *healthResult    `json:"health_after,omitempty"`
 }
@@ -152,6 +153,15 @@ type repairQueueStep struct {
 	Action  string             `json:"action"`
 	Reason  string             `json:"reason,omitempty"`
 	Results []queueRetryResult `json:"results,omitempty"`
+}
+
+type repairIntakeStep struct {
+	Action        string   `json:"action"`
+	Reason        string   `json:"reason,omitempty"`
+	Unresolved    int      `json:"unresolved"`
+	Replayable    int      `json:"replayable"`
+	LatestErrorID string   `json:"latest_error_id,omitempty"`
+	Actions       []string `json:"actions,omitempty"`
 }
 
 type repairTickStep struct {
@@ -222,6 +232,8 @@ func runRepair(cmd *cobra.Command, target, teamDir string, opts repairOptions) (
 		}
 	}
 
+	result.Intake = collectRepairIntakeStep(teamDir, opts)
+
 	result.Tick = runRepairTickStep(cmd, teamDir, opts)
 	if result.Tick.Action == "error" {
 		return nil, fmt.Errorf("tick: %s", result.Tick.Reason)
@@ -239,6 +251,44 @@ func runRepair(cmd *cobra.Command, target, teamDir string, opts repairOptions) (
 
 func collectRepairHealth(teamDir string, opts repairOptions) (*healthResult, error) {
 	return collectHealthWithOptions(teamDir, time.Now(), healthOptions{includeJobs: opts.IncludeJobs})
+}
+
+func collectRepairIntakeStep(teamDir string, opts repairOptions) repairIntakeStep {
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		return repairIntakeStep{Action: "error", Reason: err.Error()}
+	}
+	out := repairIntakeStep{Action: "none"}
+	var latest time.Time
+	for _, delivery := range deliveries {
+		if !intakeDeliveryNeedsReplay(delivery) {
+			continue
+		}
+		out.Unresolved++
+		if strings.TrimSpace(delivery.EventType) != "" && len(delivery.Payload) > 0 {
+			out.Replayable++
+		}
+		if out.LatestErrorID == "" || delivery.Time.After(latest) {
+			latest = delivery.Time
+			out.LatestErrorID = delivery.ID
+		}
+	}
+	if out.Unresolved == 0 {
+		return out
+	}
+	out.Action = "manual"
+	out.Reason = "intake replay is not automatic"
+	if opts.DryRun {
+		out.Action = "would_review"
+	}
+	out.Actions = append(out.Actions, "agent-team intake deliveries --unresolved")
+	if out.Replayable > 0 {
+		out.Actions = append(out.Actions,
+			"agent-team intake replay --all --dry-run --preview-triggers",
+			"agent-team intake replay --all",
+		)
+	}
+	return out
 }
 
 func repairDaemonStepResult(status daemonStatusJSON, opts repairOptions) repairStepResult {
@@ -317,6 +367,8 @@ func renderRepairResult(w io.Writer, result *repairResult, jsonOut bool) error {
 	fmt.Fprintln(w)
 	renderRepairQueueStep(w, result.Queue)
 	fmt.Fprintln(w)
+	renderRepairIntakeStep(w, result.Intake)
+	fmt.Fprintln(w)
 	if err := renderRepairTickStep(w, result.Tick); err != nil {
 		return err
 	}
@@ -347,6 +399,21 @@ func renderRepairHealthActions(w io.Writer, health *healthResult) {
 			issue.Code, emptyDash(issue.Job), emptyDash(issue.Instance), strings.Join(issue.Actions, "; "))
 	}
 	_ = tw.Flush()
+}
+
+func renderRepairIntakeStep(w io.Writer, step repairIntakeStep) {
+	fmt.Fprintf(w, "Intake: %s", emptyDash(step.Action))
+	if step.Reason != "" {
+		fmt.Fprintf(w, " (%s)", step.Reason)
+	}
+	fmt.Fprintf(w, " unresolved=%d replayable=%d", step.Unresolved, step.Replayable)
+	if step.LatestErrorID != "" {
+		fmt.Fprintf(w, " latest=%s", step.LatestErrorID)
+	}
+	fmt.Fprintln(w)
+	for _, action := range step.Actions {
+		fmt.Fprintf(w, "  action %s\n", action)
+	}
 }
 
 func repairHealthState(h *healthResult) string {

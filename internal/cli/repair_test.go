@@ -66,6 +66,72 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestRepairDryRunReportsIntakeRecoveryActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := appendIntakeDelivery(teamDir, intakeDelivery{
+		ID:         "intake-repair",
+		Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Provider:   "linear",
+		Status:     intakeDeliveryStatusError,
+		HTTPStatus: 503,
+		EventType:  "ticket.created",
+		Payload:    map[string]any{"source": "linear", "ticket": "SQU-219", "title": "Repair intake"},
+		Ticket:     "SQU-219",
+		Error:      "daemon is not running",
+	}); err != nil {
+		t.Fatalf("append intake delivery: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair intake dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair intake json: %v\nbody=%s", err, out.String())
+	}
+	if result.Intake.Action != "would_review" || result.Intake.Unresolved != 1 || result.Intake.Replayable != 1 || result.Intake.LatestErrorID != "intake-repair" {
+		t.Fatalf("intake repair step = %+v", result.Intake)
+	}
+	for _, want := range []string{
+		"agent-team intake deliveries --unresolved",
+		"agent-team intake replay --all --dry-run --preview-triggers",
+		"agent-team intake replay --all",
+	} {
+		if !containsString(result.Intake.Actions, want) {
+			t.Fatalf("intake actions missing %q: %+v", want, result.Intake.Actions)
+		}
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("repair intake text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Intake: would_review", "unresolved=1", "agent-team intake deliveries --unresolved"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("repair intake text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		t.Fatalf("list intake deliveries: %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].ReplayStatus != "" {
+		t.Fatalf("repair dry-run mutated intake delivery = %+v", deliveries)
+	}
+}
+
 func TestRepairJobsIncludesStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
