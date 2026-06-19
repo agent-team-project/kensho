@@ -497,7 +497,7 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 			add("agent-team queue drain --dry-run")
 		}
 	}
-	if teamName == "" && out.Queue.Quarantined > 0 {
+	if out.Queue.Quarantined > 0 {
 		add("agent-team queue quarantine ls")
 	}
 	if out.Jobs.Attention > 0 {

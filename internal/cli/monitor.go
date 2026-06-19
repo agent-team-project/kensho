@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -897,8 +898,16 @@ func collectTeamMonitorSnapshot(teamDir, name string, now time.Time, probe proce
 	health := buildHealthWithDaemonStatus(collectDaemonStatus(teamDir), teamRuntimeRows(top, team, rows), teamScopedTopology(top, team), now, healthOptions{
 		filters: opts.PS,
 	})
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	ownedJobs := teamJobs(top, team, jobs)
+	if err := addTeamQueueHealth(health, teamDir, top, team, ownedJobs, now); err != nil {
+		return nil, err
+	}
 	if opts.IncludeJobs {
-		if err := addTeamJobHealth(health, teamDir, top, team, now); err != nil {
+		if err := addTeamJobHealth(health, teamDir, top, team, ownedJobs, now); err != nil {
 			return nil, err
 		}
 	}

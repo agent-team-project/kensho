@@ -916,7 +916,13 @@ func runQueueSummary(w io.Writer, teamDir string, filters queueListFilters, json
 		return err
 	}
 	now := time.Now().UTC()
-	summary := summarizeQueueItems(filterQueueItems(items, filters.withNow(now)), now)
+	filtered := filters.withNow(now)
+	summary := summarizeQueueItems(filterQueueItems(items, filtered), now)
+	quarantine, err := listQueueQuarantine(teamDir)
+	if err != nil {
+		return err
+	}
+	summary.Quarantined = len(filterQueueQuarantineItems(quarantine, filtered))
 	if jsonOut {
 		return json.NewEncoder(w).Encode(summary)
 	}
@@ -978,8 +984,8 @@ func summarizeQueueItems(items []*daemon.QueueItem, now time.Time) queueSummary 
 }
 
 func renderQueueSummary(w io.Writer, summary queueSummary) {
-	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
-		summary.Total, summary.Pending, summary.Dead, summary.Delayed, summary.Attempts)
+	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d quarantined=%d\n",
+		summary.Total, summary.Pending, summary.Dead, summary.Delayed, summary.Attempts, summary.Quarantined)
 	if len(summary.Instances) > 0 {
 		fmt.Fprint(w, "instances:")
 		for _, key := range sortedCountKeys(summary.Instances) {

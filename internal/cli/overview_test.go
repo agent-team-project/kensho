@@ -344,12 +344,13 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	if overview.Topology == nil || overview.Topology.Instances != 2 || overview.Topology.Teams != 1 || overview.Topology.Pipelines != 1 || overview.Topology.Schedules != 1 {
 		t.Fatalf("topology = %+v", overview.Topology)
 	}
-	if overview.Jobs.Summary.Total != 1 || overview.Jobs.Attention != 1 || overview.Queue.Dead != 1 || overview.Pipelines.ReadySteps != 1 || overview.Schedules.Due != 1 {
+	if overview.Jobs.Summary.Total != 1 || overview.Jobs.Attention != 1 || overview.Queue.Dead != 1 || overview.Queue.Quarantined != 1 || overview.Pipelines.ReadySteps != 1 || overview.Schedules.Due != 1 {
 		t.Fatalf("overview = %+v", overview)
 	}
 	for _, want := range []string{
 		"agent-team team repair delivery --dry-run --jobs",
 		"agent-team team queue retry delivery --all --dry-run",
+		"agent-team queue quarantine ls",
 		"agent-team team triage delivery",
 		"agent-team team advance delivery --dry-run --preview-routes",
 		"agent-team team tick delivery --dry-run --skip-drain --skip-advance",
@@ -404,7 +405,7 @@ func TestTeamOverviewTextRendersTeamSummary(t *testing.T) {
 		"team: delivery",
 		"topology: instances=2 persistent=1 ephemeral=1",
 		"jobs: total=1 queued=0 running=0 blocked=1 done=0 failed=0 attention=1",
-		"queue: total=1 pending=0 dead=1",
+		"queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1",
 		"schedules: declared=1 due=1 upcoming=1",
 		"agent-team team repair delivery --dry-run --jobs",
 	} {
@@ -556,6 +557,15 @@ schedules = ["nightly"]
 	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
 		t.Fatalf("WriteQueueItem: %v", err)
 	}
+	writeQuarantinedQueueItem(t, teamDir, "20260619T030000.000000000Z", daemon.QueueStateDead, &daemon.QueueItem{
+		ID:         "q-overview-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-700",
+		Payload:    map[string]any{"target": "worker", "ticket": "SQU-700", "job_id": "squ-700"},
+		QueuedAt:   now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-2 * time.Hour),
+	})
 	return root
 }
 

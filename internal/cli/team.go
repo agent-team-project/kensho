@@ -3179,6 +3179,12 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 		return nil, err
 	}
 	teamQueue := teamQueueItems(top, team, ownedJobs, queueItems)
+	queueSummary := summarizeQueueItems(teamQueue, now.UTC())
+	quarantine, err := collectTeamQueueQuarantine(teamDir, top, team, ownedJobs)
+	if err != nil {
+		return nil, err
+	}
+	queueSummary.Quarantined = len(quarantine)
 	pipelineStatus, err := collectPipelineStatusRows(teamDir, "")
 	if err != nil {
 		return nil, err
@@ -3193,7 +3199,7 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 		InstanceSummary: psSummaryRows(instanceRows),
 		Instances:       psJSONRows(instanceRows),
 		JobSummary:      summarizeJobs(ownedJobs),
-		Queue:           summarizeQueueItems(teamQueue, now.UTC()),
+		Queue:           queueSummary,
 		PipelineStatus:  teamPipelineStatus(team, pipelineStatus),
 		Schedules:       teamSchedules(team, schedules),
 	}
@@ -3468,8 +3474,16 @@ func collectTeamHealth(teamDir, name string, now time.Time, includeJobs bool) (*
 	healthRows := teamRuntimeRows(top, team, rows)
 	scoped := teamScopedTopology(top, team)
 	result := buildHealthWithDaemonStatus(collectDaemonStatus(teamDir), healthRows, scoped, now, healthOptions{})
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	ownedJobs := teamJobs(top, team, jobs)
+	if err := addTeamQueueHealth(result, teamDir, top, team, ownedJobs, now); err != nil {
+		return nil, err
+	}
 	if includeJobs {
-		if err := addTeamJobHealth(result, teamDir, top, team, now); err != nil {
+		if err := addTeamJobHealth(result, teamDir, top, team, ownedJobs, now); err != nil {
 			return nil, err
 		}
 	}
@@ -3805,22 +3819,21 @@ func writeEmptyTeamLifecycleDown(cmd *cobra.Command, teamName, verb string, dryR
 	return nil
 }
 
-func addTeamJobHealth(result *healthResult, teamDir string, top *topology.Topology, team *topology.Team, now time.Time) error {
+func addTeamQueueHealth(result *healthResult, teamDir string, top *topology.Topology, team *topology.Team, ownedJobs []*job.Job, now time.Time) error {
 	if result == nil {
 		return nil
 	}
-	jobs, err := job.List(teamDir)
-	if err != nil {
-		return err
-	}
-	ownedJobs := teamJobs(top, team, jobs)
-	ownedIDs := jobIDSet(ownedJobs)
 	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return err
 	}
 	teamQueue := teamQueueItems(top, team, ownedJobs, queueItems)
 	result.Queue = summarizeQueueItems(teamQueue, now.UTC())
+	quarantine, err := collectTeamQueueQuarantine(teamDir, top, team, ownedJobs)
+	if err != nil {
+		return err
+	}
+	result.Queue.Quarantined = len(quarantine)
 	if result.Queue.Dead > 0 {
 		result.addIssueWithSeverityAndActions(
 			"queue_dead_letter",
@@ -3833,6 +3846,26 @@ func addTeamJobHealth(result *healthResult, teamDir string, top *topology.Topolo
 			teamQueueActions(team.Name, ownedJobs, teamQueue),
 		)
 	}
+	if result.Queue.Quarantined > 0 {
+		result.addIssueWithSeverityAndActions(
+			"queue_quarantined",
+			"warning",
+			"",
+			"",
+			"",
+			"",
+			fmt.Sprintf("team %q queue has %d quarantined file(s)", team.Name, result.Queue.Quarantined),
+			[]string{"agent-team queue quarantine ls", fmt.Sprintf("agent-team team snapshot %s --json", team.Name)},
+		)
+	}
+	return nil
+}
+
+func addTeamJobHealth(result *healthResult, teamDir string, top *topology.Topology, team *topology.Team, ownedJobs []*job.Job, now time.Time) error {
+	if result == nil {
+		return nil
+	}
+	ownedIDs := jobIDSet(ownedJobs)
 	triage, err := collectJobTriage(teamDir, now.UTC(), defaultJobTriageStaleAfter)
 	if err != nil {
 		return err
@@ -4040,6 +4073,14 @@ func collectTeamQueueItems(teamDir, name string, filters queueListFilters, now t
 	return filterQueueItems(owned, filters.withNow(now)), nil
 }
 
+func collectTeamQueueQuarantine(teamDir string, top *topology.Topology, team *topology.Team, ownedJobs []*job.Job) ([]queueQuarantineItem, error) {
+	items, err := listQueueQuarantine(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	return teamQueueQuarantineItems(top, team, ownedJobs, items), nil
+}
+
 func readTeamQueueItem(cmd *cobra.Command, teamDir, name, id, verb string) (*daemon.QueueItem, error) {
 	item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id)
 	if err != nil {
@@ -4182,16 +4223,39 @@ func runTeamQueueList(w io.Writer, teamDir, name string, filters queueListFilter
 
 func runTeamQueueSummary(w io.Writer, teamDir, name string, filters queueListFilters, jsonOut bool) error {
 	now := time.Now().UTC()
-	items, err := collectTeamQueueItems(teamDir, name, filters, now)
+	summary, err := collectTeamQueueSummary(teamDir, name, filters, now)
 	if err != nil {
 		return err
 	}
-	summary := summarizeQueueItems(items, now)
 	if jsonOut {
 		return json.NewEncoder(w).Encode(summary)
 	}
 	renderQueueSummary(w, summary)
 	return nil
+}
+
+func collectTeamQueueSummary(teamDir, name string, filters queueListFilters, now time.Time) (queueSummary, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return queueSummary{}, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return queueSummary{}, err
+	}
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return queueSummary{}, err
+	}
+	ownedJobs := teamJobs(top, team, jobs)
+	filtered := filterQueueItems(teamQueueItems(top, team, ownedJobs, items), filters.withNow(now))
+	summary := summarizeQueueItems(filtered, now)
+	quarantine, err := collectTeamQueueQuarantine(teamDir, top, team, ownedJobs)
+	if err != nil {
+		return queueSummary{}, err
+	}
+	summary.Quarantined = len(filterQueueQuarantineItems(quarantine, filters.withNow(now)))
+	return summary, nil
 }
 
 func runTeamQueueListWatch(ctx context.Context, w io.Writer, teamDir, name string, filters queueListFilters, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
@@ -5478,6 +5542,10 @@ func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *te
 	if snapshot.Queue.Dead > 0 {
 		add(fmt.Sprintf("agent-team team queue retry %s --all", team.Name))
 	}
+	if snapshot.Queue.Quarantined > 0 {
+		add("agent-team queue quarantine ls")
+		add(fmt.Sprintf("agent-team team snapshot %s --json", team.Name))
+	}
 	if snapshot.Queue.Pending > 0 {
 		add(fmt.Sprintf("agent-team team queue %s --state pending", team.Name))
 	}
@@ -5556,12 +5624,13 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool) e
 		snapshot.InstanceSummary.Stale,
 	)
 	renderJobSummary(w, snapshot.JobSummary)
-	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
+	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d quarantined=%d\n",
 		snapshot.Queue.Total,
 		snapshot.Queue.Pending,
 		snapshot.Queue.Dead,
 		snapshot.Queue.Delayed,
 		snapshot.Queue.Attempts,
+		snapshot.Queue.Quarantined,
 	)
 	if snapshot.PipelineStatus != nil {
 		fmt.Fprintf(w, "pipeline status: pipelines=%d jobs=%d ready_steps=%d failed_steps=%d\n",

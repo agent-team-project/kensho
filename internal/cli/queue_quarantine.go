@@ -286,6 +286,32 @@ func queueQuarantineState(rel string) string {
 	}
 }
 
+func filterQueueQuarantineItems(items []queueQuarantineItem, filters queueListFilters) []queueQuarantineItem {
+	if filters.empty() {
+		return items
+	}
+	out := make([]queueQuarantineItem, 0, len(items))
+	for _, item := range items {
+		if filters.state != "" && item.State != filters.state {
+			continue
+		}
+		if len(filters.instances) > 0 && !filters.instances[item.Instance] {
+			continue
+		}
+		if len(filters.eventTypes) > 0 && !filters.eventTypes[item.EventType] {
+			continue
+		}
+		if len(filters.jobs) > 0 && !filters.jobs[job.NormalizeID(item.Job)] {
+			continue
+		}
+		if filters.readyOnly && item.State != daemon.QueueStatePending {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func queueQuarantineJob(payload map[string]any) string {
 	for _, key := range []string{"job_id", "job", "ticket"} {
 		if id := job.NormalizeID(queuePayloadString(payload, key)); id != "" {

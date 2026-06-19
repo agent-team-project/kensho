@@ -1111,6 +1111,15 @@ func TestQueuePruneLocal(t *testing.T) {
 			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
 		}
 	}
+	writeQuarantinedQueueItem(t, teamDir, "20260619T040000.000000000Z", daemon.QueueStateDead, &daemon.QueueItem{
+		ID:         "q-prune-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-96",
+		Payload:    map[string]any{"target": "worker", "ticket": "SQU-96"},
+		QueuedAt:   now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-2 * time.Hour),
+	})
 
 	summaryCmd := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1124,7 +1133,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
 		t.Fatalf("decode queue summary json: %v\nbody=%s", err, summaryOut.String())
 	}
-	if summary.Total != 3 || summary.Pending != 1 || summary.Dead != 2 || summary.Attempts != daemon.MaxQueueAttempts*2 {
+	if summary.Total != 3 || summary.Pending != 1 || summary.Dead != 2 || summary.Attempts != daemon.MaxQueueAttempts*2 || summary.Quarantined != 1 {
 		t.Fatalf("summary = %+v", summary)
 	}
 	if summary.Instances["worker"] != 3 || summary.Events["agent.dispatch"] != 3 {
