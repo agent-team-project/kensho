@@ -224,7 +224,7 @@ agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-tim
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade --check [--to <ref>] [--strict] [--format '{{.Differs}}'] [--json]
                                                 # compare .template.lock with a template ref; --strict exits 1 on drift
-agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--json]
+agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--format '{{.OK}}'] [--json]
                                                 # validate layout, config, provenance, skill wiring, pipeline workflows, selected runtime, and daemon binary availability
 agent-team --version                            # print version
 

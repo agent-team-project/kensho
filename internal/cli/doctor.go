@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	texttemplate "text/template"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/loader"
@@ -21,6 +23,7 @@ func newDoctorCmd() *cobra.Command {
 		strictRuntime  bool
 		strictTemplate bool
 		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 
@@ -31,7 +34,16 @@ func newDoctorCmd() *cobra.Command {
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
 			"pipeline workflow wiring, the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, jsonOut)
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseDoctorFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team doctor: %v\n", err)
+				return exitErr(2)
+			}
+			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
@@ -39,10 +51,11 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when the selected LLM runtime binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail when .template.lock no longer matches its resolved template ref.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate, jsonOut bool) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate, jsonOut bool, tmpl *texttemplate.Template) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return exitErr(2)
@@ -64,7 +77,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 	}
 	if st, err := os.Stat(teamDir); err != nil || !st.IsDir() {
 		problems = append(problems, fmt.Sprintf("%s not found — run `agent-team init` first.", teamDir))
-		return reportDoctor(cmd, problems, warnings, jsonOut)
+		return reportDoctor(cmd, problems, warnings, jsonOut, tmpl)
 	}
 	if info, err := collectRuntimeInfoForTeam(teamDir); err != nil {
 		problems = append(problems, err.Error())
@@ -205,7 +218,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		warnings = append(warnings, fmt.Sprintf("queue quarantine: %d file(s) preserved under .agent_team/daemon/queue/quarantine — inspect with `agent-team queue quarantine ls`.", len(quarantine)))
 	}
 
-	return reportDoctor(cmd, problems, warnings, jsonOut)
+	return reportDoctor(cmd, problems, warnings, jsonOut, tmpl)
 }
 
 func isPipelineWorkflowFindingCode(code string) bool {
@@ -248,7 +261,7 @@ type doctorResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-func reportDoctor(cmd *cobra.Command, problems, warnings []string, jsonOut bool) error {
+func reportDoctor(cmd *cobra.Command, problems, warnings []string, jsonOut bool, tmpl *texttemplate.Template) error {
 	result := doctorResult{
 		OK:       len(problems) == 0,
 		Problems: problems,
@@ -256,6 +269,15 @@ func reportDoctor(cmd *cobra.Command, problems, warnings []string, jsonOut bool)
 	}
 	if jsonOut {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if tmpl != nil {
+		if err := renderDoctorFormat(cmd.OutOrStdout(), result, tmpl); err != nil {
 			return err
 		}
 		if !result.OK {
@@ -278,4 +300,23 @@ func reportDoctor(cmd *cobra.Command, problems, warnings []string, jsonOut bool)
 		fmt.Fprintf(cmd.ErrOrStderr(), "  warning: %s\n", w)
 	}
 	return exitErr(1)
+}
+
+func parseDoctorFormat(format string) (*texttemplate.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := texttemplate.New("doctor-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderDoctorFormat(w fmtWriter, result doctorResult, tmpl *texttemplate.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }

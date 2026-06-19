@@ -185,6 +185,32 @@ func TestDoctorJSONReportsWarnings(t *testing.T) {
 	}
 }
 
+func TestDoctorFormatReportsWarnings(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		return "", exec.ErrNotFound
+	})
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--format", "{{.OK}} {{len .Problems}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor --format warning should not fail: %v\nstderr: %s", err, errOut.String())
+	}
+	if got, want := out.String(), "true 0\n"; got != want {
+		t.Fatalf("doctor --format warning output = %q, want %q", got, want)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --format should not write warnings to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorStrictRuntimeFailsWhenRuntimeBinaryMissing(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
@@ -268,6 +294,64 @@ func TestDoctorJSONReportsProblems(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("doctor --json should not write problems to stderr: %s", errOut.String())
+	}
+}
+
+func TestDoctorFormatReportsProblems(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "bad")
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--format", "{{.OK}} {{len .Problems}}"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --format with invalid runtime to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	if got, want := out.String(), "false 1\n"; got != want {
+		t.Fatalf("doctor --format problem output = %q, want %q", got, want)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --format should not write problems to stderr: %s", errOut.String())
+	}
+}
+
+func TestDoctorFormatValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"doctor", "--format", "{{.OK}}", "--json"}, "--format cannot be combined"},
+		{[]string{"doctor", "--format", "{{"}, "invalid --format template"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(errOut)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var ec ExitCode
+		if !errors.As(err, &ec) || int(ec) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(errOut.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, errOut.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
