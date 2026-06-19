@@ -337,90 +337,22 @@ func newPipelineRunCmd() *cobra.Command {
 		Short: "Create a durable job from a pipeline declaration.",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if format != "" && jsonOut {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline run: --format cannot be combined with --json.")
-				return exitErr(2)
-			}
-			tmpl, err := parseJobFormat(format)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
-				return exitErr(2)
-			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			pipelineDef, err := loadJobCreatePipeline(teamDir, args[0])
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
-				return exitErr(2)
-			}
-			ticket := args[1]
-			kickoffText, err := dispatchKickoff(ticket, kickoff, kickoffFile, args[2:])
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
-				return exitErr(2)
-			}
-			j, err := job.New(ticket, pipelineDef.Steps[0].Target, kickoffText, time.Now())
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
-				return exitErr(2)
-			}
-			if strings.TrimSpace(id) != "" {
-				normalized := job.NormalizeID(id)
-				if normalized == "" {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: --id %q produced an empty normalized id.\n", id)
-					return exitErr(2)
-				}
-				j.ID = normalized
-			}
-			if strings.TrimSpace(ticketURL) != "" {
-				j.TicketURL = strings.TrimSpace(ticketURL)
-			}
-			j.Pipeline = pipelineDef.Name
-			j.Steps = jobStepsFromPipeline(pipelineDef)
-			j.LastEvent = "created"
-			j.LastStatus = "created"
-			if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: job %q already exists.\n", j.ID)
-				return exitErr(2)
-			}
-			if dryRun {
-				if dispatchNow {
-					preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
-					if err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline run: %v\n", err)
-						return exitErr(1)
-					}
-					return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
-				}
-				return renderJobCreatePreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
-			}
-			data := map[string]string{
-				"ticket":   j.Ticket,
-				"target":   j.Target,
-				"pipeline": j.Pipeline,
-			}
-			if j.TicketURL != "" {
-				data["ticket_url"] = j.TicketURL
-			}
-			if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, data); err != nil {
-				return err
-			}
-			if dispatchNow {
-				res, err := advanceJob(cmd, teamDir, j, workspace)
-				if err != nil {
-					return err
-				}
-				if jsonOut {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
-				}
-				if tmpl != nil {
-					return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
-				}
-				return renderJobAdvanceResult(cmd.OutOrStdout(), res)
-			}
-			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			return runPipelineJobCreate(cmd, teamDir, args[0], args[1], args[2:], pipelineRunOptions{
+				ID:          id,
+				TicketURL:   ticketURL,
+				Kickoff:     kickoff,
+				KickoffFile: kickoffFile,
+				DispatchNow: dispatchNow,
+				Workspace:   workspace,
+				DryRun:      dryRun,
+				JSON:        jsonOut,
+				Format:      format,
+				ErrPrefix:   "agent-team pipeline run",
+			})
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
@@ -434,6 +366,105 @@ func newPipelineRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the created job or advance result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
+}
+
+type pipelineRunOptions struct {
+	ID          string
+	TicketURL   string
+	Kickoff     string
+	KickoffFile string
+	DispatchNow bool
+	Workspace   string
+	DryRun      bool
+	JSON        bool
+	Format      string
+	ErrPrefix   string
+}
+
+func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket string, positional []string, opts pipelineRunOptions) error {
+	prefix := strings.TrimSpace(opts.ErrPrefix)
+	if prefix == "" {
+		prefix = "agent-team pipeline run"
+	}
+	if opts.Format != "" && opts.JSON {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", prefix)
+		return exitErr(2)
+	}
+	tmpl, err := parseJobFormat(opts.Format)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return exitErr(2)
+	}
+	pipelineDef, err := loadJobCreatePipeline(teamDir, pipelineName)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return exitErr(2)
+	}
+	kickoffText, err := dispatchKickoff(ticket, opts.Kickoff, opts.KickoffFile, positional)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return exitErr(2)
+	}
+	j, err := job.New(ticket, pipelineDef.Steps[0].Target, kickoffText, time.Now())
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return exitErr(2)
+	}
+	if strings.TrimSpace(opts.ID) != "" {
+		normalized := job.NormalizeID(opts.ID)
+		if normalized == "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: --id %q produced an empty normalized id.\n", prefix, opts.ID)
+			return exitErr(2)
+		}
+		j.ID = normalized
+	}
+	if strings.TrimSpace(opts.TicketURL) != "" {
+		j.TicketURL = strings.TrimSpace(opts.TicketURL)
+	}
+	j.Pipeline = pipelineDef.Name
+	j.Steps = jobStepsFromPipeline(pipelineDef)
+	j.LastEvent = "created"
+	j.LastStatus = "created"
+	if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: job %q already exists.\n", prefix, j.ID)
+		return exitErr(2)
+	}
+	if opts.DryRun {
+		if opts.DispatchNow {
+			preview, err := previewJobAdvanceDispatch(teamDir, j, opts.Workspace)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+				return exitErr(1)
+			}
+			return renderJobAdvancePreview(cmd.OutOrStdout(), preview, opts.JSON, tmpl)
+		}
+		return renderJobCreatePreview(cmd.OutOrStdout(), j, opts.JSON, tmpl)
+	}
+	data := map[string]string{
+		"ticket":   j.Ticket,
+		"target":   j.Target,
+		"pipeline": j.Pipeline,
+	}
+	if j.TicketURL != "" {
+		data["ticket_url"] = j.TicketURL
+	}
+	if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, data); err != nil {
+		return err
+	}
+	if opts.DispatchNow {
+		res, err := advanceJob(cmd, teamDir, j, opts.Workspace)
+		if err != nil {
+			return err
+		}
+		if opts.JSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+		}
+		if tmpl != nil {
+			return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
+		}
+		return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+	}
+	return renderJobResult(cmd.OutOrStdout(), j, opts.JSON, tmpl)
 }
 
 type pipelineInfo struct {

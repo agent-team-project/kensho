@@ -29,6 +29,7 @@ func newTeamCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTeamLsCmd())
 	cmd.AddCommand(newTeamShowCmd())
+	cmd.AddCommand(newTeamRunCmd())
 	cmd.AddCommand(newTeamUpCmd())
 	cmd.AddCommand(newTeamDownCmd())
 	cmd.AddCommand(newTeamRestartCmd())
@@ -108,6 +109,91 @@ func newTeamShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team as JSON.")
 	return cmd
+}
+
+func newTeamRunCmd() *cobra.Command {
+	var (
+		repo        string
+		pipeline    string
+		id          string
+		ticketURL   string
+		kickoff     string
+		kickoffFile string
+		dispatchNow bool
+		workspace   string
+		dryRun      bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "run <team> <ticket> [kickoff...]",
+		Short: "Create a durable job through a team's pipeline.",
+		Long: "Create a durable job using one of the team's declared pipelines. " +
+			"If the team declares exactly one pipeline, it is selected automatically; otherwise pass --pipeline.",
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			_, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team run: %v\n", err)
+				return exitErr(1)
+			}
+			pipelineName, err := selectTeamRunPipeline(team, pipeline)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team run: %v\n", err)
+				return exitErr(2)
+			}
+			return runPipelineJobCreate(cmd, teamDir, pipelineName, args[1], args[2:], pipelineRunOptions{
+				ID:          id,
+				TicketURL:   ticketURL,
+				Kickoff:     kickoff,
+				KickoffFile: kickoffFile,
+				DispatchNow: dispatchNow,
+				Workspace:   workspace,
+				DryRun:      dryRun,
+				JSON:        jsonOut,
+				Format:      format,
+				ErrPrefix:   "agent-team team run",
+			})
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Team pipeline to use when the team declares more than one.")
+	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
+	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
+	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")
+	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
+	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the first ready pipeline step immediately using the running daemon.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the pipeline job that would be created without writing it.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the created job or advance result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Pipeline}}'.")
+	return cmd
+}
+
+func selectTeamRunPipeline(team *topology.Team, override string) (string, error) {
+	if team == nil {
+		return "", fmt.Errorf("team is required")
+	}
+	override = strings.TrimSpace(override)
+	if override != "" {
+		if stringSliceSet(team.Pipelines)[override] {
+			return override, nil
+		}
+		return "", fmt.Errorf("pipeline %q is not declared on team %q", override, team.Name)
+	}
+	switch len(team.Pipelines) {
+	case 0:
+		return "", fmt.Errorf("team %q has no declared pipelines", team.Name)
+	case 1:
+		return team.Pipelines[0], nil
+	default:
+		return "", fmt.Errorf("team %q has multiple pipelines; choose one with --pipeline", team.Name)
+	}
 }
 
 func newTeamPsCmd() *cobra.Command {

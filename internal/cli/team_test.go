@@ -320,6 +320,125 @@ func TestTeamShowMissingFails(t *testing.T) {
 	}
 }
 
+func TestTeamRunCreatesPipelineJob(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+
+	previewCmd := NewRootCmd()
+	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	previewCmd.SetOut(previewOut)
+	previewCmd.SetErr(previewErr)
+	previewCmd.SetArgs([]string{"team", "run", "delivery", "SQU-811", "--repo", root, "--kickoff", "ship it", "--dry-run", "--json"})
+	if err := previewCmd.Execute(); err != nil {
+		t.Fatalf("team run dry-run: %v\nstderr=%s", err, previewErr.String())
+	}
+	var preview jobCreatePreview
+	if err := json.Unmarshal(previewOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode team run preview: %v\nbody=%s", err, previewOut.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-811" || preview.Job.Pipeline != "ticket_to_pr" || preview.Job.Target != "worker" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if len(preview.Job.Steps) != 2 || preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[1].ID != "review" {
+		t.Fatalf("preview steps = %+v", preview.Job.Steps)
+	}
+	if _, err := os.Stat(filepath.Join(teamDir, "jobs", "squ-811.toml")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote team run job file, err=%v", err)
+	}
+
+	createCmd := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	createCmd.SetOut(createOut)
+	createCmd.SetErr(createErr)
+	createCmd.SetArgs([]string{"team", "run", "delivery", "SQU-812", "--repo", root, "--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-812/team-run", "--format", "{{.ID}} {{.Pipeline}}"})
+	if err := createCmd.Execute(); err != nil {
+		t.Fatalf("team run create: %v\nstderr=%s", err, createErr.String())
+	}
+	if strings.TrimSpace(createOut.String()) != "squ-812 ticket_to_pr" {
+		t.Fatalf("team run format = %q", createOut.String())
+	}
+	created, err := job.Read(teamDir, "squ-812")
+	if err != nil {
+		t.Fatalf("read created team run job: %v", err)
+	}
+	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-812/team-run" {
+		t.Fatalf("created job = %+v", created)
+	}
+}
+
+func TestTeamRunSelectsPipelineForMultiPipelineTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[pipelines.triage]
+trigger.event = "ticket.created"
+
+[[pipelines.triage.steps]]
+id = "triage"
+target = "manager"
+
+[pipelines.review]
+trigger.event = "ticket.created"
+
+[[pipelines.review.steps]]
+id = "review"
+target = "manager"
+
+[teams.ops]
+instances = ["manager"]
+pipelines = ["triage", "review"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ambiguous := NewRootCmd()
+	ambiguousOut, ambiguousErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ambiguous.SetOut(ambiguousOut)
+	ambiguous.SetErr(ambiguousErr)
+	ambiguous.SetArgs([]string{"team", "run", "ops", "SQU-813", "--repo", root, "--dry-run"})
+	if err := ambiguous.Execute(); err == nil {
+		t.Fatal("team run without --pipeline succeeded for multi-pipeline team")
+	}
+	if !strings.Contains(ambiguousErr.String(), `choose one with --pipeline`) {
+		t.Fatalf("ambiguous stderr = %q", ambiguousErr.String())
+	}
+
+	selected := NewRootCmd()
+	selectedOut, selectedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	selected.SetOut(selectedOut)
+	selected.SetErr(selectedErr)
+	selected.SetArgs([]string{"team", "run", "ops", "SQU-814", "--repo", root, "--pipeline", "review", "--dry-run", "--json"})
+	if err := selected.Execute(); err != nil {
+		t.Fatalf("team run selected pipeline: %v\nstderr=%s", err, selectedErr.String())
+	}
+	var preview jobCreatePreview
+	if err := json.Unmarshal(selectedOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode selected team run preview: %v\nbody=%s", err, selectedOut.String())
+	}
+	if preview.Job == nil || preview.Job.Pipeline != "review" || len(preview.Job.Steps) != 1 || preview.Job.Steps[0].ID != "review" {
+		t.Fatalf("selected preview = %+v", preview)
+	}
+
+	foreign := NewRootCmd()
+	foreignOut, foreignErr := &bytes.Buffer{}, &bytes.Buffer{}
+	foreign.SetOut(foreignOut)
+	foreign.SetErr(foreignErr)
+	foreign.SetArgs([]string{"team", "run", "ops", "SQU-815", "--repo", root, "--pipeline", "missing", "--dry-run"})
+	if err := foreign.Execute(); err == nil {
+		t.Fatal("team run foreign pipeline succeeded")
+	}
+	if !strings.Contains(foreignErr.String(), `pipeline "missing" is not declared on team "ops"`) {
+		t.Fatalf("foreign stderr = %q", foreignErr.String())
+	}
+}
+
 func TestTeamStatusWatchRendersSnapshot(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -850,6 +969,7 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		{"team", "monitor", "delivery", "--latest", "--last", "1"},
 		{"team", "monitor", "delivery", "--last", "-1"},
 		{"team", "monitor", "delivery", "--watch", "--interval", "-1s"},
+		{"team", "run", "delivery", "SQU-CONFLICT", "--format", "{{.ID}}", "--json"},
 	} {
 		cmd := NewRootCmd()
 		stderr := &bytes.Buffer{}
