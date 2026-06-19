@@ -126,6 +126,36 @@ func TestOverviewReportsIntakeErrors(t *testing.T) {
 	}
 }
 
+func TestOverviewRecommendsIntakeDoctorForLedgerParseErrors(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "daemon"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(intakeDeliveryLogPath(teamDir), []byte("{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview corrupt intake json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview corrupt intake: %v\nbody=%s", err, out.String())
+	}
+	if overview.OK || overview.SectionErrors["intake"] == "" {
+		t.Fatalf("overview = %+v", overview)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team intake doctor") {
+		t.Fatalf("actions missing intake doctor: %+v", overview.Actions)
+	}
+}
+
 func TestOverviewIgnoresRecoveredIntakeErrors(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

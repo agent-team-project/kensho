@@ -511,6 +511,9 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 		}
 	}
 	if len(out.SectionErrors) > 0 {
+		if teamName == "" && strings.TrimSpace(out.SectionErrors["intake"]) != "" {
+			add("agent-team intake doctor")
+		}
 		if teamName != "" {
 			add(fmt.Sprintf("agent-team team snapshot %s --json", teamName))
 		} else {

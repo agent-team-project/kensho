@@ -38,6 +38,7 @@ func newIntakeCmd() *cobra.Command {
 	cmd.AddCommand(newIntakeScheduleCmd())
 	cmd.AddCommand(newIntakeServeCmd())
 	cmd.AddCommand(newIntakeSummaryCmd())
+	cmd.AddCommand(newIntakeDoctorCmd())
 	cmd.AddCommand(newIntakeDeliveriesCmd())
 	cmd.AddCommand(newIntakeReplayCmd())
 	cmd.AddCommand(newIntakePruneCmd())

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -654,6 +655,83 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	}
 }
 
+func TestIntakeDoctorReportsLedgerFindings(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "daemon"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Join([]string{
+		`{"id":"ok","time":"2026-06-19T12:00:00Z","provider":"linear","status":"ok","http_status":200}`,
+		`{`,
+		`{"id":"ok","time":"2026-06-19T12:01:00Z","provider":"linear","status":"ok","http_status":200}`,
+		`{"id":"bad-status","time":"2026-06-19T12:02:00Z","provider":"github","status":"weird","http_status":500}`,
+		`{"id":"missing-payload","time":"2026-06-19T12:03:00Z","provider":"github","status":"error","http_status":503}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(intakeDeliveryLogPath(teamDir), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "doctor", "--target", target, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected intake doctor to fail on ledger problems")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("json doctor should not write stderr: %s", stderr.String())
+	}
+	var result intakeDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake doctor: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || !result.Exists || result.Deliveries != 4 || result.Summary.Deliveries != 4 || result.Summary.Unresolved != 1 {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	for _, code := range []string{"invalid_json", "duplicate_id", "unknown_status"} {
+		if !hasIntakeDoctorFinding(result.Problems, code) {
+			t.Fatalf("problems missing %s: %+v", code, result.Problems)
+		}
+	}
+	if !hasIntakeDoctorFinding(result.Warnings, "not_replayable") {
+		t.Fatalf("warnings missing not_replayable: %+v", result.Warnings)
+	}
+}
+
+func TestIntakeDoctorOKWithWarnings(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "daemon"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"id":"missing-payload","time":"2026-06-19T12:03:00Z","provider":"github","status":"error","http_status":503}` + "\n"
+	if err := os.WriteFile(intakeDeliveryLogPath(teamDir), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "doctor", "--target", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake doctor warnings should not fail: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "agent-team intake doctor: OK") || !strings.Contains(out.String(), "unresolved=1") {
+		t.Fatalf("doctor stdout = %q", out.String())
+	}
+	if !strings.Contains(stderr.String(), "cannot be replayed") {
+		t.Fatalf("doctor stderr missing warning: %q", stderr.String())
+	}
+}
+
 func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")
@@ -1192,6 +1270,15 @@ func deliveryIDs(deliveries []intakeDelivery) string {
 		ids = append(ids, delivery.ID)
 	}
 	return strings.Join(ids, ",")
+}
+
+func hasIntakeDoctorFinding(findings []intakeDoctorFinding, code string) bool {
+	for _, finding := range findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func mustMillisString(t time.Time) string {

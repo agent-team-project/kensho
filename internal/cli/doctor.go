@@ -170,6 +170,16 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, j
 			warnings = append(warnings, "team topology: "+warning.Message)
 		}
 	}
+	if intakeDoctor, err := collectIntakeDoctor(teamDir); err != nil {
+		problems = append(problems, fmt.Sprintf("intake ledger validation failed: %v", err))
+	} else {
+		for _, problem := range intakeDoctor.Problems {
+			problems = append(problems, "intake ledger: "+problem.Message)
+		}
+		for _, warning := range intakeDoctor.Warnings {
+			warnings = append(warnings, "intake ledger: "+warning.Message)
+		}
+	}
 
 	return reportDoctor(cmd, problems, warnings, jsonOut)
 }

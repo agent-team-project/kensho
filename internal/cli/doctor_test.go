@@ -269,6 +269,42 @@ func TestDoctorJSONReportsProblems(t *testing.T) {
 	}
 }
 
+func TestDoctorIncludesIntakeLedgerProblems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "daemon"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(intakeDeliveryLogPath(teamDir), []byte("{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor to fail on corrupt intake ledger")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.OK || !containsDoctorMessage(result.Problems, "intake ledger:") || !containsDoctorMessage(result.Problems, "not valid JSON") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write intake problems to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorFailsOnPipelineWorkflowProblem(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
