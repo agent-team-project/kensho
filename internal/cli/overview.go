@@ -500,7 +500,7 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 	}
 	if out.Jobs.CleanupReady > 0 {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team triage %s --reason cleanup_ready", teamName))
+			add(fmt.Sprintf("agent-team team cleanup %s --dry-run", teamName))
 		} else {
 			add("agent-team job cleanup --all --dry-run")
 		}

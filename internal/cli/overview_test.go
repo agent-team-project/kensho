@@ -292,7 +292,7 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	}
 }
 
-func TestTeamOverviewRecommendsScopedCleanupTriage(t *testing.T) {
+func TestTeamOverviewRecommendsScopedCleanupCommand(t *testing.T) {
 	root := writeOverviewCleanupFixture(t)
 
 	cmd := NewRootCmd()
@@ -311,8 +311,8 @@ func TestTeamOverviewRecommendsScopedCleanupTriage(t *testing.T) {
 	if overview.Team == nil || overview.Team.Name != "delivery" || overview.Jobs.CleanupReady != 1 {
 		t.Fatalf("team overview = %+v", overview)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team team triage delivery --reason cleanup_ready") {
-		t.Fatalf("actions missing scoped cleanup triage: %+v", overview.Actions)
+	if !stringSliceContains(overview.Actions, "agent-team team cleanup delivery --dry-run") {
+		t.Fatalf("actions missing scoped cleanup command: %+v", overview.Actions)
 	}
 	if stringSliceContains(overview.Actions, "agent-team job cleanup --all --dry-run") {
 		t.Fatalf("team actions should not include unscoped batch cleanup: %+v", overview.Actions)

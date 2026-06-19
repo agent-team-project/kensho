@@ -41,6 +41,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamReadyCmd())
 	cmd.AddCommand(newTeamTriageCmd())
+	cmd.AddCommand(newTeamCleanupCmd())
 	cmd.AddCommand(newTeamAdvanceCmd())
 	cmd.AddCommand(newTeamQueueCmd())
 	cmd.AddCommand(newTeamLogsCmd())
@@ -726,6 +727,62 @@ func newTeamTriageCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team triage snapshot as JSON.")
+	return cmd
+}
+
+func newTeamCleanupCmd() *cobra.Command {
+	var (
+		repo        string
+		merged      bool
+		forceBranch bool
+		dryRun      bool
+		jsonOut     bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "cleanup <team>",
+		Short: "Clean up done jobs owned by one team.",
+		Long:  "Preview or remove job-owned worktrees and branches for done jobs owned by one declared team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !merged && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cleanup: pass --merged after confirming the team's PRs have merged.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			top, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cleanup: %v\n", err)
+				return exitErr(1)
+			}
+			jobs, err := job.List(teamDir)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cleanup: %v\n", err)
+				return exitErr(1)
+			}
+			result := runJobCleanupJobs(teamDir, filepath.Dir(teamDir), teamJobs(top, team, jobs), dryRun, merged, forceBranch)
+			result.Team = team.Name
+			if jsonOut {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+					return err
+				}
+			} else {
+				renderJobCleanupBatch(cmd.OutOrStdout(), result)
+			}
+			if result.Failed > 0 {
+				return exitErr(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the team's matching PRs have merged before removing worktrees and branches.")
+	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete job branches with git branch -D if they are not locally merged.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned job cleanup without removing anything.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cleanup batch as JSON.")
 	return cmd
 }
 

@@ -412,6 +412,121 @@ since = "2026-06-18T12:00:00Z"
 	}
 }
 
+func TestTeamCleanupScopesDoneJobOwnership(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.platform]
+agent = "platform"
+ephemeral = true
+
+[teams.delivery]
+instances = ["worker"]
+
+[teams.platform]
+instances = ["platform"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	initGitRepoForJobTest(t, root)
+	makeMergedBranch := func(branch string) {
+		t.Helper()
+		runGitForJobTest(t, root, "checkout", "-b", branch)
+		runGitForJobTest(t, root, "checkout", "main")
+	}
+	deliveryBranch := "worktree-worker-squ-720"
+	platformBranch := "worktree-platform-ops-720"
+	makeMergedBranch(deliveryBranch)
+	makeMergedBranch(platformBranch)
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-720",
+			Ticket:    "SQU-720",
+			Target:    "worker",
+			Status:    job.StatusDone,
+			Branch:    deliveryBranch,
+			PR:        "https://github.com/acme/repo/pull/720",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-720",
+			Ticket:    "OPS-720",
+			Target:    "platform",
+			Status:    job.StatusDone,
+			Branch:    platformBranch,
+			PR:        "https://github.com/acme/repo/pull/721",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+
+	preview := NewRootCmd()
+	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	preview.SetOut(previewOut)
+	preview.SetErr(previewErr)
+	preview.SetArgs([]string{"team", "cleanup", "delivery", "--repo", root, "--dry-run", "--json"})
+	if err := preview.Execute(); err != nil {
+		t.Fatalf("team cleanup dry-run: %v\nstderr=%s", err, previewErr.String())
+	}
+	var previewResult jobCleanupBatchResult
+	if err := json.Unmarshal(previewOut.Bytes(), &previewResult); err != nil {
+		t.Fatalf("decode team cleanup preview: %v\nbody=%s", err, previewOut.String())
+	}
+	if previewResult.Team != "delivery" || !previewResult.DryRun || previewResult.Total != 1 || len(previewResult.Items) != 1 || previewResult.Items[0].JobID != "squ-720" {
+		t.Fatalf("team cleanup preview = %+v", previewResult)
+	}
+	if !branchExists(t, root, deliveryBranch) || !branchExists(t, root, platformBranch) {
+		t.Fatalf("dry-run removed a branch")
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"team", "cleanup", "delivery", "--repo", root, "--merged", "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("team cleanup apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied jobCleanupBatchResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode team cleanup apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if applied.Team != "delivery" || applied.Total != 1 || applied.Cleaned != 1 || len(applied.Items) != 1 || applied.Items[0].JobID != "squ-720" {
+		t.Fatalf("team cleanup applied = %+v", applied)
+	}
+	cleaned, err := job.Read(teamDir, "squ-720")
+	if err != nil {
+		t.Fatalf("read cleaned job: %v", err)
+	}
+	untouched, err := job.Read(teamDir, "ops-720")
+	if err != nil {
+		t.Fatalf("read untouched job: %v", err)
+	}
+	if cleaned.Branch != "" || cleaned.LastEvent != "cleanup" {
+		t.Fatalf("cleaned job = %+v", cleaned)
+	}
+	if untouched.Branch != platformBranch || untouched.LastEvent == "cleanup" {
+		t.Fatalf("outside team job mutated = %+v", untouched)
+	}
+	if branchExists(t, root, deliveryBranch) {
+		t.Fatalf("delivery branch still exists")
+	}
+	if !branchExists(t, root, platformBranch) {
+		t.Fatalf("platform branch was removed")
+	}
+}
+
 func TestTeamShowMissingFails(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
