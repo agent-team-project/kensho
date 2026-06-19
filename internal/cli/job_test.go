@@ -511,7 +511,7 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	if err := show.Execute(); err != nil {
 		t.Fatalf("job show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Queue:", "q-job-show", "state=dead", "instance_id=worker-squ-109", "Actions:", "agent-team queue retry q-job-show"} {
+	for _, want := range []string{"Queue:", "q-job-show", "state=dead", "instance_id=worker-squ-109", "Actions:", "agent-team job queue retry squ-109 q-job-show"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
 		}
@@ -1193,7 +1193,7 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		"agent-team job dispatch squ-203",
 		"squ-204",
 		"queue_dead",
-		"agent-team queue retry q-triage-dead",
+		"agent-team job queue retry squ-204 q-triage-dead",
 		"agent-team job retry squ-201 --dispatch",
 		"Ready pipeline steps:",
 		"squ-205",
@@ -1232,7 +1232,7 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if !containsString(reasons["squ-204"], "queue_dead") {
 		t.Fatalf("squ-204 reasons = %v", reasons["squ-204"])
 	}
-	if !containsString(actions["squ-204"], "agent-team queue retry q-triage-dead") {
+	if !containsString(actions["squ-204"], "agent-team job queue retry squ-204 q-triage-dead") {
 		t.Fatalf("squ-204 actions = %v", actions["squ-204"])
 	}
 	if !containsString(actions["squ-201"], "agent-team job retry squ-201 --dispatch") {
