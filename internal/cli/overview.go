@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -23,6 +24,7 @@ func newOverviewCmd() *cobra.Command {
 		noClear       bool
 		scheduleLimit int
 		interval      time.Duration
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -40,6 +42,15 @@ func newOverviewCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --schedule-limit must be >= 0.")
 				return exitErr(2)
 			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseOverviewFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team overview: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -49,10 +60,10 @@ func newOverviewCmd() *cobra.Command {
 				defer stop()
 				return runOverviewWatch(ctx, cmd.OutOrStdout(), func(now time.Time) (*overviewResult, error) {
 					return collectOverview(teamDir, now, scheduleLimit), nil
-				}, jsonOut, interval, !noClear && !jsonOut)
+				}, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
 			result := collectOverview(teamDir, time.Now().UTC(), scheduleLimit)
-			return renderOverview(cmd.OutOrStdout(), result, jsonOut)
+			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
@@ -61,6 +72,7 @@ func newOverviewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect after ordering; 0 means all.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the overview result with a Go template, e.g. '{{.State}} {{len .Actions}}'.")
 	return cmd
 }
 
@@ -72,6 +84,7 @@ func newTeamOverviewCmd() *cobra.Command {
 		noClear       bool
 		scheduleLimit int
 		interval      time.Duration
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -89,6 +102,15 @@ func newTeamOverviewCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --schedule-limit must be >= 0.")
 				return exitErr(2)
 			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseOverviewFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team overview: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -98,14 +120,14 @@ func newTeamOverviewCmd() *cobra.Command {
 				defer stop()
 				return runOverviewWatch(ctx, cmd.OutOrStdout(), func(now time.Time) (*overviewResult, error) {
 					return collectTeamOverview(teamDir, args[0], now, scheduleLimit)
-				}, jsonOut, interval, !noClear && !jsonOut)
+				}, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
 			result, err := collectTeamOverview(teamDir, args[0], time.Now().UTC(), scheduleLimit)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team overview: %v\n", err)
 				return exitErr(1)
 			}
-			return renderOverview(cmd.OutOrStdout(), result, jsonOut)
+			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
@@ -114,6 +136,7 @@ func newTeamOverviewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming team schedules to inspect after ordering; 0 means all.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the team overview result with a Go template, e.g. '{{.Team.Name}} {{.State}}'.")
 	return cmd
 }
 
@@ -627,7 +650,7 @@ func (r *overviewResult) addError(section string, err error) {
 	r.SectionErrors[section] = err.Error()
 }
 
-func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), jsonOut bool, interval time.Duration, clear bool) error {
+func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -643,7 +666,7 @@ func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) 
 		if err != nil {
 			return err
 		}
-		if err := renderOverview(w, result, jsonOut); err != nil {
+		if err := renderOverview(w, result, jsonOut, tmpl); err != nil {
 			return err
 		}
 		select {
@@ -657,12 +680,15 @@ func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) 
 	}
 }
 
-func renderOverview(w io.Writer, result *overviewResult, jsonOut bool) error {
+func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &overviewResult{OK: true, State: "ok"}
 	}
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		return renderOverviewFormat(w, result, tmpl)
 	}
 	fmt.Fprintf(w, "overview: %s\n", result.State)
 	if result.CapturedAt != "" {
@@ -747,4 +773,23 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool) error {
 		}
 	}
 	return nil
+}
+
+func parseOverviewFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("overview-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderOverviewFormat(w io.Writer, result *overviewResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }

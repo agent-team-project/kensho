@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,22 @@ func TestOverviewTextRendersOperatorSummary(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("overview text missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestOverviewCommandFormat(t *testing.T) {
+	root := writeOverviewAttentionFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--format", "{{.State}} {{.Jobs.Summary.Total}} {{.Queue.Dead}} {{len .Actions}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview format: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); !strings.HasPrefix(got, "attention 1 1 ") {
+		t.Fatalf("overview format output = %q", got)
 	}
 }
 
@@ -361,6 +378,22 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	}
 }
 
+func TestTeamOverviewCommandFormat(t *testing.T) {
+	root := writeOverviewAttentionFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--format", "{{.Team.Name}} {{.State}} {{.Queue.Quarantined}} {{len .Actions}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team overview format: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); !strings.HasPrefix(got, "delivery attention 1 ") {
+		t.Fatalf("team overview format output = %q", got)
+	}
+}
+
 func TestTeamOverviewRecommendsScopedCleanupCommand(t *testing.T) {
 	root := writeOverviewCleanupFixture(t)
 
@@ -411,6 +444,56 @@ func TestTeamOverviewTextRendersTeamSummary(t *testing.T) {
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("team overview text missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestOverviewFormatValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "overview-json-conflict",
+			args: []string{"overview", "--format", "{{.State}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "overview-invalid-template",
+			args: []string{"overview", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "team-overview-json-conflict",
+			args: []string{"team", "overview", "delivery", "--format", "{{.State}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "team-overview-invalid-template",
+			args: []string{"team", "overview", "delivery", "--format", "{{"},
+			want: "invalid --format template",
+		},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%s: expected validation error", tc.name)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%s: err=%v, want exit 2", tc.name, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%s: stderr=%q, want %q", tc.name, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%s: validation wrote stdout: %q", tc.name, out.String())
 		}
 	}
 }
@@ -472,7 +555,7 @@ func TestOverviewWatchRendersUntilContextDone(t *testing.T) {
 				Healthy: true,
 			},
 		}, nil
-	}, false, time.Millisecond, false)
+	}, false, nil, time.Millisecond, false)
 	if err != nil {
 		t.Fatalf("runOverviewWatch: %v", err)
 	}
