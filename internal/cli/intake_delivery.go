@@ -181,6 +181,74 @@ func newIntakeReplayCmd() *cobra.Command {
 	return cmd
 }
 
+type intakePruneResult struct {
+	ID         string    `json:"id"`
+	Time       time.Time `json:"time"`
+	Provider   string    `json:"provider,omitempty"`
+	Status     string    `json:"status"`
+	HTTPStatus int       `json:"http_status"`
+	EventType  string    `json:"event_type,omitempty"`
+	Ticket     string    `json:"ticket,omitempty"`
+	PR         string    `json:"pr,omitempty"`
+	DryRun     bool      `json:"dry_run,omitempty"`
+	Dropped    bool      `json:"dropped"`
+}
+
+func newIntakePruneCmd() *cobra.Command {
+	var (
+		target    string
+		status    string
+		olderThan time.Duration
+		dryRun    bool
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Prune recorded intake deliveries.",
+		Long:  "Prune recorded intake deliveries. By default this removes successful deliveries and keeps failures for recovery.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			status, err := parseIntakePruneStatus(status)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake prune: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakePruneFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake prune: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			results, err := pruneIntakeDeliveries(teamDir, status, olderThan, time.Now().UTC(), dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake prune: %v\n", err)
+				return exitErr(1)
+			}
+			return renderIntakePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&status, "status", intakeDeliveryStatusOK, "Delivery status to prune: ok, error, or all.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune deliveries older than this duration.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview deliveries that would be pruned without rewriting the ledger.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.Status}} {{.Dropped}}'.")
+	return cmd
+}
+
 func intakeDeliveryLogPath(teamDir string) string {
 	return filepath.Join(teamDir, "daemon", "intake.jsonl")
 }
@@ -273,6 +341,41 @@ func listIntakeDeliveries(teamDir string) ([]intakeDelivery, error) {
 	return deliveries, nil
 }
 
+func writeIntakeDeliveries(teamDir string, deliveries []intakeDelivery) error {
+	path := intakeDeliveryLogPath(teamDir)
+	if len(deliveries) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("intake deliveries: mkdir: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".intake-*.jsonl")
+	if err != nil {
+		return fmt.Errorf("intake deliveries: temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	enc := json.NewEncoder(tmp)
+	for _, delivery := range deliveries {
+		if err := enc.Encode(delivery); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("intake deliveries: encode: %w", err)
+		}
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("intake deliveries: close: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("intake deliveries: replace: %w", err)
+	}
+	return nil
+}
+
 func findIntakeDelivery(teamDir, id string) (intakeDelivery, bool, error) {
 	id = strings.TrimSpace(id)
 	deliveries, err := listIntakeDeliveries(teamDir)
@@ -321,6 +424,70 @@ func tailIntakeDeliveries(deliveries []intakeDelivery, tail int) []intakeDeliver
 	return deliveries[len(deliveries)-tail:]
 }
 
+func parseIntakePruneStatus(raw string) (string, error) {
+	status := strings.ToLower(strings.TrimSpace(raw))
+	switch status {
+	case "", intakeDeliveryStatusOK:
+		return intakeDeliveryStatusOK, nil
+	case intakeDeliveryStatusError, "all":
+		return status, nil
+	default:
+		return "", fmt.Errorf("--status must be ok, error, or all")
+	}
+}
+
+func pruneIntakeDeliveries(teamDir, status string, olderThan time.Duration, now time.Time, dryRun bool) ([]intakePruneResult, error) {
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	retained := make([]intakeDelivery, 0, len(deliveries))
+	results := []intakePruneResult{}
+	for _, delivery := range deliveries {
+		if !intakeDeliveryPruneMatch(delivery, status, olderThan, now) {
+			retained = append(retained, delivery)
+			continue
+		}
+		results = append(results, intakePruneResult{
+			ID:         delivery.ID,
+			Time:       delivery.Time,
+			Provider:   delivery.Provider,
+			Status:     delivery.Status,
+			HTTPStatus: delivery.HTTPStatus,
+			EventType:  delivery.EventType,
+			Ticket:     delivery.Ticket,
+			PR:         delivery.PR,
+			DryRun:     dryRun,
+			Dropped:    !dryRun,
+		})
+		if dryRun {
+			retained = append(retained, delivery)
+		}
+	}
+	if dryRun || len(results) == 0 {
+		return results, nil
+	}
+	intakeDeliveryLogMu.Lock()
+	defer intakeDeliveryLogMu.Unlock()
+	if err := writeIntakeDeliveries(teamDir, retained); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func intakeDeliveryPruneMatch(delivery intakeDelivery, status string, olderThan time.Duration, now time.Time) bool {
+	if status != "all" && delivery.Status != status {
+		return false
+	}
+	if olderThan <= 0 {
+		return true
+	}
+	if delivery.Time.IsZero() {
+		return false
+	}
+	return !delivery.Time.After(now.UTC().Add(-olderThan))
+}
+
 func withIntakeDeliveryActions(deliveries []intakeDelivery) []intakeDelivery {
 	out := make([]intakeDelivery, len(deliveries))
 	copy(out, deliveries)
@@ -348,6 +515,17 @@ func parseIntakeDeliveryFormat(format string) (*template.Template, error) {
 		return nil, nil
 	}
 	tmpl, err := template.New("intake-delivery-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func parseIntakePruneFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("intake-prune-format").Parse(format)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
@@ -387,6 +565,41 @@ func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bo
 			emptyDash(delivery.PR),
 			emptyDash(strings.Join(delivery.Actions, "; ")),
 			emptyDash(delivery.Error),
+		)
+	}
+	return tw.Flush()
+}
+
+func renderIntakePruneResults(w io.Writer, results []intakePruneResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if tmpl != nil {
+		for _, result := range results {
+			if err := tmpl.Execute(w, result); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(results) == 0 {
+		_, err := fmt.Fprintln(w, "(no intake deliveries matched)")
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tPROVIDER\tSTATUS\tHTTP\tEVENT\tTICKET\tDROPPED")
+	for _, result := range results {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			result.ID,
+			emptyDash(result.Provider),
+			result.Status,
+			result.HTTPStatus,
+			emptyDash(result.EventType),
+			emptyDash(result.Ticket),
+			yesNo(result.Dropped),
 		)
 	}
 	return tw.Flush()

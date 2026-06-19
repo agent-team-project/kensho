@@ -39,6 +39,7 @@ func newIntakeCmd() *cobra.Command {
 	cmd.AddCommand(newIntakeServeCmd())
 	cmd.AddCommand(newIntakeDeliveriesCmd())
 	cmd.AddCommand(newIntakeReplayCmd())
+	cmd.AddCommand(newIntakePruneCmd())
 	return cmd
 }
 

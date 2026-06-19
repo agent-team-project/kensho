@@ -371,6 +371,113 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	}
 }
 
+func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, delivery := range []intakeDelivery{
+		{
+			ID:         "ok-old",
+			Time:       now.Add(-48 * time.Hour),
+			Provider:   "linear",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: http.StatusOK,
+			EventType:  "ticket.created",
+			Ticket:     "SQU-301",
+		},
+		{
+			ID:         "ok-new",
+			Time:       now,
+			Provider:   "linear",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: http.StatusOK,
+			EventType:  "ticket.created",
+			Ticket:     "SQU-302",
+		},
+		{
+			ID:         "error-old",
+			Time:       now.Add(-48 * time.Hour),
+			Provider:   "github",
+			Status:     intakeDeliveryStatusError,
+			HTTPStatus: http.StatusServiceUnavailable,
+			EventType:  "pr.opened",
+			Error:      "daemon is not running",
+		},
+	} {
+		if err := appendIntakeDelivery(teamDir, delivery); err != nil {
+			t.Fatalf("append %s: %v", delivery.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("intake prune dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []intakePruneResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode dry prune: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "ok-old" || !dryResults[0].DryRun || dryResults[0].Dropped {
+		t.Fatalf("dry prune results = %+v", dryResults)
+	}
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		t.Fatalf("list after dry-run: %v", err)
+	}
+	if len(deliveries) != 3 {
+		t.Fatalf("dry-run rewrote ledger: %+v", deliveries)
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--format", "{{.ID}} {{.Status}} {{.Dropped}}"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("intake prune: %v\nstderr=%s", err, pruneErr.String())
+	}
+	if got := strings.TrimSpace(pruneOut.String()); got != "ok-old ok true" {
+		t.Fatalf("prune output = %q", got)
+	}
+	deliveries, err = listIntakeDeliveries(teamDir)
+	if err != nil {
+		t.Fatalf("list after prune: %v", err)
+	}
+	if deliveryIDs(deliveries) != "error-old,ok-new" {
+		t.Fatalf("deliveries after prune = %+v", deliveries)
+	}
+
+	errorPrune := NewRootCmd()
+	errorOut, errorErr := &bytes.Buffer{}, &bytes.Buffer{}
+	errorPrune.SetOut(errorOut)
+	errorPrune.SetErr(errorErr)
+	errorPrune.SetArgs([]string{"intake", "prune", "--target", target, "--status", "error", "--older-than", "24h", "--json"})
+	if err := errorPrune.Execute(); err != nil {
+		t.Fatalf("intake prune error: %v\nstderr=%s", err, errorErr.String())
+	}
+	var errorResults []intakePruneResult
+	if err := json.Unmarshal(errorOut.Bytes(), &errorResults); err != nil {
+		t.Fatalf("decode error prune: %v\nbody=%s", err, errorOut.String())
+	}
+	if len(errorResults) != 1 || errorResults[0].ID != "error-old" || !errorResults[0].Dropped {
+		t.Fatalf("error prune results = %+v", errorResults)
+	}
+	deliveries, err = listIntakeDeliveries(teamDir)
+	if err != nil {
+		t.Fatalf("list after error prune: %v", err)
+	}
+	if deliveryIDs(deliveries) != "ok-new" {
+		t.Fatalf("deliveries after error prune = %+v", deliveries)
+	}
+}
+
 func TestIntakeReplayDryRunPreview(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")
@@ -541,6 +648,14 @@ func hmacSHA256Hex(secret string, body []byte, prefix string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(body)
 	return prefix + hex.EncodeToString(mac.Sum(nil))
+}
+
+func deliveryIDs(deliveries []intakeDelivery) string {
+	ids := make([]string, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		ids = append(ids, delivery.ID)
+	}
+	return strings.Join(ids, ",")
 }
 
 func mustMillisString(t time.Time) string {
