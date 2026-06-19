@@ -70,6 +70,21 @@ since = "2026-06-18T12:00:00Z"
 	if err := job.Write(teamDir, pipelineJob); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:             "q-status-team",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-801",
+		Payload:        map[string]any{"job_id": "squ-801", "target": "worker"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}); err != nil {
+		t.Fatalf("write queue item: %v", err)
+	}
 
 	list := NewRootCmd()
 	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -251,11 +266,17 @@ since = "2026-06-18T12:00:00Z"
 	if snapshot.Team.Name != "delivery" || snapshot.InstanceSummary.Total != 3 || snapshot.JobSummary.Total != 1 {
 		t.Fatalf("team status summary = %+v", snapshot)
 	}
+	if snapshot.Queue.Total != 1 || snapshot.Queue.Dead != 1 || snapshot.Queue.Pending != 0 {
+		t.Fatalf("team status queue = %+v", snapshot.Queue)
+	}
 	if len(snapshot.PipelineStatus) != 1 || snapshot.PipelineStatus[0].Pipeline != "ticket_to_pr" || snapshot.PipelineStatus[0].ReadySteps != 1 {
 		t.Fatalf("pipeline status = %+v", snapshot.PipelineStatus)
 	}
-	if !containsString(snapshot.Actions, "agent-team start manager ticket-manager") {
-		t.Fatalf("actions missing persistent start hint: %+v", snapshot.Actions)
+	if !containsString(snapshot.Actions, "agent-team team sync delivery --wait") {
+		t.Fatalf("actions missing team sync hint: %+v", snapshot.Actions)
+	}
+	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all") {
+		t.Fatalf("actions missing team queue retry hint: %+v", snapshot.Actions)
 	}
 	if containsString(snapshot.Actions, "agent-team start worker") {
 		t.Fatalf("actions should not start ephemeral worker: %+v", snapshot.Actions)
@@ -269,7 +290,7 @@ since = "2026-06-18T12:00:00Z"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes"} {
+	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team status text missing %q:\n%s", want, textOut.String())
 		}

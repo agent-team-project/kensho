@@ -1244,6 +1244,7 @@ type teamStatusSnapshot struct {
 	InstanceSummary psSummaryJSON       `json:"instance_summary"`
 	Instances       []psJSONRow         `json:"instances,omitempty"`
 	JobSummary      jobSummary          `json:"job_summary"`
+	Queue           queueSummary        `json:"queue"`
 	PipelineStatus  []pipelineStatusRow `json:"pipeline_status,omitempty"`
 	Schedules       []scheduleInfo      `json:"schedules,omitempty"`
 	Actions         []string            `json:"actions,omitempty"`
@@ -1327,6 +1328,12 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	if err != nil {
 		return nil, err
 	}
+	ownedJobs := teamJobs(top, team, jobs)
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	teamQueue := teamQueueItems(top, team, ownedJobs, queueItems)
 	pipelineStatus, err := collectPipelineStatusRows(teamDir, "")
 	if err != nil {
 		return nil, err
@@ -1340,7 +1347,8 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 		CheckedAt:       now.UTC().Format(time.RFC3339),
 		InstanceSummary: psSummaryRows(instanceRows),
 		Instances:       psJSONRows(instanceRows),
-		JobSummary:      summarizeJobs(teamJobs(top, team, jobs)),
+		JobSummary:      summarizeJobs(ownedJobs),
+		Queue:           summarizeQueueItems(teamQueue, now.UTC()),
 		PipelineStatus:  teamPipelineStatus(team, pipelineStatus),
 		Schedules:       teamSchedules(team, schedules),
 	}
@@ -2857,7 +2865,17 @@ func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *te
 	}
 	if len(missingPersistent) > 0 {
 		sort.Strings(missingPersistent)
-		add("agent-team start " + strings.Join(missingPersistent, " "))
+		add(fmt.Sprintf("agent-team team sync %s --wait", team.Name))
+	}
+	if snapshot.Queue.Dead > 0 {
+		add(fmt.Sprintf("agent-team team queue retry %s --all", team.Name))
+	}
+	if snapshot.Queue.Pending > 0 {
+		add(fmt.Sprintf("agent-team team queue %s --state pending", team.Name))
+	}
+	if snapshot.InstanceSummary.Crashed > 0 || snapshot.InstanceSummary.Stale > 0 {
+		add(fmt.Sprintf("agent-team team events %s --tail 20", team.Name))
+		add(fmt.Sprintf("agent-team team logs %s --latest", team.Name))
 	}
 	for _, row := range snapshot.PipelineStatus {
 		add("agent-team pipeline status " + row.Pipeline)
@@ -2930,6 +2948,13 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool) e
 		snapshot.InstanceSummary.Stale,
 	)
 	renderJobSummary(w, snapshot.JobSummary)
+	fmt.Fprintf(w, "queue: total=%d pending=%d dead=%d delayed=%d attempts=%d\n",
+		snapshot.Queue.Total,
+		snapshot.Queue.Pending,
+		snapshot.Queue.Dead,
+		snapshot.Queue.Delayed,
+		snapshot.Queue.Attempts,
+	)
 	if snapshot.PipelineStatus != nil {
 		fmt.Fprintf(w, "pipeline status: pipelines=%d jobs=%d ready_steps=%d failed_steps=%d\n",
 			len(snapshot.PipelineStatus),
