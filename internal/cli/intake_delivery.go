@@ -16,6 +16,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/spf13/cobra"
 )
 
@@ -30,22 +31,23 @@ var (
 )
 
 type intakeDelivery struct {
-	ID         string    `json:"id"`
-	Time       time.Time `json:"time"`
-	Provider   string    `json:"provider,omitempty"`
-	Method     string    `json:"method,omitempty"`
-	Path       string    `json:"path,omitempty"`
-	RemoteAddr string    `json:"remote_addr,omitempty"`
-	EventType  string    `json:"event_type,omitempty"`
-	Ticket     string    `json:"ticket,omitempty"`
-	PR         string    `json:"pr,omitempty"`
-	JobID      string    `json:"job_id,omitempty"`
-	Status     string    `json:"status"`
-	HTTPStatus int       `json:"http_status"`
-	Error      string    `json:"error,omitempty"`
-	DryRun     bool      `json:"dry_run,omitempty"`
-	Matched    []string  `json:"matched,omitempty"`
-	Pipelines  []string  `json:"pipelines,omitempty"`
+	ID         string         `json:"id"`
+	Time       time.Time      `json:"time"`
+	Provider   string         `json:"provider,omitempty"`
+	Method     string         `json:"method,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	RemoteAddr string         `json:"remote_addr,omitempty"`
+	EventType  string         `json:"event_type,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
+	Ticket     string         `json:"ticket,omitempty"`
+	PR         string         `json:"pr,omitempty"`
+	JobID      string         `json:"job_id,omitempty"`
+	Status     string         `json:"status"`
+	HTTPStatus int            `json:"http_status"`
+	Error      string         `json:"error,omitempty"`
+	DryRun     bool           `json:"dry_run,omitempty"`
+	Matched    []string       `json:"matched,omitempty"`
+	Pipelines  []string       `json:"pipelines,omitempty"`
 }
 
 func newIntakeDeliveriesCmd() *cobra.Command {
@@ -110,6 +112,73 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 	return cmd
 }
 
+func newIntakeReplayCmd() *cobra.Command {
+	var (
+		target        string
+		dryRun        bool
+		previewRoutes bool
+		jsonOut       bool
+		format        string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "replay <delivery-id>",
+		Short: "Replay a recorded normalized intake delivery.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if previewRoutes && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --preview-triggers requires --dry-run.")
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			delivery, ok, err := findIntakeDelivery(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: %v\n", err)
+				return exitErr(1)
+			}
+			if !ok {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: delivery %q not found.\n", args[0])
+				return exitErr(1)
+			}
+			ev, err := eventFromIntakeDelivery(delivery)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: %v\n", err)
+				return exitErr(1)
+			}
+			if dryRun {
+				var triggerPreview *eventPublishPreview
+				if previewRoutes {
+					triggerPreview, err = previewEventPublish(teamDir, ev.Type, ev.Payload)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: %v\n", err)
+						return exitErr(1)
+					}
+				}
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, triggerPreview)
+			}
+			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the normalized delivery without publishing it.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit replay result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the replay result with a Go template, e.g. '{{.Event.Type}}'.")
+	return cmd
+}
+
 func intakeDeliveryLogPath(teamDir string) string {
 	return filepath.Join(teamDir, "daemon", "intake.jsonl")
 }
@@ -124,6 +193,17 @@ func newIntakeDeliveryRecord(provider string, r *http.Request, now time.Time, dr
 		RemoteAddr: r.RemoteAddr,
 		DryRun:     dryRun,
 	}
+}
+
+func cloneIntakePayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = value
+	}
+	return out
 }
 
 func nextIntakeDeliveryID(now time.Time) string {
@@ -189,6 +269,30 @@ func listIntakeDeliveries(teamDir string) ([]intakeDelivery, error) {
 		return deliveries[i].Time.Before(deliveries[j].Time)
 	})
 	return deliveries, nil
+}
+
+func findIntakeDelivery(teamDir, id string) (intakeDelivery, bool, error) {
+	id = strings.TrimSpace(id)
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		return intakeDelivery{}, false, err
+	}
+	for i := len(deliveries) - 1; i >= 0; i-- {
+		if deliveries[i].ID == id {
+			return deliveries[i], true, nil
+		}
+	}
+	return intakeDelivery{}, false, nil
+}
+
+func eventFromIntakeDelivery(delivery intakeDelivery) (*intake.Event, error) {
+	if strings.TrimSpace(delivery.EventType) == "" || len(delivery.Payload) == 0 {
+		return nil, fmt.Errorf("delivery %q has no recorded normalized event payload", delivery.ID)
+	}
+	return &intake.Event{
+		Type:    delivery.EventType,
+		Payload: delivery.Payload,
+	}, nil
 }
 
 func filterIntakeDeliveries(deliveries []intakeDelivery, provider, status string) []intakeDelivery {

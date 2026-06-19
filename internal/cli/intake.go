@@ -38,6 +38,7 @@ func newIntakeCmd() *cobra.Command {
 	cmd.AddCommand(newIntakeScheduleCmd())
 	cmd.AddCommand(newIntakeServeCmd())
 	cmd.AddCommand(newIntakeDeliveriesCmd())
+	cmd.AddCommand(newIntakeReplayCmd())
 	return cmd
 }
 
@@ -363,6 +364,7 @@ func handleIntakeServeWebhook(w http.ResponseWriter, r *http.Request, teamDir, p
 		return
 	}
 	delivery.EventType = ev.Type
+	delivery.Payload = cloneIntakePayload(ev.Payload)
 	delivery.Ticket = previewPayloadString(ev.Payload, "ticket")
 	delivery.PR = previewPayloadString(ev.Payload, "pr_url")
 	result, status, err := processIntakeServeEvent(teamDir, provider, ev, opts)

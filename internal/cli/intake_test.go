@@ -257,7 +257,7 @@ func TestIntakeServeLinearPublishes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list intake deliveries: %v", err)
 	}
-	if len(deliveries) != 1 || deliveries[0].Provider != "linear" || deliveries[0].Status != intakeDeliveryStatusOK || deliveries[0].EventType != "ticket.created" || deliveries[0].Ticket != "SQU-202" {
+	if len(deliveries) != 1 || deliveries[0].Provider != "linear" || deliveries[0].Status != intakeDeliveryStatusOK || deliveries[0].EventType != "ticket.created" || deliveries[0].Ticket != "SQU-202" || deliveries[0].Payload["ticket"] != "SQU-202" {
 		t.Fatalf("deliveries = %+v", deliveries)
 	}
 	cmd := NewRootCmd()
@@ -363,6 +363,104 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].ID != "github-error" {
 		t.Fatalf("tail deliveries = %+v", rows)
+	}
+}
+
+func TestIntakeReplayDryRunPreview(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "ticket.created"
+
+[pipelines.ticket_triage]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_triage.steps]]
+id = "triage"
+target = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendIntakeDelivery(teamDir, intakeDelivery{
+		ID:         "replay-preview",
+		Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Provider:   "linear",
+		Status:     intakeDeliveryStatusError,
+		HTTPStatus: http.StatusServiceUnavailable,
+		EventType:  "ticket.created",
+		Payload:    map[string]any{"source": "linear", "ticket": "SQU-206", "title": "Replay preview"},
+		Ticket:     "SQU-206",
+		Error:      "daemon is not running",
+	}); err != nil {
+		t.Fatalf("append delivery: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake replay dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode replay dry-run: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Event == nil || result.Event.Type != "ticket.created" || result.Event.Payload["ticket"] != "SQU-206" {
+		t.Fatalf("replay dry-run result = %+v", result)
+	}
+	if result.Preview == nil || len(result.Preview.Matched) != 1 || result.Preview.Matched[0] != "manager" || len(result.Preview.Pipelines) != 1 || result.Preview.Pipelines[0] != "ticket_triage" {
+		t.Fatalf("replay preview = %+v", result.Preview)
+	}
+}
+
+func TestIntakeReplayPublishesDelivery(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := appendIntakeDelivery(teamDir, intakeDelivery{
+		ID:         "replay-publish",
+		Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Provider:   "linear",
+		Status:     intakeDeliveryStatusError,
+		HTTPStatus: http.StatusServiceUnavailable,
+		EventType:  "ticket.created",
+		Payload:    map[string]any{"source": "linear", "ticket": "SQU-207", "ticket_url": "https://linear.app/squirtlesquad/issue/SQU-207/replay", "title": "Replay publish"},
+		Ticket:     "SQU-207",
+		Error:      "daemon is not running",
+	}); err != nil {
+		t.Fatalf("append delivery: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "replay", "replay-publish", "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake replay publish: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode replay publish: %v\nbody=%s", err, out.String())
+	}
+	if result.Outcome == nil || len(result.Outcome.Messaged) != 1 || result.Outcome.Messaged[0] != "manager" {
+		t.Fatalf("replay outcome = %+v", result.Outcome)
+	}
+	j, err := job.Read(teamDir, "squ-207")
+	if err != nil {
+		t.Fatalf("read replay job: %v", err)
+	}
+	if j.Pipeline != "ticket_triage" || j.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-207/replay" {
+		t.Fatalf("replay job = %+v", j)
 	}
 }
 
