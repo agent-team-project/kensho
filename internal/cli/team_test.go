@@ -265,6 +265,37 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team advance invalid stderr = %q", invalidAdvanceErr.String())
 	}
 
+	triage := NewRootCmd()
+	triageOut, triageErr := &bytes.Buffer{}, &bytes.Buffer{}
+	triage.SetOut(triageOut)
+	triage.SetErr(triageErr)
+	triage.SetArgs([]string{"team", "triage", "delivery", "--repo", root, "--json"})
+	if err := triage.Execute(); err != nil {
+		t.Fatalf("team triage: %v\nstderr=%s", err, triageErr.String())
+	}
+	var triageSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(triageOut.Bytes(), &triageSnapshot); err != nil {
+		t.Fatalf("decode team triage: %v\nbody=%s", err, triageOut.String())
+	}
+	if triageSnapshot.Summary.Total != 1 || triageSnapshot.Queue.Dead != 1 || len(triageSnapshot.Attention) != 1 || triageSnapshot.Attention[0].JobID != "squ-801" {
+		t.Fatalf("team triage snapshot = %+v", triageSnapshot)
+	}
+	if len(triageSnapshot.ReadySteps) != 1 || triageSnapshot.ReadySteps[0].JobID != "squ-801" {
+		t.Fatalf("team triage ready steps = %+v", triageSnapshot.ReadySteps)
+	}
+
+	triageText := NewRootCmd()
+	triageTextOut, triageTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	triageText.SetOut(triageTextOut)
+	triageText.SetErr(triageTextErr)
+	triageText.SetArgs([]string{"team", "triage", "delivery", "--repo", root, "--reason", "queue_dead"})
+	if err := triageText.Execute(); err != nil {
+		t.Fatalf("team triage text: %v\nstderr=%s", err, triageTextErr.String())
+	}
+	if !strings.Contains(triageTextOut.String(), "squ-801") || strings.Contains(triageTextOut.String(), "oth-801") {
+		t.Fatalf("team triage text = %q", triageTextOut.String())
+	}
+
 	pipelines := NewRootCmd()
 	pipelinesOut, pipelinesErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pipelines.SetOut(pipelinesOut)

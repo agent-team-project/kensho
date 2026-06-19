@@ -235,6 +235,8 @@ agent-team team wait <team> [<instance>...] [-q] [--latest | --last N] [--status
                                   # scoped wait for declared persistent team members and live team-owned ephemeral children
 agent-team team run <team> <ticket> [kickoff...] [--pipeline name] [--ticket-url <url>] [--dispatch] [--workspace auto|worktree|repo] [--dry-run] [--format '{{.ID}} {{.Pipeline}}'] [--json]
                                   # create a durable job through the team's single declared pipeline, or a selected pipeline for multi-pipeline teams
+agent-team team triage <team> [--stale-after 24h] [--min-severity critical|warning|info] [--reason queue_dead] [-w] [--no-clear] [--interval 2s] [--json]
+                                  # scoped durable job, queue, status-preview, and ready-step attention view for one team
 agent-team team ready <team> [--state ready|queued|running|blocked|failed|done|none|all] [--format '{{.JobID}} {{.State}} {{.StepID}}'] [--json]
                                   # list next-step readiness for pipeline jobs owned by one team
 agent-team team advance <team> [--limit N] [--workspace auto|worktree|repo] [--dry-run] [--preview-routes] [--format '{{.JobID}} {{.Action}} {{.StepID}}'] [--json]

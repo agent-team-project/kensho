@@ -39,6 +39,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamReadyCmd())
+	cmd.AddCommand(newTeamTriageCmd())
 	cmd.AddCommand(newTeamAdvanceCmd())
 	cmd.AddCommand(newTeamQueueCmd())
 	cmd.AddCommand(newTeamLogsCmd())
@@ -536,6 +537,66 @@ func newTeamReadyCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
+	return cmd
+}
+
+func newTeamTriageCmd() *cobra.Command {
+	var (
+		repo        string
+		staleAfter  time.Duration
+		minSeverity string
+		reasons     []string
+		watch       bool
+		noClear     bool
+		interval    time.Duration
+		jsonOut     bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "triage <team>",
+		Short: "Show team-owned jobs that need operator attention.",
+		Long: "Show a compact team-scoped work queue triage view from durable jobs, " +
+			"persisted daemon queue items, status-file update previews, and ready pipeline steps.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if staleAfter < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team triage: --stale-after must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team triage: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			filters, err := parseJobTriageFilters(minSeverity, reasons)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team triage: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runTeamTriageWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], staleAfter, filters, jsonOut, interval, !noClear)
+			}
+			snapshot, err := collectTeamTriage(teamDir, args[0], time.Now().UTC(), staleAfter, filters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team triage: %v\n", err)
+				return exitErr(1)
+			}
+			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (0 disables stale checks).")
+	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
+	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the team triage view until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team triage snapshot as JSON.")
 	return cmd
 }
 
@@ -3634,6 +3695,70 @@ func renderTeamReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *te
 	}
 	renderJobReadyTable(w, rows)
 	return nil
+}
+
+func collectTeamTriage(teamDir, name string, now time.Time, staleAfter time.Duration, filters jobTriageFilters) (jobTriageSnapshot, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	ownedJobs := teamJobs(top, team, jobs)
+	ownedIDs := jobIDSet(ownedJobs)
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	teamQueue := teamQueueItems(top, team, ownedJobs, queueItems)
+	snapshot, err := collectJobTriage(teamDir, now, staleAfter)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
+	snapshot.Summary = summarizeJobs(ownedJobs)
+	snapshot.Queue = summarizeQueueItems(teamQueue, now)
+	snapshot.Attention = filterJobTriageItemsByJobIDs(snapshot.Attention, ownedIDs)
+	snapshot.ReadySteps = filterJobReadyRowsByJobIDs(snapshot.ReadySteps, ownedIDs)
+	snapshot.StatusPreviews = filterJobStatusPreviewsByJobIDs(snapshot.StatusPreviews, ownedIDs)
+	return filterJobTriageSnapshot(snapshot, filters), nil
+}
+
+func runTeamTriageWatch(ctx context.Context, w io.Writer, teamDir, name string, staleAfter time.Duration, filters jobTriageFilters, jsonOut bool, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		snapshot, err := collectTeamTriage(teamDir, name, time.Now().UTC(), staleAfter, filters)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			if err := json.NewEncoder(w).Encode(snapshot); err != nil {
+				return err
+			}
+		} else {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+			renderJobTriage(w, snapshot, false)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func collectTeamQueueItems(teamDir, name string, filters queueListFilters, now time.Time) ([]*daemon.QueueItem, error) {
