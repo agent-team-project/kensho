@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
 	"time"
@@ -17,7 +19,10 @@ func newOverviewCmd() *cobra.Command {
 	var (
 		target        string
 		jsonOut       bool
+		watch         bool
+		noClear       bool
 		scheduleLimit int
+		interval      time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -27,6 +32,10 @@ func newOverviewCmd() *cobra.Command {
 			"schedule, and recommended next-action summaries.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --schedule-limit must be >= 0.")
 				return exitErr(2)
@@ -35,13 +44,23 @@ func newOverviewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runOverviewWatch(ctx, cmd.OutOrStdout(), func(now time.Time) (*overviewResult, error) {
+					return collectOverview(teamDir, now, scheduleLimit), nil
+				}, jsonOut, interval, !noClear && !jsonOut)
+			}
 			result := collectOverview(teamDir, time.Now().UTC(), scheduleLimit)
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit overview as JSON.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh overview until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect after ordering; 0 means all.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	return cmd
 }
 
@@ -49,7 +68,10 @@ func newTeamOverviewCmd() *cobra.Command {
 	var (
 		repo          string
 		jsonOut       bool
+		watch         bool
+		noClear       bool
 		scheduleLimit int
+		interval      time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -59,6 +81,10 @@ func newTeamOverviewCmd() *cobra.Command {
 			"queue, pipeline, schedule, and recommended next-action summaries.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --schedule-limit must be >= 0.")
 				return exitErr(2)
@@ -66,6 +92,13 @@ func newTeamOverviewCmd() *cobra.Command {
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
+			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runOverviewWatch(ctx, cmd.OutOrStdout(), func(now time.Time) (*overviewResult, error) {
+					return collectTeamOverview(teamDir, args[0], now, scheduleLimit)
+				}, jsonOut, interval, !noClear && !jsonOut)
 			}
 			result, err := collectTeamOverview(teamDir, args[0], time.Now().UTC(), scheduleLimit)
 			if err != nil {
@@ -77,7 +110,10 @@ func newTeamOverviewCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team overview as JSON.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team overview until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming team schedules to inspect after ordering; 0 means all.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	return cmd
 }
 
@@ -498,6 +534,36 @@ func (r *overviewResult) addError(section string, err error) {
 		r.SectionErrors = map[string]string{}
 	}
 	r.SectionErrors[section] = err.Error()
+}
+
+func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), jsonOut bool, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		result, err := collect(time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if err := renderOverview(w, result, jsonOut); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func renderOverview(w io.Writer, result *overviewResult, jsonOut bool) error {

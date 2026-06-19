@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -197,6 +198,35 @@ func TestOverviewStateReportsAttentionForFailures(t *testing.T) {
 	}
 	if !stringSliceContains(overview.Actions, "agent-team queue retry --all --dry-run") {
 		t.Fatalf("actions = %+v", overview.Actions)
+	}
+}
+
+func TestOverviewWatchRendersUntilContextDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &bytes.Buffer{}
+	calls := 0
+
+	err := runOverviewWatch(ctx, out, func(now time.Time) (*overviewResult, error) {
+		calls++
+		cancel()
+		return &overviewResult{
+			OK:         true,
+			State:      "ok",
+			CapturedAt: now.UTC().Format(time.RFC3339),
+			Health: overviewHealthSummary{
+				Healthy: true,
+			},
+		}, nil
+	}, false, time.Millisecond, false)
+	if err != nil {
+		t.Fatalf("runOverviewWatch: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+	if !strings.Contains(out.String(), "overview: ok") || !strings.Contains(out.String(), "actions: none") {
+		t.Fatalf("watch output:\n%s", out.String())
 	}
 }
 
