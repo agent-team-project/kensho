@@ -124,6 +124,7 @@ func newTeamDoctorCmd() *cobra.Command {
 		repo    string
 		all     bool
 		jsonOut bool
+		format  string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -133,12 +134,21 @@ func newTeamDoctorCmd() *cobra.Command {
 			"pipeline step targets must be owned by the team, and team schedules should route back to team-owned instances or pipelines.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team doctor: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
 			if all && len(args) > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team doctor: --all cannot be combined with a team argument.")
 				return exitErr(2)
 			}
 			if !all && len(args) != 1 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team doctor: pass a team name or --all.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTeamDoctorFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team doctor: %v\n", err)
 				return exitErr(2)
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
@@ -151,19 +161,20 @@ func newTeamDoctorCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team doctor: %v\n", err)
 					return exitErr(1)
 				}
-				return renderAllTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut)
+				return renderAllTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 			}
 			result, err := collectTeamDoctor(teamDir, args[0])
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team doctor: %v\n", err)
 				return exitErr(1)
 			}
-			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut)
+			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all declared teams.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team doctor findings as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
 }
 
@@ -372,12 +383,21 @@ func teamScheduleRoutes(top *topology.Topology, team *topology.Team, schedule *t
 	return teamRoutes, outsideRoutes
 }
 
-func renderTeamDoctor(stdout, stderr io.Writer, result *teamDoctorResult, jsonOut bool) error {
+func renderTeamDoctor(stdout, stderr io.Writer, result *teamDoctorResult, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &teamDoctorResult{}
 	}
 	if jsonOut {
 		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if tmpl != nil {
+		if err := renderTeamDoctorFormat(stdout, result, tmpl); err != nil {
 			return err
 		}
 		if !result.OK {
@@ -402,12 +422,21 @@ func renderTeamDoctor(stdout, stderr io.Writer, result *teamDoctorResult, jsonOu
 	return exitErr(1)
 }
 
-func renderAllTeamDoctor(stdout, stderr io.Writer, result *allTeamDoctorResult, jsonOut bool) error {
+func renderAllTeamDoctor(stdout, stderr io.Writer, result *allTeamDoctorResult, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &allTeamDoctorResult{OK: true}
 	}
 	if jsonOut {
 		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if tmpl != nil {
+		if err := renderTeamDoctorFormat(stdout, result, tmpl); err != nil {
 			return err
 		}
 		if !result.OK {
@@ -430,6 +459,25 @@ func renderAllTeamDoctor(stdout, stderr io.Writer, result *allTeamDoctorResult, 
 		fmt.Fprintf(stderr, "  warning: %s%s\n", teamDoctorFindingPrefix(warning), warning.Message)
 	}
 	return exitErr(1)
+}
+
+func parseTeamDoctorFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("team-doctor-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderTeamDoctorFormat(w io.Writer, result any, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func teamDoctorFindingPrefix(finding teamDoctorFinding) string {

@@ -606,6 +606,18 @@ func TestTeamDoctorReportsScopedTopologyHealth(t *testing.T) {
 	if !strings.Contains(textOut.String(), "agent-team team doctor: OK (delivery)") {
 		t.Fatalf("team doctor text = %q", textOut.String())
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--format", "{{.Team.Name}} {{.OK}} {{len .Problems}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("team doctor format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := formatOut.String(), "delivery true 0\n"; got != want {
+		t.Fatalf("team doctor format output = %q, want %q", got, want)
+	}
 }
 
 func TestTeamDoctorFindsTopologyLeaks(t *testing.T) {
@@ -694,6 +706,21 @@ schedules = ["nightly"]
 	if !strings.Contains(textErr.String(), `pipeline "ticket_to_pr" step "implement" targets "other"`) || !strings.Contains(textErr.String(), `schedule "nightly" also matches`) {
 		t.Fatalf("team doctor stderr = %q", textErr.String())
 	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--format", "{{.Team.Name}} {{.OK}} {{len .Problems}} {{len .Warnings}}"})
+	if err := format.Execute(); err == nil {
+		t.Fatal("team doctor format unexpectedly succeeded")
+	}
+	if got, want := formatOut.String(), "delivery false 1 1\n"; got != want {
+		t.Fatalf("team doctor failure format output = %q, want %q", got, want)
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("team doctor failure format stderr = %q", formatErr.String())
+	}
 }
 
 func TestTeamDoctorAllValidatesEveryTeam(t *testing.T) {
@@ -771,6 +798,21 @@ pipelines = ["platform"]
 		t.Fatalf("team doctor all text stdout=%q stderr=%q", textOut.String(), textErr.String())
 	}
 
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"team", "doctor", "--all", "--repo", root, "--format", "{{.OK}} {{len .Teams}} {{len .Problems}}"})
+	if err := format.Execute(); err == nil {
+		t.Fatal("team doctor --all format unexpectedly succeeded")
+	}
+	if got, want := formatOut.String(), "false 2 1\n"; got != want {
+		t.Fatalf("team doctor --all format output = %q, want %q", got, want)
+	}
+	if formatErr.Len() != 0 {
+		t.Fatalf("team doctor --all format stderr = %q", formatErr.String())
+	}
+
 	invalid := NewRootCmd()
 	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalid.SetOut(invalidOut)
@@ -781,6 +823,35 @@ pipelines = ["platform"]
 	}
 	if !strings.Contains(invalidErr.String(), "--all cannot be combined") {
 		t.Fatalf("invalid stderr = %q", invalidErr.String())
+	}
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"team", "doctor", "delivery", "--format", "{{.OK}}", "--json", "--repo", root}, "--format cannot be combined"},
+		{[]string{"team", "doctor", "delivery", "--format", "{{", "--repo", root}, "invalid --format template"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
