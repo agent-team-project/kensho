@@ -463,8 +463,11 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 		return false
 	}
 	return out.Queue.Dead == 0 &&
+		out.Queue.Pending <= out.Queue.Delayed &&
 		out.Jobs.Attention == 0 &&
+		out.Jobs.ReadySteps == 0 &&
 		out.Jobs.StatusChanges == 0 &&
+		out.Pipelines.ReadySteps == 0 &&
 		out.Pipelines.BlockedSteps == 0 &&
 		out.Pipelines.FailedSteps == 0 &&
 		out.Schedules.Due == 0
@@ -474,7 +477,14 @@ func overviewState(out *overviewResult) string {
 	if out == nil || out.OK {
 		return "ok"
 	}
-	if len(out.SectionErrors) > 0 || out.Health.Errors > 0 || out.Queue.Dead > 0 || out.Jobs.Attention > 0 || out.Pipelines.FailedSteps > 0 {
+	if len(out.SectionErrors) > 0 ||
+		out.Health.Errors > 0 ||
+		out.Health.Warnings > 0 ||
+		(out.Topology != nil && !out.Topology.OK) ||
+		out.Queue.Dead > 0 ||
+		out.Jobs.Attention > 0 ||
+		out.Pipelines.BlockedSteps > 0 ||
+		out.Pipelines.FailedSteps > 0 {
 		return "attention"
 	}
 	return "active"

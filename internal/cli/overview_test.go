@@ -160,6 +160,46 @@ func TestTeamOverviewTextRendersTeamSummary(t *testing.T) {
 	}
 }
 
+func TestOverviewStateReportsActiveForReadyWork(t *testing.T) {
+	overview := &overviewResult{
+		OK:    true,
+		State: "ok",
+		Queue: queueSummary{
+			Pending: 1,
+			Delayed: 0,
+		},
+	}
+	overview.Actions = overviewActions(overview, nil)
+	overview.OK = overviewOK(overview, nil)
+	overview.State = overviewState(overview)
+
+	if overview.OK || overview.State != "active" {
+		t.Fatalf("overview state = ok:%v state:%q", overview.OK, overview.State)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team queue drain --dry-run") {
+		t.Fatalf("actions = %+v", overview.Actions)
+	}
+}
+
+func TestOverviewStateReportsAttentionForFailures(t *testing.T) {
+	overview := &overviewResult{
+		OK: true,
+		Queue: queueSummary{
+			Dead: 1,
+		},
+	}
+	overview.Actions = overviewActions(overview, nil)
+	overview.OK = overviewOK(overview, nil)
+	overview.State = overviewState(overview)
+
+	if overview.OK || overview.State != "attention" {
+		t.Fatalf("overview state = ok:%v state:%q", overview.OK, overview.State)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team queue retry --all --dry-run") {
+		t.Fatalf("actions = %+v", overview.Actions)
+	}
+}
+
 func writeOverviewAttentionFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
