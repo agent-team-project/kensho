@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
@@ -376,6 +378,172 @@ instances = ["manager"]
 	}
 	if len(rows) != 1 || rows[0].Instance != "manager" {
 		t.Fatalf("watch json rows = %+v", rows)
+	}
+}
+
+func TestTeamHealthJobsAreTeamScoped(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.other]
+agent = "other"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	teamJob := &job.Job{
+		ID:         "squ-901",
+		Ticket:     "SQU-901",
+		Target:     "worker",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastStatus: "tests failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusFailed},
+		},
+	}
+	if err := job.Write(teamDir, teamJob); err != nil {
+		t.Fatalf("write team job: %v", err)
+	}
+	unrelated := &job.Job{
+		ID:         "oth-1",
+		Ticket:     "OTH-1",
+		Target:     "other",
+		Status:     job.StatusFailed,
+		LastStatus: "unrelated failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := job.Write(teamDir, unrelated); err != nil {
+		t.Fatalf("write unrelated job: %v", err)
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:             "q-team-dead",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-901",
+		Payload:        map[string]any{"job_id": "squ-901", "target": "worker", "ticket": "SQU-901"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}); err != nil {
+		t.Fatalf("write team queue item: %v", err)
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:             "q-other-dead",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "other",
+		InstanceID:     "other-oth-1",
+		Payload:        map[string]any{"job_id": "oth-1", "target": "other", "ticket": "OTH-1"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}); err != nil {
+		t.Fatalf("write unrelated queue item: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "health", "delivery", "--repo", root, "--jobs", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("team health unexpectedly succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var snapshot teamHealthSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team health: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Team.Name != "delivery" || snapshot.Health == nil || snapshot.Health.Healthy {
+		t.Fatalf("team health snapshot = %+v", snapshot)
+	}
+	if snapshot.Health.Jobs == nil || snapshot.Health.Jobs.Summary.Total != 1 || snapshot.Health.Jobs.Summary.Failed != 1 {
+		t.Fatalf("team job summary = %+v", snapshot.Health.Jobs)
+	}
+	if snapshot.Health.Queue.Dead != 1 {
+		t.Fatalf("team queue summary = %+v", snapshot.Health.Queue)
+	}
+	if len(snapshot.Health.PipelineStatus) != 1 || snapshot.Health.PipelineStatus[0].Pipeline != "ticket_to_pr" || snapshot.Health.PipelineStatus[0].FailedSteps != 1 {
+		t.Fatalf("pipeline status = %+v", snapshot.Health.PipelineStatus)
+	}
+	for _, issue := range snapshot.Health.Issues {
+		if issue.Job == "oth-1" || strings.Contains(issue.Message, "OTH-1") {
+			t.Fatalf("unrelated issue leaked into team health: %+v", snapshot.Health.Issues)
+		}
+	}
+	codes := map[string]bool{}
+	var sawTeamJob bool
+	for _, issue := range snapshot.Health.Issues {
+		codes[issue.Code] = true
+		if issue.Code == "job_attention" && issue.Job == "squ-901" {
+			sawTeamJob = true
+		}
+	}
+	for _, want := range []string{"daemon_not_running", "queue_dead_letter", "job_attention", "pipeline_failed_step"} {
+		if !codes[want] {
+			t.Fatalf("issues = %+v, missing %s", snapshot.Health.Issues, want)
+		}
+	}
+	if !sawTeamJob {
+		t.Fatalf("issues = %+v, missing team job_attention", snapshot.Health.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "health", "delivery", "--repo", root, "--jobs"})
+	if err := text.Execute(); err == nil {
+		t.Fatal("team health text unexpectedly succeeded")
+	}
+	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "pipeline_failed_step", "queue_dead_letter"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("team health text missing %q:\n%s", want, textOut.String())
+		}
+	}
+	if strings.Contains(textOut.String(), "oth-1") || strings.Contains(textOut.String(), "OTH-1") {
+		t.Fatalf("team health text included unrelated job:\n%s", textOut.String())
+	}
+}
+
+func TestTeamHealthQuietAndJSONConflict(t *testing.T) {
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "health", "delivery", "--quiet", "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("team health --quiet --json succeeded")
+	}
+	if !strings.Contains(stderr.String(), "choose one of --quiet or --json") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

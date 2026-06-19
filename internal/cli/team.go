@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
@@ -30,6 +31,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamPipelinesCmd())
 	cmd.AddCommand(newTeamSchedulesCmd())
+	cmd.AddCommand(newTeamHealthCmd())
 	cmd.AddCommand(newTeamStatusCmd())
 	return cmd
 }
@@ -269,6 +271,50 @@ func newTeamSchedulesCmd() *cobra.Command {
 	return cmd
 }
 
+func newTeamHealthCmd() *cobra.Command {
+	var (
+		repo        string
+		includeJobs bool
+		quiet       bool
+		jsonOut     bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "health <team>",
+		Short: "Check health for one declared team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if quiet && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team health: choose one of --quiet or --json.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			snapshot, err := collectTeamHealth(teamDir, args[0], time.Now().UTC(), includeJobs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team health: %v\n", err)
+				return exitErr(1)
+			}
+			if !quiet {
+				if err := renderTeamHealth(cmd.OutOrStdout(), snapshot, jsonOut); err != nil {
+					return err
+				}
+			}
+			if snapshot.Health != nil && !snapshot.Health.Healthy {
+				return exitErr(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include team-owned job and pipeline health.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team health as JSON.")
+	return cmd
+}
+
 func newTeamStatusCmd() *cobra.Command {
 	var (
 		repo     string
@@ -330,6 +376,11 @@ type teamStatusSnapshot struct {
 	PipelineStatus  []pipelineStatusRow `json:"pipeline_status,omitempty"`
 	Schedules       []scheduleInfo      `json:"schedules,omitempty"`
 	Actions         []string            `json:"actions,omitempty"`
+}
+
+type teamHealthSnapshot struct {
+	Team   teamInfo      `json:"team"`
+	Health *healthResult `json:"health"`
 }
 
 func loadTeamInfos(teamDir string) ([]teamInfo, error) {
@@ -421,6 +472,26 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	return snapshot, nil
 }
 
+func collectTeamHealth(teamDir, name string, now time.Time, includeJobs bool) (*teamHealthSnapshot, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := collectPsRows(teamDir, now)
+	if err != nil {
+		return nil, err
+	}
+	healthRows := teamRuntimeRows(top, team, rows)
+	scoped := teamScopedTopology(top, team)
+	result := buildHealthWithDaemonStatus(collectDaemonStatus(teamDir), healthRows, scoped, now, healthOptions{})
+	if includeJobs {
+		if err := addTeamJobHealth(result, teamDir, top, team, now); err != nil {
+			return nil, err
+		}
+	}
+	return &teamHealthSnapshot{Team: teamInfoFromTopology(team), Health: result}, nil
+}
+
 func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
@@ -431,6 +502,94 @@ func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, erro
 		return nil, err
 	}
 	return teamInstanceRows(top, team, rows), nil
+}
+
+func addTeamJobHealth(result *healthResult, teamDir string, top *topology.Topology, team *topology.Team, now time.Time) error {
+	if result == nil {
+		return nil
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return err
+	}
+	ownedJobs := teamJobs(top, team, jobs)
+	ownedIDs := jobIDSet(ownedJobs)
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return err
+	}
+	teamQueue := queueItemsForJobs(queueItems, ownedJobs)
+	result.Queue = summarizeQueueItems(teamQueue, now.UTC())
+	if result.Queue.Dead > 0 {
+		result.addIssueWithSeverityAndActions(
+			"queue_dead_letter",
+			"error",
+			"",
+			"",
+			"",
+			"",
+			fmt.Sprintf("team %q queue has %d dead-letter item(s)", team.Name, result.Queue.Dead),
+			teamQueueActions(ownedJobs, teamQueue),
+		)
+	}
+	triage, err := collectJobTriage(teamDir, now.UTC(), defaultJobTriageStaleAfter)
+	if err != nil {
+		return err
+	}
+	triage.Summary = summarizeJobs(ownedJobs)
+	triage.Queue = result.Queue
+	triage.Attention = filterJobTriageItemsByJobIDs(triage.Attention, ownedIDs)
+	triage.ReadySteps = filterJobReadyRowsByJobIDs(triage.ReadySteps, ownedIDs)
+	triage.StatusPreviews = filterJobStatusPreviewsByJobIDs(triage.StatusPreviews, ownedIDs)
+	result.Jobs = &triage
+	result.JobStatus = triage.StatusPreviews
+	for _, item := range triage.Attention {
+		result.addJobIssue(item)
+	}
+	for _, preview := range triage.StatusPreviews {
+		if !preview.Changed || preview.After != job.StatusBlocked {
+			continue
+		}
+		message := fmt.Sprintf("job %q status file reports blocked", preview.JobID)
+		if strings.TrimSpace(preview.Message) != "" {
+			message += ": " + strings.TrimSpace(preview.Message)
+		}
+		result.addIssueWithSeverityAndActions("job_status_blocked", "error", preview.Instance, preview.JobID, string(preview.After), preview.Phase, message, []string{
+			fmt.Sprintf("agent-team job unblock %s <answer...>", preview.JobID),
+		})
+	}
+	pipelineStatus, err := collectTeamPipelineStatus(teamDir, team.Name)
+	if err != nil {
+		return err
+	}
+	result.PipelineStatus = pipelineStatus
+	for _, row := range pipelineStatus {
+		if row.FailedSteps > 0 {
+			result.addIssueWithSeverityAndActions(
+				"pipeline_failed_step",
+				"error",
+				"",
+				"",
+				"",
+				"",
+				fmt.Sprintf("pipeline %q has %d failed step(s)", row.Pipeline, row.FailedSteps),
+				row.Actions,
+			)
+		}
+		if row.BlockedSteps > 0 {
+			result.addIssueWithSeverityAndActions(
+				"pipeline_blocked_step",
+				"warning",
+				"",
+				"",
+				"",
+				"",
+				fmt.Sprintf("pipeline %q has %d blocked step(s)", row.Pipeline, row.BlockedSteps),
+				row.Actions,
+			)
+		}
+	}
+	return nil
 }
 
 func collectTeamJobs(teamDir, name string, status job.Status, sortMode string) ([]*job.Job, error) {
@@ -583,6 +742,56 @@ func teamInstanceRows(top *topology.Topology, team *topology.Team, rows []instan
 	return out
 }
 
+func teamRuntimeRows(top *topology.Topology, team *topology.Team, rows []instanceRow) []instanceRow {
+	if team == nil {
+		return nil
+	}
+	instanceNames := stringSliceSet(team.Instances)
+	ephemeralAgents := map[string]bool{}
+	for _, name := range team.Instances {
+		if inst := top.Instances[name]; inst != nil && inst.Ephemeral {
+			ephemeralAgents[inst.Agent] = true
+		}
+	}
+	out := make([]instanceRow, 0, len(rows))
+	for _, row := range rows {
+		if instanceNames[row.Instance] || ephemeralAgents[row.Agent] {
+			out = append(out, row)
+		}
+	}
+	sortPsRows(out, psSortName)
+	return out
+}
+
+func teamScopedTopology(top *topology.Topology, team *topology.Team) *topology.Topology {
+	scoped := &topology.Topology{
+		Instances: map[string]*topology.Instance{},
+		Pipelines: map[string]*topology.Pipeline{},
+		Schedules: map[string]*topology.Schedule{},
+		Teams:     map[string]*topology.Team{},
+	}
+	if top == nil || team == nil {
+		return scoped
+	}
+	for _, name := range team.Instances {
+		if inst := top.Instances[name]; inst != nil {
+			scoped.Instances[name] = inst
+		}
+	}
+	for _, name := range team.Pipelines {
+		if pipeline := top.Pipelines[name]; pipeline != nil {
+			scoped.Pipelines[name] = pipeline
+		}
+	}
+	for _, name := range team.Schedules {
+		if schedule := top.Schedules[name]; schedule != nil {
+			scoped.Schedules[name] = schedule
+		}
+	}
+	scoped.Teams[team.Name] = team
+	return scoped
+}
+
 func declaredTeamInstanceRow(name, agent string) instanceRow {
 	return instanceRow{
 		Instance: name,
@@ -613,6 +822,91 @@ func teamJobs(top *topology.Topology, team *topology.Team, jobs []*job.Job) []*j
 		}
 	}
 	return out
+}
+
+func jobIDSet(jobs []*job.Job) map[string]bool {
+	out := make(map[string]bool, len(jobs))
+	for _, j := range jobs {
+		if j != nil {
+			out[j.ID] = true
+		}
+	}
+	return out
+}
+
+func filterJobTriageItemsByJobIDs(items []jobTriageItem, ids map[string]bool) []jobTriageItem {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]jobTriageItem, 0, len(items))
+	for _, item := range items {
+		if ids[item.JobID] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func filterJobReadyRowsByJobIDs(rows []jobReadyRow, ids map[string]bool) []jobReadyRow {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]jobReadyRow, 0, len(rows))
+	for _, row := range rows {
+		if ids[row.JobID] {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func filterJobStatusPreviewsByJobIDs(previews []jobStatusReconcileResult, ids map[string]bool) []jobStatusReconcileResult {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]jobStatusReconcileResult, 0, len(previews))
+	for _, preview := range previews {
+		if ids[preview.JobID] {
+			out = append(out, preview)
+		}
+	}
+	return out
+}
+
+func queueItemsForJobs(items []*daemon.QueueItem, jobs []*job.Job) []*daemon.QueueItem {
+	if len(items) == 0 || len(jobs) == 0 {
+		return nil
+	}
+	out := make([]*daemon.QueueItem, 0, len(items))
+	for _, item := range items {
+		for _, j := range jobs {
+			if queueItemMatchesJob(item, j) {
+				out = append(out, item)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func teamQueueActions(jobs []*job.Job, items []*daemon.QueueItem) []string {
+	ids := map[string]bool{}
+	for _, item := range items {
+		if item == nil || item.State != daemon.QueueStateDead {
+			continue
+		}
+		for _, j := range jobs {
+			if queueItemMatchesJob(item, j) {
+				ids[j.ID] = true
+			}
+		}
+	}
+	if len(ids) == 1 {
+		for id := range ids {
+			return []string{fmt.Sprintf("agent-team queue retry --all --job %s", id)}
+		}
+	}
+	return []string{"agent-team queue retry --all"}
 }
 
 func teamPipelineStatus(team *topology.Team, rows []pipelineStatusRow) []pipelineStatusRow {
@@ -767,6 +1061,18 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool) e
 	for _, action := range snapshot.Actions {
 		fmt.Fprintf(w, "  %s\n", action)
 	}
+	return nil
+}
+
+func renderTeamHealth(w io.Writer, snapshot *teamHealthSnapshot, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(snapshot)
+	}
+	fmt.Fprintf(w, "Team: %s\n", snapshot.Team.Name)
+	if snapshot.Team.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", snapshot.Team.Description)
+	}
+	renderHealth(w, snapshot.Health)
 	return nil
 }
 
