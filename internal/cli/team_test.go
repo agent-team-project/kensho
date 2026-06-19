@@ -2700,6 +2700,45 @@ instances = ["other"]
 		t.Fatalf("platform queue item changed: %v", err)
 	}
 	stopAndWaitForTest(t, mgr, "worker-idle-delivery")
+
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:         "q-drain-delivery",
+		State:      daemon.QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-drain-delivery",
+		Payload:    map[string]any{"target": "worker", "name": "worker-drain-delivery", "ticket": "SQU-DRAIN"},
+		QueuedAt:   now.Add(-time.Minute),
+		UpdatedAt:  now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("write drain queue item: %v", err)
+	}
+
+	drain := NewRootCmd()
+	drainOut, drainErr := &bytes.Buffer{}, &bytes.Buffer{}
+	drain.SetOut(drainOut)
+	drain.SetErr(drainErr)
+	drain.SetArgs([]string{"team", "drain", "delivery", "--repo", root, "--skip-schedules", "--skip-advance", "--interval", "0s", "--max-cycles", "3", "--json"})
+	if err := drain.Execute(); err != nil {
+		t.Fatalf("team drain: %v\nstderr=%s", err, drainErr.String())
+	}
+	var drainResult teamTickUntilIdleResult
+	if err := json.Unmarshal(drainOut.Bytes(), &drainResult); err != nil {
+		t.Fatalf("decode team drain: %v\nbody=%s", err, drainOut.String())
+	}
+	if drainResult.Team.Name != "delivery" || !drainResult.Idle || drainResult.CyclesRun != 2 || len(drainResult.Cycles) != 2 {
+		t.Fatalf("drain result = %+v", drainResult)
+	}
+	if drainResult.Cycles[0].Tick.Queue == nil || drainResult.Cycles[0].Tick.Queue.Dispatched != 1 {
+		t.Fatalf("first drain cycle queue = %+v", drainResult.Cycles[0].Tick.Queue)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drain-delivery"); !os.IsNotExist(err) {
+		t.Fatalf("drain delivery queue item still exists or unexpected err=%v", err)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-idle-platform"); err != nil {
+		t.Fatalf("platform queue item changed after drain: %v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-drain-delivery")
 }
 
 func TestTeamTickRejectsInvalidLoopFlags(t *testing.T) {
