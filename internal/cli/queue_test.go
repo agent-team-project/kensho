@@ -144,6 +144,52 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	}
 }
 
+func TestQueueShowUsesJobScopedActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	item := &daemon.QueueItem{
+		ID:         "q-job-action",
+		State:      daemon.QueueStateDead,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-91",
+		Payload: map[string]any{
+			"job_id": "squ-91",
+			"target": "worker",
+		},
+		Attempts:  daemon.MaxQueueAttempts,
+		LastError: "spawn failed",
+		QueuedAt:  now,
+		UpdatedAt: now,
+	}
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+
+	show := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(out)
+	show.SetErr(stderr)
+	show.SetArgs([]string{"queue", "show", "q-job-action", "--target", tmp})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("queue show: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"Actions:",
+		"agent-team job queue retry squ-91 q-job-action",
+		"agent-team job queue drop squ-91 q-job-action",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("queue show missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "agent-team queue retry q-job-action") {
+		t.Fatalf("queue show used raw retry action for job-owned item:\n%s", out.String())
+	}
+}
+
 func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

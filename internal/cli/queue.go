@@ -1412,26 +1412,49 @@ func queueItemActions(item *daemon.QueueItem, now time.Time) []string {
 	if item == nil {
 		return nil
 	}
+	jobID := queueItemActionJobID(item)
+	queueCommand := func(verb string) string {
+		if jobID != "" {
+			return fmt.Sprintf("agent-team job queue %s %s %s", verb, jobID, item.ID)
+		}
+		return fmt.Sprintf("agent-team queue %s %s", verb, item.ID)
+	}
 	switch item.State {
 	case daemon.QueueStateDead:
 		return []string{
-			fmt.Sprintf("agent-team queue retry %s", item.ID),
-			fmt.Sprintf("agent-team queue drop %s", item.ID),
+			queueCommand("retry"),
+			queueCommand("drop"),
 		}
 	case daemon.QueueStatePending:
 		if !item.NextRetry.IsZero() && item.NextRetry.After(now.UTC()) {
+			showAction := fmt.Sprintf("agent-team queue show %s", item.ID)
+			if jobID != "" {
+				showAction = fmt.Sprintf("agent-team job queue %s", jobID)
+			}
 			return []string{
-				fmt.Sprintf("agent-team queue show %s", item.ID),
-				fmt.Sprintf("agent-team queue drop %s", item.ID),
+				showAction,
+				queueCommand("drop"),
 			}
 		}
 		return []string{
 			"agent-team queue drain",
-			fmt.Sprintf("agent-team queue drop %s", item.ID),
+			queueCommand("drop"),
 		}
 	default:
 		return nil
 	}
+}
+
+func queueItemActionJobID(item *daemon.QueueItem) string {
+	if item == nil {
+		return ""
+	}
+	for _, key := range []string{"job_id", "job"} {
+		if id := job.NormalizeID(queuePayloadString(item.Payload, key)); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func renderQueueRetryOutcome(w io.Writer, outcome *daemon.EventOutcome) {
