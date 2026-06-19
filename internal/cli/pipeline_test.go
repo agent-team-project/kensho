@@ -103,6 +103,147 @@ func TestPipelineShowMissing(t *testing.T) {
 	}
 }
 
+func TestPipelineDoctorReportsWorkflowHealth(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "doctor", "ticket_to_pr", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline doctor json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result pipelineDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || len(result.Pipelines) != 1 || result.Pipelines[0].Name != "ticket_to_pr" || len(result.Problems) != 0 || len(result.Warnings) != 0 {
+		t.Fatalf("doctor result = %+v", result)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"pipeline", "doctor", "ticket_to_pr", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("pipeline doctor text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "agent-team pipeline doctor: OK (ticket_to_pr)") {
+		t.Fatalf("doctor text = %q", textOut.String())
+	}
+}
+
+func TestPipelineDoctorFindsWorkflowProblems(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.broken]
+trigger.event = "schedule"
+trigger.match.name = "weekly"
+
+[[pipelines.broken.steps]]
+id = "implement"
+target = "worker"
+after = ["review"]
+
+[[pipelines.broken.steps]]
+id = "review"
+target = "ghost"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "doctor", "broken", "--repo", root, "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("pipeline doctor unexpectedly succeeded")
+	}
+	var result pipelineDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline doctor json: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || !hasPipelineDoctorFinding(result.Problems, "dependency_cycle") || !hasPipelineDoctorFinding(result.Problems, "target_has_no_dispatch_route") {
+		t.Fatalf("doctor problems = %+v", result.Problems)
+	}
+	for _, code := range []string{"schedule_trigger_has_no_source", "first_step_has_dependencies"} {
+		if !hasPipelineDoctorFinding(result.Warnings, code) {
+			t.Fatalf("doctor warnings missing %s: %+v", code, result.Warnings)
+		}
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"pipeline", "doctor", "broken", "--repo", root})
+	if err := text.Execute(); err == nil {
+		t.Fatal("pipeline doctor text unexpectedly succeeded")
+	}
+	if textOut.Len() != 0 {
+		t.Fatalf("doctor failure wrote stdout = %q", textOut.String())
+	}
+	for _, want := range []string{"dependency cycle", `targets "ghost"`, "no declared schedule payload matches"} {
+		if !strings.Contains(textErr.String(), want) {
+			t.Fatalf("doctor stderr missing %q:\n%s", want, textErr.String())
+		}
+	}
+}
+
+func TestPipelineDoctorRejectsInvalidArguments(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "doctor", "ticket_to_pr", "--all", "--repo", root})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("pipeline doctor <pipeline> --all succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--all cannot be combined") {
+		t.Fatalf("invalid all stderr = %q", stderr.String())
+	}
+}
+
 func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -842,4 +983,13 @@ func TestPipelineAdvanceAllDryRun(t *testing.T) {
 	if !strings.Contains(invalidErr.String(), "--all cannot be combined") {
 		t.Fatalf("invalid stderr = %q", invalidErr.String())
 	}
+}
+
+func hasPipelineDoctorFinding(findings []pipelineDoctorFinding, code string) bool {
+	for _, finding := range findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }

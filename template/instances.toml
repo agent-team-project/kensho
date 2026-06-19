@@ -17,6 +17,10 @@ description = "User-facing entry point. Coordinates ticket-managers and workers.
 [[instances.manager.triggers]]
 event = "user_invocation"
 
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
 [instances.ticket-manager]
 agent       = "ticket-manager"
 ephemeral   = false

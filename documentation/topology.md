@@ -65,6 +65,10 @@ description = "User-facing entry point. Coordinates ticket-managers and workers.
 event = "user_invocation"
 # match defaults to "any" — no filter
 
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
 [instances.tm-platform]
 agent       = "ticket-manager"
 ephemeral   = false
@@ -356,6 +360,10 @@ ephemeral = false
 
 [[instances.manager.triggers]]
 event = "user_invocation"
+
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
 
 [instances.tm-platform]
 agent     = "ticket-manager"

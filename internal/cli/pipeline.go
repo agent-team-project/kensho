@@ -24,6 +24,7 @@ func newPipelineCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newPipelineLsCmd())
 	cmd.AddCommand(newPipelineShowCmd())
+	cmd.AddCommand(newPipelineDoctorCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
 	cmd.AddCommand(newPipelineStatusCmd())
 	cmd.AddCommand(newPipelineReadyCmd())
@@ -85,6 +86,54 @@ func newPipelineShowCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline as JSON.")
+	return cmd
+}
+
+func newPipelineDoctorCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		jsonOut bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "doctor [<pipeline>|--all]",
+		Short: "Validate pipeline workflow wiring.",
+		Long: "Validate declared pipeline workflow wiring: dependency graphs must be acyclic, " +
+			"step targets should resolve through agent.dispatch topology routes, and schedule-triggered pipelines should have a matching schedule source.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: pipeline name is required.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			result, err := collectPipelineDoctor(teamDir, pipelineName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline doctor: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline doctor findings as JSON.")
 	return cmd
 }
 
@@ -516,6 +565,33 @@ type pipelineAdvanceResult struct {
 	Preview    *jobAdvancePreview `json:"preview,omitempty"`
 }
 
+type pipelineDoctorResult struct {
+	OK        bool                     `json:"ok"`
+	Pipelines []pipelineDoctorPipeline `json:"pipelines"`
+	Problems  []pipelineDoctorFinding  `json:"problems,omitempty"`
+	Warnings  []pipelineDoctorFinding  `json:"warnings,omitempty"`
+}
+
+type pipelineDoctorPipeline struct {
+	Name     string                  `json:"name"`
+	Trigger  map[string]any          `json:"trigger,omitempty"`
+	Steps    int                     `json:"steps"`
+	OK       bool                    `json:"ok"`
+	Problems []pipelineDoctorFinding `json:"problems,omitempty"`
+	Warnings []pipelineDoctorFinding `json:"warnings,omitempty"`
+}
+
+type pipelineDoctorFinding struct {
+	Code         string   `json:"code"`
+	Message      string   `json:"message"`
+	Pipeline     string   `json:"pipeline,omitempty"`
+	Step         string   `json:"step,omitempty"`
+	Target       string   `json:"target,omitempty"`
+	Routes       []string `json:"routes,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
+	Cycle        []string `json:"cycle,omitempty"`
+}
+
 func loadPipelineInfos(teamDir string) ([]pipelineInfo, error) {
 	top, err := topology.LoadFromTeamDir(teamDir)
 	if err != nil {
@@ -544,6 +620,243 @@ func loadPipelineInfo(teamDir, name string) (pipelineInfo, error) {
 		return pipelineInfo{}, fmt.Errorf("pipeline %q not found", name)
 	}
 	return pipelineInfoFromTopology(top.Pipelines[name]), nil
+}
+
+func collectPipelineDoctor(teamDir, pipelineName string) (*pipelineDoctorResult, error) {
+	pipelineName = strings.TrimSpace(pipelineName)
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	result := &pipelineDoctorResult{}
+	if top == nil || len(top.Pipelines) == 0 {
+		if pipelineName != "" {
+			return nil, fmt.Errorf("pipeline %q not found", pipelineName)
+		}
+		result.OK = true
+		result.Warnings = append(result.Warnings, pipelineDoctorFinding{
+			Code:    "no_pipelines",
+			Message: "no pipelines are declared",
+		})
+		return result, nil
+	}
+	pipelines := top.SortedPipelines()
+	if pipelineName != "" {
+		pipeline := top.Pipelines[pipelineName]
+		if pipeline == nil {
+			return nil, fmt.Errorf("pipeline %q not found", pipelineName)
+		}
+		pipelines = []*topology.Pipeline{pipeline}
+	}
+	for _, pipeline := range pipelines {
+		report := doctorPipeline(top, pipeline)
+		result.Pipelines = append(result.Pipelines, report)
+		result.Problems = append(result.Problems, report.Problems...)
+		result.Warnings = append(result.Warnings, report.Warnings...)
+	}
+	result.OK = len(result.Problems) == 0
+	return result, nil
+}
+
+func doctorPipeline(top *topology.Topology, pipeline *topology.Pipeline) pipelineDoctorPipeline {
+	report := pipelineDoctorPipeline{}
+	if pipeline == nil {
+		report.Problems = append(report.Problems, pipelineDoctorFinding{
+			Code:    "pipeline_nil",
+			Message: "pipeline declaration is empty",
+		})
+		return report
+	}
+	report.Name = pipeline.Name
+	report.Trigger = triggerAsMap(pipeline.Trigger)
+	report.Steps = len(pipeline.Steps)
+	if len(pipeline.Steps) == 0 {
+		report.Problems = append(report.Problems, pipelineDoctorFinding{
+			Code:     "pipeline_no_steps",
+			Message:  fmt.Sprintf("pipeline %q has no steps", pipeline.Name),
+			Pipeline: pipeline.Name,
+		})
+		report.OK = false
+		return report
+	}
+	report.Problems = append(report.Problems, pipelineCycleFindings(pipeline)...)
+	routeProblems, routeWarnings := pipelineRouteFindings(top, pipeline)
+	report.Problems = append(report.Problems, routeProblems...)
+	report.Warnings = append(report.Warnings, routeWarnings...)
+	report.Warnings = append(report.Warnings, pipelineScheduleWarnings(top, pipeline)...)
+	report.Warnings = append(report.Warnings, pipelineOrderingWarnings(pipeline)...)
+	report.OK = len(report.Problems) == 0
+	return report
+}
+
+func pipelineRouteFindings(top *topology.Topology, pipeline *topology.Pipeline) ([]pipelineDoctorFinding, []pipelineDoctorFinding) {
+	if top == nil || pipeline == nil {
+		return nil, nil
+	}
+	var problems []pipelineDoctorFinding
+	var warnings []pipelineDoctorFinding
+	for _, step := range pipeline.Steps {
+		if step == nil {
+			continue
+		}
+		target := strings.TrimSpace(step.Target)
+		if target == "" {
+			continue
+		}
+		routes := pipelineDispatchRoutes(top, target)
+		switch len(routes) {
+		case 0:
+			problems = append(problems, pipelineDoctorFinding{
+				Code:     "target_has_no_dispatch_route",
+				Message:  fmt.Sprintf("pipeline %q step %q targets %q, but no agent.dispatch route currently matches that target", pipeline.Name, step.ID, target),
+				Pipeline: pipeline.Name,
+				Step:     step.ID,
+				Target:   target,
+			})
+		case 1:
+		default:
+			warnings = append(warnings, pipelineDoctorFinding{
+				Code:     "target_matches_multiple_routes",
+				Message:  fmt.Sprintf("pipeline %q step %q targets %q, which matches multiple agent.dispatch routes: %s", pipeline.Name, step.ID, target, strings.Join(routes, ",")),
+				Pipeline: pipeline.Name,
+				Step:     step.ID,
+				Target:   target,
+				Routes:   routes,
+			})
+		}
+	}
+	return problems, warnings
+}
+
+func pipelineDispatchRoutes(top *topology.Topology, target string) []string {
+	if top == nil {
+		return nil
+	}
+	payload := map[string]any{"target": target}
+	matches := top.Resolve(topology.EventAgentDispatch, payload)
+	routes := make([]string, 0, len(matches))
+	for _, inst := range matches {
+		if inst == nil {
+			continue
+		}
+		routes = append(routes, inst.Name)
+	}
+	sort.Strings(routes)
+	return routes
+}
+
+func pipelineScheduleWarnings(top *topology.Topology, pipeline *topology.Pipeline) []pipelineDoctorFinding {
+	if top == nil || pipeline == nil || pipeline.Trigger == nil || pipeline.Trigger.Event != topology.EventSchedule {
+		return nil
+	}
+	var matched []string
+	for _, schedule := range top.SortedSchedules() {
+		if schedule == nil {
+			continue
+		}
+		if pipeline.Trigger.Matches(schedule.EventPayload()) {
+			matched = append(matched, schedule.Name)
+		}
+	}
+	if len(matched) > 0 {
+		return nil
+	}
+	return []pipelineDoctorFinding{{
+		Code:     "schedule_trigger_has_no_source",
+		Message:  fmt.Sprintf("pipeline %q is triggered by schedule events, but no declared schedule payload matches it", pipeline.Name),
+		Pipeline: pipeline.Name,
+	}}
+}
+
+func pipelineOrderingWarnings(pipeline *topology.Pipeline) []pipelineDoctorFinding {
+	if pipeline == nil || len(pipeline.Steps) == 0 || len(pipeline.Steps[0].After) == 0 {
+		return nil
+	}
+	step := pipeline.Steps[0]
+	return []pipelineDoctorFinding{{
+		Code:         "first_step_has_dependencies",
+		Message:      fmt.Sprintf("pipeline %q first step %q waits for %s; the stored job target will still default to that first step", pipeline.Name, step.ID, strings.Join(step.After, ",")),
+		Pipeline:     pipeline.Name,
+		Step:         step.ID,
+		Target:       step.Target,
+		Dependencies: append([]string(nil), step.After...),
+	}}
+}
+
+func pipelineCycleFindings(pipeline *topology.Pipeline) []pipelineDoctorFinding {
+	if pipeline == nil {
+		return nil
+	}
+	if cycle := pipelineDependencyCycle(pipeline); len(cycle) > 0 {
+		return []pipelineDoctorFinding{{
+			Code:     "dependency_cycle",
+			Message:  fmt.Sprintf("pipeline %q has a dependency cycle: %s", pipeline.Name, strings.Join(cycle, " -> ")),
+			Pipeline: pipeline.Name,
+			Cycle:    cycle,
+		}}
+	}
+	return nil
+}
+
+func pipelineDependencyCycle(pipeline *topology.Pipeline) []string {
+	deps := map[string][]string{}
+	ordered := make([]string, 0, len(pipeline.Steps))
+	for _, step := range pipeline.Steps {
+		if step == nil {
+			continue
+		}
+		id := strings.TrimSpace(step.ID)
+		if id == "" {
+			continue
+		}
+		ordered = append(ordered, id)
+		deps[id] = append([]string(nil), step.After...)
+	}
+	const (
+		unvisited = 0
+		visiting  = 1
+		visited   = 2
+	)
+	state := map[string]int{}
+	stack := []string{}
+	var visit func(string) []string
+	visit = func(id string) []string {
+		state[id] = visiting
+		stack = append(stack, id)
+		for _, dep := range deps[id] {
+			dep = strings.TrimSpace(dep)
+			if dep == "" {
+				continue
+			}
+			switch state[dep] {
+			case unvisited:
+				if cycle := visit(dep); len(cycle) > 0 {
+					return cycle
+				}
+			case visiting:
+				for i, existing := range stack {
+					if existing == dep {
+						cycle := append([]string(nil), stack[i:]...)
+						cycle = append(cycle, dep)
+						return cycle
+					}
+				}
+				return []string{dep, dep}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		state[id] = visited
+		return nil
+	}
+	for _, id := range ordered {
+		if state[id] != unvisited {
+			continue
+		}
+		if cycle := visit(id); len(cycle) > 0 {
+			return cycle
+		}
+	}
+	return nil
 }
 
 func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
@@ -811,6 +1124,48 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool) error {
 		fmt.Fprintf(w, "  %s target=%s after=%s\n", step.ID, step.Target, after)
 	}
 	return nil
+}
+
+func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult, jsonOut bool) error {
+	if result == nil {
+		result = &pipelineDoctorResult{OK: true}
+	}
+	if jsonOut {
+		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	label := "pipelines"
+	if len(result.Pipelines) == 1 {
+		label = result.Pipelines[0].Name
+	}
+	if result.OK {
+		if len(result.Pipelines) == 1 {
+			fmt.Fprintf(stdout, "agent-team pipeline doctor: OK (%s)\n", label)
+		} else {
+			fmt.Fprintf(stdout, "agent-team pipeline doctor: OK (%d pipelines)\n", len(result.Pipelines))
+		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(stderr, "  warning: %s\n", warning.Message)
+		}
+		return nil
+	}
+	if len(result.Pipelines) == 1 {
+		fmt.Fprintf(stderr, "agent-team pipeline doctor: problems found for %s:\n", label)
+	} else {
+		fmt.Fprintln(stderr, "agent-team pipeline doctor: problems found:")
+	}
+	for _, problem := range result.Problems {
+		fmt.Fprintf(stderr, "  - %s\n", problem.Message)
+	}
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(stderr, "  warning: %s\n", warning.Message)
+	}
+	return exitErr(1)
 }
 
 func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
