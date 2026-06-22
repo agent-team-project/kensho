@@ -217,6 +217,58 @@ func TestEvent_EphemeralDispatchUsesRequestedChildName(t *testing.T) {
 	}
 }
 
+func TestEvent_EphemeralJobExitPreservesMetadataAndCompletesJob(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	j, err := jobstore.New("SQU-96", "worker", "finish quickly", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-96","ticket":"SQU-96","job_id":"squ-96","kickoff":"finish quickly"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	if err := m.WaitForReaper("worker-squ-96", 3*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-96")
+	if err != nil {
+		t.Fatalf("metadata should be preserved after ephemeral exit: %v", err)
+	}
+	if meta.Status != StatusExited || meta.Job != "squ-96" || meta.ExitCode == nil || *meta.ExitCode != 0 {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	updated, err := jobstore.Read(teamDir, "squ-96")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != jobstore.StatusDone || updated.LastEvent != "instance_exited" || updated.Instance != "worker-squ-96" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-96")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != "instance_exited" || events[len(events)-1].Actor != "daemon" {
+		t.Fatalf("events = %+v", events)
+	}
+	running, queued := resolver.QueueDepth("worker")
+	if running != 0 || queued != 0 {
+		t.Fatalf("queue depth running=%d queued=%d, want 0/0", running, queued)
+	}
+}
+
 func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
 	root := t.TempDir()
@@ -539,7 +591,7 @@ match.target = "worker"
 	_ = m.WaitForReaper(id, 5*time.Second)
 }
 
-func TestEvent_EphemeralReapCleansMetadataAndState(t *testing.T) {
+func TestEvent_EphemeralReapPreservesMetadataAndState(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	fake := newFakeSpawner(time.Second)
@@ -580,11 +632,15 @@ func TestEvent_EphemeralReapCleansMetadataAndState(t *testing.T) {
 		t.Fatalf("reaper for %s did not finish", id)
 	}
 
-	if _, err := ReadMetadata(root, id); !os.IsNotExist(err) {
-		t.Fatalf("metadata for %s should be removed, err=%v", id, err)
+	meta, err := ReadMetadata(root, id)
+	if err != nil {
+		t.Fatalf("metadata for %s should be preserved: %v", id, err)
 	}
-	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
-		t.Fatalf("state dir for %s should be removed, err=%v", id, err)
+	if meta.Status != StatusExited {
+		t.Fatalf("metadata status = %q, want %q", meta.Status, StatusExited)
+	}
+	if _, err := os.Stat(stateDir); err != nil {
+		t.Fatalf("state dir for %s should be preserved: %v", id, err)
 	}
 	running, queued := resolver.QueueDepth("worker")
 	if running != 0 || queued != 0 {

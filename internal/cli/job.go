@@ -2071,6 +2071,10 @@ func newJobCleanupCmd() *cobra.Command {
 				renderJobCleanupPreview(cmd.OutOrStdout(), preview)
 				return nil
 			}
+			if err := validateJobCleanupReady(j); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
+				return exitErr(2)
+			}
 			summary, err := cleanupJobOwnedWorktree(repoRoot, j, forceBranch)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
@@ -4083,6 +4087,9 @@ func actionsForJobReadyRow(row jobReadyRow) []string {
 	case "ready":
 		return []string{fmt.Sprintf("agent-team job advance %s", row.JobID)}
 	case "queued":
+		if len(row.WaitingFor) == 0 && strings.TrimSpace(row.Instance) == "" {
+			return []string{fmt.Sprintf("agent-team job advance %s", row.JobID)}
+		}
 		return []string{"agent-team tick"}
 	case "failed":
 		return []string{fmt.Sprintf("agent-team job retry %s --dispatch", row.JobID)}
@@ -5448,6 +5455,19 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	}
 	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s waiting_for=%s\n",
 		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, waiting)
+	return nil
+}
+
+func validateJobCleanupReady(j *job.Job) error {
+	if j == nil {
+		return fmt.Errorf("job is required")
+	}
+	if j.Status != job.StatusDone {
+		return fmt.Errorf("job %q is %s; close or reconcile it as done before cleanup", j.ID, j.Status)
+	}
+	if !jobNeedsCleanup(j) {
+		return fmt.Errorf("job %q has no worktree or branch to clean", j.ID)
+	}
 	return nil
 }
 

@@ -1039,10 +1039,11 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 }
 
 func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
-	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"ready": true})
+	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"ready": true, "queued": true})
 	if err != nil {
 		return nil, err
 	}
+	rows = filterAdvanceablePipelineRows(rows)
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]
 	}
@@ -1109,6 +1110,20 @@ func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace s
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func filterAdvanceablePipelineRows(rows []jobReadyRow) []jobReadyRow {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.State == "ready" {
+			out = append(out, row)
+			continue
+		}
+		if row.State == "queued" && len(row.WaitingFor) == 0 && strings.TrimSpace(row.Instance) == "" {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 func pipelineAdvanceAction(result *jobAdvanceResult) string {

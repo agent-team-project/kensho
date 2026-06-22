@@ -3922,6 +3922,19 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 		t.Fatalf("dry-run removed branch %s", dispatched.Branch)
 	}
 
+	readyForCleanup, err := job.Read(teamDir, "squ-44")
+	if err != nil {
+		t.Fatalf("read job before cleanup: %v", err)
+	}
+	readyForCleanup.Status = job.StatusDone
+	readyForCleanup.PR = "https://github.com/acme/repo/pull/44"
+	readyForCleanup.LastEvent = "pr.merged"
+	readyForCleanup.LastStatus = "pull request merged"
+	readyForCleanup.UpdatedAt = time.Now().UTC()
+	if err := job.Write(teamDir, readyForCleanup); err != nil {
+		t.Fatalf("write job before cleanup: %v", err)
+	}
+
 	cleanupCmd := NewRootCmd()
 	cleanupOut, cleanupErr := &bytes.Buffer{}, &bytes.Buffer{}
 	cleanupCmd.SetOut(cleanupOut)

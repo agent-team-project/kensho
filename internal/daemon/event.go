@@ -1004,7 +1004,9 @@ func (r *EventResolver) onReap(spawned string) {
 		}
 	}
 	r.mu.Unlock()
-	r.cleanupEphemeralSpawn(spawned)
+	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
+		r.reconcileEphemeralJobExit(meta)
+	}
 	if next == nil {
 		return
 	}
@@ -1018,6 +1020,106 @@ func (r *EventResolver) onReap(spawned string) {
 		return
 	}
 	_ = RemoveQueueItem(r.mgr.daemonRoot, next.id)
+}
+
+func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
+	if meta == nil || strings.TrimSpace(r.teamDir) == "" || strings.TrimSpace(meta.Job) == "" {
+		return
+	}
+	switch meta.Status {
+	case StatusExited, StatusCrashed:
+	default:
+		return
+	}
+	j, err := jobstore.Read(r.teamDir, meta.Job)
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	status := jobstore.StatusDone
+	eventType := "instance_exited"
+	message := "instance exited successfully"
+	if meta.Status == StatusCrashed || (meta.ExitCode != nil && *meta.ExitCode != 0) {
+		status = jobstore.StatusFailed
+		eventType = "instance_crashed"
+		message = "instance crashed"
+		if meta.ExitCode != nil {
+			message = fmt.Sprintf("instance exited with code %d", *meta.ExitCode)
+		}
+	}
+	if meta.Instance != "" {
+		j.Instance = meta.Instance
+	}
+	if meta.Ticket != "" {
+		j.Ticket = meta.Ticket
+	}
+	if meta.Branch != "" {
+		j.Branch = meta.Branch
+	}
+	if meta.PR != "" {
+		j.PR = meta.PR
+	}
+	if reconcilePipelineStepExit(j, meta.Instance, status, now) {
+		if status == jobstore.StatusDone && !allPipelineStepsDone(j) {
+			j.Status = jobstore.StatusRunning
+			message = "completed pipeline step"
+		} else {
+			j.Status = status
+		}
+	} else {
+		j.Status = status
+	}
+	j.LastEvent = eventType
+	j.LastStatus = message
+	j.UpdatedAt = now
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return
+	}
+	data := map[string]string{"instance": meta.Instance}
+	if meta.Branch != "" {
+		data["branch"] = meta.Branch
+	}
+	if meta.PR != "" {
+		data["pr"] = meta.PR
+	}
+	if meta.ExitCode != nil {
+		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
+	}
+	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, eventType, "daemon", message, data)
+}
+
+func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore.Status, now time.Time) bool {
+	if j == nil || instance == "" {
+		return false
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Instance != instance {
+			continue
+		}
+		if step.Status != jobstore.StatusRunning && step.Status != jobstore.StatusQueued {
+			continue
+		}
+		step.Status = status
+		if step.StartedAt.IsZero() {
+			step.StartedAt = now
+		}
+		step.FinishedAt = now
+		return true
+	}
+	return false
+}
+
+func allPipelineStepsDone(j *jobstore.Job) bool {
+	if j == nil || len(j.Steps) == 0 {
+		return false
+	}
+	for _, step := range j.Steps {
+		if step.Status != jobstore.StatusDone {
+			return false
+		}
+	}
+	return true
 }
 
 func popReadyQueuedEvent(queue []*queuedEvent, now time.Time, ids map[string]bool) (*queuedEvent, []*queuedEvent) {
@@ -1382,13 +1484,6 @@ func queuedEventFromItem(item *QueueItem) *queuedEvent {
 		lastError:  item.LastError,
 		nextRetry:  item.NextRetry,
 	}
-}
-
-func (r *EventResolver) cleanupEphemeralSpawn(spawned string) {
-	if r.teamDir != "" {
-		_ = os.RemoveAll(filepath.Join(r.teamDir, "state", spawned))
-	}
-	_ = r.mgr.Remove(spawned, true, 0)
 }
 
 // declaredOwnerOf identifies which declared ephemeral instance a unique-named

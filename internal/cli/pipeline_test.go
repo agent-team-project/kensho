@@ -872,6 +872,36 @@ func TestPipelineRunDispatchesFirstStep(t *testing.T) {
 	}
 }
 
+func TestPipelineAdvanceIncludesQueuedReadyFirstStep(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-309", "--repo", root, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, createErr.String())
+	}
+
+	advance := NewRootCmd()
+	advanceOut, advanceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	advance.SetOut(advanceOut)
+	advance.SetErr(advanceErr)
+	advance.SetArgs([]string{"pipeline", "advance", "ticket_to_pr", "--repo", root, "--dry-run", "--json"})
+	if err := advance.Execute(); err != nil {
+		t.Fatalf("pipeline advance dry-run: %v\nstderr=%s", err, advanceErr.String())
+	}
+	var rows []pipelineAdvanceResult
+	if err := json.Unmarshal(advanceOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode advance dry-run json: %v\nbody=%s", err, advanceOut.String())
+	}
+	if len(rows) != 1 || rows[0].JobID != "squ-309" || rows[0].StepID != "implement" || rows[0].StepStatus != job.StatusQueued || rows[0].Action != "would_advance" {
+		t.Fatalf("advance rows = %+v", rows)
+	}
+}
+
 func TestPipelineAdvanceDryRunAndDispatch(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()
