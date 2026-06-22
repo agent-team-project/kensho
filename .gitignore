@@ -10,6 +10,8 @@ __pycache__/
 node_modules/
 dist/
 build/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 .claude/settings.local.json
 

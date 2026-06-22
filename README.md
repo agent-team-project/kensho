@@ -65,6 +65,18 @@ template pull  →  init  →  run  →  upgrade
 
 The full design is in [`documentation/templates.md`](./documentation/templates.md).
 
+## Developer Docs Website
+
+The developer documentation lives in [`docs/`](./docs/) and builds with VitePress:
+
+```sh
+npm install
+npm run docs:dev
+npm run docs:build
+```
+
+The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.
+
 ## Quickstart
 
 ```sh
