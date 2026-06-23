@@ -3621,6 +3621,7 @@ func newTeamMonitorCmd() *cobra.Command {
 		eventSince      string
 		interval        time.Duration
 		statusFilters   []string
+		runtimeFilters  []string
 		agentFilters    []string
 		phaseFilters    []string
 		instanceFilters []string
@@ -3676,7 +3677,7 @@ func newTeamMonitorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team monitor: %v\n", err)
 				return exitErr(2)
 			}
-			opts, err := newMonitorOptionsWithInstancesPhasesStaleAndUnhealthy(all, statusFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
+			opts, err := newMonitorOptionsWithRuntimeInstancesPhasesStaleAndUnhealthy(all, statusFilters, runtimeFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team monitor: %v\n", err)
 				return exitErr(2)
@@ -3766,6 +3767,7 @@ func newTeamMonitorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&eventSince, "since", "", "With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show team-owned lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned instances for this runtime in instance, stats, and plan sections: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show team-owned instances, stats, and plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show team-owned instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show team-owned instances with this name. Can repeat or comma-separate.")
@@ -6146,15 +6148,19 @@ func teamRuntimeRows(top *topology.Topology, team *topology.Team, rows []instanc
 		return nil
 	}
 	instanceNames := stringSliceSet(team.Instances)
-	ephemeralAgents := map[string]bool{}
+	ephemeralOwners := map[string]bool{}
 	for _, name := range team.Instances {
 		if inst := top.Instances[name]; inst != nil && inst.Ephemeral {
-			ephemeralAgents[inst.Agent] = true
+			ephemeralOwners[inst.Name] = true
 		}
 	}
 	out := make([]instanceRow, 0, len(rows))
 	for _, row := range rows {
-		if instanceNames[row.Instance] || ephemeralAgents[row.Agent] {
+		if instanceNames[row.Instance] {
+			out = append(out, row)
+			continue
+		}
+		if owner, ok := declaredEphemeralOwner(top, row.Instance, row.Agent); ok && ephemeralOwners[owner.Name] {
 			out = append(out, row)
 		}
 	}

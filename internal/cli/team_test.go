@@ -3538,6 +3538,14 @@ replicas = 1
 event = "agent.dispatch"
 match.target = "other"
 
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.build-worker.triggers]]
+event = "agent.dispatch"
+match.target = "build-worker"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -3570,7 +3578,7 @@ pipelines = ["ticket_to_pr"]
 schedules = ["delivery_due"]
 
 [teams.platform]
-instances = ["other"]
+instances = ["other", "build-worker"]
 pipelines = ["platform_work"]
 schedules = ["platform_due"]
 `), 0o644); err != nil {
@@ -3876,6 +3884,21 @@ job = "oth-702"
 ticket = "OTH-702"
 branch = "other-oth-702"
 `, now)
+	writeStatus(t, filepath.Join(teamDir, "state", "build-worker-1"), `[status]
+phase = "implementing"
+description = "platform build"
+since = "2026-06-18T12:00:00Z"
+`, now)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-3 * time.Minute)},
+		{Instance: "worker-squ-702", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Minute)},
+		{Instance: "other-oth-702", Agent: "other", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Minute)},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
 	for _, item := range []*daemon.QueueItem{
 		{
 			ID:         "q-delivery-monitor",
@@ -3953,10 +3976,52 @@ branch = "other-oth-702"
 		t.Fatalf("events = %v\nbody=%s", got, out.String())
 	}
 	body := out.String()
-	for _, leak := range []string{"platform_due", "platform_work", "oth-702", "q-platform-monitor", "platform worker"} {
+	for _, leak := range []string{"platform_due", "platform_work", "oth-702", "q-platform-monitor", "platform worker", "build-worker-1"} {
 		if strings.Contains(body, leak) {
 			t.Fatalf("team monitor json leaked %q:\n%s", leak, body)
 		}
+	}
+
+	codex := NewRootCmd()
+	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codex.SetOut(codexOut)
+	codex.SetErr(codexErr)
+	codex.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--runtime", "codex", "--events", "10", "--json"})
+	if err := codex.Execute(); err != nil {
+		t.Fatalf("team monitor runtime: %v\nstderr=%s", err, codexErr.String())
+	}
+	var runtimeSnapshot monitorSnapshot
+	if err := json.Unmarshal(codexOut.Bytes(), &runtimeSnapshot); err != nil {
+		t.Fatalf("decode team monitor runtime: %v\nbody=%s", err, codexOut.String())
+	}
+	if got := psJSONRowNames(runtimeSnapshot.Instances); strings.Join(got, ",") != "worker-squ-702" {
+		t.Fatalf("team monitor runtime instances = %v", got)
+	}
+	if runtimeSnapshot.Instances[0].Runtime != "codex" {
+		t.Fatalf("team monitor runtime instance = %+v", runtimeSnapshot.Instances[0])
+	}
+	if got := statsJSONRowNames(runtimeSnapshot.Stats); strings.Join(got, ",") != "worker-squ-702" {
+		t.Fatalf("team monitor runtime stats = %v", got)
+	}
+	if got := lifecycleEventInstances(runtimeSnapshot.Events); strings.Join(got, ",") != "worker-squ-702" {
+		t.Fatalf("team monitor runtime events = %v\nbody=%s", got, codexOut.String())
+	}
+	for _, leak := range []string{"manager up", "platform worker", "other-oth-702", "build-worker-1"} {
+		if strings.Contains(codexOut.String(), leak) {
+			t.Fatalf("team monitor runtime leaked %q:\n%s", leak, codexOut.String())
+		}
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--runtime", "llama"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team monitor accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
 	}
 
 	text := NewRootCmd()
@@ -5045,6 +5110,14 @@ func instanceRmResultNames(rows []instanceRmResult) []string {
 }
 
 func statsJSONRowNames(rows []statsJSONRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Instance)
+	}
+	return out
+}
+
+func psJSONRowNames(rows []psJSONRow) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.Instance)

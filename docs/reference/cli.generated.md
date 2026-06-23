@@ -4113,6 +4113,7 @@ Flags:
       --phase strings          Only show team-owned instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   Include team-scoped desired-state actions from instances.toml and daemon metadata.
       --repo string            Repo root. (default "<repo>")
+      --runtime strings        Only show team-owned instances for this runtime in instance, stats, and plan sections: claude or codex. Can repeat or comma-separate.
       --schedules              Include due and upcoming team schedules.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --sort string            Sort instance rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited. (default "name")
