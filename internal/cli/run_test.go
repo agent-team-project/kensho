@@ -29,6 +29,7 @@ import (
 // cleans up via defer, so the recorder snapshots filesystem state synchronously
 // while the dir is still alive.
 type runCapture struct {
+	bin         string
 	args        []string
 	env         []string
 	cwd         string
@@ -42,6 +43,7 @@ type runCapture struct {
 }
 
 type runtimeCapture struct {
+	bin         string
 	args        []string
 	env         []string
 	cwd         string
@@ -56,7 +58,8 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 	t.Helper()
 	cap := &runCapture{rc: rc}
 	prev := execClaude
-	execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string) error {
+	execClaude = func(cmd *cobra.Command, bin string, args []string, env []string, cwd, stdin string) error {
+		cap.bin = bin
 		cap.args = args
 		cap.env = env
 		cap.cwd = cwd
@@ -87,7 +90,8 @@ func captureRuntime(t *testing.T, rc error) (*runtimeCapture, func()) {
 	t.Helper()
 	cap := &runtimeCapture{rc: rc}
 	prev := execRuntime
-	execRuntime = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
+	execRuntime = func(cmd *cobra.Command, bin string, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
+		cap.bin = bin
 		cap.args = args
 		cap.env = env
 		cap.cwd = cwd
@@ -426,6 +430,43 @@ func TestRun_CodexLastMessagePrintsCleanSidecar(t *testing.T) {
 	}
 }
 
+func TestRun_CodexLastMessageCanUseRuntimeFlag(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	t.Setenv(runtimebin.EnvBinary, "claude-env-wrapper")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRuntime(t, nil)
+	defer restore()
+	cap.lastMessage = "clean flag-selected codex answer\n"
+
+	cmd := NewRootCmd()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"run", "manager",
+		"--target", tmp,
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--prompt", "codex task",
+		"--last-message",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run last-message with runtime flag: %v\nstderr: %s", err, stderr.String())
+	}
+	if got := stdout.String(); got != "clean flag-selected codex answer\n" {
+		t.Fatalf("stdout = %q, want clean sidecar only", got)
+	}
+	if cap.bin != "codex-dev" {
+		t.Fatalf("runtime binary = %q, want explicit codex-dev", cap.bin)
+	}
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Fatalf("codex args = %v, want exec", cap.args)
+	}
+}
+
 func TestRun_CodexLastMessageReplaysRawOutputOnFailure(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
 	tmp := t.TempDir()
@@ -489,7 +530,7 @@ func TestRun_CodexRuntimeCanComeFromRepoConfig(t *testing.T) {
 	t.Setenv(runtimebin.EnvBinary, "")
 	tmp := t.TempDir()
 	initInto(t, tmp)
-	appendRuntimeConfigForRunTest(t, tmp, "codex", "")
+	appendRuntimeConfigForRunTest(t, tmp, "codex", "codex-wrapper")
 
 	cap, restore := captureRun(t, nil)
 	defer restore()
@@ -504,8 +545,88 @@ func TestRun_CodexRuntimeCanComeFromRepoConfig(t *testing.T) {
 	if len(cap.args) == 0 || cap.args[0] != "exec" {
 		t.Fatalf("codex args = %v, want exec subcommand from repo config", cap.args)
 	}
+	if cap.bin != "codex-wrapper" {
+		t.Fatalf("runtime binary = %q, want repo-configured codex-wrapper", cap.bin)
+	}
 	if containsString(cap.args, "--agents") || containsString(cap.args, "--append-system-prompt-file") {
 		t.Fatalf("config-backed codex args include Claude flags: %v", cap.args)
+	}
+}
+
+func TestRun_RuntimeFlagOverridesEnvRuntimeAndBinary(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "bad-env-runtime")
+	t.Setenv(runtimebin.EnvBinary, "claude-env-wrapper")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--runtime", "codex", "--prompt", "codex task", "--no-daemon"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cap.bin != "codex" {
+		t.Fatalf("runtime binary = %q, want codex default instead of env binary", cap.bin)
+	}
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Fatalf("codex args = %v, want exec subcommand from runtime flag", cap.args)
+	}
+}
+
+func TestRun_RuntimeBinFlagOverridesSelectedRuntimeBinary(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	t.Setenv(runtimebin.EnvBinary, "claude-env-wrapper")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"run", "manager",
+		"--target", tmp,
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--prompt", "codex task",
+		"--no-daemon",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cap.bin != "codex-dev" {
+		t.Fatalf("runtime binary = %q, want explicit codex-dev", cap.bin)
+	}
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Fatalf("codex args = %v, want exec subcommand from runtime flag", cap.args)
+	}
+}
+
+func TestRun_InvalidRuntimeFlagExitsTwo(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--runtime", "bad-runtime", "--prompt", "hello", "--no-daemon"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected invalid runtime flag to fail")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), `--runtime must be "claude" or "codex"`) {
+		t.Fatalf("stderr = %q, want runtime flag validation", stderr.String())
 	}
 }
 

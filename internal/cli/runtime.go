@@ -19,9 +19,11 @@ var runtimeLookPath = exec.LookPath
 
 func newRuntimeCmd() *cobra.Command {
 	var (
-		target  string
-		jsonOut bool
-		format  string
+		target        string
+		jsonOut       bool
+		format        string
+		runtimeKind   string
+		runtimeBinary string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -40,7 +42,10 @@ func newRuntimeCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime: %v\n", err)
 				return exitErr(2)
 			}
-			info, err := collectRuntimeInfoForTarget(effectiveRepoTarget(cmd, target))
+			info, err := collectRuntimeInfoForTargetWithSelection(effectiveRepoTarget(cmd, target), runtimeSelection{
+				Kind:   runtimeKind,
+				Binary: runtimeBinary,
+			})
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime: %v\n", err)
 				return exitErr(2)
@@ -65,6 +70,8 @@ func newRuntimeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to inspect for this invocation. Overrides env and repo config.")
 	return cmd
 }
 
@@ -85,12 +92,46 @@ type runtimeInfo struct {
 	Notes          []string `json:"notes,omitempty"`
 }
 
+type runtimeSelection struct {
+	Kind   string
+	Binary string
+}
+
+func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelection) (runtimebin.Runtime, error) {
+	if kindRaw := strings.TrimSpace(selection.Kind); kindRaw != "" {
+		kind, err := runtimebin.ParseKind(kindRaw)
+		if err != nil {
+			return runtimebin.Runtime{}, fmt.Errorf("--runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
+		}
+		rt := runtimebin.Runtime{Kind: kind, Binary: runtimebin.DefaultBinaryForKind(kind)}
+		if bin := strings.TrimSpace(selection.Binary); bin != "" {
+			rt.Binary = bin
+		}
+		return rt, nil
+	}
+	rt, err := runtimebin.CurrentFromConfig(configPath)
+	if err != nil {
+		return runtimebin.Runtime{}, err
+	}
+	if bin := strings.TrimSpace(selection.Binary); bin != "" {
+		rt.Binary = bin
+	}
+	if strings.TrimSpace(rt.Binary) == "" {
+		rt.Binary = runtimebin.DefaultBinaryForKind(rt.Kind)
+	}
+	return rt, nil
+}
+
 func collectRuntimeInfo() (runtimeInfo, error) {
 	return collectRuntimeInfoForConfig("")
 }
 
 func collectRuntimeInfoForTarget(target string) (runtimeInfo, error) {
 	return collectRuntimeInfoForConfig(runtimeConfigPathForTarget(target))
+}
+
+func collectRuntimeInfoForTargetWithSelection(target string, selection runtimeSelection) (runtimeInfo, error) {
+	return collectRuntimeInfoForConfigWithSelection(runtimeConfigPathForTarget(target), selection)
 }
 
 func collectRuntimeInfoForTeam(teamDir string) (runtimeInfo, error) {
@@ -101,7 +142,11 @@ func collectRuntimeInfoForTeam(teamDir string) (runtimeInfo, error) {
 }
 
 func collectRuntimeInfoForConfig(configPath string) (runtimeInfo, error) {
-	rt, err := runtimebin.CurrentFromConfig(configPath)
+	return collectRuntimeInfoForConfigWithSelection(configPath, runtimeSelection{})
+}
+
+func collectRuntimeInfoForConfigWithSelection(configPath string, selection runtimeSelection) (runtimeInfo, error) {
+	rt, err := runtimeFromConfigWithOverrides(configPath, selection)
 	if err != nil {
 		return runtimeInfo{}, err
 	}

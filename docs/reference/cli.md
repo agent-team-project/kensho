@@ -33,13 +33,13 @@ as the output directory instead.
 | `agent-team daemon stop` | Stop daemon |
 | `agent-team daemon restart` | Restart daemon |
 | `agent-team daemon reconcile` | Refresh metadata from process table |
-| `agent-team runtime` | Show selected LLM runtime profile |
+| `agent-team runtime` | Show selected LLM runtime profile; use `--runtime` / `--runtime-bin` to preview one-off overrides |
 
 ## Instance Lifecycle
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach` |
+| `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach`; use `--runtime` for one-off Claude/Codex selection |
 | `agent-team start [instances...]` | Start/resume persistent or selected instances |
 | `agent-team stop [instances...]` | Stop selected instances |
 | `agent-team kill [instances...]` | Force-stop selected instances |

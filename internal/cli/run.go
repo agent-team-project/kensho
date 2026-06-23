@@ -40,6 +40,8 @@ type runConfig struct {
 	jsonOut        bool
 	format         string
 	lastMessage    bool
+	runtimeKind    string
+	runtimeBinary  string
 }
 
 func newRunCmd() *cobra.Command {
@@ -75,6 +77,8 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.jsonOut, "json", false, "Emit daemon dispatch metadata as JSON. Requires --prompt or --detach.")
 	cmd.Flags().StringVar(&cfg.format, "format", "", "Render daemon dispatch metadata with a Go template, e.g. '{{.Instance}} {{.PID}}'. Requires --prompt or --detach.")
 	cmd.Flags().BoolVar(&cfg.lastMessage, "last-message", false, "With Codex --prompt runs, bypass the daemon and print only the clean final response sidecar.")
+	cmd.Flags().StringVar(&cfg.runtimeKind, "runtime", "", "Runtime profile for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&cfg.runtimeBinary, "runtime-bin", "", "Runtime binary for this invocation. Overrides env and repo config.")
 	return cmd
 }
 
@@ -170,7 +174,10 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %s not found — run `agent-team init` first.\n", teamDir)
 		return exitErr(2)
 	}
-	rt, err := runtimebin.CurrentFromConfig(filepath.Join(teamDir, "config.toml"))
+	rt, err := runtimeFromConfigWithOverrides(filepath.Join(teamDir, "config.toml"), runtimeSelection{
+		Kind:   cfg.runtimeKind,
+		Binary: cfg.runtimeBinary,
+	})
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
@@ -391,9 +398,9 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	}
 
 	if cfg.lastMessage {
-		return execRuntimeAndPrintLastMessage(cmd, runtimeArgs, env, target, runtimeStdin, lastMessagePath)
+		return execRuntimeAndPrintLastMessage(cmd, rt.Binary, runtimeArgs, env, target, runtimeStdin, lastMessagePath)
 	}
-	return execClaude(cmd, runtimeArgs, env, target, runtimeStdin)
+	return execClaude(cmd, rt.Binary, runtimeArgs, env, target, runtimeStdin)
 }
 
 func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string) ([]string, string, error) {
@@ -500,9 +507,9 @@ func printRunDispatchLine(w fmtWriter, disp *dispatchResponse) {
 		disp.InstanceID, runtime, disp.PID)
 }
 
-func execRuntimeAndPrintLastMessage(cmd *cobra.Command, args []string, env []string, cwd, stdin, lastMessagePath string) error {
+func execRuntimeAndPrintLastMessage(cmd *cobra.Command, bin string, args []string, env []string, cwd, stdin, lastMessagePath string) error {
 	var stdout, stderr bytes.Buffer
-	err := execRuntime(cmd, args, env, cwd, stdin, &stdout, &stderr)
+	err := execRuntime(cmd, bin, args, env, cwd, stdin, &stdout, &stderr)
 	if err != nil {
 		_, _ = stdout.WriteTo(cmd.OutOrStdout())
 		_, _ = stderr.WriteTo(cmd.ErrOrStderr())
@@ -520,14 +527,14 @@ func execRuntimeAndPrintLastMessage(cmd *cobra.Command, args []string, env []str
 }
 
 // execClaude is split out so tests can intercept the exec.
-var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string) error {
-	return execRuntime(cmd, args, env, cwd, stdin, cmd.OutOrStdout(), cmd.ErrOrStderr())
+var execClaude = func(cmd *cobra.Command, bin string, args []string, env []string, cwd, stdin string) error {
+	return execRuntime(cmd, bin, args, env, cwd, stdin, cmd.OutOrStdout(), cmd.ErrOrStderr())
 }
 
-var execRuntime = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
-	bin, err := runtimebin.Binary()
-	if err != nil {
-		fmt.Fprintf(stderr, "agent-team: %v\n", err)
+var execRuntime = func(cmd *cobra.Command, bin string, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
+	bin = strings.TrimSpace(bin)
+	if bin == "" {
+		fmt.Fprintln(stderr, "agent-team: runtime binary is empty.")
 		return exitErr(2)
 	}
 	c := exec.Command(bin, args...)

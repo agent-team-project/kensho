@@ -3318,6 +3318,8 @@ Flags:
       --no-daemon                Bypass the daemon: exec the runtime directly even if the daemon is running. Useful for debugging.
   -p, --prompt string            Kickoff message. With this, the runtime runs in one-shot mode when supported; without, interactive.
       --ready-timeout duration   Maximum time to wait for daemon readiness with --detach or --attach (0 = no timeout). (default 3s)
+      --runtime string           Runtime profile for this invocation (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for this invocation. Overrides env and repo config.
       --set stringArray          Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --target string            Repo root. (default "<repo>")
@@ -3342,9 +3344,11 @@ agent-team runtime [flags]
 Flags:
 
 ```text
-      --format string   Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
-      --json            Emit machine-readable JSON.
-      --target string   Repo root or any path under a repo. (default "<repo>")
+      --format string        Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
+      --json                 Emit machine-readable JSON.
+      --runtime string       Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary to inspect for this invocation. Overrides env and repo config.
+      --target string        Repo root or any path under a repo. (default "<repo>")
 ```
 
 Inherited Flags:

@@ -10,6 +10,7 @@ Use this page when choosing a runtime, configuring `.agent_team/config.toml`, or
 agent-team runtime
 agent-team runtime --json
 agent-team runtime --format '{{.Runtime}} {{.Available}} {{.DirectResume}} {{.ManagedResume}} {{.Subagents}}'
+agent-team runtime --runtime codex --runtime-bin /opt/bin/codex-wrapper
 ```
 
 The command reports:
@@ -25,15 +26,18 @@ The command reports:
 
 Runtime selection is deterministic:
 
-1. `AGENT_TEAM_RUNTIME`
-2. `.agent_team/config.toml` `[runtime].kind`
-3. built-in default, `claude`
+1. `--runtime` on commands that inspect or launch a runtime
+2. `AGENT_TEAM_RUNTIME`
+3. `.agent_team/config.toml` `[runtime].kind`
+4. built-in default, `claude`
 
 Binary selection is:
 
-1. `AGENT_TEAM_RUNTIME_BIN`
-2. `.agent_team/config.toml` `[runtime].binary` or `[runtime].bin`, but only when `AGENT_TEAM_RUNTIME` is not set
-3. built-in default for the selected runtime
+1. `--runtime-bin` on commands that inspect or launch a runtime
+2. when `--runtime` is set without `--runtime-bin`, the built-in default for that runtime
+3. `AGENT_TEAM_RUNTIME_BIN`
+4. `.agent_team/config.toml` `[runtime].binary` or `[runtime].bin`, but only when `AGENT_TEAM_RUNTIME` is not set
+5. built-in default for the selected runtime
 
 Example repo default:
 
@@ -48,6 +52,14 @@ One-off shell override:
 ```sh
 AGENT_TEAM_RUNTIME=codex agent-team runtime
 AGENT_TEAM_RUNTIME=codex AGENT_TEAM_RUNTIME_BIN=/opt/bin/codex-wrapper agent-team run worker --prompt "check status"
+```
+
+One-off command override:
+
+```sh
+agent-team runtime --runtime codex
+agent-team run worker --runtime codex --prompt "check status" --last-message
+agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --prompt "check status" --detach
 ```
 
 ## Capability Matrix
@@ -152,7 +164,7 @@ Use jobs, queue, and pipeline commands for orchestration around Codex runs inste
 | Symptom | Likely cause | First check |
 | --- | --- | --- |
 | `available: no` | Runtime binary is not in `PATH` | `agent-team runtime`, then `which codex` or `which claude` |
-| Config binary ignored | `AGENT_TEAM_RUNTIME` is set, so config binary is skipped | Set `AGENT_TEAM_RUNTIME_BIN` too, or unset `AGENT_TEAM_RUNTIME` |
+| Config binary ignored | `--runtime`, `AGENT_TEAM_RUNTIME`, or `AGENT_TEAM_RUNTIME_BIN` is taking precedence | Check `agent-team runtime --json`, then unset the env override or pass `--runtime-bin` |
 | `codex daemon dispatch requires --prompt` | Codex daemon runs need an explicit one-shot task | Add `--prompt "..."` |
 | `runtime "codex" does not support managed resume` | Stopped Codex metadata cannot be resumed | Re-run with a fresh `--prompt`, or remove stale metadata after inspection |
 | Tool scripts cannot find state | Missing `AGENT_TEAM_*` environment in runtime shell | Check `agent-team runtime` and inspect the daemon child log |

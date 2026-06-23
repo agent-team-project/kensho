@@ -175,6 +175,63 @@ func TestRuntimeCommand_RepoConfigCodexJSON(t *testing.T) {
 	}
 }
 
+func TestRuntimeCommand_RuntimeFlagOverridesEnvRuntimeAndBinary(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "bad-env-runtime")
+	t.Setenv(runtimebin.EnvBinary, "claude-env-wrapper")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/usr/local/bin/codex", nil
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--runtime", "codex", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime --runtime codex failed: %v\nstderr: %s", err, errOut.String())
+	}
+	var info runtimeInfo
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if info.Runtime != "codex" || info.Binary != "codex" {
+		t.Fatalf("info = %+v, want codex default binary from runtime flag", info)
+	}
+}
+
+func TestRuntimeCommand_RuntimeBinFlagOverridesSelectedRuntimeBinary(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	appendRuntimeConfigForRuntimeTest(t, tmp, "codex", "codex-wrapper")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex-dev" {
+			t.Fatalf("look path bin = %q, want codex-dev", bin)
+		}
+		return "/usr/local/bin/codex-dev", nil
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "--target", tmp, "--runtime-bin", "codex-dev", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime --runtime-bin failed: %v\nstderr: %s", err, errOut.String())
+	}
+	var info runtimeInfo
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if info.Runtime != "codex" || info.Binary != "codex-dev" {
+		t.Fatalf("info = %+v, want config kind with explicit binary", info)
+	}
+}
+
 func TestRuntimeCommand_RepoFlagOverridesTarget(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -257,5 +314,26 @@ func TestRuntimeCommand_InvalidRuntimeExitsTwo(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), runtimebin.EnvRuntime+" must be") {
 		t.Fatalf("stderr = %q, want invalid runtime error", errOut.String())
+	}
+}
+
+func TestRuntimeCommand_InvalidRuntimeFlagExitsTwo(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--runtime", "bad-runtime"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime succeeded with invalid flag, want exit 2")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(errOut.String(), `--runtime must be "claude" or "codex"`) {
+		t.Fatalf("stderr = %q, want invalid runtime flag error", errOut.String())
 	}
 }

@@ -206,7 +206,7 @@ agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --la
                                                 # check daemon, declarations, crashes, stale status, queue dead letters/quarantine, job health, and optional topology drift
 agent-team monitor [-w] [--no-clear] [-a] [--summary [--resources]] [--plan [--stop-extras] [--action start]] [--jobs] [--schedules] [--latest | --last N] [--events N [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
                                                 # combined health, instance, resource, event-history, and job-status snapshot; uses local metadata if the daemon is down
-agent-team runtime [--format '{{.Runtime}} {{.Available}}'] [--json]
+agent-team runtime [--runtime claude|codex] [--runtime-bin <path>] [--format '{{.Runtime}} {{.Available}}'] [--json]
                                                 # inspect selected LLM runtime profile, binary path, and supported capabilities
 agent-team docs cli [--output docs/reference/cli.generated.md | --check docs/reference/cli.generated.md]
                                                 # generate or check markdown CLI reference from the live command tree
@@ -271,7 +271,7 @@ agent-team channel rm <name> -f                 # delete a channel and its durab
 agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
                                                 # remove instance state and daemon metadata, using persisted metadata if the daemon is down
 agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished persisted daemon metadata and state
-agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
+agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <path>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--format '{{.Differs}}'] [--json]
                                                 # compare or apply clean three-way template changes; --dry-run previews apply actions
@@ -329,7 +329,7 @@ claude --agents '<json>' --add-dir <tmpdir> --append-system-prompt-file <kickoff
 
 With `--detach`, with `--attach`, or with `--prompt` when the daemon is already running, the CLI sends that same resolved argv/env to `agent-teamd`. `--detach` returns a log-follow hint, while `--attach` follows the daemon-captured log immediately.
 
-Runtime selection is repo-configurable and environment-overridable. Put this in `.agent_team/config.toml` to set a repo default:
+Runtime selection is repo-configurable, environment-overridable, and command-overridable. Put this in `.agent_team/config.toml` to set a repo default:
 
 ```toml
 [runtime]
@@ -345,7 +345,15 @@ status_stale_after = "10m"
 job_stale_after = "24h"
 ```
 
-Environment variables take precedence:
+Precedence is `--runtime` / `--runtime-bin`, then environment, then repo config, then built-in defaults. Use command flags for one-off launches or to inspect what a short-lived override would do:
+
+```sh
+agent-team runtime --runtime codex
+agent-team run worker --runtime codex --prompt "summarize the queued jobs" --last-message
+agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --prompt "check status" --detach
+```
+
+Environment variables are useful for a whole shell:
 
 - `AGENT_TEAM_RUNTIME=claude` (default) enables the full daemon, resume, subagent registry, and queue/event dispatch path.
 - `AGENT_TEAM_RUNTIME=codex` launches Codex sessions with `codex` or `codex exec`. The chosen agent prompt and task are passed as the initial Codex prompt, and team agents are listed as coordination context. One-shot Codex runs stream that prompt through `codex exec -` stdin so large agent prompts do not live in argv. Direct interactive runs work without the daemon; one-shot runs with `--prompt` can also use `--detach`, `--attach`, `--json`, or `--format` for daemon-managed logs and process metadata. Add `--last-message` to a Codex `run --prompt` invocation to bypass the daemon, wait for completion, suppress Codex diagnostics on success, and print only the clean final response. Codex `exec` runs capture `.agent_team/state/<instance>/last-message.txt`, so `agent-team logs <instance> --last-message` can show the same clean response for daemon-managed runs. The adapter sets Codex shell-environment policy entries for `AGENT_TEAM_*` variables so bundled status, inbox, and channel scripts can find the repo team root and instance state without broadly inheriting the parent process environment. Codex supports direct CLI resume outside `agent-team`, but Codex-managed daemon runs do not support `start`/managed resume, interactive daemon `attach`, or native subagent registration because Codex does not expose the same `--agents` / instance-scoped `--session-id` contract; `plan`, `sync`, and `attach` reject unsupported resume paths instead of stopping a child they cannot resume.
