@@ -34,6 +34,9 @@ jobs:
       - name: Validate agent & skill frontmatter
         run: python3 scripts/ci/validate_frontmatter.py
 
+      - name: Validate bundled template tree
+        run: python3 scripts/ci/validate_template_tree.py
+
       - name: go vet
         run: go vet ./...
 

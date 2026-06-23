@@ -40,6 +40,22 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/skills/status/scripts/_status_write.py",
 ]
 
+FORBIDDEN_ARTIFACT_DIRS = {
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+}
+FORBIDDEN_ARTIFACT_FILES = {
+    ".DS_Store",
+    "Thumbs.db",
+}
+FORBIDDEN_ARTIFACT_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
+
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
@@ -63,6 +79,8 @@ def main(argv: list[str]) -> int:
         for rel in EXPECTED_AFTER_INIT:
             if not (target / rel).exists():
                 problems.append(f"missing after init: {rel}")
+        for rel in generated_artifacts(target / ".agent_team"):
+            problems.append(f"generated/cache artifact leaked into .agent_team/: {rel}")
 
         # The init-time template manifest must NOT leak into the consumer tree.
         if (target / ".agent_team" / "template.toml").exists():
@@ -3377,6 +3395,19 @@ def run(cmd: list[str], env: dict[str, str] | None = None) -> None:
         print(r.stdout, file=sys.stderr)
         print(r.stderr, file=sys.stderr)
         sys.exit(1)
+
+
+def generated_artifacts(root: Path) -> list[str]:
+    found: list[str] = []
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        if any(part in FORBIDDEN_ARTIFACT_DIRS for part in rel.parts):
+            found.append(str(rel))
+        elif path.name in FORBIDDEN_ARTIFACT_FILES:
+            found.append(str(rel))
+        elif path.suffix in FORBIDDEN_ARTIFACT_SUFFIXES:
+            found.append(str(rel))
+    return found
 
 
 def wait_for_file_contains(path: Path, needle: str, timeout: float) -> bool:
