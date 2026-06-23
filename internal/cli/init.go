@@ -542,7 +542,7 @@ func printNextSteps(out fmtWriter, teamDir string) {
 	fmt.Fprintln(out, "Done. Next steps:")
 	fmt.Fprintf(out, "  1. Review %s/config.toml.\n", teamDir)
 	fmt.Fprintln(out, "  2. Add or edit agents under .agent_team/agents/<name>/ — each is a dir with agent.md, config.toml, optional skills/.")
-	fmt.Fprintln(out, "  3. Run `agent-team run` to launch Claude Code with your team registered.")
+	fmt.Fprintln(out, "  3. Run `agent-team run` to launch the selected runtime with your team registered.")
 	fmt.Fprintln(out, "  4. Run `agent-team doctor` to verify the layout is well-formed.")
 }
 

@@ -60,7 +60,7 @@ template pull  →  init  →  run  →  upgrade
 
 1. **(Optional) `template pull`** — fetch a template into the local cache. Skip this for the bundled default.
 2. **`init`** — instantiate a template into the current repo. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
-3. **`run`** — launch a Claude Code session as one of the agents.
+3. **`run`** — launch the selected runtime as one of the agents.
 4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref today; full three-way upgrade/apply is future work.
 
 The full design is in [`documentation/templates.md`](./documentation/templates.md).
@@ -113,7 +113,7 @@ Edit anything you like, then:
 agent-team run manager     # or any other agent name from .agent_team/agents/
 ```
 
-…and you're in a Claude Code session as that agent, with the rest of the team available as subagents it can dispatch.
+…and you're in a runtime session as that agent. With the default Claude-compatible runtime, the rest of the team is registered as subagents it can dispatch.
 
 ## One-shot run
 

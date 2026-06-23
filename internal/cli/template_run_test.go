@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 // runsRootEnv repoints runsRootDir() at a tempdir so auto-created run dirs
@@ -99,6 +101,84 @@ func TestTemplateRun_TempdirRemovedOnExit(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("expected runs root empty after exit, found: %v", names)
+	}
+}
+
+func TestTemplateRun_CodexAutoTempdirAddsSkipGitRepoCheck(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	runsRootEnv(t)
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"template", "run", "bundled", "manager",
+		"--prompt", "codex template run",
+		"--set", "linear.team_id=tt-team",
+		"--set", "linear.ticket_prefix=TT",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template run: %v", err)
+	}
+	if !containsString(cap.args, "--skip-git-repo-check") {
+		t.Fatalf("codex template run args missing --skip-git-repo-check: %v", cap.args)
+	}
+}
+
+func TestTemplateRun_CodexAutoTempdirDoesNotDuplicateSkipGitRepoCheck(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	runsRootEnv(t)
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"template", "run", "bundled", "manager",
+		"--prompt", "codex template run",
+		"--set", "linear.team_id=tt-team",
+		"--set", "linear.ticket_prefix=TT",
+		"--",
+		"--skip-git-repo-check",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template run: %v", err)
+	}
+	count := 0
+	for _, arg := range cap.args {
+		if arg == "--skip-git-repo-check" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("codex template run args include %d skip flags, want one: %v", count, cap.args)
+	}
+}
+
+func TestTemplateRun_CodexExplicitTargetDoesNotAddSkipGitRepoCheck(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	target := t.TempDir()
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"template", "run", "bundled", "manager",
+		"--target", target,
+		"--prompt", "codex template run",
+		"--set", "linear.team_id=tt-team",
+		"--set", "linear.ticket_prefix=TT",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template run: %v", err)
+	}
+	if containsString(cap.args, "--skip-git-repo-check") {
+		t.Fatalf("explicit target should not receive implicit skip-git flag: %v", cap.args)
 	}
 }
 

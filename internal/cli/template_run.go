@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
 
@@ -38,15 +40,15 @@ type templateRunConfig struct {
 func newTemplateRunCmd() *cobra.Command {
 	var cfg templateRunConfig
 	cmd := &cobra.Command{
-		Use:   "run <ref> <agent> [-- <claude-args>...]",
+		Use:   "run <ref> <agent> [-- <runtime-args>...]",
 		Short: "One-shot: instantiate a template into a tempdir and spawn an agent.",
 		Long: "Instantiate a template (bundled, local path, or cached ref) into a target directory " +
-			"and immediately spawn the named agent against it. Returns when the agent's claude " +
+			"and immediately spawn the named agent against it. Returns when the selected runtime " +
 			"session exits. Without --target, a tempdir under " +
 			"$XDG_CACHE_HOME/agent-team/runs (or ~/.agent-team/runs) is created and removed on " +
 			"exit unless --keep is passed. With --target, the directory is preserved.\n\n" +
 			"This is for ephemeral try-out / CI / sandbox use cases. The daemon is bypassed; " +
-			"claude is exec'd directly. For long-lived setups, use `init` + `run` separately.",
+			"the selected runtime is exec'd directly. For long-lived setups, use `init` + `run` separately.",
 		Args:               cobra.MinimumNArgs(2),
 		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -99,6 +101,12 @@ func runTemplateRun(cmd *cobra.Command, cfg templateRunConfig, ref, agent string
 		return err
 	}
 
+	forwarded, err = templateRunRuntimeArgs(target, autoCreated, forwarded)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template run: %v\n", err)
+		return exitErr(2)
+	}
+
 	// Daemon bypass is intentional — see documentation/templates.md
 	// § Worked example step 8. A tempdir-scoped daemon would just add
 	// lifecycle churn for a one-shot run.
@@ -109,6 +117,30 @@ func runTemplateRun(cmd *cobra.Command, cfg templateRunConfig, ref, agent string
 		setStrings: cfg.setStrings,
 		noDaemon:   true,
 	}, agent, forwarded)
+}
+
+func templateRunRuntimeArgs(target string, autoCreated bool, forwarded []string) ([]string, error) {
+	if !autoCreated {
+		return forwarded, nil
+	}
+	rt, err := runtimebin.CurrentFromConfig(filepath.Join(target, teamDirName, "config.toml"))
+	if err != nil {
+		return nil, err
+	}
+	if rt.Kind != runtimebin.KindCodex || hasForwardedRuntimeFlag(forwarded, "--skip-git-repo-check") {
+		return forwarded, nil
+	}
+	out := append([]string{}, forwarded...)
+	return append(out, "--skip-git-repo-check"), nil
+}
+
+func hasForwardedRuntimeFlag(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // prepareTemplateRunTarget returns the absolute target dir and whether we

@@ -506,7 +506,7 @@ Vendoring team into /home/alice/.agent-team/runs/20260427T143052-manager-abc123/
   + .agent_team/agents/ticket-manager
   ...
   + .agent_team/config.toml (resolved)
-[claude session runs, attached to terminal]
+[runtime session runs, attached to terminal]
 [on exit: tempdir is removed]
 ```
 
@@ -515,7 +515,7 @@ Surface (full flag set):
 ```
 agent-team template run <ref> <agent> [--target <dir>] [--keep] [--force] \
     [--set k=v]... [--no-input] [-n <instance>] [-p "<kickoff>"] \
-    [-- <claude-args>...]
+    [-- <runtime-args>...]
 ```
 
 Resolution flow:
@@ -527,11 +527,11 @@ Resolution flow:
 3. **Parameter resolution**: same as `init` — `--set` flags + interactive prompts for required params, `--no-input` fails fast in CI.
 4. **Render**: `.agent_team/` is written into the target dir.
 5. **Spawn**: same as `run`, with the daemon explicitly bypassed (see below).
-6. **Cleanup**: when the agent's claude session exits, if the dir was auto-created and `--keep` is unset, the dir is removed. `--target` directories are always preserved. SIGINT / SIGTERM trigger best-effort cleanup before re-raising the signal so the parent shell sees the conventional exit status.
+6. **Cleanup**: when the agent's runtime session exits, if the dir was auto-created and `--keep` is unset, the dir is removed. `--target` directories are always preserved. SIGINT / SIGTERM trigger best-effort cleanup before re-raising the signal so the parent shell sees the conventional exit status.
 
 #### Why the daemon is bypassed
 
-`template run` is for one-shot ephemeral spawns. Bringing up a tempdir-scoped daemon to dispatch a single instance and then tearing it down adds lifecycle complexity for no gain in this use case — the user has nothing to follow up with via `instance ps` or `logs --follow` because the tempdir is about to vanish. So `template run` always exec's claude directly.
+`template run` is for one-shot ephemeral spawns. Bringing up a tempdir-scoped daemon to dispatch a single instance and then tearing it down adds lifecycle complexity for no gain in this use case — the user has nothing to follow up with via `instance ps` or `logs --follow` because the tempdir is about to vanish. So `template run` always execs the selected runtime directly.
 
 The tradeoff: a `template run` instance is invisible from another terminal (no `instance ps`, no `logs --follow`). Acceptable for ephemeral spawns. For long-lived setups where multi-terminal observability matters, use `init` + `run` separately — the daemon-aware path is preserved there.
 
