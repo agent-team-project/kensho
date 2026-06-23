@@ -43,6 +43,9 @@ func TestRuntimeCommand_DefaultText(t *testing.T) {
 		"binary:           claude",
 		"path:             /usr/local/bin/claude",
 		"daemon_dispatch:  yes",
+		"direct_resume:    yes",
+		"managed_resume:   yes",
+		"resume:           yes",
 		"subagents:        yes",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -76,7 +79,7 @@ func TestRuntimeCommand_CodexJSON(t *testing.T) {
 	if info.Runtime != "codex" || info.Binary != "codex" || info.Path != "/opt/homebrew/bin/codex" {
 		t.Fatalf("info = %+v, want codex path", info)
 	}
-	if !info.DirectRun || !info.DaemonDispatch || info.Resume || info.Subagents {
+	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || info.ManagedResume || info.Resume || info.Subagents {
 		t.Fatalf("codex capabilities = %+v, want direct plus daemon one-shot", info)
 	}
 	if len(info.Notes) == 0 {
@@ -98,11 +101,11 @@ func TestRuntimeCommand_Format(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--format", "{{.Runtime}} {{.Binary}} {{.Available}} {{.Resume}}"})
+	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--format", "{{.Runtime}} {{.Binary}} {{.Available}} {{.DirectResume}} {{.ManagedResume}} {{.Resume}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --format failed: %v\nstderr: %s", err, errOut.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "codex codex true false" {
+	if got := strings.TrimSpace(out.String()); got != "codex codex true true false false" {
 		t.Fatalf("runtime format = %q", got)
 	}
 }

@@ -28,7 +28,7 @@ func newRuntimeCmd() *cobra.Command {
 		Use:   "runtime",
 		Short: "Inspect the selected LLM runtime profile.",
 		Long: "Inspect the selected LLM runtime profile, binary resolution, and whether " +
-			"the runtime supports direct runs, daemon dispatch, resume, and native subagents.",
+			"the runtime supports direct runs, daemon dispatch, direct resume, managed resume, and native subagents.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -75,6 +75,8 @@ type runtimeInfo struct {
 	Available      bool     `json:"available"`
 	DirectRun      bool     `json:"direct_run"`
 	DaemonDispatch bool     `json:"daemon_dispatch"`
+	DirectResume   bool     `json:"direct_resume"`
+	ManagedResume  bool     `json:"managed_resume"`
 	Resume         bool     `json:"resume"`
 	Subagents      bool     `json:"subagents"`
 	EnvRuntime     string   `json:"env_runtime,omitempty"`
@@ -122,11 +124,14 @@ func collectRuntimeInfoForConfig(configPath string) (runtimeInfo, error) {
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		info.DaemonDispatch = true
+		info.DirectResume = true
+		info.ManagedResume = true
 		info.Resume = true
 		info.Subagents = true
 	case runtimebin.KindCodex:
 		info.DaemonDispatch = true
-		info.Notes = append(info.Notes, "codex adapter supports direct launches and daemon-managed one-shot exec runs with --prompt; AGENT_TEAM_* vars are exposed to Codex shell commands; resume and native subagent registration are not available")
+		info.DirectResume = true
+		info.Notes = append(info.Notes, "codex adapter supports direct launches and daemon-managed one-shot exec runs with --prompt; AGENT_TEAM_* vars are exposed to Codex shell commands; direct codex resume is available outside agent-team managed instances; managed resume and native subagent registration are not available")
 	default:
 		return runtimeInfo{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
@@ -168,6 +173,8 @@ func renderRuntimeInfo(w fmtWriter, info runtimeInfo) {
 	fmt.Fprintf(w, "available:        %s\n", runtimeYesNo(info.Available))
 	fmt.Fprintf(w, "direct_run:       %s\n", runtimeYesNo(info.DirectRun))
 	fmt.Fprintf(w, "daemon_dispatch:  %s\n", runtimeYesNo(info.DaemonDispatch))
+	fmt.Fprintf(w, "direct_resume:    %s\n", runtimeYesNo(info.DirectResume))
+	fmt.Fprintf(w, "managed_resume:   %s\n", runtimeYesNo(info.ManagedResume))
 	fmt.Fprintf(w, "resume:           %s\n", runtimeYesNo(info.Resume))
 	fmt.Fprintf(w, "subagents:        %s\n", runtimeYesNo(info.Subagents))
 	if info.EnvRuntime != "" {

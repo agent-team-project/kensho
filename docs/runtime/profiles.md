@@ -9,7 +9,7 @@ Use this page when choosing a runtime, configuring `.agent_team/config.toml`, or
 ```sh
 agent-team runtime
 agent-team runtime --json
-agent-team runtime --format '{{.Runtime}} {{.Available}} {{.Resume}} {{.Subagents}}'
+agent-team runtime --format '{{.Runtime}} {{.Available}} {{.DirectResume}} {{.ManagedResume}} {{.Subagents}}'
 ```
 
 The command reports:
@@ -18,7 +18,7 @@ The command reports:
 - binary name and resolved path
 - repo config source
 - environment overrides
-- direct-run, daemon-dispatch, resume, and subagent capabilities
+- direct-run, daemon-dispatch, direct-resume, managed-resume, and subagent capabilities
 - adapter notes and missing-binary warnings
 
 ## Selection Order
@@ -56,6 +56,7 @@ AGENT_TEAM_RUNTIME=codex AGENT_TEAM_RUNTIME_BIN=/opt/bin/codex-wrapper agent-tea
 | --- | --- | --- |
 | Direct interactive `run` | yes | yes |
 | Daemon-managed one-shot `run --prompt` | yes | yes |
+| Direct CLI resume outside daemon ownership | yes | yes |
 | Native subagent registry | yes | no |
 | Managed resume/start | yes | no |
 | `attach` resume flow | yes | limited to direct process attachment |
@@ -130,6 +131,7 @@ Codex does not expose the same `--agents` and `--session-id` contract as the Cla
 That means:
 
 - native runtime subagents are not registered
+- direct `codex resume` is available only outside agent-team managed instance ownership
 - stopped Codex metadata cannot be resumed with `start`
 - `plan` and `sync` report stopped Codex instances as `unsupported` instead of trying to resume them
 - daemon dispatch requires `--prompt`, because Codex one-shot work needs an explicit task for `codex exec`

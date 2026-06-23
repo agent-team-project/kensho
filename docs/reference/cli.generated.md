@@ -3262,7 +3262,7 @@ Inherited Flags:
 
 Inspect the selected LLM runtime profile.
 
-Inspect the selected LLM runtime profile, binary resolution, and whether the runtime supports direct runs, daemon dispatch, resume, and native subagents.
+Inspect the selected LLM runtime profile, binary resolution, and whether the runtime supports direct runs, daemon dispatch, direct resume, managed resume, and native subagents.
 
 ```text
 agent-team runtime [flags]
