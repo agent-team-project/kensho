@@ -183,6 +183,10 @@ The generated plist starts the repo daemon, then replaces the shell with the for
 For a container host, generate a Compose service that mounts the repo and runs the intake listener inside an image containing `agent-team`, `agent-teamd`, and any runtime binaries your topology needs:
 
 ```sh
+docker build -t agent-team:local .
+```
+
+```sh
 agent-team intake service compose \
   --image agent-team:local \
   --bin agent-team \
@@ -215,6 +219,8 @@ services:
       - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"
     restart: unless-stopped
 ```
+
+The included `Dockerfile` is an operational base image for the CLI and daemon. If your deployed topology needs an LLM runtime, `gh`, or cloud credentials, extend the image or mount those tools and secrets explicitly rather than baking private credentials into the image.
 
 ## Operations
 

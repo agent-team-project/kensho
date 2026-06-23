@@ -92,6 +92,12 @@ go build -o bin/agent-teamd ./cmd/agent-teamd
 python3 scripts/demo/local_orchestration.py bin/agent-team
 ```
 
+Build the local container image used by generated Compose intake deployments:
+
+```sh
+docker build -t agent-team:local .
+```
+
 The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.
 
 ## Quickstart

@@ -56,6 +56,7 @@ Built or substantially implemented:
 - conservative template upgrade apply mode
 - manual pipeline gates and approval hints
 - systemd, launchd, and compose intake service generators
+- local Dockerfile for the compose intake service
 
 ## What Still Needs Design Care
 
@@ -88,7 +89,7 @@ High-value follow-up work:
 
 - runtime resume/adopt flows for long-running agents
 - richer pipeline gates beyond manual approval
-- hardened packaged container image and webhook deployment examples
+- published container image and webhook deployment examples
 
 ## Anti-Patterns
 
