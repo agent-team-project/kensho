@@ -2619,10 +2619,10 @@ instances = ["other", "build-worker"]
 	now := time.Now().UTC()
 	daemonRoot := daemon.DaemonRoot(teamDir)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Hour)},
-		{Instance: "worker-squ-201", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
-		{Instance: "build-worker-1", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
-		{Instance: "other", Agent: "other", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "worker-squ-201", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
+		{Instance: "other", Agent: "other", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
 	} {
 		if err := daemon.WriteMetadata(daemonRoot, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -2651,6 +2651,25 @@ instances = ["other", "build-worker"]
 	}
 	if got := logRowInstances(rows); strings.Join(got, ",") != "manager,worker-squ-201" {
 		t.Fatalf("team log rows = %v", got)
+	}
+
+	codexList := NewRootCmd()
+	codexListOut, codexListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codexList.SetOut(codexListOut)
+	codexList.SetErr(codexListErr)
+	codexList.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--runtime", "codex", "--list", "--json"})
+	if err := codexList.Execute(); err != nil {
+		t.Fatalf("team logs runtime list: %v\nstderr=%s", err, codexListErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(codexListOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team logs runtime list: %v\nbody=%s", err, codexListOut.String())
+	}
+	if got := logRowInstances(rows); strings.Join(got, ",") != "worker-squ-201" {
+		t.Fatalf("team runtime log rows = %v", got)
+	}
+	if rows[0].Runtime != "codex" {
+		t.Fatalf("team runtime log row = %+v", rows[0])
 	}
 
 	formatted := NewRootCmd()
@@ -2689,6 +2708,18 @@ instances = ["other", "build-worker"]
 		t.Fatalf("team logs leaked unrelated content:\n%s", body)
 	}
 
+	runtimeLogs := NewRootCmd()
+	runtimeLogsOut, runtimeLogsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runtimeLogs.SetOut(runtimeLogsOut)
+	runtimeLogs.SetErr(runtimeLogsErr)
+	runtimeLogs.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--runtime", "codex", "--tail", "1"})
+	if err := runtimeLogs.Execute(); err != nil {
+		t.Fatalf("team logs runtime: %v\nstderr=%s", err, runtimeLogsErr.String())
+	}
+	if got := runtimeLogsOut.String(); got != "worker latest\n" {
+		t.Fatalf("team logs runtime = %q", got)
+	}
+
 	latest := NewRootCmd()
 	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
 	latest.SetOut(latestOut)
@@ -2719,6 +2750,18 @@ instances = ["other", "build-worker"]
 		t.Fatalf("team last-message leaked unrelated content:\n%s", lastBody)
 	}
 
+	runtimeLast := NewRootCmd()
+	runtimeLastOut, runtimeLastErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runtimeLast.SetOut(runtimeLastOut)
+	runtimeLast.SetErr(runtimeLastErr)
+	runtimeLast.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--runtime", "codex", "--last-message"})
+	if err := runtimeLast.Execute(); err != nil {
+		t.Fatalf("team logs runtime last-message: %v\nstderr=%s", err, runtimeLastErr.String())
+	}
+	if got := runtimeLastOut.String(); got != "worker final\n" {
+		t.Fatalf("team logs runtime last-message = %q", got)
+	}
+
 	latestLast := NewRootCmd()
 	latestLastOut, latestLastErr := &bytes.Buffer{}, &bytes.Buffer{}
 	latestLast.SetOut(latestLastOut)
@@ -2729,6 +2772,18 @@ instances = ["other", "build-worker"]
 	}
 	if got := latestLastOut.String(); got != "worker final\n" {
 		t.Fatalf("team logs latest last-message = %q", got)
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--runtime", "llama", "--list"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team logs accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
 	}
 
 	conflict := NewRootCmd()

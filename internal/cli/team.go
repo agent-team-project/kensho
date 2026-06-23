@@ -1787,6 +1787,7 @@ func newTeamLogsCmd() *cobra.Command {
 		jsonOut   bool
 		noPrefix  bool
 		statuses  []string
+		runtimes  []string
 		phases    []string
 		staleOnly bool
 		unhealthy bool
@@ -1888,7 +1889,7 @@ func newTeamLogsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --grep cannot be combined with --list.")
 				return exitErr(2)
 			}
-			listOpts, err := newLogListOptionsWithUnhealthy(statuses, nil, phases, staleOnly, unhealthy)
+			listOpts, err := newLogListOptionsWithRuntimeAndUnhealthy(statuses, runtimes, nil, phases, staleOnly, unhealthy)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
 				return exitErr(2)
@@ -1923,6 +1924,7 @@ func newTeamLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with --list.")
 	cmd.Flags().BoolVar(&noPrefix, "no-prefix", false, "Do not prefix lines when streaming multiple team logs.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for team instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed or stale team instances.")

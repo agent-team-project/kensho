@@ -4051,22 +4051,23 @@ agent-team team logs <team> [flags]
 Flags:
 
 ```text
-  -f, --follow           Tail selected team logs.
-      --format string    With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
-      --grep string      Only print log lines matching this regular expression. One-shot reads only.
-      --json             Emit machine-readable JSON with --list.
-  -n, --last int         Show logs for the N most recently started team instances (0 = all).
-      --last-message     Show clean final Codex response sidecars instead of raw runtime logs.
-      --latest           Show the most recently started team instance log.
-      --list             List team log streams instead of printing log content.
-      --no-prefix        Do not prefix lines when streaming multiple team logs.
-      --phase strings    Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --repo string      Repo root. (default "<repo>")
-      --since string     Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --stale            Only show logs for team instances whose status.toml is stale.
-      --status strings   Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --tail string      Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --unhealthy        Only show logs for crashed or stale team instances.
+  -f, --follow            Tail selected team logs.
+      --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
+      --grep string       Only print log lines matching this regular expression. One-shot reads only.
+      --json              Emit machine-readable JSON with --list.
+  -n, --last int          Show logs for the N most recently started team instances (0 = all).
+      --last-message      Show clean final Codex response sidecars instead of raw runtime logs.
+      --latest            Show the most recently started team instance log.
+      --list              List team log streams instead of printing log content.
+      --no-prefix         Do not prefix lines when streaming multiple team logs.
+      --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --repo string       Repo root. (default "<repo>")
+      --runtime strings   Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --stale             Only show logs for team instances whose status.toml is stale.
+      --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
+      --unhealthy         Only show logs for crashed or stale team instances.
 ```
 
 ## `agent-team team ls`
