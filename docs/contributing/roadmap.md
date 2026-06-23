@@ -49,6 +49,7 @@ Built or substantially implemented:
 - repo-configurable health stale thresholds
 - pipeline graph visualization command
 - template smoke validation command
+- optional GitHub PR merge verification for job/team cleanup
 
 ## What Still Needs Design Care
 
@@ -56,7 +57,6 @@ Areas likely to need continued refinement:
 
 - runtime abstraction beyond the current primary runtime
 - richer pipeline semantics without overbuilding a workflow engine
-- safer PR merge confirmation for cleanup
 - deciding whether to publish generated CLI reference artifacts
 - richer docs examples using realistic fake teams
 - webhook security hardening and deployment guidance
@@ -82,9 +82,9 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- `job cleanup` PR merge verification integration
 - intake server deployment guide
 - runtime profile docs for non-primary runtimes
+- richer docs examples using realistic fake teams
 
 ## Anti-Patterns
 

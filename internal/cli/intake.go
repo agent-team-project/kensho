@@ -744,7 +744,7 @@ func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bo
 	cleanup := ""
 	if cleanupMerged && result.Job.Status == job.StatusDone {
 		repoRoot := filepath.Dir(teamDir)
-		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false)
+		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, false)
 		if err != nil {
 			return nil, "", err
 		}
@@ -766,7 +766,7 @@ func previewGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool
 	}
 	var cleanupPreview *jobCleanupPreview
 	if cleanupMerged && result.Job.Status == job.StatusDone {
-		preview, err := previewJobCleanup(filepath.Dir(teamDir), result.Job, false)
+		preview, err := previewJobCleanup(filepath.Dir(teamDir), result.Job, false, false)
 		if err != nil {
 			return nil, nil, err
 		}

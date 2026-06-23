@@ -27,6 +27,7 @@ func TestDocsCLIGeneratesMarkdown(t *testing.T) {
 		"## `agent-team job cleanup`",
 		"## `agent-team docs cli`",
 		"--repo string",
+		"--verify-pr",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("generated docs missing %q", want)

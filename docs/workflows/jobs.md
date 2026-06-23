@@ -156,6 +156,7 @@ After confirming the PR is merged:
 agent-team job cleanup squ-42 --merged
 ```
 
+Add `--verify-pr` to check the recorded GitHub PR with `gh` before cleanup.
 Use `--force-branch` only when the PR is merged but the local branch is not recognized as merged by Git.
 
 ## Triage

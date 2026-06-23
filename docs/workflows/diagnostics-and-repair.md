@@ -151,7 +151,7 @@ Repair can:
 | One stuck job | `agent-team job show <job-id> --events all` |
 | One team stuck | `agent-team team overview <team>` |
 | Worker blocked | `agent-team job unblock <job-id> <answer...>` |
-| Cleanup after merge | `agent-team job cleanup <job-id> --dry-run` |
+| Cleanup after merge | `agent-team job cleanup <job-id> --dry-run`, then `--merged --verify-pr` |
 
 ## Design Requirements for New Diagnostics
 

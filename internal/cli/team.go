@@ -814,6 +814,7 @@ func newTeamCleanupCmd() *cobra.Command {
 		repo        string
 		merged      bool
 		forceBranch bool
+		verifyPR    bool
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -852,7 +853,7 @@ func newTeamCleanupCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cleanup: %v\n", err)
 				return exitErr(1)
 			}
-			result := runJobCleanupJobs(teamDir, filepath.Dir(teamDir), teamJobs(top, team, jobs), dryRun, merged, forceBranch)
+			result := runJobCleanupJobs(teamDir, filepath.Dir(teamDir), teamJobs(top, team, jobs), dryRun, merged, forceBranch, verifyPR)
 			result.Team = team.Name
 			if jsonOut {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
@@ -874,6 +875,7 @@ func newTeamCleanupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the team's matching PRs have merged before removing worktrees and branches.")
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete job branches with git branch -D if they are not locally merged.")
+	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Verify recorded GitHub PRs are merged with gh before cleanup.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned job cleanup without removing anything.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cleanup batch as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup batch with a Go template, e.g. '{{.Team}} {{.Cleaned}} {{.Failed}}'.")

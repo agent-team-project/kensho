@@ -86,7 +86,7 @@ Shortcuts:
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job |
 | `agent-team job close <job-id>` | Mark done or failed |
-| `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge |
+| `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention |
 | `agent-team job ready` | List next pipeline steps |
 | `agent-team job advance <job-id>` | Advance pipeline step |
@@ -155,7 +155,7 @@ Shortcuts:
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
 | `agent-team team advance <team>` | Scoped pipeline advance |
-| `agent-team team cleanup <team>` | Scoped job cleanup |
+| `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
 | `agent-team team snapshot <team>` | Scoped diagnostic artifact |
 
 ## Intake and Schedules

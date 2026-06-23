@@ -1994,6 +1994,7 @@ func newJobCleanupCmd() *cobra.Command {
 		all         bool
 		merged      bool
 		forceBranch bool
+		verifyPR    bool
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -2030,7 +2031,7 @@ func newJobCleanupCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				result, err := runJobCleanupAll(teamDir, filepath.Dir(teamDir), dryRun, merged, forceBranch)
+				result, err := runJobCleanupAll(teamDir, filepath.Dir(teamDir), dryRun, merged, forceBranch, verifyPR)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 					return exitErr(1)
@@ -2057,7 +2058,7 @@ func newJobCleanupCmd() *cobra.Command {
 			}
 			repoRoot := filepath.Dir(teamDir)
 			if dryRun {
-				preview, err := previewJobCleanup(repoRoot, j, forceBranch)
+				preview, err := previewJobCleanup(repoRoot, j, forceBranch, verifyPR)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 					return exitErr(1)
@@ -2075,7 +2076,7 @@ func newJobCleanupCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 				return exitErr(2)
 			}
-			summary, err := cleanupJobOwnedWorktree(repoRoot, j, forceBranch)
+			summary, err := cleanupJobOwnedWorktree(repoRoot, j, forceBranch, verifyPR)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 				return exitErr(1)
@@ -2102,6 +2103,7 @@ func newJobCleanupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "Clean all done jobs that still own a recorded worktree or branch.")
 	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the job's PR has merged before removing its worktree and branch.")
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete the job branch with git branch -D if it is not locally merged.")
+	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Verify the recorded GitHub PR is merged with gh before cleanup.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the job-owned worktree and branch cleanup without removing anything.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup result with a Go template, e.g. '{{.ID}} {{.LastStatus}}' or '{{.Total}} {{.Cleaned}}'.")
@@ -2733,14 +2735,14 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			if cleanupMerged && result.Job.Status == job.StatusDone {
 				repoRoot := filepath.Dir(teamDir)
 				if dryRun {
-					preview, err := previewJobCleanup(repoRoot, result.Job, false)
+					preview, err := previewJobCleanup(repoRoot, result.Job, false, false)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 						return exitErr(1)
 					}
 					cleanupPreview = &preview
 				} else {
-					cleanupSummary, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false)
+					cleanupSummary, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, false)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 						return exitErr(1)
@@ -3028,17 +3030,19 @@ type jobRemoveResult struct {
 }
 
 type jobCleanupPreview struct {
-	JobID               string `json:"job_id"`
-	Worktree            string `json:"worktree,omitempty"`
-	Branch              string `json:"branch,omitempty"`
-	ForceBranch         bool   `json:"force_branch,omitempty"`
-	BranchDeleteMode    string `json:"branch_delete_mode,omitempty"`
-	WorktreeExists      bool   `json:"worktree_exists"`
-	BranchExists        bool   `json:"branch_exists"`
-	WouldRemoveWorktree bool   `json:"would_remove_worktree"`
-	WouldRemoveBranch   bool   `json:"would_remove_branch"`
-	Summary             string `json:"summary"`
-	DryRun              bool   `json:"dry_run"`
+	JobID               string                  `json:"job_id"`
+	Worktree            string                  `json:"worktree,omitempty"`
+	Branch              string                  `json:"branch,omitempty"`
+	ForceBranch         bool                    `json:"force_branch,omitempty"`
+	VerifyPR            bool                    `json:"verify_pr,omitempty"`
+	PRVerification      *jobPRMergeVerification `json:"pr_verification,omitempty"`
+	BranchDeleteMode    string                  `json:"branch_delete_mode,omitempty"`
+	WorktreeExists      bool                    `json:"worktree_exists"`
+	BranchExists        bool                    `json:"branch_exists"`
+	WouldRemoveWorktree bool                    `json:"would_remove_worktree"`
+	WouldRemoveBranch   bool                    `json:"would_remove_branch"`
+	Summary             string                  `json:"summary"`
+	DryRun              bool                    `json:"dry_run"`
 }
 
 type jobCleanupBatchResult struct {
@@ -3046,6 +3050,7 @@ type jobCleanupBatchResult struct {
 	DryRun      bool                  `json:"dry_run"`
 	Merged      bool                  `json:"merged,omitempty"`
 	ForceBranch bool                  `json:"force_branch,omitempty"`
+	VerifyPR    bool                  `json:"verify_pr,omitempty"`
 	Total       int                   `json:"total"`
 	Previewed   int                   `json:"previewed,omitempty"`
 	Cleaned     int                   `json:"cleaned,omitempty"`
@@ -3062,6 +3067,14 @@ type jobCleanupBatchItem struct {
 	Error    string             `json:"error,omitempty"`
 	Preview  *jobCleanupPreview `json:"preview,omitempty"`
 	Job      *job.Job           `json:"job,omitempty"`
+}
+
+type jobPRMergeVerification struct {
+	URL         string `json:"url"`
+	Verified    bool   `json:"verified"`
+	State       string `json:"state,omitempty"`
+	MergeCommit string `json:"merge_commit,omitempty"`
+	Source      string `json:"source"`
 }
 
 type jobSummary struct {
@@ -5833,13 +5846,21 @@ func validateJobCleanupReady(j *job.Job) error {
 	return nil
 }
 
-func previewJobCleanup(repoRoot string, j *job.Job, forceBranch bool) (jobCleanupPreview, error) {
+func previewJobCleanup(repoRoot string, j *job.Job, forceBranch bool, verifyPR bool) (jobCleanupPreview, error) {
 	preview := jobCleanupPreview{
 		JobID:       j.ID,
 		Worktree:    strings.TrimSpace(j.Worktree),
 		Branch:      strings.TrimSpace(j.Branch),
 		ForceBranch: forceBranch,
+		VerifyPR:    verifyPR,
 		DryRun:      true,
+	}
+	if verifyPR {
+		verification, err := verifyJobPRMerged(repoRoot, j)
+		if err != nil {
+			return preview, err
+		}
+		preview.PRVerification = &verification
 	}
 	if preview.Worktree != "" {
 		if err := validateJobOwnedWorktree(repoRoot, preview.Worktree); err != nil {
@@ -5902,6 +5923,10 @@ func renderJobCleanupPreview(w io.Writer, preview jobCleanupPreview) {
 		mode := emptyDash(preview.BranchDeleteMode)
 		fmt.Fprintf(w, "Branch:   %s exists=%s remove=%s mode=%s\n", preview.Branch, yesNo(preview.BranchExists), yesNo(preview.WouldRemoveBranch), mode)
 	}
+	if preview.PRVerification != nil {
+		verify := preview.PRVerification
+		fmt.Fprintf(w, "PR:       %s merged=%s state=%s source=%s\n", verify.URL, yesNo(verify.Verified), emptyDash(verify.State), verify.Source)
+	}
 }
 
 func parseJobCleanupFormat(format string) (*template.Template, error) {
@@ -5923,20 +5948,21 @@ func renderJobCleanupFormat(w io.Writer, value any, tmpl *template.Template) err
 	return err
 }
 
-func runJobCleanupAll(teamDir, repoRoot string, dryRun, merged, forceBranch bool) (jobCleanupBatchResult, error) {
+func runJobCleanupAll(teamDir, repoRoot string, dryRun, merged, forceBranch bool, verifyPR bool) (jobCleanupBatchResult, error) {
 	jobs, err := job.List(teamDir)
 	if err != nil {
 		return jobCleanupBatchResult{}, err
 	}
-	return runJobCleanupJobs(teamDir, repoRoot, jobs, dryRun, merged, forceBranch), nil
+	return runJobCleanupJobs(teamDir, repoRoot, jobs, dryRun, merged, forceBranch, verifyPR), nil
 }
 
-func runJobCleanupJobs(teamDir, repoRoot string, jobs []*job.Job, dryRun, merged, forceBranch bool) jobCleanupBatchResult {
+func runJobCleanupJobs(teamDir, repoRoot string, jobs []*job.Job, dryRun, merged, forceBranch bool, verifyPR bool) jobCleanupBatchResult {
 	candidates := cleanupReadyJobs(jobs)
 	result := jobCleanupBatchResult{
 		DryRun:      dryRun,
 		Merged:      merged,
 		ForceBranch: forceBranch,
+		VerifyPR:    verifyPR,
 		Total:       len(candidates),
 		Items:       make([]jobCleanupBatchItem, 0, len(candidates)),
 	}
@@ -5948,7 +5974,7 @@ func runJobCleanupJobs(teamDir, repoRoot string, jobs []*job.Job, dryRun, merged
 			Branch:   strings.TrimSpace(j.Branch),
 		}
 		if dryRun {
-			preview, err := previewJobCleanup(repoRoot, j, forceBranch)
+			preview, err := previewJobCleanup(repoRoot, j, forceBranch, verifyPR)
 			if err != nil {
 				item.Error = err.Error()
 				result.Failed++
@@ -5960,7 +5986,7 @@ func runJobCleanupJobs(teamDir, repoRoot string, jobs []*job.Job, dryRun, merged
 			result.Items = append(result.Items, item)
 			continue
 		}
-		summary, err := cleanupJobOwnedWorktree(repoRoot, j, forceBranch)
+		summary, err := cleanupJobOwnedWorktree(repoRoot, j, forceBranch, verifyPR)
 		if err != nil {
 			item.Error = err.Error()
 			result.Failed++
@@ -6023,9 +6049,14 @@ func renderJobCleanupBatch(w io.Writer, result jobCleanupBatchResult) {
 	}
 }
 
-func cleanupJobOwnedWorktree(repoRoot string, j *job.Job, forceBranch bool) (string, error) {
+func cleanupJobOwnedWorktree(repoRoot string, j *job.Job, forceBranch bool, verifyPR bool) (string, error) {
 	if strings.TrimSpace(j.Worktree) == "" && strings.TrimSpace(j.Branch) == "" {
 		return "nothing to clean", nil
+	}
+	if verifyPR {
+		if _, err := verifyJobPRMerged(repoRoot, j); err != nil {
+			return "", err
+		}
 	}
 	removed := make([]string, 0, 2)
 	if strings.TrimSpace(j.Worktree) != "" {
@@ -6061,6 +6092,50 @@ func cleanupJobOwnedWorktree(repoRoot string, j *job.Job, forceBranch bool) (str
 		return "nothing to clean", nil
 	}
 	return "removed " + strings.Join(removed, " and "), nil
+}
+
+func verifyJobPRMerged(repoRoot string, j *job.Job) (jobPRMergeVerification, error) {
+	if j == nil {
+		return jobPRMergeVerification{}, fmt.Errorf("job is required")
+	}
+	prURL := strings.TrimSpace(j.PR)
+	if prURL == "" {
+		return jobPRMergeVerification{}, fmt.Errorf("job %q has no recorded PR URL to verify", j.ID)
+	}
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return jobPRMergeVerification{}, fmt.Errorf("verify PR merge for job %q: gh CLI not found in PATH", j.ID)
+	}
+	cmd := exec.Command(ghPath, "pr", "view", prURL, "--json", "merged,state,mergeCommit")
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return jobPRMergeVerification{}, fmt.Errorf("verify PR merge for job %q: %w: %s", j.ID, err, strings.TrimSpace(string(out)))
+	}
+	var view struct {
+		Merged      bool   `json:"merged"`
+		State       string `json:"state"`
+		MergeCommit *struct {
+			OID string `json:"oid"`
+		} `json:"mergeCommit"`
+	}
+	if err := json.Unmarshal(out, &view); err != nil {
+		return jobPRMergeVerification{}, fmt.Errorf("verify PR merge for job %q: decode gh output: %w", j.ID, err)
+	}
+	verification := jobPRMergeVerification{
+		URL:      prURL,
+		Verified: view.Merged || strings.EqualFold(view.State, "MERGED"),
+		State:    view.State,
+		Source:   "gh",
+	}
+	if view.MergeCommit != nil {
+		verification.MergeCommit = strings.TrimSpace(view.MergeCommit.OID)
+	}
+	if !verification.Verified {
+		state := emptyDash(verification.State)
+		return verification, fmt.Errorf("verify PR merge for job %q: PR is not merged (state=%s)", j.ID, state)
+	}
+	return verification, nil
 }
 
 func validateJobOwnedWorktree(repoRoot, worktreePath string) error {

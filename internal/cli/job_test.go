@@ -4324,6 +4324,130 @@ func TestJobCleanupCanForceDeleteUnmergedBranch(t *testing.T) {
 	}
 }
 
+func TestJobCleanupVerifyPRAllowsForceDeleteAfterGitHubMerge(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	initGitRepoForJobTest(t, target)
+	installFakeGHForJobTest(t, `{"merged":true,"state":"MERGED","mergeCommit":{"oid":"abc123"}}`, 0)
+
+	teamDir := filepath.Join(target, ".agent_team")
+	branch := "worktree-worker-squ-47-verify"
+	runGitForJobTest(t, target, "checkout", "-b", branch)
+	if err := os.WriteFile(filepath.Join(target, "verified-feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForJobTest(t, target, "add", "verified-feature.txt")
+	runGitForJobTest(t, target, "commit", "-m", "verified feature")
+	runGitForJobTest(t, target, "checkout", "main")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-47",
+		Ticket:    "SQU-47",
+		Target:    "worker",
+		Status:    job.StatusDone,
+		Branch:    branch,
+		PR:        "https://github.com/acme/repo/pull/47",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	preview := NewRootCmd()
+	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	preview.SetOut(previewOut)
+	preview.SetErr(previewErr)
+	preview.SetArgs([]string{"job", "cleanup", "squ-47", "--repo", target, "--dry-run", "--force-branch", "--verify-pr", "--json"})
+	if err := preview.Execute(); err != nil {
+		t.Fatalf("job cleanup verify preview: %v\nstderr=%s", err, previewErr.String())
+	}
+	var previewResult jobCleanupPreview
+	if err := json.Unmarshal(previewOut.Bytes(), &previewResult); err != nil {
+		t.Fatalf("decode cleanup verify preview: %v\nbody=%s", err, previewOut.String())
+	}
+	if !previewResult.VerifyPR || previewResult.PRVerification == nil || !previewResult.PRVerification.Verified || previewResult.PRVerification.State != "MERGED" {
+		t.Fatalf("verify cleanup preview = %+v", previewResult)
+	}
+
+	force := NewRootCmd()
+	forceOut, forceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	force.SetOut(forceOut)
+	force.SetErr(forceErr)
+	force.SetArgs([]string{"job", "cleanup", "squ-47", "--repo", target, "--merged", "--force-branch", "--verify-pr", "--json"})
+	if err := force.Execute(); err != nil {
+		t.Fatalf("force cleanup with pr verification: %v\nstderr=%s", err, forceErr.String())
+	}
+	var cleaned job.Job
+	if err := json.Unmarshal(forceOut.Bytes(), &cleaned); err != nil {
+		t.Fatalf("decode force cleanup with pr verification: %v\nbody=%s", err, forceOut.String())
+	}
+	if cleaned.Branch != "" || !strings.Contains(cleaned.LastStatus, "branch (force)") {
+		t.Fatalf("cleaned job = %+v", cleaned)
+	}
+	if branchExists(t, target, branch) {
+		t.Fatalf("branch %s still exists after verified force cleanup", branch)
+	}
+}
+
+func TestJobCleanupVerifyPRRejectsOpenPullRequest(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	initGitRepoForJobTest(t, target)
+	installFakeGHForJobTest(t, `{"merged":false,"state":"OPEN"}`, 0)
+
+	teamDir := filepath.Join(target, ".agent_team")
+	branch := "worktree-worker-squ-48-open"
+	runGitForJobTest(t, target, "checkout", "-b", branch)
+	if err := os.WriteFile(filepath.Join(target, "open-feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForJobTest(t, target, "add", "open-feature.txt")
+	runGitForJobTest(t, target, "commit", "-m", "open feature")
+	runGitForJobTest(t, target, "checkout", "main")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-48",
+		Ticket:    "SQU-48",
+		Target:    "worker",
+		Status:    job.StatusDone,
+		Branch:    branch,
+		PR:        "https://github.com/acme/repo/pull/48",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cleanup := NewRootCmd()
+	cleanupOut, cleanupErr := &bytes.Buffer{}, &bytes.Buffer{}
+	cleanup.SetOut(cleanupOut)
+	cleanup.SetErr(cleanupErr)
+	cleanup.SetArgs([]string{"job", "cleanup", "squ-48", "--repo", target, "--merged", "--force-branch", "--verify-pr", "--json"})
+	err := cleanup.Execute()
+	if err == nil {
+		t.Fatalf("cleanup with open PR unexpectedly succeeded: stdout=%s", cleanupOut.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("cleanup err = %v, want exit 1", err)
+	}
+	if !strings.Contains(cleanupErr.String(), "PR is not merged") {
+		t.Fatalf("cleanup stderr = %q", cleanupErr.String())
+	}
+	stillOwned, err := job.Read(teamDir, "squ-48")
+	if err != nil {
+		t.Fatalf("read job after verify failure: %v", err)
+	}
+	if stillOwned.Branch != branch {
+		t.Fatalf("verify failure mutated job = %+v", stillOwned)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("cleanup removed branch %s despite open PR", branch)
+	}
+}
+
 func TestJobCleanupAllPreviewsAndAppliesDoneOwnership(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
@@ -5244,4 +5368,15 @@ func branchExists(t *testing.T, dir, branch string) bool {
 		}
 	}
 	return false
+}
+
+func installFakeGHForJobTest(t *testing.T, stdout string, exitCode int) {
+	t.Helper()
+	binDir := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", stdout, exitCode)
+	path := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
