@@ -21,7 +21,7 @@ func fakeSpawnerForTest(t *testing.T, hold time.Duration) daemon.Spawner {
 	if holdSecs < 1 {
 		holdSecs = 1
 	}
-	return func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		bin, err := exec.LookPath("sleep")
 		if err != nil {
 			return nil, err

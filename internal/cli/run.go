@@ -14,6 +14,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/template"
@@ -263,8 +264,9 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		"AGENT_TEAM_ROOT=" + teamDir,
 		"AGENT_TEAM_INSTANCE=" + instance,
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
+		"AGENT_TEAM_DAEMON_SOCKET=" + daemon.SocketPath(teamDir),
 	}
-	runtimeArgs, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath)
+	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
@@ -317,6 +319,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 				RuntimeBinary: rt.Binary,
 				Args:          runtimeArgs,
 				Env:           teamEnv,
+				Stdin:         runtimeStdin,
 			})
 			if derr != nil {
 				return fmt.Errorf("daemon dispatch: %w", derr)
@@ -352,10 +355,10 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		// Daemon not running → fall through to direct exec.
 	}
 
-	return execClaude(cmd, runtimeArgs, env, target)
+	return execClaude(cmd, runtimeArgs, env, target, runtimeStdin)
 }
 
-func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string) ([]string, error) {
+func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string) ([]string, string, error) {
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		args := []string{
@@ -366,7 +369,7 @@ func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptF
 		if prompt != "" {
 			args = append(args, "-p", prompt)
 		}
-		return append(args, forwarded...), nil
+		return append(args, forwarded...), "", nil
 	case runtimebin.KindCodex:
 		args := []string{}
 		if prompt != "" {
@@ -378,10 +381,15 @@ func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptF
 		if prompt != "" && strings.TrimSpace(lastMessagePath) != "" && !hasForwardedRuntimeFlag(forwarded, "--output-last-message") {
 			args = append(args, "--output-last-message", lastMessagePath)
 		}
-		args = append(args, codexInitialPrompt(kickoff, prompt, agents))
-		return args, nil
+		initialPrompt := codexInitialPrompt(kickoff, prompt, agents)
+		if prompt != "" {
+			args = append(args, "-")
+			return args, initialPrompt, nil
+		}
+		args = append(args, initialPrompt)
+		return args, "", nil
 	default:
-		return nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
+		return nil, "", fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
 }
 
@@ -455,7 +463,7 @@ func printRunDispatchLine(w fmtWriter, disp *dispatchResponse) {
 }
 
 // execClaude is split out so tests can intercept the exec.
-var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd string) error {
+var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string) error {
 	bin, err := runtimebin.Binary()
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
@@ -464,24 +472,63 @@ var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd strin
 	c := exec.Command(bin, args...)
 	c.Env = env
 	c.Dir = cwd
-	if len(args) == 0 || args[0] != "exec" {
+	var cleanupStdin func()
+	if stdin != "" {
+		stdinFile, cleanup, err := openRuntimeStdin(stdin)
+		if err != nil {
+			return err
+		}
+		cleanupStdin = cleanup
+		c.Stdin = stdinFile
+	} else if len(args) == 0 || args[0] != "exec" {
 		c.Stdin = os.Stdin
 	}
 	c.Stdout = cmd.OutOrStdout()
 	c.Stderr = cmd.ErrOrStderr()
-	if err := c.Run(); err != nil {
+	var runErr error
+	if cleanupStdin != nil {
+		runErr = c.Start()
+		cleanupStdin()
+		if runErr == nil {
+			runErr = c.Wait()
+		}
+	} else {
+		runErr = c.Run()
+	}
+	if runErr != nil {
 		var execErr *exec.Error
-		if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+		if errors.As(runErr, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: runtime CLI %q not found in PATH. Install it first or set %s.\n", bin, runtimebin.EnvBinary)
 			return exitErr(127)
 		}
 		var exitErrTyped *exec.ExitError
-		if errors.As(err, &exitErrTyped) {
+		if errors.As(runErr, &exitErrTyped) {
 			return exitErr(exitErrTyped.ExitCode())
 		}
-		return err
+		return runErr
 	}
 	return nil
+}
+
+func openRuntimeStdin(content string) (*os.File, func(), error) {
+	f, err := os.CreateTemp("", "agent-team-stdin-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create runtime stdin temp file: %w", err)
+	}
+	cleanup := func() {
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("write runtime stdin temp file: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("rewind runtime stdin temp file: %w", err)
+	}
+	return f, cleanup, nil
 }
 
 // buildAgentsJSON serialises {name: {description, prompt}, …} compactly.

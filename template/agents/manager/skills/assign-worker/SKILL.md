@@ -18,7 +18,7 @@ Use the daemon topology path when `agent-teamd` is running. Fall back to Claude'
 
 ## Daemon Dispatch (Preferred)
 
-If `$AGENT_TEAM_ROOT/daemon.sock` exists, dispatch through topology:
+If the resolved daemon socket exists (`$AGENT_TEAM_DAEMON_SOCKET`, falling back to `$AGENT_TEAM_ROOT/daemon.sock`), dispatch through topology:
 
 ```sh
 "$AGENT_TEAM_ROOT"/agents/manager/skills/assign-worker/scripts/assign_worker.sh dispatch \

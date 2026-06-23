@@ -409,13 +409,18 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(teamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("worker-squ-42"),
 		"shell_environment_policy.set.AGENT_TEAM_STATE_DIR=" + strconv.Quote(filepath.Join(teamDir, "state", "worker-squ-42")),
+		"shell_environment_policy.set.AGENT_TEAM_DAEMON_SOCKET=" + strconv.Quote(SocketPath(teamDir)),
 	} {
 		if !containsString(call, want) {
 			t.Fatalf("codex spawn call missing env config %q: %#v", want, call)
 		}
 	}
-	if !strings.Contains(call[len(call)-1], "implement SQU-42") {
-		t.Fatalf("codex prompt missing kickoff: %s", call[len(call)-1])
+	if call[len(call)-1] != "-" {
+		t.Fatalf("codex spawn call prompt arg = %q, want stdin marker '-' in %#v", call[len(call)-1], call)
+	}
+	stdin := fake.lastStdin()
+	if !strings.Contains(stdin, "implement SQU-42") || !strings.Contains(stdin, "This session is running through the Codex adapter.") {
+		t.Fatalf("codex stdin missing kickoff or adapter prompt:\n%s", stdin)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-42")
 	if err != nil {
@@ -696,6 +701,7 @@ match.target = "worker"
 		"AGENT_TEAM_ROOT=" + teamDir,
 		"AGENT_TEAM_INSTANCE=" + id,
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
+		"AGENT_TEAM_DAEMON_SOCKET=" + SocketPath(teamDir),
 	} {
 		if !containsString(env, want) {
 			t.Fatalf("env missing %q in %v", want, env)
@@ -1428,7 +1434,7 @@ func TestEvent_QueuedSpawnFailureMovesToDeadLetter(t *testing.T) {
 	if err := WriteQueueItem(root, item); err != nil {
 		t.Fatalf("WriteQueueItem: %v", err)
 	}
-	m := NewInstanceManager(root, func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	m := NewInstanceManager(root, func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		return nil, os.ErrPermission
 	})
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))

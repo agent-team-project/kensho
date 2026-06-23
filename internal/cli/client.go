@@ -78,6 +78,7 @@ type dispatchPayload struct {
 	RuntimeBinary string   `json:"runtime_binary,omitempty"`
 	Args          []string `json:"args,omitempty"`
 	Env           []string `json:"env,omitempty"`
+	Stdin         string   `json:"stdin,omitempty"`
 }
 
 type dispatchResponse struct {

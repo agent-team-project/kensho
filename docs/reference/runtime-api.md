@@ -31,9 +31,13 @@ Starts an instance or enqueues work depending on topology/capacity.
   "agent": "worker",
   "name": "worker-squ-42",
   "prompt": "Implement the ticket",
-  "workspace": "/repo"
+  "workspace": "/repo",
+  "args": ["exec", "-"],
+  "stdin": "Large runtime prompt for stdin-capable runtimes"
 }
 ```
+
+For Codex one-shot runs, the CLI sends `args` ending in `"-"` and sends the assembled prompt through `stdin` so large agent prompts are not placed in the process argument list. Older clients can keep using `prompt`; Codex fallback dispatch maps it to stdin.
 
 Lifecycle endpoints:
 

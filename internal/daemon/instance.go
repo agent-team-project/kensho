@@ -17,27 +17,28 @@ import (
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
-// Spawner abstracts the claude child-process call so tests can inject a fake.
+// Spawner abstracts the child-process call so tests can inject a fake.
 // args is the full argv (including the binary name in args[0] for clarity);
 // stdoutPath / stderrPath are file paths the child should write to; workspace
-// is the chdir target.
+// is the chdir target. stdin is optional content to pipe into the child.
 //
 // On success the returned process is already started and detached enough that
 // Wait() can be called by the InstanceManager's reaper goroutine.
-type Spawner func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error)
+type Spawner func(args []string, env []string, workspace, stdoutPath, stderrPath, stdin string) (*os.Process, error)
 
-// DefaultSpawner spawns claude as an actual subprocess. Stdin is /dev/null;
-// stdout and stderr go to per-instance log files. The child gets its own
-// process group so the daemon can later signal it independently.
-func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+// DefaultSpawner spawns the runtime as an actual subprocess. Unless stdin
+// content is provided, stdin is /dev/null; stdout and stderr go to per-instance
+// log files. The child gets its own process group so the daemon can later
+// signal it independently.
+func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 	if len(args) == 0 {
 		return nil, errors.New("spawn: empty args")
 	}
-	stdin, err := os.Open(os.DevNull)
+	stdin, cleanupStdin, err := openSpawnerStdin(stdinContent)
 	if err != nil {
-		return nil, fmt.Errorf("spawn: open devnull: %w", err)
+		return nil, err
 	}
-	defer stdin.Close()
+	defer cleanupStdin()
 	stdout, err := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("spawn: open stdout %s: %w", stdoutPath, err)
@@ -62,6 +63,34 @@ func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPa
 	return os.StartProcess(bin, args, attr)
 }
 
+func openSpawnerStdin(content string) (*os.File, func(), error) {
+	if content == "" {
+		f, err := os.Open(os.DevNull)
+		if err != nil {
+			return nil, nil, fmt.Errorf("spawn: open devnull: %w", err)
+		}
+		return f, func() { _ = f.Close() }, nil
+	}
+	f, err := os.CreateTemp("", "agent-team-stdin-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("spawn: create stdin temp file: %w", err)
+	}
+	cleanup := func() {
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("spawn: write stdin temp file: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("spawn: rewind stdin temp file: %w", err)
+	}
+	return f, cleanup, nil
+}
+
 // DispatchInput is the validated form of POST /v1/dispatch.
 //
 // Args, if set, is the additional argv passed to claude after `claude
@@ -74,6 +103,8 @@ func DefaultSpawner(args []string, env []string, workspace, stdoutPath, stderrPa
 //
 // Env, if set, is appended to os.Environ() for the spawned process. The CLI
 // uses this to export AGENT_TEAM_ROOT / AGENT_TEAM_INSTANCE / AGENT_TEAM_STATE_DIR.
+// Stdin, if set, is piped to the spawned process. Codex one-shot runs use this
+// with `codex exec -` so large agent prompts do not live in argv.
 type DispatchInput struct {
 	Agent         string
 	Name          string
@@ -83,6 +114,7 @@ type DispatchInput struct {
 	RuntimeBinary string
 	Args          []string
 	Env           []string
+	Stdin         string
 }
 
 // StopOptions controls graceful stop escalation. The default Stop path sends
@@ -195,7 +227,8 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	if len(in.Env) > 0 {
 		env = append(env, in.Env...)
 	}
-	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath)
+	stdin := dispatchStdin(rt, in)
+	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath, stdin)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: spawn: %w", err)
 	}
@@ -267,10 +300,23 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 		if strings.TrimSpace(in.Prompt) == "" {
 			return nil, errors.New("codex daemon dispatch requires exec args or a prompt")
 		}
-		return []string{rt.Binary, "exec", in.Prompt}, nil
+		return []string{rt.Binary, "exec", "-"}, nil
 	default:
 		return nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
+}
+
+func dispatchStdin(rt runtimebin.Runtime, in DispatchInput) string {
+	if rt.Kind != runtimebin.KindCodex {
+		return ""
+	}
+	if in.Stdin != "" {
+		return in.Stdin
+	}
+	if len(in.Args) == 0 {
+		return in.Prompt
+	}
+	return ""
 }
 
 // Stop sends SIGTERM to the instance process group and persists
@@ -602,7 +648,7 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 		}
 	}
 	args := []string{bin, "--resume", base.SessionID}
-	proc, err := m.spawner(args, os.Environ(), base.Workspace, logPath, logPath)
+	proc, err := m.spawner(args, os.Environ(), base.Workspace, logPath, logPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("start: spawn: %w", err)
 	}

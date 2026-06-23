@@ -26,6 +26,7 @@ type fakeSpawner struct {
 	mu       sync.Mutex
 	calls    [][]string
 	envs     [][]string
+	stdins   []string
 	holdSecs string // duration for the spawned sleep
 }
 
@@ -37,10 +38,11 @@ func newFakeSpawner(hold time.Duration) *fakeSpawner {
 	return &fakeSpawner{holdSecs: strconv.Itoa(s)}
 }
 
-func (f *fakeSpawner) spawn(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+func (f *fakeSpawner) spawn(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.envs = append(f.envs, append([]string(nil), env...))
+	f.stdins = append(f.stdins, stdinContent)
 	f.mu.Unlock()
 	bin, err := exec.LookPath("sleep")
 	if err != nil {
@@ -68,9 +70,18 @@ func (f *fakeSpawner) lastCall() []string {
 	return f.calls[len(f.calls)-1]
 }
 
+func (f *fakeSpawner) lastStdin() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.stdins) == 0 {
+		return ""
+	}
+	return f.stdins[len(f.stdins)-1]
+}
+
 func ignoreTermSpawner(t *testing.T) Spawner {
 	t.Helper()
-	return func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		stdin, err := os.Open(os.DevNull)
 		if err != nil {
 			return nil, err
@@ -295,6 +306,33 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	}
 }
 
+func TestInstance_DispatchCodexPromptUsesStdin(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-runtime",
+		Prompt:    "hello from stdin",
+		Workspace: t.TempDir(),
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	args := fake.lastCall()
+	if len(args) != 3 || args[0] != "codex" || args[1] != "exec" || args[2] != "-" {
+		t.Fatalf("spawn args = %v, want codex exec -", args)
+	}
+	if got := fake.lastStdin(); got != "hello from stdin" {
+		t.Fatalf("stdin = %q, want prompt", got)
+	}
+	if _, err := m.Stop("worker-runtime"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
+}
+
 func TestInstance_DispatchCodexRejectsClaudeArgs(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	root := t.TempDir()
@@ -491,8 +529,8 @@ func TestInstance_StaleReaperDoesNotOverwriteResumedRun(t *testing.T) {
 	base := ignoreTermSpawner(t)
 	var mu sync.Mutex
 	var procs []*os.Process
-	spawn := func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
-		proc, err := base(args, env, workspace, stdoutPath, stderrPath)
+	spawn := func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		proc, err := base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
 		if err != nil {
 			return nil, err
 		}

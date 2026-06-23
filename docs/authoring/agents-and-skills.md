@@ -92,6 +92,7 @@ Environment passed to the runtime includes:
 | `AGENT_TEAM_ROOT` | Absolute path to `.agent_team/` |
 | `AGENT_TEAM_INSTANCE` | Current instance name |
 | `AGENT_TEAM_STATE_DIR` | Absolute path to the current instance state dir |
+| `AGENT_TEAM_DAEMON_SOCKET` | Resolved Unix socket path for `agent-teamd`; falls back to `.agent_team/daemon.sock` on short paths |
 
 ## Status Reporting
 

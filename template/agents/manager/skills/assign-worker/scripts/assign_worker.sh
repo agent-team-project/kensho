@@ -25,7 +25,11 @@ require_team_root() {
 }
 
 socket_path() {
-    echo "$AGENT_TEAM_ROOT/daemon.sock"
+    if [[ -n "${AGENT_TEAM_DAEMON_SOCKET:-}" ]]; then
+        echo "$AGENT_TEAM_DAEMON_SOCKET"
+    else
+        echo "$AGENT_TEAM_ROOT/daemon.sock"
+    fi
 }
 
 require_daemon() {

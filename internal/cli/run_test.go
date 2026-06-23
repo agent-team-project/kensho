@@ -34,6 +34,7 @@ type runCapture struct {
 	rc          error
 	skillsDirOK bool
 	promptBody  string
+	stdin       string
 	addDir      string
 	promptFile  string
 	agentsJSON  string
@@ -43,10 +44,11 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 	t.Helper()
 	cap := &runCapture{rc: rc}
 	prev := execClaude
-	execClaude = func(cmd *cobra.Command, args []string, env []string, cwd string) error {
+	execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string) error {
 		cap.args = args
 		cap.env = env
 		cap.cwd = cwd
+		cap.stdin = stdin
 		// Snapshot filesystem state before runAgent's `defer os.RemoveAll(tmpdir)` fires.
 		for i := 0; i+1 < len(args); i++ {
 			switch args[i] {
@@ -204,7 +206,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	}
 
 	// Env must include AGENT_TEAM_*.
-	hasRoot, hasInstance, hasState := false, false, false
+	hasRoot, hasInstance, hasState, hasSocket := false, false, false, false
 	for _, e := range cap.env {
 		switch {
 		case strings.HasPrefix(e, "AGENT_TEAM_ROOT="):
@@ -213,10 +215,12 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 			hasInstance = true
 		case strings.HasPrefix(e, "AGENT_TEAM_STATE_DIR="):
 			hasState = true
+		case strings.HasPrefix(e, "AGENT_TEAM_DAEMON_SOCKET="):
+			hasSocket = true
 		}
 	}
-	if !hasRoot || !hasInstance || !hasState {
-		t.Errorf("missing AGENT_TEAM_* env vars: root=%v instance=%v state=%v", hasRoot, hasInstance, hasState)
+	if !hasRoot || !hasInstance || !hasState || !hasSocket {
+		t.Errorf("missing AGENT_TEAM_* env vars: root=%v instance=%v state=%v socket=%v", hasRoot, hasInstance, hasState, hasSocket)
 	}
 
 	// -p prompt must be forwarded.
@@ -290,20 +294,23 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(wantTeamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("manager"),
 		"shell_environment_policy.set.AGENT_TEAM_STATE_DIR=" + strconv.Quote(filepath.Join(wantTeamDir, "state", "manager")),
+		"shell_environment_policy.set.AGENT_TEAM_DAEMON_SOCKET=" + strconv.Quote(daemon.SocketPath(wantTeamDir)),
 	} {
 		if !containsString(cap.args, want) {
 			t.Fatalf("codex args missing env config %q: %v", want, cap.args)
 		}
 	}
-	prompt := cap.args[len(cap.args)-1]
+	if got := cap.args[len(cap.args)-1]; got != "-" {
+		t.Fatalf("codex prompt arg = %q, want stdin marker '-' in %v", got, cap.args)
+	}
 	for _, want := range []string{
 		"You are the `manager` instance of the `manager` agent.",
 		"This session is running through the Codex adapter.",
 		"Available team agents:",
 		"codex task",
 	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("codex prompt missing %q:\n%s", want, prompt)
+		if !strings.Contains(cap.stdin, want) {
+			t.Fatalf("codex stdin prompt missing %q:\n%s", want, cap.stdin)
 		}
 	}
 }
@@ -391,14 +398,16 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 		mu       sync.Mutex
 		gotArgs  []string
 		gotSpace string
+		gotStdin string
 	)
 	base := fakeSpawnerForTest(t, 2*time.Second)
-	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		mu.Lock()
 		gotArgs = append([]string(nil), args...)
 		gotSpace = workspace
+		gotStdin = stdinContent
 		mu.Unlock()
-		return base(args, env, workspace, stdoutPath, stderrPath)
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
 	})
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()
@@ -430,6 +439,7 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	mu.Lock()
 	args := append([]string(nil), gotArgs...)
 	workspace := gotSpace
+	stdin := gotStdin
 	mu.Unlock()
 	if workspace != wantWorkspace {
 		t.Fatalf("workspace = %q, want %q", workspace, wantWorkspace)
@@ -440,8 +450,11 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	if containsString(args, "--session-id") || containsString(args, "--agents") || containsString(args, "--append-system-prompt-file") {
 		t.Fatalf("codex daemon args include Claude-only flags: %v", args)
 	}
-	if !containsString(args, "--add-dir") || !strings.Contains(args[len(args)-1], "codex task") {
-		t.Fatalf("codex daemon args missing add-dir or task prompt: %v", args)
+	if !containsString(args, "--add-dir") || args[len(args)-1] != "-" {
+		t.Fatalf("codex daemon args missing add-dir or stdin marker: %v", args)
+	}
+	if !strings.Contains(stdin, "codex task") || !strings.Contains(stdin, "This session is running through the Codex adapter.") {
+		t.Fatalf("codex daemon stdin missing task or adapter prompt:\n%s", stdin)
 	}
 	wantTeamDir := filepath.Join(workspace, ".agent_team")
 	wantLastMessage := filepath.Join(wantTeamDir, "state", "manager", runtimebin.CodexLastMessageFile)
@@ -452,6 +465,7 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(wantTeamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("manager"),
 		"shell_environment_policy.set.AGENT_TEAM_STATE_DIR=" + strconv.Quote(filepath.Join(wantTeamDir, "state", "manager")),
+		"shell_environment_policy.set.AGENT_TEAM_DAEMON_SOCKET=" + strconv.Quote(daemon.SocketPath(wantTeamDir)),
 	} {
 		if !containsString(args, want) {
 			t.Fatalf("codex daemon args missing env config %q: %v", want, args)
@@ -706,14 +720,14 @@ func TestRunAttachDispatchesThroughDaemonAndFollowsLog(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 
 	base := fakeSpawnerForTest(t, 2*time.Second)
-	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		if err := os.MkdirAll(filepath.Dir(stdoutPath), 0o755); err != nil {
 			return nil, err
 		}
 		if err := os.WriteFile(stdoutPath, []byte("attach log\n"), 0o644); err != nil {
 			return nil, err
 		}
-		return base(args, env, workspace, stdoutPath, stderrPath)
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
 	})
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()
@@ -765,13 +779,13 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 		gotEnv   []string
 		gotSpace string
 	)
-	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath string) (*os.Process, error) {
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
 		mu.Lock()
 		gotArgs = append([]string(nil), args...)
 		gotEnv = append([]string(nil), env...)
 		gotSpace = workspace
 		mu.Unlock()
-		return base(args, env, workspace, stdoutPath, stderrPath)
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
 	})
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()

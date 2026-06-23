@@ -60,6 +60,6 @@ Output (when there's a message):
 
 - Reads `mailbox.jsonl` since the last ID written to `mailbox-cursor.txt`. If the cursor is empty / points at a non-existent ID, every message is treated as unread.
 - `ack` writes the cursor atomically (`tmp` + `rename`).
-- `send` uses `curl --unix-socket "$AGENT_TEAM_ROOT/daemon.sock"`. The host portion of the URL doesn't matter — the unix dial overrides it.
-- The daemon must be running. If `$AGENT_TEAM_ROOT/daemon.sock` is absent, `inbox check` reads the file directly (still works — the messages live on disk regardless of daemon liveness); `inbox send` errors with a clear "daemon not running" message.
+- `send` uses `curl --unix-socket "$AGENT_TEAM_DAEMON_SOCKET"` when set, falling back to `$AGENT_TEAM_ROOT/daemon.sock`. The host portion of the URL doesn't matter — the unix dial overrides it.
+- The daemon must be running. If the resolved daemon socket is absent, `inbox check` reads the file directly (still works — the messages live on disk regardless of daemon liveness); `inbox send` errors with a clear "daemon not running" message.
 - All scripts sign nothing on your behalf. Compose your own messages.

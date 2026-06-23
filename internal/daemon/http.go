@@ -51,6 +51,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			RuntimeBinary string   `json:"runtime_binary"`
 			Args          []string `json:"args"`
 			Env           []string `json:"env"`
+			Stdin         string   `json:"stdin"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -73,6 +74,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			RuntimeBinary: body.RuntimeBinary,
 			Args:          body.Args,
 			Env:           body.Env,
+			Stdin:         body.Stdin,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

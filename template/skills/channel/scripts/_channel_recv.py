@@ -11,6 +11,7 @@ Reads pull from the daemon over its unix socket using stdlib `http.client`
 Environment:
 - AGENT_TEAM_ROOT: absolute path to .agent_team/
 - AGENT_TEAM_INSTANCE: this instance's name
+- AGENT_TEAM_DAEMON_SOCKET: optional resolved daemon socket path
 - CHANNEL_NAME: channel name (e.g. "#blocked")
 - CHANNEL_WAIT: optional duration string (e.g. "30s") for long-poll
 """
@@ -36,7 +37,7 @@ def main() -> int:
         print(f"channel: name {name!r} must start with '#'", file=sys.stderr)
         return 2
 
-    socket_path = str(team_root / "daemon.sock")
+    socket_path = os.environ.get("AGENT_TEAM_DAEMON_SOCKET") or str(team_root / "daemon.sock")
     if not Path(socket_path).exists():
         print(f"channel: daemon not running ({socket_path} missing).", file=sys.stderr)
         return 1

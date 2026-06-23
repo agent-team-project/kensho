@@ -40,7 +40,7 @@ agent-team monitor --jobs --schedules
 ```
 
 `inspect` combines runtime metadata, daemon-known topology, status file data, and state paths.
-For Codex one-shot runs, `logs --last-message` reads the captured final response sidecar instead of the raw Codex diagnostic log.
+For Codex one-shot runs, the adapter feeds the assembled agent prompt to `codex exec -` on stdin and `logs --last-message` reads the captured final response sidecar instead of the raw Codex diagnostic log.
 
 ## Attach
 

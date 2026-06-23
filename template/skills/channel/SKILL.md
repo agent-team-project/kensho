@@ -89,8 +89,8 @@ Ack with: channel.sh ack "#blocked" 9
 
 ## Implementation notes
 
-- Calls `curl --unix-socket "$AGENT_TEAM_ROOT/daemon.sock"`. The host portion of the URL doesn't matter — the unix dial overrides it.
+- Calls `curl --unix-socket "$AGENT_TEAM_DAEMON_SOCKET"` when set, falling back to `$AGENT_TEAM_ROOT/daemon.sock`. The host portion of the URL doesn't matter — the unix dial overrides it.
 - The `#` in the channel name is URL-encoded automatically; pass it verbatim on the command line (use quotes so the shell doesn't read it as a comment).
 - `recv` reads from the daemon, prints the messages, and exits without modifying cursor state. The daemon's `messages` endpoint is read-only — only `ack` advances the cursor.
 - Subscribe is idempotent: re-subscribing returns the existing cursor. Unsubscribe is also idempotent.
-- The daemon must be running for any channel verb. If `$AGENT_TEAM_ROOT/daemon.sock` is missing, the script errors with a clear "daemon not running" message — `agent-team daemon start` to fix.
+- The daemon must be running for any channel verb. If the resolved daemon socket is missing, the script errors with a clear "daemon not running" message — `agent-team daemon start` to fix.

@@ -106,6 +106,14 @@ and `tick` do not advance them.
    expected agent-team environment set. This weakens worker self-reporting and
    mailbox/status flows under Codex.
 
+   Status after follow-up: the launcher and daemon event path now export
+   `AGENT_TEAM_DAEMON_SOCKET` alongside the existing `AGENT_TEAM_*` variables,
+   and Codex receives it through shell-environment policy. The bundled inbox,
+   channel, and assign-worker helpers use that resolved socket path, falling
+   back to `.agent_team/daemon.sock` for older sessions. Remaining validation:
+   confirm whether the selected Codex sandbox allows Unix socket connections to
+   that path during real worker execution.
+
 8. **`job cleanup --merged` can remove a worktree for a job still marked `running`.**
    In the sandbox, `job cleanup doc-701 --merged` removed the owned worktree and
    branch and cleared the job metadata even though the job was still `running`.
@@ -135,6 +143,24 @@ and `tick` do not advance them.
     Successful Codex runs printed plugin/skill warnings before the expected
     marker text. This is usable, but it makes `logs` harder to scan.
 
+14. **Large Codex adapter prompts should not be passed as argv.**
+    Follow-up socket validation exposed daemon-managed `codex exec` runs that
+    hung or exited without a last-message sidecar while the full manager prompt
+    appeared in the process argument list. Raw `codex exec` worked, including
+    stdin prompt mode. Status: partially addressed after validation. Codex one-shot adapter
+    paths now invoke `codex exec -` and send the assembled agent prompt through
+    stdin, including daemon `/v1/dispatch` and event-dispatched workers. Raw
+    Codex replay with the captured agent-team stdin, add-dir, environment
+    config, and last-message path succeeded.
+
+15. **`agent-team`-supervised Codex still stalls after reading stdin.**
+    Direct `agent-team run ... AGENT_TEAM_RUNTIME=codex` and daemon-managed
+    variants were observed with the Codex child holding fd 0 on the generated
+    stdin temp file at EOF, no stdout/stderr output, and no last-message
+    sidecar. Replaying the exact stdin file and add-dir through raw `codex exec`
+    completed successfully. This suggests a supervision/process-launch nuance
+    remains outside the prompt encoding fix.
+
 ## Feature Notes
 
 - Channels are valid with leading `#`. The earlier report's concern that
@@ -158,8 +184,10 @@ and `tick` do not advance them.
    advance the same way `job advance` previews.
 3. Preserve post-mortem metadata/logs for job-owned ephemeral workers, and
    reconcile job status from daemon exit events.
-4. Ensure daemon-spawned Codex workers receive usable `AGENT_TEAM_*` environment
-   and can reach the mailbox/status mechanisms under the selected sandbox.
+4. Confirm the selected Codex sandbox allows daemon Unix socket connections
+   from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
 5. Tighten `job cleanup --merged` preconditions for jobs still marked running.
 6. Exclude `__pycache__` from the bundled template.
 7. Make empty JSON maps consistently encode as `{}`.
+8. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+   raw replay with the same stdin/add-dir succeeds.
