@@ -41,6 +41,7 @@ func newAttachCmd() *cobra.Command {
 		last      int
 		noFollow  bool
 		statuses  []string
+		runtimes  []string
 		agents    []string
 		phases    []string
 		staleOnly bool
@@ -66,7 +67,7 @@ func newAttachCmd() *cobra.Command {
 			"`agent-team logs` is the preferred explicit command for log streaming.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logMode := attachUsesLogMode(args, all, latest, last, statuses, agents, phases, staleOnly, unhealthy, noFollow, cmd.Flags().Changed("tail"), since, grep)
+			logMode := attachUsesLogMode(args, all, latest, last, statuses, runtimes, agents, phases, staleOnly, unhealthy, noFollow, cmd.Flags().Changed("tail"), since, grep)
 			if logMode {
 				if dryRun {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --dry-run requires an instance name and cannot be combined with log-follow attach options.")
@@ -77,19 +78,20 @@ func newAttachCmd() *cobra.Command {
 					return exitErr(2)
 				}
 				return runAttachLogMode(cmd, target, args, attachLogOptions{
-					All:           all,
-					Latest:        latest,
-					Limit:         last,
-					NoFollow:      noFollow,
-					StatusFilters: statuses,
-					AgentFilters:  agents,
-					PhaseFilters:  phases,
-					Stale:         staleOnly,
-					Unhealthy:     unhealthy,
-					Tail:          tail,
-					TailSet:       cmd.Flags().Changed("tail"),
-					Since:         since,
-					Grep:          grep,
+					All:            all,
+					Latest:         latest,
+					Limit:          last,
+					NoFollow:       noFollow,
+					StatusFilters:  statuses,
+					RuntimeFilters: runtimes,
+					AgentFilters:   agents,
+					PhaseFilters:   phases,
+					Stale:          staleOnly,
+					Unhealthy:      unhealthy,
+					Tail:           tail,
+					TailSet:        cmd.Flags().Changed("tail"),
+					Since:          since,
+					Grep:           grep,
 				})
 			}
 			if len(args) != 1 {
@@ -107,6 +109,7 @@ func newAttachCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Log compatibility mode: attach to the N most recently started instances (0 = disabled).")
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Log compatibility mode: print the selected log tail and exit instead of following.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Log compatibility mode: only attach to instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Log compatibility mode: only attach to instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Log compatibility mode: only attach to instances whose status.toml is stale.")
@@ -118,27 +121,29 @@ func newAttachCmd() *cobra.Command {
 }
 
 type attachLogOptions struct {
-	All           bool
-	Latest        bool
-	Limit         int
-	NoFollow      bool
-	StatusFilters []string
-	AgentFilters  []string
-	PhaseFilters  []string
-	Stale         bool
-	Unhealthy     bool
-	Tail          string
-	TailSet       bool
-	Since         string
-	Grep          string
+	All            bool
+	Latest         bool
+	Limit          int
+	NoFollow       bool
+	StatusFilters  []string
+	RuntimeFilters []string
+	AgentFilters   []string
+	PhaseFilters   []string
+	Stale          bool
+	Unhealthy      bool
+	Tail           string
+	TailSet        bool
+	Since          string
+	Grep           string
 }
 
-func attachUsesLogMode(args []string, all bool, latest bool, last int, statuses, agents, phases []string, stale, unhealthy, noFollow, tailSet bool, since, grep string) bool {
+func attachUsesLogMode(args []string, all bool, latest bool, last int, statuses, runtimes, agents, phases []string, stale, unhealthy, noFollow, tailSet bool, since, grep string) bool {
 	return len(args) == 0 ||
 		all ||
 		latest ||
 		last > 0 ||
 		len(statuses) > 0 ||
+		len(runtimes) > 0 ||
 		len(agents) > 0 ||
 		len(phases) > 0 ||
 		stale ||
@@ -154,7 +159,7 @@ func runAttachLogMode(cmd *cobra.Command, target string, args []string, opts att
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --last must be >= 0.")
 		return exitErr(2)
 	}
-	hasFilters := len(opts.StatusFilters) > 0 || len(opts.AgentFilters) > 0 || len(opts.PhaseFilters) > 0 || opts.Stale || opts.Unhealthy
+	hasFilters := len(opts.StatusFilters) > 0 || len(opts.RuntimeFilters) > 0 || len(opts.AgentFilters) > 0 || len(opts.PhaseFilters) > 0 || opts.Stale || opts.Unhealthy
 	if opts.All && len(args) > 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --all cannot be combined with an instance name.")
 		return exitErr(2)
@@ -168,7 +173,7 @@ func runAttachLogMode(cmd *cobra.Command, target string, args []string, opts att
 		return exitErr(2)
 	}
 	if hasFilters && len(args) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name.")
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name.")
 		return exitErr(2)
 	}
 	if opts.Latest && opts.Limit > 0 {
@@ -184,13 +189,13 @@ func runAttachLogMode(cmd *cobra.Command, target string, args []string, opts att
 		return exitErr(2)
 	}
 	if hasFilters {
-		if _, err := newLogListOptionsWithUnhealthy(opts.StatusFilters, opts.AgentFilters, opts.PhaseFilters, opts.Stale, opts.Unhealthy); err != nil {
+		if _, err := newLogListOptionsWithRuntimeAndUnhealthy(opts.StatusFilters, opts.RuntimeFilters, opts.AgentFilters, opts.PhaseFilters, opts.Stale, opts.Unhealthy); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
 			return exitErr(2)
 		}
 	}
 	if !opts.Latest && opts.Limit == 0 && !opts.All && !hasFilters && len(args) != 1 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: instance is required unless --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy is set.")
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: instance is required unless --all, --latest, --last, --status, --runtime, --agent, --phase, --stale, or --unhealthy is set.")
 		return exitErr(2)
 	}
 	tailLines, err := parseLogTail(opts.Tail)
@@ -217,19 +222,20 @@ func runAttachLogMode(cmd *cobra.Command, target string, args []string, opts att
 		return exitErr(2)
 	}
 	return runLogs(cmd, target, args, logsOptions{
-		All:           opts.All,
-		Follow:        !opts.NoFollow,
-		Latest:        opts.Latest,
-		Limit:         opts.Limit,
-		StatusFilters: opts.StatusFilters,
-		AgentFilters:  opts.AgentFilters,
-		PhaseFilters:  opts.PhaseFilters,
-		Stale:         opts.Stale,
-		Unhealthy:     opts.Unhealthy,
-		Tail:          tailLines,
-		TailSet:       opts.TailSet,
-		Since:         sinceCutoff,
-		Grep:          grepPattern,
+		All:            opts.All,
+		Follow:         !opts.NoFollow,
+		Latest:         opts.Latest,
+		Limit:          opts.Limit,
+		StatusFilters:  opts.StatusFilters,
+		RuntimeFilters: opts.RuntimeFilters,
+		AgentFilters:   opts.AgentFilters,
+		PhaseFilters:   opts.PhaseFilters,
+		Stale:          opts.Stale,
+		Unhealthy:      opts.Unhealthy,
+		Tail:           tailLines,
+		TailSet:        opts.TailSet,
+		Since:          sinceCutoff,
+		Grep:           grepPattern,
 	})
 }
 

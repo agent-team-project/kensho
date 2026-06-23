@@ -92,21 +92,22 @@ agent-team attach <instance> [flags]
 Flags:
 
 ```text
-      --agent strings    Log compatibility mode: only attach to instances for this agent. Can repeat or comma-separate.
-  -a, --all              Log compatibility mode: attach to every daemon-known instance, prefixed by instance name.
-      --dry-run          Preview the interactive handoff without stopping or resuming the daemon child.
-      --grep string      Log compatibility mode with --no-follow: only print log lines matching this regular expression.
-  -n, --last int         Log compatibility mode: attach to the N most recently started instances (0 = disabled).
-      --latest           Log compatibility mode: attach to the most recently started instance.
-      --no-follow        Log compatibility mode: print the selected log tail and exit instead of following.
-      --no-resume        Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).
-      --phase strings    Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --since string     Log compatibility mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
-      --stale            Log compatibility mode: only attach to instances whose status.toml is stale.
-      --status strings   Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --tail string      Log compatibility mode: show only the last N lines before following (0 or all = all). (default "50")
-      --target string    Repo root. (default "<repo>")
-      --unhealthy        Log compatibility mode: only attach to crashed or stale instances.
+      --agent strings     Log compatibility mode: only attach to instances for this agent. Can repeat or comma-separate.
+  -a, --all               Log compatibility mode: attach to every daemon-known instance, prefixed by instance name.
+      --dry-run           Preview the interactive handoff without stopping or resuming the daemon child.
+      --grep string       Log compatibility mode with --no-follow: only print log lines matching this regular expression.
+  -n, --last int          Log compatibility mode: attach to the N most recently started instances (0 = disabled).
+      --latest            Log compatibility mode: attach to the most recently started instance.
+      --no-follow         Log compatibility mode: print the selected log tail and exit instead of following.
+      --no-resume         Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).
+      --phase strings     Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --runtime strings   Log compatibility mode: only attach to instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --since string      Log compatibility mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
+      --stale             Log compatibility mode: only attach to instances whose status.toml is stale.
+      --status strings    Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --tail string       Log compatibility mode: show only the last N lines before following (0 or all = all). (default "50")
+      --target string     Repo root. (default "<repo>")
+      --unhealthy         Log compatibility mode: only attach to crashed or stale instances.
 ```
 
 Inherited Flags:
@@ -2319,25 +2320,26 @@ agent-team logs [<instance>] [flags]
 Flags:
 
 ```text
-      --agent strings    Only show logs for this agent. Can repeat or comma-separate.
-  -a, --all              Show logs for every daemon-known instance, prefixed by instance name.
-      --daemon           Show the agent-teamd daemon log instead of instance logs.
-  -f, --follow           Tail the log; print new bytes as they appear.
-      --format string    With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
-      --grep string      Only print log lines matching this regular expression. One-shot reads only.
-      --json             Emit machine-readable JSON with --list.
-  -n, --last int         Show logs for the N most recently started instances after other filters (0 = all).
-      --last-message     Show the clean final Codex response sidecar instead of the raw runtime log.
-      --latest           Show logs for the most recently started instance after other filters.
-      --list             List daemon-known instance log streams instead of printing log content.
-      --no-prefix        Do not prefix lines when streaming multiple instance logs.
-      --phase strings    Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --since string     Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --stale            Only show logs for instances whose status.toml is stale.
-      --status strings   Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --tail string      Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --target string    Repo root. (default "<repo>")
-      --unhealthy        Only show logs for crashed or stale instances.
+      --agent strings     Only show logs for this agent. Can repeat or comma-separate.
+  -a, --all               Show logs for every daemon-known instance, prefixed by instance name.
+      --daemon            Show the agent-teamd daemon log instead of instance logs.
+  -f, --follow            Tail the log; print new bytes as they appear.
+      --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
+      --grep string       Only print log lines matching this regular expression. One-shot reads only.
+      --json              Emit machine-readable JSON with --list.
+  -n, --last int          Show logs for the N most recently started instances after other filters (0 = all).
+      --last-message      Show the clean final Codex response sidecar instead of the raw runtime log.
+      --latest            Show logs for the most recently started instance after other filters.
+      --list              List daemon-known instance log streams instead of printing log content.
+      --no-prefix         Do not prefix lines when streaming multiple instance logs.
+      --phase strings     Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --runtime strings   Only show logs for this runtime: claude or codex. Can repeat or comma-separate.
+      --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --stale             Only show logs for instances whose status.toml is stale.
+      --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
+      --target string     Repo root. (default "<repo>")
+      --unhealthy         Only show logs for crashed or stale instances.
 ```
 
 Inherited Flags:

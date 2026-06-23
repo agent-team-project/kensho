@@ -45,6 +45,7 @@ func newLogsCmd() *cobra.Command {
 		jsonOut   bool
 		noPrefix  bool
 		statuses  []string
+		runtimes  []string
 		agents    []string
 		phases    []string
 		staleOnly bool
@@ -89,25 +90,26 @@ func newLogsCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runLogs(cmd, target, args, logsOptions{
-				All:           all,
-				Daemon:        daemonLog,
-				Follow:        follow,
-				Latest:        latest,
-				Limit:         last,
-				LastMessage:   lastMsg,
-				List:          list,
-				JSON:          jsonOut,
-				NoPrefix:      noPrefix,
-				StatusFilters: statuses,
-				AgentFilters:  agents,
-				PhaseFilters:  phases,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthy,
-				Tail:          tailLines,
-				TailSet:       cmd.Flags().Changed("tail"),
-				Since:         sinceCutoff,
-				Grep:          grepPattern,
-				Format:        formatTemplate,
+				All:            all,
+				Daemon:         daemonLog,
+				Follow:         follow,
+				Latest:         latest,
+				Limit:          last,
+				LastMessage:    lastMsg,
+				List:           list,
+				JSON:           jsonOut,
+				NoPrefix:       noPrefix,
+				StatusFilters:  statuses,
+				RuntimeFilters: runtimes,
+				AgentFilters:   agents,
+				PhaseFilters:   phases,
+				Stale:          staleOnly,
+				Unhealthy:      unhealthy,
+				Tail:           tailLines,
+				TailSet:        cmd.Flags().Changed("tail"),
+				Since:          sinceCutoff,
+				Grep:           grepPattern,
+				Format:         formatTemplate,
 			})
 		},
 	}
@@ -122,6 +124,7 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with --list.")
 	cmd.Flags().BoolVar(&noPrefix, "no-prefix", false, "Do not prefix lines when streaming multiple instance logs.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show logs for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for instances whose status.toml is stale.")
@@ -133,149 +136,27 @@ func newLogsCmd() *cobra.Command {
 	return cmd
 }
 
-func newLogAttachCmd() *cobra.Command {
-	var (
-		target    string
-		all       bool
-		latest    bool
-		last      int
-		noFollow  bool
-		statuses  []string
-		agents    []string
-		phases    []string
-		staleOnly bool
-		unhealthy bool
-		tail      string
-		since     string
-		grep      string
-	)
-	cwd, _ := os.Getwd()
-	cmd := &cobra.Command{
-		Use:   "attach [<instance>]",
-		Short: "Follow a daemon-managed instance's captured output.",
-		Long: "Attach to an instance's daemon-captured stdout/stderr stream. " +
-			"This is a focused shortcut for following selected `agent-team logs` streams.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if last < 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --last must be >= 0.")
-				return exitErr(2)
-			}
-			hasFilters := len(statuses) > 0 || len(agents) > 0 || len(phases) > 0 || staleOnly || unhealthy
-			if all && len(args) > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --all cannot be combined with an instance name.")
-				return exitErr(2)
-			}
-			if latest && len(args) > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --latest cannot be combined with an instance name.")
-				return exitErr(2)
-			}
-			if last > 0 && len(args) > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --last cannot be combined with an instance name.")
-				return exitErr(2)
-			}
-			if hasFilters && len(args) > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name.")
-				return exitErr(2)
-			}
-			if latest && last > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: choose one of --latest or --last.")
-				return exitErr(2)
-			}
-			if latest && all {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --latest cannot be combined with --all.")
-				return exitErr(2)
-			}
-			if last > 0 && all {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --last cannot be combined with --all.")
-				return exitErr(2)
-			}
-			if hasFilters {
-				if _, err := newLogListOptionsWithUnhealthy(statuses, agents, phases, staleOnly, unhealthy); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
-					return exitErr(2)
-				}
-			}
-			if !latest && last == 0 && !all && !hasFilters && len(args) != 1 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: instance is required unless --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy is set.")
-				return exitErr(2)
-			}
-			tailLines, err := parseLogTail(tail)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
-				return exitErr(2)
-			}
-			sinceCutoff, err := parseLogSince(since, time.Now)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
-				return exitErr(2)
-			}
-			grepPattern, err := parseLogGrep(grep)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
-				return exitErr(2)
-			}
-			if sinceCutoff != nil && !noFollow {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --since requires --no-follow because captured logs are not timestamped.")
-				return exitErr(2)
-			}
-			if grepPattern != nil && !noFollow {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: --grep requires --no-follow.")
-				return exitErr(2)
-			}
-			return runLogs(cmd, target, args, logsOptions{
-				All:           all,
-				Follow:        !noFollow,
-				Latest:        latest,
-				Limit:         last,
-				StatusFilters: statuses,
-				AgentFilters:  agents,
-				PhaseFilters:  phases,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthy,
-				Tail:          tailLines,
-				TailSet:       cmd.Flags().Changed("tail"),
-				Since:         sinceCutoff,
-				Grep:          grepPattern,
-			})
-		},
-	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
-	cmd.Flags().BoolVarP(&all, "all", "a", false, "Attach to every daemon-known instance, prefixed by instance name.")
-	cmd.Flags().BoolVar(&latest, "latest", false, "Attach to the most recently started instance.")
-	cmd.Flags().IntVarP(&last, "last", "n", 0, "Attach to the N most recently started instances (0 = disabled).")
-	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Print the selected log tail and exit instead of following.")
-	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only attach to instances for this agent. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only attach to instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only attach to crashed or stale instances.")
-	cmd.Flags().StringVar(&tail, "tail", "50", "Show only the last N lines before following (0 or all = all).")
-	cmd.Flags().StringVar(&since, "since", "", "With --no-follow, only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.")
-	cmd.Flags().StringVar(&grep, "grep", "", "With --no-follow, only print log lines matching this regular expression.")
-	return cmd
-}
-
 type logsOptions struct {
-	All           bool
-	Daemon        bool
-	Follow        bool
-	Latest        bool
-	Limit         int
-	LastMessage   bool
-	List          bool
-	JSON          bool
-	NoPrefix      bool
-	StatusFilters []string
-	AgentFilters  []string
-	PhaseFilters  []string
-	Stale         bool
-	Unhealthy     bool
-	Tail          int
-	TailSet       bool
-	Since         *time.Time
-	Grep          *regexp.Regexp
-	Format        *template.Template
+	All            bool
+	Daemon         bool
+	Follow         bool
+	Latest         bool
+	Limit          int
+	LastMessage    bool
+	List           bool
+	JSON           bool
+	NoPrefix       bool
+	StatusFilters  []string
+	RuntimeFilters []string
+	AgentFilters   []string
+	PhaseFilters   []string
+	Stale          bool
+	Unhealthy      bool
+	Tail           int
+	TailSet        bool
+	Since          *time.Time
+	Grep           *regexp.Regexp
+	Format         *template.Template
 }
 
 func parseLogTail(raw string) (int, error) {
@@ -423,23 +304,23 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 			return exitErr(2)
 		}
 	}
-	hasFilters := len(opts.StatusFilters) > 0 || len(opts.AgentFilters) > 0 || len(opts.PhaseFilters) > 0 || opts.Stale || opts.Unhealthy
+	hasFilters := len(opts.StatusFilters) > 0 || len(opts.RuntimeFilters) > 0 || len(opts.AgentFilters) > 0 || len(opts.PhaseFilters) > 0 || opts.Stale || opts.Unhealthy
 	if opts.NoPrefix && !opts.All && !hasFilters && !opts.Latest && opts.Limit == 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --no-prefix requires --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy.")
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --no-prefix requires --all, --latest, --last, --status, --runtime, --agent, --phase, --stale, or --unhealthy.")
 		return exitErr(2)
 	}
 	if hasFilters && len(args) > 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name.")
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name.")
 		return exitErr(2)
 	}
 	if hasFilters && opts.Daemon {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --daemon cannot be combined with --status, --agent, --phase, --stale, or --unhealthy.")
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --daemon cannot be combined with --status, --runtime, --agent, --phase, --stale, or --unhealthy.")
 		return exitErr(2)
 	}
 	listOpts := logListOptions{}
 	if opts.List || hasFilters || opts.Limit > 0 {
 		var err error
-		listOpts, err = newLogListOptionsWithUnhealthy(opts.StatusFilters, opts.AgentFilters, opts.PhaseFilters, opts.Stale, opts.Unhealthy)
+		listOpts, err = newLogListOptionsWithRuntimeAndUnhealthy(opts.StatusFilters, opts.RuntimeFilters, opts.AgentFilters, opts.PhaseFilters, opts.Stale, opts.Unhealthy)
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: %v\n", err)
 			return exitErr(2)
@@ -540,17 +421,19 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 }
 
 type logListRow struct {
-	Instance   string `json:"instance"`
-	Agent      string `json:"agent,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Phase      string `json:"phase,omitempty"`
-	Stale      bool   `json:"stale,omitempty"`
-	PID        int    `json:"pid,omitempty"`
-	StartedAt  string `json:"started_at,omitempty"`
-	LogPath    string `json:"log_path"`
-	Exists     bool   `json:"exists"`
-	SizeBytes  int64  `json:"size_bytes,omitempty"`
-	ModifiedAt string `json:"modified_at,omitempty"`
+	Instance      string `json:"instance"`
+	Agent         string `json:"agent,omitempty"`
+	Runtime       string `json:"runtime,omitempty"`
+	RuntimeBinary string `json:"runtime_binary,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Phase         string `json:"phase,omitempty"`
+	Stale         bool   `json:"stale,omitempty"`
+	PID           int    `json:"pid,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	LogPath       string `json:"log_path"`
+	Exists        bool   `json:"exists"`
+	SizeBytes     int64  `json:"size_bytes,omitempty"`
+	ModifiedAt    string `json:"modified_at,omitempty"`
 
 	path       string
 	startedAt  time.Time
@@ -559,6 +442,7 @@ type logListRow struct {
 
 type logListOptions struct {
 	statuses  map[string]bool
+	runtimes  map[string]bool
 	agents    map[string]bool
 	phases    map[string]bool
 	stale     bool
@@ -566,10 +450,14 @@ type logListOptions struct {
 }
 
 func newLogListOptions(statusFilters, agentFilters, phaseFilters []string, staleOnly bool) (logListOptions, error) {
-	return newLogListOptionsWithUnhealthy(statusFilters, agentFilters, phaseFilters, staleOnly, false)
+	return newLogListOptionsWithRuntimeAndUnhealthy(statusFilters, nil, agentFilters, phaseFilters, staleOnly, false)
 }
 
 func newLogListOptionsWithUnhealthy(statusFilters, agentFilters, phaseFilters []string, staleOnly, unhealthyOnly bool) (logListOptions, error) {
+	return newLogListOptionsWithRuntimeAndUnhealthy(statusFilters, nil, agentFilters, phaseFilters, staleOnly, unhealthyOnly)
+}
+
+func newLogListOptionsWithRuntimeAndUnhealthy(statusFilters, runtimeFilters, agentFilters, phaseFilters []string, staleOnly, unhealthyOnly bool) (logListOptions, error) {
 	opts := logListOptions{stale: staleOnly, unhealthy: unhealthyOnly}
 	if len(statusFilters) > 0 {
 		opts.statuses = map[string]bool{}
@@ -587,6 +475,22 @@ func newLogListOptionsWithUnhealthy(statusFilters, agentFilters, phaseFilters []
 		}
 		if len(opts.statuses) == 0 {
 			return opts, fmt.Errorf("--status requires at least one non-empty status")
+		}
+	}
+	if len(runtimeFilters) > 0 {
+		opts.runtimes = map[string]bool{}
+		for _, raw := range splitFilterValues(runtimeFilters) {
+			if strings.TrimSpace(raw) == "" {
+				continue
+			}
+			kind, err := runtimebin.ParseKind(raw)
+			if err != nil {
+				return opts, fmt.Errorf("unknown --runtime %q (want claude or codex)", raw)
+			}
+			opts.runtimes[string(kind)] = true
+		}
+		if len(opts.runtimes) == 0 {
+			return opts, fmt.Errorf("--runtime requires at least one non-empty runtime")
 		}
 	}
 	if len(agentFilters) > 0 {
@@ -896,15 +800,17 @@ func logListRowsFromMetadata(teamDir string, metas []*daemon.Metadata) ([]logLis
 	for _, meta := range metas {
 		logPath := logPathForMetadata(teamDir, meta)
 		row := logListRow{
-			Instance:  meta.Instance,
-			Agent:     meta.Agent,
-			Status:    metadataStatusKey(meta),
-			Phase:     statsPhaseKey(phaseByInstance[meta.Instance]),
-			Stale:     staleInstances[meta.Instance],
-			PID:       meta.PID,
-			LogPath:   displayPathFromTeamDir(teamDir, logPath),
-			path:      logPath,
-			startedAt: meta.StartedAt,
+			Instance:      meta.Instance,
+			Agent:         meta.Agent,
+			Runtime:       meta.Runtime,
+			RuntimeBinary: meta.RuntimeBinary,
+			Status:        metadataStatusKey(meta),
+			Phase:         statsPhaseKey(phaseByInstance[meta.Instance]),
+			Stale:         staleInstances[meta.Instance],
+			PID:           meta.PID,
+			LogPath:       displayPathFromTeamDir(teamDir, logPath),
+			path:          logPath,
+			startedAt:     meta.StartedAt,
 		}
 		if !meta.StartedAt.IsZero() {
 			row.StartedAt = meta.StartedAt.UTC().Format(time.RFC3339)
@@ -976,6 +882,9 @@ func filterLogListRows(rows []logListRow, opts logListOptions) []logListRow {
 		if len(opts.statuses) > 0 && !opts.statuses[status] {
 			continue
 		}
+		if len(opts.runtimes) > 0 && !opts.runtimes[logRowRuntimeKey(row)] {
+			continue
+		}
 		if len(opts.agents) > 0 && !opts.agents[row.Agent] {
 			continue
 		}
@@ -994,7 +903,15 @@ func filterLogListRows(rows []logListRow, opts logListOptions) []logListRow {
 }
 
 func logListOptionsHasFilters(opts logListOptions) bool {
-	return len(opts.statuses) > 0 || len(opts.agents) > 0 || len(opts.phases) > 0 || opts.stale || opts.unhealthy
+	return len(opts.statuses) > 0 || len(opts.runtimes) > 0 || len(opts.agents) > 0 || len(opts.phases) > 0 || opts.stale || opts.unhealthy
+}
+
+func logRowRuntimeKey(row logListRow) string {
+	runtime := strings.ToLower(strings.TrimSpace(row.Runtime))
+	if runtime == "" {
+		return "unknown"
+	}
+	return runtime
 }
 
 func logRowPhaseKey(row logListRow) string {

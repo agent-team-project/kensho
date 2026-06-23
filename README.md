@@ -222,7 +222,7 @@ agent-team stats [<instance>...] [--all] [--latest | --last N] [-w] [--no-clear]
                                                 # show/watch CPU and memory usage, or summarize resources and phases
 agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--format '{{.Instance}} {{if .Runtime}}{{.Runtime.Lifecycle}}{{end}}'] [--json]
                                                 # show runtime metadata, state, status, and topology; reads persisted runtime metadata if the daemon is down
-agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--no-prefix] [--last-message] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
+agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--unhealthy] [--no-prefix] [--last-message] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
                                                 # list/show/follow instance or daemon logs; --last-message shows the clean Codex final response sidecar when available
 agent-team attach <instance> [--dry-run] [--no-resume]
                                                 # preview or run an interactive managed-resume handoff; daemon resumes supervision afterward

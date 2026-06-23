@@ -544,6 +544,38 @@ func TestAttachFiltersNoFollowUseLocalMatchingLogsWhenDaemonStopped(t *testing.T
 	}
 }
 
+func TestAttachRuntimeFilterNoFollowUsesLocalMatchingLogsWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "codex-worker", Agent: "worker", Runtime: "codex", Status: daemon.StatusStopped},
+		{Instance: "claude-manager", Agent: "manager", Runtime: "claude", Status: daemon.StatusStopped},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+		writeChildLogForTest(t, root, meta.Instance, meta.Instance+" old\n"+meta.Instance+" last\n")
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"attach", "--runtime", "codex", "--no-follow", "--tail", "all", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("attach --runtime local: %v\nstderr=%s", err, stderr.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "codex-worker last") {
+		t.Fatalf("attach runtime output = %q, want codex worker log", got)
+	}
+	if strings.Contains(got, "claude-manager") {
+		t.Fatalf("attach runtime output = %q, want only codex log", got)
+	}
+}
+
 func TestAttachPhaseFilterNoFollowUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -1091,15 +1123,17 @@ func TestLogListRowsNormalizeMissingStatus(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	meta := &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
+		Instance:      "manager",
+		Agent:         "manager",
+		Runtime:       "codex",
+		RuntimeBinary: "codex-dev",
 	}
 
 	rows, err := logListRowsFromMetadata(teamDir, []*daemon.Metadata{meta})
 	if err != nil {
 		t.Fatalf("logListRowsFromMetadata: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Status != "unknown" {
+	if len(rows) != 1 || rows[0].Status != "unknown" || rows[0].Runtime != "codex" || rows[0].RuntimeBinary != "codex-dev" {
 		t.Fatalf("rows = %+v, want unknown status", rows)
 	}
 
@@ -1109,6 +1143,9 @@ func TestLogListRowsNormalizeMissingStatus(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"status":"unknown"`) {
 		t.Fatalf("json rows = %s, want explicit unknown status", body)
+	}
+	if !strings.Contains(string(body), `"runtime":"codex"`) || !strings.Contains(string(body), `"runtime_binary":"codex-dev"`) {
+		t.Fatalf("json rows = %s, want runtime metadata", body)
 	}
 
 	tmpl, err := parseLogListFormat(`{{.Instance}}:{{.Status}}`)
@@ -1408,11 +1445,14 @@ func TestLogListOptionsValidateStatus(t *testing.T) {
 	if _, err := newLogListOptions([]string{"bogus"}, nil, nil, false); err == nil || !strings.Contains(err.Error(), "unknown --status") {
 		t.Fatalf("expected unknown status error, got %v", err)
 	}
-	opts, err := newLogListOptions([]string{"running, stopped"}, []string{"manager,worker"}, []string{"blocked,unknown"}, true)
+	if _, err := newLogListOptionsWithRuntimeAndUnhealthy(nil, []string{"llama"}, nil, nil, false, false); err == nil || !strings.Contains(err.Error(), "unknown --runtime") {
+		t.Fatalf("expected unknown runtime error, got %v", err)
+	}
+	opts, err := newLogListOptionsWithRuntimeAndUnhealthy([]string{"running, stopped"}, []string{"codex"}, []string{"manager,worker"}, []string{"blocked,unknown"}, true, false)
 	if err != nil {
 		t.Fatalf("newLogListOptions: %v", err)
 	}
-	if !opts.statuses["running"] || !opts.statuses["stopped"] || !opts.agents["manager"] || !opts.agents["worker"] || !opts.phases["blocked"] || !opts.phases["unknown"] {
+	if !opts.statuses["running"] || !opts.statuses["stopped"] || !opts.runtimes["codex"] || !opts.agents["manager"] || !opts.agents["worker"] || !opts.phases["blocked"] || !opts.phases["unknown"] {
 		t.Fatalf("opts = %+v, want running/stopped manager/worker filters", opts)
 	}
 	if !opts.stale || !logListOptionsHasFilters(opts) {
@@ -1431,17 +1471,19 @@ func TestLogListOptionsRejectEmptyFilters(t *testing.T) {
 	cases := []struct {
 		name     string
 		statuses []string
+		runtimes []string
 		agents   []string
 		phases   []string
 		want     string
 	}{
 		{name: "status", statuses: []string{"  "}, want: "non-empty status"},
+		{name: "runtime", runtimes: []string{"  "}, want: "non-empty runtime"},
 		{name: "agent", agents: []string{"  "}, want: "non-empty agent"},
 		{name: "phase", phases: []string{"  "}, want: "non-empty phase"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := newLogListOptions(tc.statuses, tc.agents, tc.phases, false)
+			_, err := newLogListOptionsWithRuntimeAndUnhealthy(tc.statuses, tc.runtimes, tc.agents, tc.phases, false, false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
@@ -1451,11 +1493,11 @@ func TestLogListOptionsRejectEmptyFilters(t *testing.T) {
 
 func TestFilterLogListRows(t *testing.T) {
 	rows := []logListRow{
-		{Instance: "manager", Agent: "manager", Status: "running", Phase: "blocked"},
-		{Instance: "worker-1", Agent: "worker", Status: "stopped", Phase: "idle"},
-		{Instance: "unknown", Agent: "manager"},
+		{Instance: "manager", Agent: "manager", Runtime: "codex", Status: "running", Phase: "blocked"},
+		{Instance: "worker-1", Agent: "worker", Runtime: "claude", Status: "stopped", Phase: "idle"},
+		{Instance: "unknown", Agent: "manager", Runtime: "codex"},
 	}
-	opts, err := newLogListOptions([]string{"running, unknown"}, []string{"manager"}, []string{"blocked,unknown"}, false)
+	opts, err := newLogListOptionsWithRuntimeAndUnhealthy([]string{"running, unknown"}, []string{"codex"}, []string{"manager"}, []string{"blocked,unknown"}, false, false)
 	if err != nil {
 		t.Fatalf("newLogListOptions: %v", err)
 	}
@@ -1881,7 +1923,7 @@ func TestLogsNoPrefixRequiresMultiInstanceSelection(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}
-	if !strings.Contains(stderr.String(), "--no-prefix requires --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy") {
+	if !strings.Contains(stderr.String(), "--no-prefix requires --all, --latest, --last, --status, --runtime, --agent, --phase, --stale, or --unhealthy") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -1891,19 +1933,21 @@ func TestAttachLatestValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"attach"}, "instance is required unless --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy is set"},
+		{[]string{"attach"}, "instance is required unless --all, --latest, --last, --status, --runtime, --agent, --phase, --stale, or --unhealthy is set"},
 		{[]string{"attach", "manager", "--all"}, "--all cannot be combined with an instance name"},
 		{[]string{"attach", "manager", "--latest"}, "--latest cannot be combined with an instance name"},
 		{[]string{"attach", "manager", "--last", "2"}, "--last cannot be combined with an instance name"},
-		{[]string{"attach", "manager", "--agent", "worker"}, "--status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
-		{[]string{"attach", "manager", "--phase", "blocked"}, "--status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
-		{[]string{"attach", "manager", "--stale"}, "--status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
-		{[]string{"attach", "manager", "--unhealthy"}, "--status, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
+		{[]string{"attach", "manager", "--runtime", "codex"}, "--status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
+		{[]string{"attach", "manager", "--agent", "worker"}, "--status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
+		{[]string{"attach", "manager", "--phase", "blocked"}, "--status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
+		{[]string{"attach", "manager", "--stale"}, "--status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
+		{[]string{"attach", "manager", "--unhealthy"}, "--status, --runtime, --agent, --phase, --stale, and --unhealthy cannot be combined with an instance name"},
 		{[]string{"attach", "--last", "-1"}, "--last must be >= 0"},
 		{[]string{"attach", "--latest", "--last", "2"}, "choose one of --latest or --last"},
 		{[]string{"attach", "--latest", "--all"}, "--latest cannot be combined with --all"},
 		{[]string{"attach", "--last", "2", "--all"}, "--last cannot be combined with --all"},
 		{[]string{"attach", "--status", "bogus"}, "unknown --status"},
+		{[]string{"attach", "--runtime", "llama"}, "unknown --runtime"},
 		{[]string{"attach", "--phase", "reviewing"}, "unknown --phase"},
 	} {
 		cmd := NewRootCmd()
