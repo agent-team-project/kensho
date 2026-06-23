@@ -194,7 +194,7 @@ agent-team daemon logs [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
 agent-team runtime [--format '{{.Runtime}} {{.Available}}'] [--json]
                                   # selected LLM runtime profile, binary path, and capability flags
 
-agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
+agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--unhealthy]
                                   # daemon health + instance snapshot; JSON watch emits one object per refresh
 agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --last N] [--format '{{.Healthy}} {{.Summary.Running}}'] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy] [--strict-topology] [--json]
                                   # scriptable fleet health check; exits 1 when unhealthy in one-shot mode

@@ -3687,6 +3687,7 @@ Flags:
       --phase strings          Only show work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   With --summary, include desired-state action counts from instances.toml and daemon metadata.
       --resources              With --summary, include aggregate CPU, memory, and RSS totals.
+      --runtime strings        Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
       --since string           With --events, only include lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale                  Only show instances whose status.toml is stale.
       --status strings         Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.

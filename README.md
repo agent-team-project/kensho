@@ -190,7 +190,7 @@ agent-team overview [-w] [--no-clear] [--interval 2s] [--schedule-limit N] [--fo
                                                 # show a read-only operator overview with health, topology, jobs, queue, pipelines, schedules, and action hints
 agent-team next [-w] [--no-clear] [--interval 2s] [--team delivery] [--limit N] [--schedule-limit N] [--format '{{.State}}'] [--json]
                                                 # print the recommended next operator commands from the current overview
-agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]
+agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--unhealthy]
                                                 # show/watch daemon health and current instance snapshot
 agent-team daemon start [--detach=false] [--ready-timeout 3s] [--format '{{.Action}} {{.PID}}'] [--json]
                                                 # boot agent-teamd; detached by default, foreground with --detach=false

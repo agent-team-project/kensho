@@ -3116,6 +3116,37 @@ description = "waiting"
 	}
 }
 
+func TestStatusRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "codex-worker", Agent: "worker", Runtime: string(runtimebin.KindCodex), RuntimeBinary: "codex-dev", Status: daemon.StatusRunning, PID: 321},
+		{Instance: "claude-manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), RuntimeBinary: "claude-code", Status: daemon.StatusRunning, PID: 654},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"status", "--runtime", "codex", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --runtime --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var body statusJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode status json: %v\nbody=%s", err, out.String())
+	}
+	if len(body.Instances) != 1 || body.Instances[0].Instance != "codex-worker" || body.Instances[0].Runtime != "codex" || body.Instances[0].RuntimeBinary != "codex-dev" {
+		t.Fatalf("instances = %+v, want only Codex worker with runtime metadata", body.Instances)
+	}
+}
+
 func TestStatusUnhealthyJSONShowsCrashedAndStaleRows(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -3461,6 +3492,21 @@ func TestStatusRejectsUnknownFilter(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unknown --status") {
 		t.Fatalf("stderr = %q, want status validation", stderr.String())
+	}
+}
+
+func TestStatusRejectsUnknownRuntime(t *testing.T) {
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"status", "--runtime", "llama"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected runtime filter validation error")
+	}
+	if !strings.Contains(stderr.String(), "unknown --runtime") {
+		t.Fatalf("stderr = %q, want runtime validation", stderr.String())
 	}
 }
 
