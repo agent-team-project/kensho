@@ -185,6 +185,36 @@ func TestDoctor_WarnsWhenRuntimeBinaryMissing(t *testing.T) {
 	}
 }
 
+func TestDoctorRuntimeFlagOverridesInvalidEnvRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "bad-env-runtime")
+	t.Setenv(runtimebin.EnvBinary, "bad-env-binary")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/usr/local/bin/codex", nil
+	})
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--runtime", "codex", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor --runtime codex should ignore invalid env runtime: %v\nstderr: %s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK {
+		t.Fatalf("doctor result = %+v, want ok", result)
+	}
+}
+
 func TestDoctorJSONReportsWarnings(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")

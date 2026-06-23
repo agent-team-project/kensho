@@ -277,7 +277,7 @@ agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--format '{{.Differs}}'] [--json]
                                                 # compare or apply clean three-way template changes; --dry-run previews apply actions
-agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--format '{{.OK}}'] [--json]
+agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--runtime codex] [--runtime-bin <path>] [--format '{{.OK}}'] [--json]
                                                 # validate layout, config, provenance, skill wiring, pipeline workflows, selected runtime, and daemon binary availability
 agent-team --version                            # print version
 

@@ -24,6 +24,8 @@ func newDoctorCmd() *cobra.Command {
 		strictTemplate bool
 		jsonOut        bool
 		format         string
+		runtimeKind    string
+		runtimeBinary  string
 	)
 	cwd, _ := os.Getwd()
 
@@ -43,7 +45,10 @@ func newDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team doctor: %v\n", err)
 				return exitErr(2)
 			}
-			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, jsonOut, tmpl)
+			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, jsonOut, tmpl, runtimeSelection{
+				Kind:   runtimeKind,
+				Binary: runtimeBinary,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
@@ -52,10 +57,12 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail when .template.lock no longer matches its resolved template ref.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to validate for this invocation. Overrides env and repo config.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate, jsonOut bool, tmpl *texttemplate.Template) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate, jsonOut bool, tmpl *texttemplate.Template, selection runtimeSelection) error {
 	target = effectiveRepoTarget(cmd, target)
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -80,10 +87,10 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		problems = append(problems, fmt.Sprintf("%s not found — run `agent-team init` first.", teamDir))
 		return reportDoctor(cmd, problems, warnings, jsonOut, tmpl)
 	}
-	if info, err := collectRuntimeInfoForTeam(teamDir); err != nil {
+	if info, err := collectRuntimeInfoForConfigWithSelection(filepath.Join(teamDir, "config.toml"), selection); err != nil {
 		problems = append(problems, err.Error())
 	} else if !info.Available {
-		runtimeHint := fmt.Sprintf("runtime binary %q for %s not found — set [runtime].binary in config.toml, set %s, or install the selected runtime.", info.Binary, info.Runtime, runtimebin.EnvBinary)
+		runtimeHint := fmt.Sprintf("runtime binary %q for %s not found — pass --runtime-bin, set [runtime].binary in config.toml, set %s, or install the selected runtime.", info.Binary, info.Runtime, runtimebin.EnvBinary)
 		if strictRuntime {
 			problems = append(problems, runtimeHint)
 		} else {

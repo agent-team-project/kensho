@@ -676,12 +676,14 @@ agent-team doctor [flags]
 Flags:
 
 ```text
-      --format string     Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
-      --json              Emit machine-readable JSON.
-      --strict-daemon     Fail when the companion agent-teamd binary is not discoverable.
-      --strict-runtime    Fail when the selected LLM runtime binary is not discoverable.
-      --strict-template   Fail when .template.lock no longer matches its resolved template ref.
-      --target string     Repo root. (default "<repo>")
+      --format string        Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
+      --json                 Emit machine-readable JSON.
+      --runtime string       Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary to validate for this invocation. Overrides env and repo config.
+      --strict-daemon        Fail when the companion agent-teamd binary is not discoverable.
+      --strict-runtime       Fail when the selected LLM runtime binary is not discoverable.
+      --strict-template      Fail when .template.lock no longer matches its resolved template ref.
+      --target string        Repo root. (default "<repo>")
 ```
 
 Inherited Flags:
