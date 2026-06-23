@@ -358,10 +358,11 @@ type psSummaryJSON struct {
 	Stale     int            `json:"stale"`
 	HasStatus int            `json:"has_status"`
 	Phases    map[string]int `json:"phases"`
+	Runtimes  map[string]int `json:"runtimes"`
 }
 
 func psSummaryRows(rows []instanceRow) psSummaryJSON {
-	out := psSummaryJSON{Phases: map[string]int{}}
+	out := psSummaryJSON{Phases: map[string]int{}, Runtimes: map[string]int{}}
 	out.Total = len(rows)
 	for _, row := range rows {
 		switch psStatusKey(row) {
@@ -383,6 +384,7 @@ func psSummaryRows(rows []instanceRow) psSummaryJSON {
 			out.HasStatus++
 		}
 		out.Phases[psPhaseKey(row)]++
+		out.Runtimes[psRuntimeKey(row)]++
 	}
 	return out
 }
@@ -398,6 +400,15 @@ func renderPsSummary(w io.Writer, summary psSummaryJSON) error {
 	fmt.Fprintf(tw, "stale\t%d\n", summary.Stale)
 	fmt.Fprintf(tw, "has_status\t%d\n", summary.HasStatus)
 	fmt.Fprintf(tw, "total\t%d\n", summary.Total)
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "RUNTIME\tCOUNT")
+	for _, runtime := range sortedCountKeys(summary.Runtimes) {
+		fmt.Fprintf(tw, "%s\t%d\n", runtime, summary.Runtimes[runtime])
+	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}

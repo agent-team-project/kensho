@@ -719,10 +719,10 @@ func TestPsQuietPrintsMatchingInstanceNames(t *testing.T) {
 
 func TestPsSummaryRowsCountsLifecycleStates(t *testing.T) {
 	rows := []instanceRow{
-		{Lifecycle: "running", Phase: "blocked", Stale: true, HasFile: true},
-		{Lifecycle: "stopped", Phase: "idle"},
-		{Lifecycle: "exited", Phase: "done", HasFile: true},
-		{Lifecycle: "crashed", Phase: "implementing"},
+		{Lifecycle: "running", Runtime: "codex", Phase: "blocked", Stale: true, HasFile: true},
+		{Lifecycle: "stopped", Runtime: "claude", Phase: "idle"},
+		{Lifecycle: "exited", Runtime: "codex", Phase: "done", HasFile: true},
+		{Lifecycle: "crashed", Runtime: "claude", Phase: "implementing"},
 		{},
 	}
 	got := psSummaryRows(rows)
@@ -743,19 +743,29 @@ func TestPsSummaryRowsCountsLifecycleStates(t *testing.T) {
 			t.Fatalf("phase %s = %d, want %d in %+v", phase, got.Phases[phase], want, got.Phases)
 		}
 	}
+	for runtime, want := range map[string]int{
+		"codex":   2,
+		"claude":  2,
+		"unknown": 1,
+	} {
+		if got.Runtimes[runtime] != want {
+			t.Fatalf("runtime %s = %d, want %d in %+v", runtime, got.Runtimes[runtime], want, got.Runtimes)
+		}
+	}
 }
 
 func TestRenderPsSummaryIncludesPhaseCounts(t *testing.T) {
 	var buf bytes.Buffer
 	summary := psSummaryJSON{
-		Total:  3,
-		Phases: map[string]int{"blocked": 1, "idle": 2},
+		Total:    3,
+		Phases:   map[string]int{"blocked": 1, "idle": 2},
+		Runtimes: map[string]int{"codex": 2, "claude": 1},
 	}
 	if err := renderPsSummary(&buf, summary); err != nil {
 		t.Fatalf("renderPsSummary: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"STATUS", "PHASE", "blocked", "idle"} {
+	for _, want := range []string{"STATUS", "RUNTIME", "PHASE", "codex", "claude", "blocked", "idle"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("summary output missing %q:\n%s", want, out)
 		}
