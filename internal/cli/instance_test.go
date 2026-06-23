@@ -1651,6 +1651,84 @@ func TestRmAllForceJSONRemovesMatchingAgent(t *testing.T) {
 	}
 }
 
+func TestRmRuntimeDryRunJSONUsesLocalMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now().UTC()
+	for _, item := range []struct {
+		name    string
+		agent   string
+		runtime string
+		status  daemon.Status
+	}{
+		{name: "codex-running", agent: "worker", runtime: "codex", status: daemon.StatusRunning},
+		{name: "codex-stopped", agent: "manager", runtime: "codex", status: daemon.StatusStopped},
+		{name: "claude-stopped", agent: "manager", runtime: "claude", status: daemon.StatusStopped},
+	} {
+		if err := os.MkdirAll(filepath.Join(teamDir, "state", item.name), 0o755); err != nil {
+			t.Fatalf("mkdir state %s: %v", item.name, err)
+		}
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance:  item.name,
+			Agent:     item.agent,
+			Runtime:   item.runtime,
+			Status:    item.status,
+			StartedAt: now,
+		}); err != nil {
+			t.Fatalf("write metadata %s: %v", item.name, err)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"rm", "--runtime", "codex", "--dry-run", "--json", "--target", tmp},
+		{"instance", "rm", "--runtime", "codex", "--dry-run", "--json", "--target", tmp},
+	} {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v\nstderr=%s", args, err, stderr.String())
+		}
+		var rows []instanceRmResult
+		if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+			t.Fatalf("%v: decode json: %v\nbody=%s", args, err, out.String())
+		}
+		if got := instanceRmResultNames(rows); strings.Join(got, ",") != "codex-running,codex-stopped" {
+			t.Fatalf("%v: rows = %+v, want codex-running,codex-stopped", args, rows)
+		}
+		for _, row := range rows {
+			if !row.DryRun || !row.DaemonRemoved || !row.StateRemoved {
+				t.Fatalf("%v: row = %+v, want dry-run state and metadata removal preview", args, row)
+			}
+		}
+	}
+
+	for _, name := range []string{"codex-running", "codex-stopped", "claude-stopped"} {
+		if _, err := os.Stat(filepath.Join(teamDir, "state", name)); err != nil {
+			t.Fatalf("%s state should remain after dry-run: %v", name, err)
+		}
+		if _, err := daemon.ReadMetadata(root, name); err != nil {
+			t.Fatalf("%s metadata should remain after dry-run: %v", name, err)
+		}
+	}
+
+	bad := NewRootCmd()
+	bad.SetOut(&bytes.Buffer{})
+	var badErr bytes.Buffer
+	bad.SetErr(&badErr)
+	bad.SetArgs([]string{"rm", "--runtime", "llama", "--dry-run", "--target", tmp})
+	if err := bad.Execute(); err == nil {
+		t.Fatal("rm accepted unknown runtime")
+	}
+	if !strings.Contains(badErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badErr.String())
+	}
+}
+
 func TestRmSummaryJSONDryRun(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -2188,6 +2266,65 @@ func TestPruneStatusNarrowsFinishedInstances(t *testing.T) {
 	}
 }
 
+func TestPruneRuntimeNarrowsFinishedInstances(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	for _, item := range []struct {
+		name    string
+		runtime string
+		status  daemon.Status
+	}{
+		{name: "codex-crashed", runtime: "codex", status: daemon.StatusCrashed},
+		{name: "codex-exited", runtime: "codex", status: daemon.StatusExited},
+		{name: "codex-stopped", runtime: "codex", status: daemon.StatusStopped},
+		{name: "claude-exited", runtime: "claude", status: daemon.StatusExited},
+	} {
+		stateDir := filepath.Join(teamDir, "state", item.name)
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatalf("mkdir state %s: %v", item.name, err)
+		}
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance: item.name,
+			Agent:    "worker",
+			Runtime:  item.runtime,
+			Status:   item.status,
+		}); err != nil {
+			t.Fatalf("write metadata %s: %v", item.name, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"prune", "--runtime", "codex", "--dry-run", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("prune --runtime codex: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []instanceRmResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode prune --runtime json: %v\nbody=%s", err, out.String())
+	}
+	if got := instanceRmResultNames(rows); strings.Join(got, ",") != "codex-crashed,codex-exited" {
+		t.Fatalf("rows = %+v, want codex-crashed,codex-exited", rows)
+	}
+	for _, row := range rows {
+		if !row.DryRun || !row.DaemonRemoved || !row.StateRemoved {
+			t.Fatalf("row = %+v, want dry-run state and metadata removal preview", row)
+		}
+	}
+	for _, name := range []string{"codex-crashed", "codex-exited", "codex-stopped", "claude-exited"} {
+		if _, err := os.Stat(filepath.Join(teamDir, "state", name)); err != nil {
+			t.Fatalf("%s state should remain after dry-run: %v", name, err)
+		}
+		if _, err := daemon.ReadMetadata(root, name); err != nil {
+			t.Fatalf("%s metadata should remain after dry-run: %v", name, err)
+		}
+	}
+}
+
 func TestPruneStaleNarrowsFinishedInstances(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -2515,7 +2652,7 @@ func TestRmRequiresNamesUnlessFinished(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}
-	if !strings.Contains(stderr.String(), "instance is required unless --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy") {
+	if !strings.Contains(stderr.String(), "instance is required unless --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -2644,7 +2781,7 @@ func TestRmAgentRequiresFinished(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected validation error")
 	}
-	if !strings.Contains(stderr.String(), "--agent requires --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy") {
+	if !strings.Contains(stderr.String(), "--agent requires --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

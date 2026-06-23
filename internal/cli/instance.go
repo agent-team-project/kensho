@@ -585,21 +585,22 @@ func displayPathFromTeamDir(teamDir, path string) string {
 
 func newInstanceRmCmd() *cobra.Command {
 	var (
-		target        string
-		all           bool
-		force         bool
-		dryRun        bool
-		finished      bool
-		latest        bool
-		last          int
-		staleOnly     bool
-		unhealthyOnly bool
-		agents        []string
-		statusFilters []string
-		phaseFilters  []string
-		jsonOut       bool
-		summary       bool
-		format        string
+		target         string
+		all            bool
+		force          bool
+		dryRun         bool
+		finished       bool
+		latest         bool
+		last           int
+		staleOnly      bool
+		unhealthyOnly  bool
+		agents         []string
+		runtimeFilters []string
+		statusFilters  []string
+		phaseFilters   []string
+		jsonOut        bool
+		summary        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	c := &cobra.Command{
@@ -617,25 +618,26 @@ func newInstanceRmCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runInstanceRmWithOptions(cmd, target, args, instanceRmOptions{
-				All:           all,
-				Force:         force,
-				DryRun:        dryRun,
-				Finished:      finished,
-				Latest:        latest,
-				Limit:         last,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthyOnly,
-				AgentFilters:  agents,
-				StatusFilters: statusFilters,
-				PhaseFilters:  phaseFilters,
-				JSON:          jsonOut,
-				Summary:       summary,
-				Format:        formatTemplate,
+				All:            all,
+				Force:          force,
+				DryRun:         dryRun,
+				Finished:       finished,
+				Latest:         latest,
+				Limit:          last,
+				Stale:          staleOnly,
+				Unhealthy:      unhealthyOnly,
+				AgentFilters:   agents,
+				RuntimeFilters: runtimeFilters,
+				StatusFilters:  statusFilters,
+				PhaseFilters:   phaseFilters,
+				JSON:           jsonOut,
+				Summary:        summary,
+				Format:         formatTemplate,
 			})
 		},
 	}
 	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
-	c.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --status, --phase, --stale, or --unhealthy.")
+	c.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.")
 	c.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
 	c.Flags().BoolVar(&finished, "finished", false, "Remove every daemon-known exited or crashed instance.")
@@ -643,7 +645,8 @@ func newInstanceRmCmd() *cobra.Command {
 	c.Flags().IntVarP(&last, "last", "n", 0, "Remove the N most recently started daemon-known instances after other filters (0 = all).")
 	c.Flags().BoolVar(&staleOnly, "stale", false, "Remove only daemon-known instances whose non-idle work phase has stale status telemetry.")
 	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Remove only daemon-known instances that are crashed or stale.")
-	c.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
+	c.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
+	c.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. Requires --force unless --dry-run is set.")
@@ -657,23 +660,24 @@ func runInstanceRm(cmd *cobra.Command, target string, names []string, force bool
 }
 
 type instanceRmOptions struct {
-	All           bool
-	Force         bool
-	DryRun        bool
-	Finished      bool
-	Latest        bool
-	Limit         int
-	Stale         bool
-	Unhealthy     bool
-	OlderThan     time.Duration
-	OlderThanSet  bool
-	AgentFilters  []string
-	StatusFilters []string
-	PhaseFilters  []string
-	Quiet         bool
-	JSON          bool
-	Summary       bool
-	Format        *template.Template
+	All            bool
+	Force          bool
+	DryRun         bool
+	Finished       bool
+	Latest         bool
+	Limit          int
+	Stale          bool
+	Unhealthy      bool
+	OlderThan      time.Duration
+	OlderThanSet   bool
+	AgentFilters   []string
+	RuntimeFilters []string
+	StatusFilters  []string
+	PhaseFilters   []string
+	Quiet          bool
+	JSON           bool
+	Summary        bool
+	Format         *template.Template
 }
 
 type instanceRmResult struct {
@@ -745,10 +749,19 @@ func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string,
 			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --agent requires at least one non-empty agent.")
 			return exitErr(2)
 		}
-		if !opts.All && !opts.Finished && !opts.Latest && opts.Limit == 0 && len(opts.StatusFilters) == 0 && len(opts.PhaseFilters) == 0 && !opts.Stale && !opts.Unhealthy {
-			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --agent requires --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy.")
+		if !opts.All && !opts.Finished && !opts.Latest && opts.Limit == 0 && len(opts.RuntimeFilters) == 0 && len(opts.StatusFilters) == 0 && len(opts.PhaseFilters) == 0 && !opts.Stale && !opts.Unhealthy {
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --agent requires --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy.")
 			return exitErr(2)
 		}
+	}
+	if len(opts.RuntimeFilters) > 0 && len(names) > 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --runtime cannot be combined with instance names.")
+		return exitErr(2)
+	}
+	runtimes, err := lifecycleRuntimeFilterSet(opts.RuntimeFilters)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+		return exitErr(2)
 	}
 	statuses, err := lifecycleStatusFilterSet(opts.StatusFilters)
 	if err != nil {
@@ -760,8 +773,8 @@ func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string,
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
 	}
-	if !opts.All && !opts.Finished && !opts.Latest && opts.Limit == 0 && len(statuses) == 0 && len(phases) == 0 && !opts.Stale && !opts.Unhealthy && len(names) == 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: instance is required unless --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy is set.")
+	if !opts.All && !opts.Finished && !opts.Latest && opts.Limit == 0 && len(runtimes) == 0 && len(statuses) == 0 && len(phases) == 0 && !opts.Stale && !opts.Unhealthy && len(names) == 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: instance is required unless --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy is set.")
 		return exitErr(2)
 	}
 	if opts.JSON && !opts.Force && !opts.DryRun {
@@ -819,7 +832,7 @@ func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string,
 			return exitErr(1)
 		}
 		for _, m := range list {
-			daemonByName[m.Instance] = daemonInstanceInfo{status: string(m.Status), agent: m.Agent, pid: m.PID, startedAt: m.StartedAt, finishedAt: daemonMetadataFinishedAt(m), client: dc}
+			daemonByName[m.Instance] = daemonInstanceInfo{status: string(m.Status), agent: m.Agent, runtime: metadataRuntimeKey(m), pid: m.PID, startedAt: m.StartedAt, finishedAt: daemonMetadataFinishedAt(m), client: dc}
 		}
 	} else if errors.Is(err, errDaemonNotRunning) {
 		list, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
@@ -828,15 +841,16 @@ func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string,
 			return exitErr(1)
 		}
 		for _, m := range list {
-			daemonByName[m.Instance] = daemonInstanceInfo{status: string(m.Status), agent: m.Agent, pid: m.PID, startedAt: m.StartedAt, finishedAt: daemonMetadataFinishedAt(m)}
+			daemonByName[m.Instance] = daemonInstanceInfo{status: string(m.Status), agent: m.Agent, runtime: metadataRuntimeKey(m), pid: m.PID, startedAt: m.StartedAt, finishedAt: daemonMetadataFinishedAt(m)}
 		}
 	} else {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
 	}
 
-	if opts.All || opts.Finished || opts.Latest || opts.Limit > 0 || len(statuses) > 0 || len(phases) > 0 || opts.Stale || opts.Unhealthy {
+	if opts.All || opts.Finished || opts.Latest || opts.Limit > 0 || len(runtimes) > 0 || len(statuses) > 0 || len(phases) > 0 || opts.Stale || opts.Unhealthy {
 		names = selectRmTargetsWithUnhealthy(daemonByName, opts.AgentFilters, statuses, phases, phaseByInstance, opts.Finished, opts.Stale, opts.Unhealthy, staleInstances)
+		names = filterRmTargetsByRuntime(names, daemonByName, runtimes)
 		if opts.OlderThanSet {
 			names = filterRmTargetsOlderThan(names, daemonByName, opts.OlderThan, time.Now())
 		}
@@ -1096,6 +1110,7 @@ func daemonInfoStatusKey(info daemonInstanceInfo) string {
 type daemonInstanceInfo struct {
 	status     string
 	agent      string
+	runtime    string
 	pid        int
 	startedAt  time.Time
 	finishedAt time.Time
@@ -1126,6 +1141,27 @@ func filterRmTargetsOlderThan(names []string, daemonByName map[string]daemonInst
 			continue
 		}
 		if !info.finishedAt.After(now.Add(-olderThan)) {
+			targets = append(targets, name)
+		}
+	}
+	return targets
+}
+
+func filterRmTargetsByRuntime(names []string, daemonByName map[string]daemonInstanceInfo, runtimes map[string]bool) []string {
+	if len(names) == 0 || len(runtimes) == 0 {
+		return names
+	}
+	targets := make([]string, 0, len(names))
+	for _, name := range names {
+		info, ok := daemonByName[name]
+		if !ok {
+			continue
+		}
+		runtime := strings.TrimSpace(strings.ToLower(info.runtime))
+		if runtime == "" {
+			runtime = "unknown"
+		}
+		if runtimes[runtime] {
 			targets = append(targets, name)
 		}
 	}

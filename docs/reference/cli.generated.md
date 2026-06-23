@@ -1005,21 +1005,22 @@ agent-team instance rm [<name>...] [flags]
 Flags:
 
 ```text
-      --agent strings    With --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.
-  -a, --all              Remove every daemon-known instance. Can combine with --agent, --status, --phase, --stale, or --unhealthy.
-      --dry-run          Preview matching removals without deleting state or daemon metadata.
-      --finished         Remove every daemon-known exited or crashed instance.
-  -f, --force            Skip confirmation; if the daemon is running, stop a running instance before removal.
-      --format string    Render each removal result with a Go template, e.g. '{{.Instance}} {{.Path}}'. Requires --force unless --dry-run is set.
-      --json             Emit machine-readable JSON. Requires --force unless --dry-run is set.
-  -n, --last int         Remove the N most recently started daemon-known instances after other filters (0 = all).
-      --latest           Remove the most recently started daemon-known instance after other filters.
-      --phase strings    Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --stale            Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
-      --status strings   Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
-      --summary          Show aggregate removal counts instead of per-instance rows.
-      --target string    Repo root. (default "<repo>")
-      --unhealthy        Remove only daemon-known instances that are crashed or stale.
+      --agent strings     With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.
+  -a, --all               Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.
+      --dry-run           Preview matching removals without deleting state or daemon metadata.
+      --finished          Remove every daemon-known exited or crashed instance.
+  -f, --force             Skip confirmation; if the daemon is running, stop a running instance before removal.
+      --format string     Render each removal result with a Go template, e.g. '{{.Instance}} {{.Path}}'. Requires --force unless --dry-run is set.
+      --json              Emit machine-readable JSON. Requires --force unless --dry-run is set.
+  -n, --last int          Remove the N most recently started daemon-known instances after other filters (0 = all).
+      --latest            Remove the most recently started daemon-known instance after other filters.
+      --phase strings     Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --runtime strings   Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
+      --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
+      --summary           Show aggregate removal counts instead of per-instance rows.
+      --target string     Repo root. (default "<repo>")
+      --unhealthy         Remove only daemon-known instances that are crashed or stale.
 ```
 
 Inherited Flags:
@@ -2768,6 +2769,7 @@ Flags:
       --older-than duration   Only prune finished instances whose terminal timestamp is older than this duration (for example 24h).
       --phase strings         Only remove finished instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress non-error output and use only the exit code.
+      --runtime strings       Only remove finished instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Only remove finished instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
       --summary               Show aggregate removal counts instead of per-instance rows.
@@ -3299,22 +3301,23 @@ agent-team rm [<instance>...] [flags]
 Flags:
 
 ```text
-      --agent strings    With --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.
-  -a, --all              Remove every daemon-known instance. Can combine with --agent, --status, --phase, --stale, or --unhealthy.
-      --dry-run          Preview matching removals without deleting state or daemon metadata.
-      --finished         Remove every daemon-known exited or crashed instance.
-  -f, --force            Skip confirmation; if the daemon is running, stop a running instance before removal.
-      --format string    Render each removal result with a Go template, e.g. '{{.Instance}} {{.Path}}'. Requires --force unless --dry-run is set.
-      --json             Emit machine-readable JSON. Requires --force unless --dry-run is set.
-  -n, --last int         Remove the N most recently started daemon-known instances after other filters (0 = all).
-      --latest           Remove the most recently started daemon-known instance after other filters.
-      --phase strings    Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-  -q, --quiet            Suppress non-error output. Requires --force unless --dry-run is set.
-      --stale            Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
-      --status strings   Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
-      --summary          Show aggregate removal counts instead of per-instance rows.
-      --target string    Repo root. (default "<repo>")
-      --unhealthy        Remove only daemon-known instances that are crashed or stale.
+      --agent strings     With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.
+  -a, --all               Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.
+      --dry-run           Preview matching removals without deleting state or daemon metadata.
+      --finished          Remove every daemon-known exited or crashed instance.
+  -f, --force             Skip confirmation; if the daemon is running, stop a running instance before removal.
+      --format string     Render each removal result with a Go template, e.g. '{{.Instance}} {{.Path}}'. Requires --force unless --dry-run is set.
+      --json              Emit machine-readable JSON. Requires --force unless --dry-run is set.
+  -n, --last int          Remove the N most recently started daemon-known instances after other filters (0 = all).
+      --latest            Remove the most recently started daemon-known instance after other filters.
+      --phase strings     Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+  -q, --quiet             Suppress non-error output. Requires --force unless --dry-run is set.
+      --runtime strings   Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
+      --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
+      --summary           Show aggregate removal counts instead of per-instance rows.
+      --target string     Repo root. (default "<repo>")
+      --unhealthy         Remove only daemon-known instances that are crashed or stale.
 ```
 
 Inherited Flags:

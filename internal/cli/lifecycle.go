@@ -1263,22 +1263,23 @@ func inspectInstanceNamesWithOptions(teamDir string, now time.Time, opts psOptio
 
 func newRmCmd() *cobra.Command {
 	var (
-		target        string
-		all           bool
-		force         bool
-		dryRun        bool
-		finished      bool
-		latest        bool
-		last          int
-		staleOnly     bool
-		unhealthyOnly bool
-		agents        []string
-		statusFilters []string
-		phaseFilters  []string
-		quiet         bool
-		jsonOut       bool
-		summary       bool
-		format        string
+		target         string
+		all            bool
+		force          bool
+		dryRun         bool
+		finished       bool
+		latest         bool
+		last           int
+		staleOnly      bool
+		unhealthyOnly  bool
+		agents         []string
+		runtimeFilters []string
+		statusFilters  []string
+		phaseFilters   []string
+		quiet          bool
+		jsonOut        bool
+		summary        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1302,26 +1303,27 @@ func newRmCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runInstanceRmWithOptions(cmd, target, args, instanceRmOptions{
-				All:           all,
-				Force:         force,
-				DryRun:        dryRun,
-				Finished:      finished,
-				Latest:        latest,
-				Limit:         last,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthyOnly,
-				AgentFilters:  agents,
-				StatusFilters: statusFilters,
-				PhaseFilters:  phaseFilters,
-				Quiet:         quiet,
-				JSON:          jsonOut,
-				Summary:       summary,
-				Format:        formatTemplate,
+				All:            all,
+				Force:          force,
+				DryRun:         dryRun,
+				Finished:       finished,
+				Latest:         latest,
+				Limit:          last,
+				Stale:          staleOnly,
+				Unhealthy:      unhealthyOnly,
+				AgentFilters:   agents,
+				RuntimeFilters: runtimeFilters,
+				StatusFilters:  statusFilters,
+				PhaseFilters:   phaseFilters,
+				Quiet:          quiet,
+				JSON:           jsonOut,
+				Summary:        summary,
+				Format:         formatTemplate,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
-	cmd.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --status, --phase, --stale, or --unhealthy.")
+	cmd.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
 	cmd.Flags().BoolVar(&finished, "finished", false, "Remove every daemon-known exited or crashed instance.")
@@ -1329,7 +1331,8 @@ func newRmCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Remove the N most recently started daemon-known instances after other filters (0 = all).")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Remove only daemon-known instances whose non-idle work phase has stale status telemetry.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Remove only daemon-known instances that are crashed or stale.")
-	cmd.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output. Requires --force unless --dry-run is set.")
@@ -1341,18 +1344,19 @@ func newRmCmd() *cobra.Command {
 
 func newPruneCmd() *cobra.Command {
 	var (
-		target        string
-		agents        []string
-		statusFilters []string
-		phaseFilters  []string
-		staleOnly     bool
-		unhealthyOnly bool
-		dryRun        bool
-		olderThan     time.Duration
-		quiet         bool
-		jsonOut       bool
-		summary       bool
-		format        string
+		target         string
+		agents         []string
+		runtimeFilters []string
+		statusFilters  []string
+		phaseFilters   []string
+		staleOnly      bool
+		unhealthyOnly  bool
+		dryRun         bool
+		olderThan      time.Duration
+		quiet          bool
+		jsonOut        bool
+		summary        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1383,25 +1387,27 @@ func newPruneCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runInstanceRmWithOptions(cmd, target, nil, instanceRmOptions{
-				Force:         true,
-				DryRun:        dryRun,
-				Finished:      true,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthyOnly,
-				OlderThan:     olderThan,
-				OlderThanSet:  cmd.Flags().Changed("older-than"),
-				AgentFilters:  agents,
-				StatusFilters: statusFilters,
-				PhaseFilters:  phaseFilters,
-				Quiet:         quiet,
-				JSON:          jsonOut,
-				Summary:       summary,
-				Format:        formatTemplate,
+				Force:          true,
+				DryRun:         dryRun,
+				Finished:       true,
+				Stale:          staleOnly,
+				Unhealthy:      unhealthyOnly,
+				OlderThan:      olderThan,
+				OlderThanSet:   cmd.Flags().Changed("older-than"),
+				AgentFilters:   agents,
+				RuntimeFilters: runtimeFilters,
+				StatusFilters:  statusFilters,
+				PhaseFilters:   phaseFilters,
+				Quiet:          quiet,
+				JSON:           jsonOut,
+				Summary:        summary,
+				Format:         formatTemplate,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only remove finished instances for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only remove finished instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only remove finished instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only remove finished instances whose non-idle work phase has stale status telemetry.")

@@ -270,9 +270,9 @@ agent-team channel publish <name> <body...> [--sender user]
 agent-team event publish <type> [--payload <json> | --payload-file <path|->] [--dry-run] [--format '{{len .Matched}} {{len .Dispatched}}'] [--json]
                                                 # manually publish a topology event through the daemon
 agent-team channel rm <name> -f                 # delete a channel and its durable state
-agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
+agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
                                                 # remove instance state and daemon metadata, using persisted metadata if the daemon is down
-agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished persisted daemon metadata and state
+agent-team prune [-q] [--dry-run] [--runtime codex] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished persisted daemon metadata and state
 agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <path>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--format '{{.Differs}}'] [--json]
@@ -292,7 +292,7 @@ agent-team template run <ref> <agent> [--target <dir>] [--keep] [--runtime claud
 
 agent-team instance ls                          # list instance state dirs (.agent_team/state/*)
 agent-team instance show <name>                 # show an instance's state files
-agent-team instance rm [<name>...] [--all] [--finished] [--latest | --last N] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--json]
+agent-team instance rm [<name>...] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--unhealthy] [--agent manager] [--dry-run] [--summary] [-f] [--json]
                                                 # delete instance state and daemon metadata
 ```
 
