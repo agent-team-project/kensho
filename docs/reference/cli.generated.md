@@ -3152,7 +3152,7 @@ Inherited Flags:
 
 Recover common unhealthy orchestration state.
 
-Recover common unhealthy orchestration state: ensure the daemon is ready, retry dead-letter queue items, and run a maintenance tick to drain ready work and advance pipelines. Use --dry-run to preview.
+Recover common unhealthy orchestration state: ensure the daemon is ready, retry dead-letter queue items, optionally retry failed pipeline steps, and run a maintenance tick to drain ready work and advance pipelines. Use --dry-run to preview.
 
 ```text
 agent-team repair [flags]
@@ -3166,16 +3166,18 @@ Flags:
       --interval duration        Delay between --until-idle maintenance cycles. (default 2s)
       --jobs                     Include durable job triage and status-file previews in health snapshots.
       --json                     Emit machine-readable JSON.
-      --limit int                Retry at most this many dead-letter queue items and advance at most this many ready pipeline jobs; 0 means no limit.
+      --limit int                Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs; 0 means no limit.
       --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes           With --dry-run, include route and dispatch payload previews for ready pipeline steps.
+      --preview-routes           With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
+      --retry-message string     Audit message to record when --retry-pipelines resets failed steps.
+      --retry-pipelines          Reset failed pipeline steps and dispatch them before the maintenance tick.
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry dead-letter queue items.
       --skip-tick                Do not run a maintenance tick after queue retry.
       --target string            Repo root. (default "<repo>")
       --until-idle               Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.
-      --workspace string         Workspace mode for pipeline steps during the maintenance tick: auto, worktree, or repo. (default "auto")
+      --workspace string         Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:
@@ -4371,7 +4373,7 @@ Flags:
 
 Recover unhealthy orchestration state for one team.
 
-Recover unhealthy orchestration state scoped to one team: ensure the daemon is ready, retry team-owned dead-letter queue items, and run a scoped team tick. Use --dry-run to preview.
+Recover unhealthy orchestration state scoped to one team: ensure the daemon is ready, retry team-owned dead-letter queue items, optionally retry failed team pipeline steps, and run a scoped team tick. Use --dry-run to preview.
 
 ```text
 agent-team team repair <team> [flags]
@@ -4385,16 +4387,18 @@ Flags:
       --interval duration        Delay between --until-idle scoped team tick cycles. (default 2s)
       --jobs                     Include team-owned durable job and pipeline health.
       --json                     Emit machine-readable JSON.
-      --limit int                Retry at most this many team dead-letter queue items and advance at most this many ready team pipeline jobs; 0 means no limit.
+      --limit int                Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs; 0 means no limit.
       --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes           With --dry-run, include route and dispatch payload previews for ready team pipeline steps.
+      --preview-routes           With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --repo string              Repo root. (default "<repo>")
+      --retry-message string     Audit message to record when --retry-pipelines resets failed team steps.
+      --retry-pipelines          Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry team-owned dead-letter queue items.
       --skip-tick                Do not run a scoped team tick after queue retry.
       --until-idle               Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.
-      --workspace string         Workspace mode for pipeline steps during the scoped team tick: auto, worktree, or repo. (default "auto")
+      --workspace string         Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team restart`

@@ -4127,6 +4127,50 @@ instances = ["other"]
 		t.Fatalf("team repair format output = %q, want %q", got, want)
 	}
 
+	retryPreview := NewRootCmd()
+	retryPreviewOut, retryPreviewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retryPreview.SetOut(retryPreviewOut)
+	retryPreview.SetErr(retryPreviewErr)
+	retryPreview.SetArgs([]string{
+		"team", "repair", "delivery",
+		"--repo", root,
+		"--dry-run",
+		"--retry-pipelines",
+		"--preview-routes",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--workspace", "repo",
+		"--json",
+	})
+	if err := retryPreview.Execute(); err != nil {
+		t.Fatalf("team repair retry dry-run: %v\nstderr=%s", err, retryPreviewErr.String())
+	}
+	var retryDry teamRepairResult
+	if err := json.Unmarshal(retryPreviewOut.Bytes(), &retryDry); err != nil {
+		t.Fatalf("decode team repair retry dry-run: %v\nbody=%s", err, retryPreviewOut.String())
+	}
+	if retryDry.PipelineRetry.Action != "would_dispatch" || len(retryDry.PipelineRetry.Results) != 1 {
+		t.Fatalf("team repair pipeline retry = %+v", retryDry.PipelineRetry)
+	}
+	retryRow := retryDry.PipelineRetry.Results[0]
+	if retryRow.JobID != "squ-300" || retryRow.Action != "would_dispatch" || retryRow.StepID != "implement" || retryRow.Target != "worker" || retryRow.Preview == nil || retryRow.Preview.Dispatch == nil {
+		t.Fatalf("team repair retry row = %+v", retryRow)
+	}
+	if retryRow.Preview.Dispatch.RequestedName != "worker-squ-300-implement" {
+		t.Fatalf("team repair retry requested name = %q", retryRow.Preview.Dispatch.RequestedName)
+	}
+	if strings.Contains(retryPreviewOut.String(), "oth-300") || strings.Contains(retryPreviewOut.String(), "q-other-repair") {
+		t.Fatalf("team repair retry dry-run leaked unrelated work:\n%s", retryPreviewOut.String())
+	}
+	unchangedJob, err := job.Read(teamDir, "squ-300")
+	if err != nil {
+		t.Fatalf("read unchanged team job: %v", err)
+	}
+	if unchangedJob.Status != job.StatusFailed || unchangedJob.Steps[0].Status != job.StatusFailed {
+		t.Fatalf("team repair retry dry-run mutated job = %+v", unchangedJob)
+	}
+
 	run := NewRootCmd()
 	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(runOut)
@@ -4165,6 +4209,16 @@ func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
 			name: "invalid format",
 			args: []string{"team", "repair", "delivery", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			name: "retry pipelines without daemon",
+			args: []string{"team", "repair", "delivery", "--retry-pipelines", "--skip-daemon"},
+			want: "--retry-pipelines requires daemon access",
+		},
+		{
+			name: "retry message without retry pipelines",
+			args: []string{"team", "repair", "delivery", "--retry-message", "incident"},
+			want: "--retry-message requires --retry-pipelines",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

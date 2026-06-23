@@ -49,6 +49,16 @@ agent-team queue ls --state dead
 agent-team queue retry --all --dry-run
 ```
 
+## If Pipeline Steps Failed
+
+```sh
+agent-team pipeline ready --state failed
+agent-team repair --retry-pipelines --dry-run --preview-routes
+agent-team repair --retry-pipelines --retry-message "retry after fixing credentials"
+```
+
+For one owned area, use `agent-team team repair <team> --retry-pipelines --dry-run --preview-routes`.
+
 ## If Queue Files Are Quarantined
 
 ```sh

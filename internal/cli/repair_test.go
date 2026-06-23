@@ -297,6 +297,176 @@ func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
 	}
 }
 
+func TestRepairDryRunCanRetryFailedPipelineRoutes(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-123",
+		Ticket:     "SQU-123",
+		Target:     "worker",
+		Kickoff:    "retry implementation",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastEvent:  "step_failed",
+		LastStatus: "implementation failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"repair",
+		"--target", target,
+		"--dry-run",
+		"--retry-pipelines",
+		"--preview-routes",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--workspace", "repo",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair retry pipelines dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair retry json: %v\nbody=%s", err, out.String())
+	}
+	if result.PipelineRetry.Action != "would_dispatch" || len(result.PipelineRetry.Results) != 1 {
+		t.Fatalf("pipeline retry step = %+v", result.PipelineRetry)
+	}
+	row := result.PipelineRetry.Results[0]
+	if row.JobID != "squ-123" || row.Action != "would_dispatch" || row.Step == nil || row.Step.Status != job.StatusBlocked || row.Preview == nil || row.Preview.Dispatch == nil {
+		t.Fatalf("pipeline retry row = %+v", row)
+	}
+	if row.Preview.Dispatch.RequestedName != "worker-squ-123-implement" {
+		t.Fatalf("requested name = %q", row.Preview.Dispatch.RequestedName)
+	}
+	payload := row.Preview.Dispatch.Preview.Payload
+	if payload["job_id"] != "squ-123" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" {
+		t.Fatalf("preview payload = %+v", payload)
+	}
+	unchanged, err := job.Read(teamDir, "squ-123")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusFailed || unchanged.Steps[0].Status != job.StatusFailed || unchanged.Steps[0].Instance != "worker-old" || unchanged.Steps[0].FinishedAt.IsZero() {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{
+		"repair",
+		"--target", target,
+		"--dry-run",
+		"--retry-pipelines",
+		"--preview-routes",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--workspace", "repo",
+	})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("repair retry pipelines text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Pipeline retry: would_dispatch", "Routes:", "squ-123 step=implement target=worker instance=worker-squ-123-implement", "Matched: worker"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("repair retry text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
+func TestRepairRetryPipelinesDispatchesAndAudits(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-124",
+		Ticket:     "SQU-124",
+		Target:     "worker",
+		Kickoff:    "retry implementation",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastEvent:  "step_failed",
+		LastStatus: "implementation failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"repair",
+		"--target", target,
+		"--retry-pipelines",
+		"--retry-message", "repair approved by operator",
+		"--skip-queue",
+		"--skip-tick",
+		"--workspace", "repo",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair retry pipelines: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair retry json: %v\nbody=%s", err, out.String())
+	}
+	if result.PipelineRetry.Action != "retried" || len(result.PipelineRetry.Results) != 1 {
+		t.Fatalf("pipeline retry result = %+v", result.PipelineRetry)
+	}
+	row := result.PipelineRetry.Results[0]
+	if row.JobID != "squ-124" || row.Action != "dispatched" || row.StepStatus != job.StatusRunning || row.Instance != "worker-squ-124-implement" {
+		t.Fatalf("pipeline retry row = %+v", row)
+	}
+	updated, err := job.Read(teamDir, "squ-124")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.LastEvent != "advance_dispatched" || updated.Steps[0].Status != job.StatusRunning || updated.Steps[0].Instance != "worker-squ-124-implement" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-124")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var sawRetry bool
+	for _, event := range events {
+		if event.Type == "reopened" && event.Message == "repair approved by operator" && event.Data["step"] == "implement" {
+			sawRetry = true
+			break
+		}
+	}
+	if !sawRetry {
+		t.Fatalf("events missing retry audit = %+v", events)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-124-implement")
+}
+
 func TestRepairRetriesDeadQueueOffline(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -372,6 +542,16 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "invalid format",
 			args: []string{"repair", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			name: "retry pipelines without daemon",
+			args: []string{"repair", "--retry-pipelines", "--skip-daemon"},
+			want: "--retry-pipelines requires daemon access",
+		},
+		{
+			name: "retry message without retry pipelines",
+			args: []string{"repair", "--retry-message", "incident"},
+			want: "--retry-message requires --retry-pipelines",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

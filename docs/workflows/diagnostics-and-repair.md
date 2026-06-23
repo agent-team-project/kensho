@@ -125,6 +125,7 @@ agent-team repair --dry-run --jobs
 agent-team repair --skip-daemon
 agent-team repair --skip-queue
 agent-team repair --skip-tick
+agent-team repair --retry-pipelines --dry-run --preview-routes
 agent-team repair --until-idle
 agent-team team repair delivery --dry-run --jobs
 ```
@@ -133,8 +134,9 @@ Repair can:
 
 1. start or reconcile daemon state
 2. retry dead-letter queue items
-3. run a maintenance tick
-4. include before/after health snapshots
+3. optionally retry failed pipeline steps with `--retry-pipelines`
+4. run a maintenance tick
+5. include before/after health snapshots
 
 `--dry-run` should be the first step.
 
@@ -148,6 +150,7 @@ Repair can:
 | Need handoff artifact | `agent-team snapshot --output diagnostics.json` |
 | Queue parsing fails | `agent-team queue doctor --quarantine --dry-run` |
 | Dead queue entries | `agent-team repair --dry-run --jobs` |
+| Failed pipeline steps | `agent-team repair --retry-pipelines --dry-run --preview-routes` |
 | One stuck job | `agent-team job show <job-id> --events all` |
 | One team stuck | `agent-team team overview <team>` |
 | Worker blocked | `agent-team job unblock <job-id> <answer...>` |
