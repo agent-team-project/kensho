@@ -66,6 +66,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 		provider     string
 		status       string
 		replayStatus string
+		requestID    string
 		unresolved   bool
 		tail         string
 		jsonOut      bool
@@ -97,6 +98,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake deliveries: %v\n", err)
 				return exitErr(2)
 			}
+			requestID = strings.TrimSpace(requestID)
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake deliveries: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -119,6 +121,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 				Provider:     provider,
 				Status:       status,
 				ReplayStatus: replayStatus,
+				RequestID:    requestID,
 				Unresolved:   unresolved,
 			})
 			deliveries = tailIntakeDeliveries(deliveries, tailLines)
@@ -130,6 +133,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "Only show deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only show deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only show deliveries with replay status: ok, error, none, or any.")
+	cmd.Flags().StringVar(&requestID, "request-id", "", "Only show deliveries with this provider request id, such as X-GitHub-Delivery.")
 	cmd.Flags().BoolVar(&unresolved, "unresolved", false, "Only show failed deliveries that still need replay.")
 	cmd.Flags().StringVar(&tail, "tail", "20", "Show only the last N deliveries (0 or all = all).")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit deliveries as JSON.")
@@ -331,6 +335,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 		provider     string
 		status       string
 		replayStatus string
+		requestID    string
 		unresolved   bool
 		jsonOut      bool
 		format       string
@@ -357,6 +362,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake summary: %v\n", err)
 				return exitErr(2)
 			}
+			requestID = strings.TrimSpace(requestID)
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake summary: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -379,6 +385,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 				Provider:     provider,
 				Status:       status,
 				ReplayStatus: replayStatus,
+				RequestID:    requestID,
 				Unresolved:   unresolved,
 			})
 			summary := summarizeIntakeDeliveries(deliveries)
@@ -389,6 +396,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "Only summarize deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only summarize deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only summarize deliveries with replay status: ok, error, none, or any.")
+	cmd.Flags().StringVar(&requestID, "request-id", "", "Only summarize deliveries with this provider request id, such as X-GitHub-Delivery.")
 	cmd.Flags().BoolVar(&unresolved, "unresolved", false, "Only summarize failed deliveries that still need replay.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit summary as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the summary with a Go template, e.g. '{{.Unresolved}} {{.Replayable}}'.")
@@ -647,11 +655,12 @@ type intakeDeliveryFilter struct {
 	Provider     string
 	Status       string
 	ReplayStatus string
+	RequestID    string
 	Unresolved   bool
 }
 
 func filterIntakeDeliveries(deliveries []intakeDelivery, filter intakeDeliveryFilter) []intakeDelivery {
-	if filter.Provider == "" && filter.Status == "" && filter.ReplayStatus == "any" && !filter.Unresolved {
+	if filter.Provider == "" && filter.Status == "" && filter.ReplayStatus == "any" && filter.RequestID == "" && !filter.Unresolved {
 		return deliveries
 	}
 	out := deliveries[:0]
@@ -666,6 +675,9 @@ func filterIntakeDeliveries(deliveries []intakeDelivery, filter intakeDeliveryFi
 
 func intakeDeliveryMatchesFilter(delivery intakeDelivery, filter intakeDeliveryFilter) bool {
 	if filter.Provider != "" && delivery.Provider != filter.Provider {
+		return false
+	}
+	if filter.RequestID != "" && delivery.RequestID != filter.RequestID {
 		return false
 	}
 	if filter.Status != "" && filter.Status != "all" && delivery.Status != filter.Status {
@@ -1093,11 +1105,12 @@ func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bo
 		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TIME\tID\tPROVIDER\tSTATUS\tREPLAY\tHTTP\tEVENT\tTICKET\tPR\tACTIONS\tERROR")
+	fmt.Fprintln(tw, "TIME\tID\tREQUEST_ID\tPROVIDER\tSTATUS\tREPLAY\tHTTP\tEVENT\tTICKET\tPR\tACTIONS\tERROR")
 	for _, delivery := range deliveries {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
 			delivery.Time.Format(time.RFC3339),
 			delivery.ID,
+			emptyDash(delivery.RequestID),
 			emptyDash(delivery.Provider),
 			delivery.Status,
 			emptyDash(delivery.ReplayStatus),

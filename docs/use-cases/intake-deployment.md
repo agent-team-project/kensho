@@ -72,6 +72,12 @@ Do not depend on network location alone for trust. Configure provider webhook se
 
 Signed GitHub webhooks also use `X-GitHub-Delivery` replay protection by default. The server rejects duplicate delivery IDs seen in the last 24 hours; tune this with `--github-replay-window`, or set it to `0` only for nonstandard test senders.
 
+To inspect a duplicate or provider retry, filter delivery history by that request ID:
+
+```sh
+agent-team intake deliveries --provider github --request-id <x-github-delivery>
+```
+
 ## Secrets
 
 Secrets can come from flags or environment variables:

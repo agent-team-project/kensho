@@ -1123,6 +1123,7 @@ Flags:
       --json                   Emit deliveries as JSON.
       --provider string        Only show deliveries for a provider: linear or github.
       --replay-status string   Only show deliveries with replay status: ok, error, none, or any.
+      --request-id string      Only show deliveries with this provider request id, such as X-GitHub-Delivery.
       --status string          Only show deliveries with a status: ok or error.
       --tail string            Show only the last N deliveries (0 or all = all). (default "20")
       --target string          Repo root. (default "<repo>")
@@ -1385,6 +1386,7 @@ Flags:
       --json                   Emit summary as JSON.
       --provider string        Only summarize deliveries for a provider: linear or github.
       --replay-status string   Only summarize deliveries with replay status: ok, error, none, or any.
+      --request-id string      Only summarize deliveries with this provider request id, such as X-GitHub-Delivery.
       --status string          Only summarize deliveries with a status: ok or error.
       --target string          Repo root. (default "<repo>")
       --unresolved             Only summarize failed deliveries that still need replay.

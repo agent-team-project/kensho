@@ -812,6 +812,7 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 		ID:         "github-error",
 		Time:       now.Add(time.Second),
 		Provider:   "github",
+		RequestID:  "github-delivery-205",
 		Status:     intakeDeliveryStatusError,
 		HTTPStatus: http.StatusUnauthorized,
 		EventType:  "pr.opened",
@@ -825,11 +826,11 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "deliveries", "--target", target, "--provider", "github", "--status", "error", "--format", "{{.Provider}} {{.Status}} {{.HTTPStatus}}"})
+	cmd.SetArgs([]string{"intake", "deliveries", "--target", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--format", "{{.Provider}} {{.RequestID}} {{.Status}} {{.HTTPStatus}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake deliveries format: %v\nstderr=%s", err, stderr.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "github error 401" {
+	if got := strings.TrimSpace(out.String()); got != "github github-delivery-205 error 401" {
 		t.Fatalf("formatted deliveries = %q", got)
 	}
 
@@ -989,6 +990,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 			ID:           "github-replay-failed",
 			Time:         now.Add(-time.Minute),
 			Provider:     "github",
+			RequestID:    "github-delivery-221",
 			Status:       intakeDeliveryStatusError,
 			ReplayStatus: intakeDeliveryReplayStatusError,
 			ReplayedAt:   &replayedAt,
@@ -1052,7 +1054,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"intake", "summary", "--target", target, "--provider", "github", "--replay-status", "error", "--format", "{{.Deliveries}} {{.ReplayFailed}} {{.LatestErrorID}}"})
+	filtered.SetArgs([]string{"intake", "summary", "--target", target, "--provider", "github", "--request-id", "github-delivery-221", "--replay-status", "error", "--format", "{{.Deliveries}} {{.ReplayFailed}} {{.LatestErrorID}}"})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("intake summary format: %v\nstderr=%s", err, filteredErr.String())
 	}
