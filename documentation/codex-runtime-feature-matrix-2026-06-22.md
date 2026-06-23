@@ -133,6 +133,11 @@ and `tick` do not advance them.
     `template run` output included
     `.agent_team/skills/status/scripts/__pycache__/_status_write.cpython-313.pyc`.
 
+    Status after follow-up: fixed in the renderer. Template rendering now skips
+    generated/cache artifact directories and files (`__pycache__`, `.pyc`,
+    `.pyo`, `.DS_Store`, cache dirs, and `node_modules`) before copying into a
+    target repo.
+
 12. **Runtime-specific wording still mentions Claude in user-facing paths.**
     `template run` next steps say "Run `agent-team run` to launch Claude Code"
     even when `AGENT_TEAM_RUNTIME=codex`. `attach --help` also says
@@ -187,7 +192,6 @@ and `tick` do not advance them.
 4. Confirm the selected Codex sandbox allows daemon Unix socket connections
    from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
 5. Tighten `job cleanup --merged` preconditions for jobs still marked running.
-6. Exclude `__pycache__` from the bundled template.
-7. Make empty JSON maps consistently encode as `{}`.
-8. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+6. Make empty JSON maps consistently encode as `{}`.
+7. Investigate why `agent-team`-supervised `codex exec -` stalls even though
    raw replay with the same stdin/add-dir succeeds.

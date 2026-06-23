@@ -31,6 +31,15 @@ func TestRenderTreeFromOS_VerbatimAndTmpl(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "template.toml"), []byte("[template]\nname=\"x\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(src, "agents", "__pycache__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "agents", "__pycache__", "agent.cpython-313.pyc"), []byte("bytecode"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".DS_Store"), []byte("finder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	data := Tree{}
 	data.SetDotted("linear.team_id", "abc")
@@ -79,6 +88,12 @@ func TestRenderTreeFromOS_VerbatimAndTmpl(t *testing.T) {
 	// template.toml must be skipped.
 	if _, err := os.Stat(filepath.Join(dst, "template.toml")); !os.IsNotExist(err) {
 		t.Errorf("template.toml should be skipped, found err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "agents", "__pycache__")); !os.IsNotExist(err) {
+		t.Errorf("__pycache__ should be skipped, found err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".DS_Store")); !os.IsNotExist(err) {
+		t.Errorf(".DS_Store should be skipped, found err=%v", err)
 	}
 
 	// Audit list.

@@ -56,6 +56,12 @@ func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[s
 		if err != nil {
 			return err
 		}
+		if skipGeneratedArtifact(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		// Top-level filter (e.g. `template.toml`).
 		if filepath.Dir(rel) == "." && skipNames[filepath.Base(rel)] {
 			if d.IsDir() {
@@ -107,6 +113,24 @@ func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[s
 		return nil, err
 	}
 	return results, nil
+}
+
+func skipGeneratedArtifact(rel string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		switch part {
+		case "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", "node_modules":
+			return true
+		}
+	}
+	switch filepath.Base(rel) {
+	case ".DS_Store", "Thumbs.db":
+		return true
+	}
+	switch filepath.Ext(rel) {
+	case ".pyc", ".pyo":
+		return true
+	}
+	return false
 }
 
 // isExecutableTemplate mirrors the behaviour the SQU-21 init had: the
