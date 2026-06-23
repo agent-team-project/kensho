@@ -879,6 +879,7 @@ Flags:
   -n, --last int           Inspect the N most recently started visible instances after other filters (0 = all).
       --latest             Inspect the most recently started visible instance after other filters.
       --phase strings      Only inspect instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --runtime strings    Only inspect instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale              Only inspect instances whose status.toml is stale.
       --status strings     Only inspect instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --target string      Repo root. (default "<repo>")

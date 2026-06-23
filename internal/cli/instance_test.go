@@ -510,6 +510,41 @@ description = "Blocked"
 	}
 }
 
+func TestInspectRuntimeFilterUsesVisibleInstances(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "codex-worker", Agent: "worker", Runtime: "codex", RuntimeBinary: "codex-dev", Status: daemon.StatusRunning, PID: 10, StartedAt: now.Add(-5 * time.Minute)},
+		{Instance: "claude-manager", Agent: "manager", Runtime: "claude", RuntimeBinary: "claude-code", Status: daemon.StatusRunning, PID: 11, StartedAt: now.Add(-3 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"inspect", "--runtime", "codex", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("inspect --runtime --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var body []inspectJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode runtime inspect json: %v\nbody=%s", err, out.String())
+	}
+	if len(body) != 1 || body[0].Instance != "codex-worker" {
+		t.Fatalf("body = %+v, want codex worker only", body)
+	}
+	if body[0].Runtime == nil || body[0].Runtime.Runtime != "codex" || body[0].Runtime.RuntimeBinary != "codex-dev" {
+		t.Fatalf("runtime = %+v, want codex metadata", body[0].Runtime)
+	}
+}
+
 func TestInspectUnhealthyJSONUsesVisibleInstances(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -633,6 +668,7 @@ func TestInspectRejectsInvalidLatestLastOptions(t *testing.T) {
 func TestInspectFiltersRejectExplicitNames(t *testing.T) {
 	for _, args := range [][]string{
 		{"inspect", "manager", "--agent", "manager"},
+		{"inspect", "manager", "--runtime", "codex"},
 		{"inspect", "manager", "--unhealthy"},
 	} {
 		cmd := NewRootCmd()
@@ -647,6 +683,21 @@ func TestInspectFiltersRejectExplicitNames(t *testing.T) {
 		if !strings.Contains(stderr.String(), "filters cannot be combined") {
 			t.Fatalf("%v: stderr = %q", args, stderr.String())
 		}
+	}
+}
+
+func TestInspectFiltersRejectUnknownRuntime(t *testing.T) {
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"inspect", "--runtime", "llama"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if !strings.Contains(stderr.String(), "unknown --runtime") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

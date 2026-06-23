@@ -1068,6 +1068,7 @@ func newInspectCmd() *cobra.Command {
 		latest          bool
 		last            int
 		statusFilters   []string
+		runtimeFilters  []string
 		agentFilters    []string
 		phaseFilters    []string
 		instanceFilters []string
@@ -1099,8 +1100,8 @@ func newInspectCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inspect: choose one of --latest or --last.")
 				return exitErr(2)
 			}
-			filtersActive := len(statusFilters) > 0 || len(agentFilters) > 0 || len(phaseFilters) > 0 || len(instanceFilters) > 0 || staleOnly || unhealthyOnly
-			filterOpts, err := newPsOptionsWithInstancesAndUnhealthy(statusFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
+			filtersActive := len(statusFilters) > 0 || len(runtimeFilters) > 0 || len(agentFilters) > 0 || len(phaseFilters) > 0 || len(instanceFilters) > 0 || staleOnly || unhealthyOnly
+			filterOpts, err := newPsOptionsWithRuntimeInstancesAndUnhealthy(statusFilters, runtimeFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inspect: %v\n", err)
 				return exitErr(2)
@@ -1127,6 +1128,7 @@ func newInspectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Inspect the most recently started visible instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Inspect the N most recently started visible instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only inspect instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only inspect instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only inspect instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only inspect instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only inspect instances with this name. Can repeat or comma-separate.")
