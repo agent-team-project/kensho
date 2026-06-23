@@ -323,7 +323,7 @@ func runAttach(cmd *cobra.Command, target, instance string, noResume bool, dryRu
 
 func resolveAttachRuntimeBinary(cmd *cobra.Command, teamDir string, meta *daemon.Metadata) (string, error) {
 	if !lifecycleMetadataSupportsManagedResume(meta) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %s\n", lifecycleUnsupportedResumeDetail(meta))
+		writeAttachUnsupportedResumeHint(cmd.ErrOrStderr(), meta, lifecycleUnsupportedResumeDetail(meta))
 		return "", exitErr(2)
 	}
 	if bin := strings.TrimSpace(meta.RuntimeBinary); bin != "" {
@@ -339,6 +339,29 @@ func resolveAttachRuntimeBinary(cmd *cobra.Command, teamDir string, meta *daemon
 		return "", exitErr(2)
 	}
 	return rt.Binary, nil
+}
+
+func writeAttachUnsupportedResumeHint(w fmtWriter, meta *daemon.Metadata, detail string) {
+	fmt.Fprintf(w, "agent-team attach: %s\n", detail)
+	var instance, sessionID, runtimeBinary string
+	if meta != nil {
+		instance = strings.TrimSpace(meta.Instance)
+		sessionID = strings.TrimSpace(meta.SessionID)
+		runtimeBinary = strings.TrimSpace(meta.RuntimeBinary)
+	}
+	if instance != "" {
+		fmt.Fprintf(w, "  Follow captured logs with `agent-team logs %s --follow`.\n", instance)
+		if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
+			fmt.Fprintf(w, "  Read the clean Codex final message with `agent-team logs %s --last-message`.\n", instance)
+		}
+	}
+	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex && sessionID != "" {
+		bin := runtimeBinary
+		if bin == "" {
+			bin = runtimebin.DefaultBinaryForKind(runtimebin.KindCodex)
+		}
+		fmt.Fprintf(w, "  For unmanaged Codex resume outside daemon ownership, run `%s resume %s`.\n", bin, sessionID)
+	}
 }
 
 func renderAttachDryRun(w fmtWriter, instance string, meta *daemon.Metadata, bin string, noResume bool) {

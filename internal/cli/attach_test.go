@@ -468,8 +468,16 @@ func TestAttach_RejectsUnsupportedRuntimeBeforeStop(t *testing.T) {
 	if cap.called {
 		t.Fatal("execClaudeAttach should not run for unsupported runtime")
 	}
-	if !strings.Contains(errOut.String(), `runtime "codex" does not support managed resume`) {
-		t.Fatalf("stderr = %q", errOut.String())
+	stderr := errOut.String()
+	for _, want := range []string{
+		`runtime "codex" does not support managed resume`,
+		`agent-team logs codex-worker --follow`,
+		`agent-team logs codex-worker --last-message`,
+		`codex resume legacy-session`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
 	}
 	got, err := daemon.ReadMetadata(daemon.DaemonRoot(env.teamDir), "codex-worker")
 	if err != nil {
