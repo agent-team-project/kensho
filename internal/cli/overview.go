@@ -495,7 +495,7 @@ func overviewActionsForScope(out *overviewResult, health *healthResult, teamName
 				add("agent-team daemon start")
 			}
 			for _, action := range issue.Actions {
-				add(action)
+				add(overviewIssueAction(action))
 			}
 		}
 	}
@@ -623,6 +623,32 @@ func appendDryRunFlag(action string) string {
 		return action
 	}
 	return action + " --dry-run"
+}
+
+func overviewIssueAction(action string) string {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return ""
+	}
+	if overviewIssueActionPrefersDryRun(action) {
+		return appendDryRunFlag(action)
+	}
+	return action
+}
+
+func overviewIssueActionPrefersDryRun(action string) bool {
+	switch {
+	case action == "agent-team repair" || strings.HasPrefix(action, "agent-team repair "):
+		return true
+	case action == "agent-team queue retry" || strings.HasPrefix(action, "agent-team queue retry "):
+		return true
+	case strings.HasPrefix(action, "agent-team job queue retry "):
+		return true
+	case strings.HasPrefix(action, "agent-team team queue retry "):
+		return true
+	default:
+		return false
+	}
 }
 
 func overviewQueueQuarantineAction(health *healthResult, teamName string) string {

@@ -546,6 +546,43 @@ func TestOverviewStateReportsAttentionForFailures(t *testing.T) {
 	}
 }
 
+func TestOverviewNormalizesRetryIssueActionsToDryRun(t *testing.T) {
+	overview := &overviewResult{
+		OK: true,
+		Queue: queueSummary{
+			Dead: 1,
+		},
+	}
+	health := &healthResult{
+		Healthy: false,
+		Issues: []healthIssue{{
+			Code: "queue_dead_letter",
+			Actions: []string{
+				"agent-team job queue retry squ-1 q-1",
+				"agent-team repair --skip-tick",
+			},
+		}},
+	}
+
+	actions := overviewActions(overview, health)
+	for _, want := range []string{
+		"agent-team job queue retry squ-1 q-1 --dry-run",
+		"agent-team repair --skip-tick --dry-run",
+	} {
+		if !stringSliceContains(actions, want) {
+			t.Fatalf("actions missing %q: %+v", want, actions)
+		}
+	}
+	for _, unwanted := range []string{
+		"agent-team job queue retry squ-1 q-1",
+		"agent-team repair --skip-tick",
+	} {
+		if stringSliceContains(actions, unwanted) {
+			t.Fatalf("actions should normalize %q to dry-run: %+v", unwanted, actions)
+		}
+	}
+}
+
 func TestOverviewWatchRendersUntilContextDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
