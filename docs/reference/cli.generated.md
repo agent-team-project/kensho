@@ -4248,6 +4248,7 @@ Flags:
       --json                Emit team instances as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --repo string         Repo root. (default "<repo>")
+      --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
   -w, --watch               Refresh team instances until interrupted.
 ```
 

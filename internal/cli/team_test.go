@@ -483,6 +483,70 @@ since = "2026-06-18T12:00:00Z"
 	}
 }
 
+func TestTeamPsFiltersByRuntime(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, Workspace: root, StartedAt: now.Add(-3 * time.Minute)},
+		{Instance: "worker-squ-101", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, Workspace: root, StartedAt: now.Add(-2 * time.Minute)},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, Workspace: root, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "ps", "delivery", "--repo", root, "--runtime", "codex", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team ps --runtime: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []psJSONRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team ps runtime: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "worker-squ-101" || rows[0].Runtime != "codex" {
+		t.Fatalf("team ps runtime rows = %+v, want only delivery Codex worker", rows)
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "ps", "delivery", "--repo", root, "--runtime", "llama"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team ps accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
+	}
+}
+
 func TestTeamRetryScopesPipelineFailures(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

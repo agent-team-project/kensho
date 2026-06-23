@@ -581,12 +581,13 @@ func selectTeamRunPipeline(team *topology.Team, override string) (string, error)
 
 func newTeamPsCmd() *cobra.Command {
 	var (
-		repo     string
-		watch    bool
-		noClear  bool
-		interval time.Duration
-		jsonOut  bool
-		format   string
+		repo           string
+		watch          bool
+		noClear        bool
+		interval       time.Duration
+		runtimeFilters []string
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -608,6 +609,11 @@ func newTeamPsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team ps: %v\n", err)
 				return exitErr(2)
 			}
+			opts, err := newPsOptionsWithRuntimeInstancesAndUnhealthy(nil, runtimeFilters, nil, nil, nil, false, false)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team ps: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -616,9 +622,9 @@ func newTeamPsCmd() *cobra.Command {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
 				clear := !noClear && !jsonOut
-				return runTeamPsWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear)
+				return runTeamPsWatchWithOptions(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear, opts)
 			}
-			rows, err := collectTeamPsRows(teamDir, args[0], time.Now().UTC())
+			rows, err := collectTeamPsRowsWithOptions(teamDir, args[0], time.Now().UTC(), opts)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team ps: %v\n", err)
 				return exitErr(1)
@@ -630,6 +636,7 @@ func newTeamPsCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team instances until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team instances as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each team instance with a Go template, e.g. '{{.Instance}} {{.Status}}'.")
 	return cmd
@@ -4247,6 +4254,10 @@ func collectTeamHealth(teamDir, name string, now time.Time, includeJobs bool) (*
 }
 
 func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, error) {
+	return collectTeamPsRowsWithOptions(teamDir, name, now, psOptions{})
+}
+
+func collectTeamPsRowsWithOptions(teamDir, name string, now time.Time, opts psOptions) ([]instanceRow, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
 		return nil, err
@@ -4255,7 +4266,7 @@ func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, erro
 	if err != nil {
 		return nil, err
 	}
-	return teamInstanceRows(top, team, rows), nil
+	return filterPsRows(teamInstanceRows(top, team, rows), opts), nil
 }
 
 type teamLifecycleUpOptions struct {
@@ -5865,13 +5876,17 @@ func renderTeamRepairTickStep(w io.Writer, step teamRepairTickStep) error {
 }
 
 func runTeamPsWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
+	return runTeamPsWatchWithOptions(ctx, w, teamDir, name, interval, jsonOut, clear, psOptions{})
+}
+
+func runTeamPsWatchWithOptions(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool, opts psOptions) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		rows, err := collectTeamPsRows(teamDir, name, time.Now().UTC())
+		rows, err := collectTeamPsRowsWithOptions(teamDir, name, time.Now().UTC(), opts)
 		if err != nil {
 			return err
 		}
@@ -6083,10 +6098,8 @@ func teamInstanceRows(top *topology.Topology, team *topology.Team, rows []instan
 		return nil
 	}
 	rowByName := map[string]instanceRow{}
-	rowsByAgent := map[string][]instanceRow{}
 	for _, row := range rows {
 		rowByName[row.Instance] = row
-		rowsByAgent[row.Agent] = append(rowsByAgent[row.Agent], row)
 	}
 	var out []instanceRow
 	seen := map[string]bool{}
@@ -6097,8 +6110,12 @@ func teamInstanceRows(top *topology.Topology, team *topology.Team, rows []instan
 		}
 		if inst.Ephemeral {
 			addedLive := false
-			for _, row := range rowsByAgent[inst.Agent] {
+			for _, row := range rows {
 				if seen[row.Instance] {
+					continue
+				}
+				owner, ok := declaredEphemeralOwner(top, row.Instance, row.Agent)
+				if !ok || owner.Name != inst.Name {
 					continue
 				}
 				out = append(out, row)
