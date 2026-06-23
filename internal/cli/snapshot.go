@@ -108,6 +108,8 @@ type snapshotResult struct {
 	TeamDir         string                     `json:"team_dir"`
 	Team            *teamInfo                  `json:"team,omitempty"`
 	Redacted        bool                       `json:"redacted"`
+	Overview        *overviewResult            `json:"overview,omitempty"`
+	Next            *nextActionResult          `json:"next,omitempty"`
 	Runtime         *runtimeInfo               `json:"runtime,omitempty"`
 	Health          *healthResult              `json:"health,omitempty"`
 	Plan            *planResult                `json:"plan,omitempty"`
@@ -223,6 +225,9 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 	} else {
 		out.Events = events
 	}
+	out.Overview = collectOverview(teamDir, now, opts.ScheduleLimit)
+	next := nextActionResultFromOverview(out.Overview, 0)
+	out.Next = &next
 	if opts.Redact {
 		redactSnapshotResult(out)
 	}
@@ -336,6 +341,13 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		out.addError("events", err)
 	} else {
 		out.Events = events
+	}
+	if overview, err := collectTeamOverview(teamDir, name, now, opts.ScheduleLimit); err != nil {
+		out.addError("overview", err)
+	} else {
+		out.Overview = overview
+		next := nextActionResultFromOverview(overview, 0)
+		out.Next = &next
 	}
 	if opts.Redact {
 		redactSnapshotResult(out)
@@ -629,6 +641,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	fmt.Fprintf(w, "redacted: %s\n", yesNo(snapshot.Redacted))
 	if snapshot.Health != nil {
 		fmt.Fprintf(w, "health: %s\n", repairHealthState(snapshot.Health))
+	}
+	if snapshot.Next != nil {
+		fmt.Fprintf(w, "next: state=%s actions=%d\n", snapshot.Next.State, len(snapshot.Next.Actions))
 	}
 	if snapshot.Plan != nil {
 		fmt.Fprintf(w, "plan: total=%d start=%d resume=%d keep=%d on_demand=%d extra=%d\n",

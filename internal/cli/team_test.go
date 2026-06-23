@@ -4414,6 +4414,17 @@ branch = "other-oth-701"
 	if snapshot.Team == nil || snapshot.Team.Name != "delivery" {
 		t.Fatalf("team metadata = %+v", snapshot.Team)
 	}
+	if snapshot.Overview == nil || snapshot.Overview.Team == nil || snapshot.Overview.Team.Name != "delivery" || snapshot.Next == nil || snapshot.Next.Team == nil || snapshot.Next.Team.Name != "delivery" {
+		t.Fatalf("team overview/next missing: overview=%+v next=%+v", snapshot.Overview, snapshot.Next)
+	}
+	if len(snapshot.Next.ActionDetails) == 0 {
+		t.Fatalf("team next action details missing: %+v", snapshot.Next)
+	}
+	for _, detail := range snapshot.Next.ActionDetails {
+		if detail.Team != "delivery" {
+			t.Fatalf("team snapshot next detail is not scoped: %+v", detail)
+		}
+	}
 	if !snapshot.Redacted {
 		t.Fatalf("snapshot should redact by default")
 	}
@@ -4469,7 +4480,7 @@ branch = "other-oth-701"
 		t.Fatalf("team snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
 	textBody := textOut.String()
-	for _, want := range []string{"team: delivery", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1", "team doctor: problems=0 warnings=1", "events: 0"} {
+	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1", "team doctor: problems=0 warnings=1", "events: 0"} {
 		if !strings.Contains(textBody, want) {
 			t.Fatalf("team snapshot text missing %q:\n%s", want, textBody)
 		}

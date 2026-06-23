@@ -120,6 +120,12 @@ branch = "worker-squ-501"
 	if snapshot.Health == nil || snapshot.Health.Queue.Dead != 1 {
 		t.Fatalf("health = %+v", snapshot.Health)
 	}
+	if snapshot.Overview == nil || snapshot.Next == nil || len(snapshot.Next.ActionDetails) == 0 {
+		t.Fatalf("overview/next missing: overview=%+v next=%+v", snapshot.Overview, snapshot.Next)
+	}
+	if detail, ok := findOperatorActionHint(snapshot.Next.ActionDetails, "agent-team repair --dry-run --jobs"); !ok || detail.Source != "health" || detail.Reason != "unhealthy" {
+		t.Fatalf("snapshot next repair detail = %+v, ok=%v", detail, ok)
+	}
 	if snapshot.Plan == nil || snapshot.Plan.Summary.Total == 0 {
 		t.Fatalf("plan = %+v", snapshot.Plan)
 	}
