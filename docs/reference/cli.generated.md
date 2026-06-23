@@ -3516,7 +3516,7 @@ Flags:
 
 Send a mailbox message to a daemon-managed instance.
 
-Send a direct message through the daemon mailbox. By default the target must already be known to the daemon, which catches typos. Use --allow-missing to intentionally queue a message for a future instance. Use --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy to send the same message to a selected set of daemon-known instances.
+Send a direct message through the daemon mailbox. By default the target must already be known to the daemon, which catches typos. Use --allow-missing to intentionally queue a message for a future instance. Use --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy to send the same message to a selected set of daemon-known instances.
 
 ```text
 agent-team send [<instance>] <message...> [flags]
@@ -3537,6 +3537,7 @@ Flags:
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --runtime strings       Send to daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to daemon-known instances whose status.toml is stale.
       --status strings        Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --target string         Repo root. (default "<repo>")

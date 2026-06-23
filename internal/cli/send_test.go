@@ -583,6 +583,52 @@ description = "fresh"
 	}
 }
 
+func TestSendRuntimeFilterUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "codex-worker", Agent: "worker", Runtime: "codex", RuntimeBinary: "codex-dev", Status: daemon.StatusRunning},
+		{Instance: "claude-manager", Agent: "manager", Runtime: "claude", RuntimeBinary: "claude-code", Status: daemon.StatusRunning},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"send", "--runtime", "codex", "runtime hello", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("send --runtime local mailbox: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var rows []sendJSON
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode send --runtime json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || !rows[0].Delivered || rows[0].To != "codex-worker" {
+		t.Fatalf("send --runtime json = %+v, want delivery to codex worker", rows)
+	}
+	messages, err := daemon.ReadMessages(root, "codex-worker")
+	if err != nil {
+		t.Fatalf("read codex mailbox: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Body != "runtime hello" {
+		t.Fatalf("codex messages = %+v, want runtime-filtered message", messages)
+	}
+	claudeMessages, err := daemon.ReadMessages(root, "claude-manager")
+	if err != nil {
+		t.Fatalf("read claude mailbox: %v", err)
+	}
+	if len(claudeMessages) != 0 {
+		t.Fatalf("claude messages = %+v, want none", claudeMessages)
+	}
+}
+
 func TestSendLatestSelectsNewestMatchingTarget(t *testing.T) {
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	client := &fakeSendClient{
@@ -825,7 +871,7 @@ func TestSendLatestLastValidation(t *testing.T) {
 		{[]string{"send", "--last", "-1", "hello"}, "--last must be >= 0"},
 		{[]string{"send", "--latest", "--last", "2", "hello"}, "choose one of --latest or --last"},
 		{[]string{"send", "--latest"}, "message body is required"},
-		{[]string{"send"}, "instance and message body are required unless --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy"},
+		{[]string{"send"}, "instance and message body are required unless --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -897,6 +943,18 @@ func TestSendSelectionValidation(t *testing.T) {
 			body: "hello",
 			opts: sendOptions{AgentFilters: []string{"  "}},
 			want: "non-empty agent",
+		},
+		{
+			name: "bad runtime",
+			body: "hello",
+			opts: sendOptions{RuntimeFilters: []string{"llama"}},
+			want: "unknown --runtime",
+		},
+		{
+			name: "empty runtime",
+			body: "hello",
+			opts: sendOptions{RuntimeFilters: []string{"  "}},
+			want: "non-empty runtime",
 		},
 		{
 			name: "bad status",

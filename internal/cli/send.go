@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
 
@@ -28,6 +29,7 @@ func newSendCmd() *cobra.Command {
 		latest        bool
 		last          int
 		agents        []string
+		runtimes      []string
 		statusFilters []string
 		phaseFilters  []string
 		staleOnly     bool
@@ -43,7 +45,7 @@ func newSendCmd() *cobra.Command {
 		Short: "Send a mailbox message to a daemon-managed instance.",
 		Long: "Send a direct message through the daemon mailbox. By default the target must already be " +
 			"known to the daemon, which catches typos. Use --allow-missing to intentionally queue a message for a future instance. " +
-			"Use --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy to send the same message to a selected set of daemon-known instances.",
+			"Use --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy to send the same message to a selected set of daemon-known instances.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -64,19 +66,20 @@ func newSendCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			opts := sendOptions{
-				From:          from,
-				All:           all,
-				Latest:        latest,
-				Limit:         last,
-				AgentFilters:  agents,
-				StatusFilters: statusFilters,
-				PhaseFilters:  phaseFilters,
-				Stale:         staleOnly,
-				Unhealthy:     unhealthyOnly,
-				AllowMissing:  allowMissing,
-				DryRun:        dryRun,
-				JSON:          jsonOut,
-				Format:        formatTemplate,
+				From:           from,
+				All:            all,
+				Latest:         latest,
+				Limit:          last,
+				AgentFilters:   agents,
+				RuntimeFilters: runtimes,
+				StatusFilters:  statusFilters,
+				PhaseFilters:   phaseFilters,
+				Stale:          staleOnly,
+				Unhealthy:      unhealthyOnly,
+				AllowMissing:   allowMissing,
+				DryRun:         dryRun,
+				JSON:           jsonOut,
+				Format:         formatTemplate,
 			}
 			var (
 				to   string
@@ -86,11 +89,11 @@ func newSendCmd() *cobra.Command {
 				body, err = sendMessageBody(message, messageFile, args)
 			} else {
 				if len(args) < 2 && strings.TrimSpace(message) == "" && strings.TrimSpace(messageFile) == "" {
-					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: instance and message body are required unless --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy is set.")
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: instance and message body are required unless --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy is set.")
 					return exitErr(2)
 				}
 				if len(args) < 1 {
-					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: instance and message body are required unless --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy is set.")
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: instance and message body are required unless --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy is set.")
 					return exitErr(2)
 				}
 				to = args[0]
@@ -128,6 +131,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Send to the most recently started daemon-known instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Send to the N most recently started daemon-known instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Send to daemon-known instances for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Send to daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to daemon-known instances whose status.toml is stale.")
@@ -197,6 +201,7 @@ type sendOptions struct {
 	Latest          bool
 	Limit           int
 	AgentFilters    []string
+	RuntimeFilters  []string
 	StatusFilters   []string
 	PhaseFilters    []string
 	PhaseByInstance map[string]string
@@ -210,7 +215,7 @@ type sendOptions struct {
 }
 
 func (o sendOptions) selectingSet() bool {
-	return o.All || o.Latest || o.Limit != 0 || len(o.AgentFilters) > 0 || len(o.StatusFilters) > 0 || len(o.PhaseFilters) > 0 || o.Stale || o.Unhealthy
+	return o.All || o.Latest || o.Limit != 0 || len(o.AgentFilters) > 0 || len(o.RuntimeFilters) > 0 || len(o.StatusFilters) > 0 || len(o.PhaseFilters) > 0 || o.Stale || o.Unhealthy
 }
 
 type sendClient interface {
@@ -340,7 +345,7 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 		return exitErr(2)
 	}
 	if opts.AllowMissing {
-		fmt.Fprintln(stderr, "agent-team send: --allow-missing cannot be combined with --all, --latest, --last, --agent, --status, --phase, --stale, or --unhealthy.")
+		fmt.Fprintln(stderr, "agent-team send: --allow-missing cannot be combined with --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, or --unhealthy.")
 		return exitErr(2)
 	}
 	targets, err := selectSendTargets(client, opts)
@@ -434,6 +439,10 @@ func selectSendTargets(client sendClient, opts sendOptions) ([]string, error) {
 	if len(opts.AgentFilters) > 0 && len(agents) == 0 {
 		return nil, errors.New("--agent requires at least one non-empty agent")
 	}
+	runtimes, err := sendRuntimeFilterSet(opts.RuntimeFilters)
+	if err != nil {
+		return nil, err
+	}
 	statuses, err := lifecycleStatusFilterSet(opts.StatusFilters)
 	if err != nil {
 		return nil, err
@@ -452,6 +461,9 @@ func selectSendTargets(client sendClient, opts sendOptions) ([]string, error) {
 	filtered := make([]*daemon.Metadata, 0, len(metas))
 	for _, meta := range metas {
 		if len(agents) > 0 && !agents[meta.Agent] {
+			continue
+		}
+		if len(runtimes) > 0 && !runtimes[sendRuntimeKey(meta)] {
 			continue
 		}
 		if len(statuses) > 0 && !statuses[sendStatusKey(meta)] {
@@ -482,6 +494,38 @@ func selectSendTargets(client sendClient, opts sendOptions) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func sendRuntimeFilterSet(filters []string) (map[string]bool, error) {
+	if len(filters) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, raw := range splitFilterValues(filters) {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		kind, err := runtimebin.ParseKind(raw)
+		if err != nil {
+			return nil, fmt.Errorf("unknown --runtime %q (want claude or codex)", raw)
+		}
+		out[string(kind)] = true
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--runtime requires at least one non-empty runtime")
+	}
+	return out, nil
+}
+
+func sendRuntimeKey(meta *daemon.Metadata) string {
+	if meta == nil {
+		return "unknown"
+	}
+	runtime := strings.ToLower(strings.TrimSpace(meta.Runtime))
+	if runtime == "" {
+		return "unknown"
+	}
+	return runtime
 }
 
 func latestSendTargetMetasLimit(metas []*daemon.Metadata, limit int) []*daemon.Metadata {
