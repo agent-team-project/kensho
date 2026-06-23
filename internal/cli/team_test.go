@@ -475,6 +475,190 @@ since = "2026-06-18T12:00:00Z"
 	}
 }
 
+func TestTeamRetryScopesPipelineFailures(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.platform-worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.platform-worker.triggers]]
+event = "agent.dispatch"
+match.target = "platform-worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.platform_ops]
+trigger.event = "ticket.created"
+trigger.match.team = "platform"
+
+[[pipelines.platform_ops.steps]]
+id = "implement"
+target = "platform-worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+
+[teams.platform]
+instances = ["platform-worker"]
+pipelines = ["platform_ops"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:         "squ-901",
+			Ticket:     "SQU-901",
+			Target:     "worker",
+			Kickoff:    "delivery retry",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "implement failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+		{
+			ID:         "oth-901",
+			Ticket:     "OTH-901",
+			Target:     "platform-worker",
+			Kickoff:    "platform retry",
+			Pipeline:   "platform_ops",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "implement failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "platform-worker", Status: job.StatusFailed, Instance: "platform-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("team retry dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryRows []pipelineRetryResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryRows); err != nil {
+		t.Fatalf("decode team retry dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryRows) != 1 || dryRows[0].JobID != "squ-901" || dryRows[0].Pipeline != "ticket_to_pr" || dryRows[0].Action != "would_retry" || dryRows[0].StepStatus != job.StatusBlocked {
+		t.Fatalf("dry rows = %+v", dryRows)
+	}
+	if strings.Contains(dryOut.String(), "oth-901") || strings.Contains(dryOut.String(), "platform_ops") {
+		t.Fatalf("team retry dry-run leaked platform job:\n%s", dryOut.String())
+	}
+
+	preview := NewRootCmd()
+	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	preview.SetOut(previewOut)
+	preview.SetErr(previewErr)
+	preview.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--dispatch", "--workspace", "repo", "--dry-run", "--preview-routes", "--json"})
+	if err := preview.Execute(); err != nil {
+		t.Fatalf("team retry preview: %v\nstderr=%s", err, previewErr.String())
+	}
+	var previewRows []pipelineRetryResult
+	if err := json.Unmarshal(previewOut.Bytes(), &previewRows); err != nil {
+		t.Fatalf("decode team retry preview: %v\nbody=%s", err, previewOut.String())
+	}
+	if len(previewRows) != 1 || previewRows[0].Action != "would_dispatch" || previewRows[0].Preview == nil || previewRows[0].Preview.Dispatch == nil {
+		t.Fatalf("preview rows = %+v", previewRows)
+	}
+	if !containsString(previewRows[0].Preview.Dispatch.Preview.Matched, "worker") {
+		t.Fatalf("preview routes = %+v", previewRows[0].Preview.Dispatch.Preview)
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--dry-run", "--format", "{{.JobID}} {{.Action}} {{.StepID}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("team retry format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got := strings.TrimSpace(formatOut.String()); got != "squ-901 would_retry implement" {
+		t.Fatalf("team retry format = %q", got)
+	}
+
+	run := NewRootCmd()
+	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
+	run.SetOut(runOut)
+	run.SetErr(runErr)
+	run.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--json"})
+	if err := run.Execute(); err != nil {
+		t.Fatalf("team retry: %v\nstderr=%s", err, runErr.String())
+	}
+	var runRows []pipelineRetryResult
+	if err := json.Unmarshal(runOut.Bytes(), &runRows); err != nil {
+		t.Fatalf("decode team retry: %v\nbody=%s", err, runOut.String())
+	}
+	if len(runRows) != 1 || runRows[0].Action != "retried" || runRows[0].StepStatus != job.StatusBlocked {
+		t.Fatalf("run rows = %+v", runRows)
+	}
+	delivery, err := job.Read(teamDir, "squ-901")
+	if err != nil {
+		t.Fatalf("read delivery: %v", err)
+	}
+	platform, err := job.Read(teamDir, "oth-901")
+	if err != nil {
+		t.Fatalf("read platform: %v", err)
+	}
+	if delivery.Status != job.StatusQueued || delivery.Steps[0].Status != job.StatusBlocked || delivery.Steps[0].Instance != "" {
+		t.Fatalf("delivery job = %+v", delivery)
+	}
+	if platform.Status != job.StatusFailed || platform.Steps[0].Status != job.StatusFailed || platform.Steps[0].Instance != "platform-old" {
+		t.Fatalf("platform job changed = %+v", platform)
+	}
+}
+
+func TestTeamRetryValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"team", "retry", "delivery", "--limit", "-1"}, "--limit must be >= 0"},
+		{[]string{"team", "retry", "delivery", "--preview-routes", "--dry-run"}, "--preview-routes requires --dry-run and --dispatch"},
+		{[]string{"team", "retry", "delivery", "--format", "{{.JobID}}", "--json"}, "--format cannot be combined with --json"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+	}
+}
+
 func TestTeamCleanupScopesDoneJobOwnership(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)

@@ -44,6 +44,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamTriageCmd())
 	cmd.AddCommand(newTeamCleanupCmd())
 	cmd.AddCommand(newTeamAdvanceCmd())
+	cmd.AddCommand(newTeamRetryCmd())
 	cmd.AddCommand(newTeamQueueCmd())
 	cmd.AddCommand(newTeamLogsCmd())
 	cmd.AddCommand(newTeamEventsCmd())
@@ -943,6 +944,74 @@ func newTeamAdvanceCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready steps without dispatching them.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit advance results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")
+	return cmd
+}
+
+func newTeamRetryCmd() *cobra.Command {
+	var (
+		repo          string
+		workspace     string
+		limit         int
+		dispatchNow   bool
+		dryRun        bool
+		previewRoutes bool
+		jsonOut       bool
+		format        string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "retry <team>",
+		Short: "Reset failed pipeline steps owned by one team.",
+		Long: "Reset or preview failed-step retries for jobs in one team's declared pipelines. " +
+			"Pass --dispatch to immediately dispatch each reset retry.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team retry: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team retry: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if previewRoutes && (!dryRun || !dispatchNow) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team retry: --preview-routes requires --dry-run and --dispatch.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineRetryFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			_, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
+				return exitErr(1)
+			}
+			results, err := retryTeamPipelineJobs(cmd, teamDir, team, workspace, limit, dispatchNow, dryRun, previewRoutes)
+			if err != nil {
+				if errors.Is(err, errDaemonNotRunning) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team retry: daemon is not running — start it with `agent-team start`, or use --dry-run without --dispatch.")
+					return exitErr(2)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineRetryResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried dispatches: auto, worktree, or repo.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many failed team jobs; 0 means no limit.")
+	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each reset failed step immediately.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview failed-step resets and optional dispatches without writing job or daemon state.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include local topology route and dispatch payload previews.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit retry results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")
 	return cmd
 }
@@ -5379,6 +5448,32 @@ func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topo
 		results = append(results, advanced...)
 		if limit > 0 {
 			remaining -= len(advanced)
+		}
+	}
+	return results, nil
+}
+
+func retryTeamPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Team, workspace string, limit int, dispatchNow bool, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
+	if team == nil || len(team.Pipelines) == 0 {
+		return []pipelineRetryResult{}, nil
+	}
+	results := []pipelineRetryResult{}
+	remaining := limit
+	for _, pipeline := range team.Pipelines {
+		if limit > 0 && remaining <= 0 {
+			break
+		}
+		batchLimit := 0
+		if limit > 0 {
+			batchLimit = remaining
+		}
+		retried, err := retryPipelineJobs(cmd, teamDir, pipeline, workspace, batchLimit, dispatchNow, dryRun, previewRoutes)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, retried...)
+		if limit > 0 {
+			remaining -= len(retried)
 		}
 	}
 	return results, nil

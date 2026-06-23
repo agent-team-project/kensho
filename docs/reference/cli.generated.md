@@ -3756,6 +3756,7 @@ Subcommands:
 - `agent-team team ready` - List ready pipeline jobs owned by one team.
 - `agent-team team repair` - Recover unhealthy orchestration state for one team.
 - `agent-team team restart` - Restart or resume a team&#39;s declared persistent instances.
+- `agent-team team retry` - Reset failed pipeline steps owned by one team.
 - `agent-team team run` - Create a durable job through a team&#39;s pipeline.
 - `agent-team team schedules` - List schedules owned by one team.
 - `agent-team team send` - Send a mailbox message to team-owned instances.
@@ -4420,6 +4421,29 @@ Flags:
       --timeout duration         Maximum time to wait for each running instance to stop before resuming (0 = daemon default).
       --wait                     Wait for selected instances to become healthy after restarting.
       --wait-timeout duration    Maximum time to wait for health with --wait (0 = no timeout).
+```
+
+## `agent-team team retry`
+
+Reset failed pipeline steps owned by one team.
+
+Reset or preview failed-step retries for jobs in one team&#39;s declared pipelines. Pass --dispatch to immediately dispatch each reset retry.
+
+```text
+agent-team team retry <team> [flags]
+```
+
+Flags:
+
+```text
+      --dispatch           Dispatch each reset failed step immediately.
+      --dry-run            Preview failed-step resets and optional dispatches without writing job or daemon state.
+      --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json               Emit retry results as JSON.
+      --limit int          Retry at most this many failed team jobs; 0 means no limit.
+      --preview-routes     With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string        Repo root. (default "<repo>")
+      --workspace string   Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team run`
