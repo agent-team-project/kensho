@@ -5819,6 +5819,7 @@ type jobNextResult struct {
 	State      string     `json:"state"`
 	Step       *job.Step  `json:"step,omitempty"`
 	WaitingFor []string   `json:"waiting_for,omitempty"`
+	Actions    []string   `json:"actions,omitempty"`
 	Message    string     `json:"message"`
 }
 
@@ -6033,13 +6034,16 @@ done:
 	j.LastStatus = lastStatus
 }
 
-func inspectNextJobStep(j *job.Job) jobNextResult {
-	res := jobNextResult{
+func inspectNextJobStep(j *job.Job) (res jobNextResult) {
+	res = jobNextResult{
 		JobID:     j.ID,
 		Ticket:    j.Ticket,
 		Pipeline:  j.Pipeline,
 		JobStatus: j.Status,
 	}
+	defer func() {
+		res.Actions = actionsForJobNextResult(j, res)
+	}()
 	if len(j.Steps) == 0 {
 		res.State = "none"
 		res.Message = "job has no pipeline steps"
@@ -6103,6 +6107,14 @@ func inspectNextJobStep(j *job.Job) jobNextResult {
 	res.State = "blocked"
 	res.Message = "no ready steps"
 	return res
+}
+
+func actionsForJobNextResult(j *job.Job, res jobNextResult) []string {
+	if j == nil || len(j.Steps) == 0 {
+		return nil
+	}
+	row := jobReadyRowFromJob(j, res)
+	return row.Actions
 }
 
 func cloneJobStep(step *job.Step) *job.Step {
@@ -6306,8 +6318,12 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	if len(res.WaitingFor) > 0 {
 		waiting = strings.Join(res.WaitingFor, ",")
 	}
-	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s waiting_for=%s\n",
-		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, waiting)
+	actions := "-"
+	if len(res.Actions) > 0 {
+		actions = strings.Join(res.Actions, "; ")
+	}
+	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s waiting_for=%s actions=%s\n",
+		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, waiting, actions)
 	return nil
 }
 

@@ -1095,6 +1095,9 @@ gate = "manual"
 	if blocked.State != "blocked" || blocked.Step == nil || blocked.Step.ID != "review" || blocked.Step.Gate != job.StepGateManual || !strings.Contains(blocked.Message, "manual approval") {
 		t.Fatalf("blocked next = %+v", blocked)
 	}
+	if len(blocked.Actions) != 1 || blocked.Actions[0] != "agent-team job step squ-901 review --status queued" {
+		t.Fatalf("blocked manual actions = %+v", blocked.Actions)
+	}
 
 	ready := NewRootCmd()
 	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1367,6 +1370,9 @@ gate = "pr"
 	}
 	if ready.State != "ready" || ready.Step == nil || ready.Step.ID != "review" || ready.Step.Gate != job.StepGatePR || len(ready.WaitingFor) != 0 {
 		t.Fatalf("ready next = %+v", ready)
+	}
+	if len(ready.Actions) != 1 || ready.Actions[0] != "agent-team job advance squ-902" {
+		t.Fatalf("ready PR actions = %+v", ready.Actions)
 	}
 
 	advanceReady := NewRootCmd()

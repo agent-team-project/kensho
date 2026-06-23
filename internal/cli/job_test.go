@@ -5410,6 +5410,9 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 	if ready.State != "ready" || ready.Step == nil || ready.Step.ID != "review" || len(ready.WaitingFor) != 0 {
 		t.Fatalf("ready result = %+v", ready)
 	}
+	if len(ready.Actions) != 1 || ready.Actions[0] != "agent-team job advance squ-203" {
+		t.Fatalf("ready actions = %+v", ready.Actions)
+	}
 
 	j.Steps[1].Status = job.StatusRunning
 	j.Steps[1].Instance = "worker-squ-203-review"
@@ -5448,6 +5451,9 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 	}
 	if done.State != "done" || done.Step != nil || done.Message != "all steps done" {
 		t.Fatalf("done result = %+v", done)
+	}
+	if len(done.Actions) != 0 {
+		t.Fatalf("done actions = %+v, want none", done.Actions)
 	}
 
 	noSteps := &job.Job{
