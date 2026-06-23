@@ -653,6 +653,7 @@ target = "manager"
 	}
 	if !containsString(ticket.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
 		!containsString(ticket.Actions, "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes") ||
+		!containsString(ticket.Actions, "agent-team repair --retry-pipelines --dry-run --preview-routes") ||
 		!containsString(ticket.Actions, "agent-team pipeline ready ticket_to_pr --state failed") {
 		t.Fatalf("ticket actions = %+v", ticket.Actions)
 	}
@@ -688,7 +689,7 @@ target = "manager"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ACTION", "ticket_to_pr", "yes", "running=1,failed=1", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "ad_hoc", "no"} {
+	for _, want := range []string{"PIPELINE", "ACTION", "ticket_to_pr", "yes", "running=1,failed=1", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "agent-team repair --retry-pipelines --dry-run --preview-routes", "ad_hoc", "no"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline status text missing %q:\n%s", want, textOut.String())
 		}

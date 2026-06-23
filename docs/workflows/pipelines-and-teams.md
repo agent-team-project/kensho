@@ -84,7 +84,7 @@ When an operator intentionally bypasses a stage, `agent-team job step <job-id> <
 When a step fails, `agent-team pipeline retry <pipeline>` resets retryable failed steps to a blocked-but-ready state so the next `pipeline advance`, `team advance`, or `tick` can dispatch another attempt. Add `--dispatch` to retry and dispatch in one command, use `--dry-run --preview-routes` before a batch retry to inspect the resolved routes and payloads, and pass `--message` to record why the retry happened.
 Use `agent-team team retry <team>` for the same recovery flow scoped to one team's declared pipelines.
 Use `agent-team repair --retry-pipelines` or `agent-team team repair <team> --retry-pipelines` when failed-step retry should happen inside the broader repair loop after daemon reconciliation and dead-letter queue retry. Add `--dry-run --preview-routes` first to inspect the dispatch routes, and `--retry-message` to record the operator reason.
-Pipeline status and health action hints recommend these retry dry-runs when failed steps are present.
+Pipeline status, health, overview, and next-action hints recommend these retry dry-runs when failed steps are present.
 
 Supported gates:
 

@@ -4702,7 +4702,9 @@ pipelines = ["ticket_to_pr"]
 		if issue.Code == "job_attention" && issue.Job == "squ-901" {
 			sawTeamJob = true
 		}
-		if issue.Code == "pipeline_failed_step" && containsString(issue.Actions, "agent-team team retry delivery --dry-run --dispatch --preview-routes") {
+		if issue.Code == "pipeline_failed_step" &&
+			containsString(issue.Actions, "agent-team team retry delivery --dry-run --dispatch --preview-routes") &&
+			containsString(issue.Actions, "agent-team team repair delivery --retry-pipelines --dry-run --preview-routes") {
 			sawScopedPipelineAction = true
 		}
 		if issue.Code == "queue_dead_letter" && containsString(issue.Actions, "agent-team team queue retry delivery --all --job squ-901") {
@@ -4738,7 +4740,7 @@ pipelines = ["ticket_to_pr"]
 	if err := text.Execute(); err == nil {
 		t.Fatal("team health text unexpectedly succeeded")
 	}
-	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1 restorable=1 unrestorable=0", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team team retry delivery --dry-run --dispatch --preview-routes", "agent-team team queue quarantine delivery --restorable"} {
+	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1 restorable=1 unrestorable=0", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team team retry delivery --dry-run --dispatch --preview-routes", "agent-team team repair delivery --retry-pipelines --dry-run --preview-routes", "agent-team team queue quarantine delivery --restorable"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team health text missing %q:\n%s", want, textOut.String())
 		}
