@@ -6190,10 +6190,30 @@ func teamPipelineStatus(team *topology.Team, rows []pipelineStatusRow) []pipelin
 	out := make([]pipelineStatusRow, 0, len(rows))
 	for _, row := range rows {
 		if pipelines[row.Pipeline] {
-			out = append(out, row)
+			scoped := row
+			scoped.Actions = teamPipelineActions(team.Name, row)
+			out = append(out, scoped)
 		}
 	}
 	return out
+}
+
+func teamPipelineActions(teamName string, row pipelineStatusRow) []string {
+	actions := []string{}
+	if row.ReadySteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team team advance %s --dry-run --preview-routes", teamName))
+	}
+	if row.FailedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team team retry %s --dry-run --dispatch --preview-routes", teamName))
+		actions = append(actions, fmt.Sprintf("agent-team team ready %s --state failed", teamName))
+	}
+	if row.BlockedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team team ready %s --state blocked", teamName))
+	}
+	if row.QueuedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team team tick %s", teamName))
+	}
+	return actions
 }
 
 func teamSchedules(team *topology.Team, schedules []scheduleInfo) []scheduleInfo {

@@ -82,6 +82,7 @@ Common states:
 When an operator intentionally bypasses a stage, `agent-team job step <job-id> <step-id> --skip` records that step as `done` with `skipped = true`, so dependency checks can continue while `job show` still reports the bypass.
 When a step fails, `agent-team pipeline retry <pipeline>` resets retryable failed steps to a blocked-but-ready state so the next `pipeline advance`, `team advance`, or `tick` can dispatch another attempt. Add `--dispatch` to retry and dispatch in one command, and use `--dry-run --preview-routes` before a batch retry to inspect the resolved routes and payloads.
 Use `agent-team team retry <team>` for the same recovery flow scoped to one team's declared pipelines.
+Pipeline status and health action hints recommend these retry dry-runs when failed steps are present.
 
 Supported gates:
 

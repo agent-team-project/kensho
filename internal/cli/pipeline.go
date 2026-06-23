@@ -1264,6 +1264,7 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 		actions = append(actions, fmt.Sprintf("agent-team pipeline advance %s --dry-run --preview-routes", row.Pipeline))
 	}
 	if row.FailedSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team pipeline retry %s --dry-run --dispatch --preview-routes", row.Pipeline))
 		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state failed", row.Pipeline))
 	}
 	if row.BlockedSteps > 0 {

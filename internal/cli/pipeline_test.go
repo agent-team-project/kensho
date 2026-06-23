@@ -651,7 +651,9 @@ target = "manager"
 	if !ticket.Declared || ticket.Steps != 2 || ticket.Jobs != 2 || ticket.Running != 1 || ticket.Failed != 1 || ticket.ReadySteps != 1 || ticket.FailedSteps != 1 {
 		t.Fatalf("ticket status = %+v", ticket)
 	}
-	if !containsString(ticket.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") || !containsString(ticket.Actions, "agent-team pipeline ready ticket_to_pr --state failed") {
+	if !containsString(ticket.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
+		!containsString(ticket.Actions, "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes") ||
+		!containsString(ticket.Actions, "agent-team pipeline ready ticket_to_pr --state failed") {
 		t.Fatalf("ticket actions = %+v", ticket.Actions)
 	}
 	nightly := byName["nightly"]

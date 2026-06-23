@@ -964,7 +964,8 @@ after = ["implement"]
 	for _, issue := range body.Issues {
 		switch issue.Code {
 		case "pipeline_failed_step":
-			sawFailed = containsString(issue.Actions, "agent-team pipeline ready ticket_to_pr --state failed")
+			sawFailed = containsString(issue.Actions, "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes") &&
+				containsString(issue.Actions, "agent-team pipeline ready ticket_to_pr --state failed")
 		case "pipeline_blocked_step":
 			sawBlocked = containsString(issue.Actions, "agent-team pipeline ready ticket_to_pr --state blocked")
 		}
@@ -981,7 +982,7 @@ after = ["implement"]
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
-	for _, want := range []string{"pipeline status: pipelines=1 jobs=2 ready_steps=0 failed_steps=1", "pipeline_failed_step", "pipeline_blocked_step", "agent-team pipeline ready ticket_to_pr --state failed", "agent-team pipeline ready ticket_to_pr --state blocked"} {
+	for _, want := range []string{"pipeline status: pipelines=1 jobs=2 ready_steps=0 failed_steps=1", "pipeline_failed_step", "pipeline_blocked_step", "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes", "agent-team pipeline ready ticket_to_pr --state failed", "agent-team pipeline ready ticket_to_pr --state blocked"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
 		}

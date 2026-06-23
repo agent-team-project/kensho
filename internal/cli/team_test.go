@@ -453,7 +453,7 @@ since = "2026-06-18T12:00:00Z"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes"} {
+	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team team advance delivery --dry-run --preview-routes"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team status text missing %q:\n%s", want, textOut.String())
 		}
@@ -4642,10 +4642,14 @@ pipelines = ["ticket_to_pr"]
 	var sawTeamJob bool
 	var sawScopedQueueAction bool
 	var sawQuarantineAction bool
+	var sawScopedPipelineAction bool
 	for _, issue := range snapshot.Health.Issues {
 		codes[issue.Code] = true
 		if issue.Code == "job_attention" && issue.Job == "squ-901" {
 			sawTeamJob = true
+		}
+		if issue.Code == "pipeline_failed_step" && containsString(issue.Actions, "agent-team team retry delivery --dry-run --dispatch --preview-routes") {
+			sawScopedPipelineAction = true
 		}
 		if issue.Code == "queue_dead_letter" && containsString(issue.Actions, "agent-team team queue retry delivery --all --job squ-901") {
 			sawScopedQueueAction = true
@@ -4665,6 +4669,9 @@ pipelines = ["ticket_to_pr"]
 	if !sawScopedQueueAction {
 		t.Fatalf("issues = %+v, missing scoped team queue retry action", snapshot.Health.Issues)
 	}
+	if !sawScopedPipelineAction {
+		t.Fatalf("issues = %+v, missing scoped team pipeline retry action", snapshot.Health.Issues)
+	}
 	if !sawQuarantineAction {
 		t.Fatalf("issues = %+v, missing scoped quarantine action", snapshot.Health.Issues)
 	}
@@ -4677,7 +4684,7 @@ pipelines = ["ticket_to_pr"]
 	if err := text.Execute(); err == nil {
 		t.Fatal("team health text unexpectedly succeeded")
 	}
-	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1 restorable=1 unrestorable=0", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team team queue quarantine delivery --restorable"} {
+	for _, want := range []string{"Team: delivery", "health: unhealthy", "jobs: total=1", "quarantined=1 restorable=1 unrestorable=0", "pipeline_failed_step", "queue_dead_letter", "queue_quarantined", "agent-team team retry delivery --dry-run --dispatch --preview-routes", "agent-team team queue quarantine delivery --restorable"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team health text missing %q:\n%s", want, textOut.String())
 		}
