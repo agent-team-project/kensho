@@ -574,6 +574,20 @@ instances = ["platform-worker"]
 		t.Fatalf("team jobs summary = %+v", summary)
 	}
 
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--runtime", "codex"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team jobs text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"RUNTIME", "squ-901", "codex"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("team jobs text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
 	claude := NewRootCmd()
 	claudeOut, claudeErr := &bytes.Buffer{}, &bytes.Buffer{}
 	claude.SetOut(claudeOut)

@@ -706,7 +706,7 @@ func newTeamJobsCmd() *cobra.Command {
 				renderJobSummary(cmd.OutOrStdout(), s)
 				return nil
 			}
-			return renderTeamJobs(cmd.OutOrStdout(), jobs, jsonOut, tmpl)
+			return renderTeamJobs(cmd.OutOrStdout(), teamDir, jobs, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
@@ -6912,7 +6912,7 @@ func renderTeamPsWithClear(w io.Writer, rows []instanceRow, jsonOut bool, clear 
 	return renderPsTable(w, rows)
 }
 
-func renderTeamJobs(w io.Writer, jobs []*job.Job, jsonOut bool, tmpl *template.Template) error {
+func renderTeamJobs(w io.Writer, teamDir string, jobs []*job.Job, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(jobs)
 	}
@@ -6924,7 +6924,7 @@ func renderTeamJobs(w io.Writer, jobs []*job.Job, jsonOut bool, tmpl *template.T
 		}
 		return nil
 	}
-	renderJobTable(w, jobs)
+	renderJobTableWithRuntime(w, jobs, jobRuntimeMap(teamDir))
 	return nil
 }
 
