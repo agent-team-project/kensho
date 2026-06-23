@@ -4837,6 +4837,7 @@ Flags:
       --phase strings         Wait for team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress output and use only the exit code.
       --repo string           Repo root. (default "<repo>")
+      --runtime strings       Wait for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Wait for team-owned instances whose status.toml is stale.
       --status strings        Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary               Show aggregate final status and phase counts instead of per-instance rows.

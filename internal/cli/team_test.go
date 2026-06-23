@@ -14,6 +14,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestTeamCommandsListShowAndStatus(t *testing.T) {
@@ -1887,12 +1888,12 @@ instances = ["other", "build-worker"]
 phase = "idle"
 description = "ready"
 since = "2026-06-18T12:00:00Z"
-`, now)
+	`, now)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-3 * time.Minute)},
-		{Instance: "worker-squ-101", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Minute)},
-		{Instance: "build-worker-1", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Minute)},
-		{Instance: "other", Agent: "other", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-3 * time.Minute)},
+		{Instance: "worker-squ-101", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Minute)},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Minute)},
+		{Instance: "other", Agent: "other", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
 	} {
 		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -1945,6 +1946,22 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team wait unknown rows = %+v", rows)
 	}
 
+	codex := NewRootCmd()
+	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codex.SetOut(codexOut)
+	codex.SetErr(codexErr)
+	codex.SetArgs([]string{"team", "wait", "delivery", "--repo", root, "--runtime", "codex", "--dry-run", "--json"})
+	if err := codex.Execute(); err != nil {
+		t.Fatalf("team wait codex: %v\nstderr=%s", err, codexErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(codexOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team wait codex: %v\nbody=%s", err, codexOut.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "worker-squ-101" || rows[0].Status != "running" {
+		t.Fatalf("team wait codex rows = %+v", rows)
+	}
+
 	running := NewRootCmd()
 	runningOut, runningErr := &bytes.Buffer{}, &bytes.Buffer{}
 	running.SetOut(runningOut)
@@ -1971,6 +1988,18 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if !strings.Contains(foreignErr.String(), `instance "other" is not known to team "delivery"`) {
 		t.Fatalf("foreign stderr = %q", foreignErr.String())
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "wait", "delivery", "--repo", root, "--runtime", "llama"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team wait accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
 	}
 }
 

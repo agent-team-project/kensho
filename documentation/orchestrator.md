@@ -236,7 +236,7 @@ agent-team team drain <team> [--max-cycles N] [--interval 2s] [--limit N] [--wor
                                   # scoped finite maintenance loop until one team's schedule, queue, and pipeline work is idle
 agent-team team repair <team> [--dry-run] [--jobs] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--limit N] [--workspace auto|worktree|repo] [--json]
                                   # scoped recovery loop for one team's daemon readiness, dead-letter queue, and tickable work
-agent-team team wait <team> [<instance>...] [-q] [--latest | --last N] [--status running] [--phase idle] [--stale] [--unhealthy] [--until running|terminal|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json]
+agent-team team wait <team> [<instance>...] [-q] [--latest | --last N] [--status running] [--runtime codex] [--phase idle] [--stale] [--unhealthy] [--until running|terminal|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json]
                                   # scoped wait for declared persistent team members and live team-owned ephemeral children
 agent-team team run <team> <ticket> [kickoff...] [--pipeline name] [--ticket-url <url>] [--dispatch] [--workspace auto|worktree|repo] [--dry-run] [--format '{{.ID}} {{.Pipeline}}'] [--json]
                                   # create a durable job through the team's single declared pipeline, or a selected pipeline for multi-pipeline teams

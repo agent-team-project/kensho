@@ -2101,23 +2101,24 @@ func newTeamSendCmd() *cobra.Command {
 
 func newTeamWaitCmd() *cobra.Command {
 	var (
-		repo          string
-		latest        bool
-		last          int
-		statusFilters []string
-		phaseFilters  []string
-		staleOnly     bool
-		unhealthyOnly bool
-		untilPhases   []string
-		untilRaw      string
-		timeout       time.Duration
-		interval      time.Duration
-		dryRun        bool
-		failOnCrash   bool
-		jsonOut       bool
-		quiet         bool
-		summary       bool
-		format        string
+		repo           string
+		latest         bool
+		last           int
+		statusFilters  []string
+		runtimeFilters []string
+		phaseFilters   []string
+		staleOnly      bool
+		unhealthyOnly  bool
+		untilPhases    []string
+		untilRaw       string
+		timeout        time.Duration
+		interval       time.Duration
+		dryRun         bool
+		failOnCrash    bool
+		jsonOut        bool
+		quiet          bool
+		summary        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2148,6 +2149,10 @@ func newTeamWaitCmd() *cobra.Command {
 			}
 			if len(statusFilters) > 0 && len(names) > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team wait: --status cannot be combined with instance names.")
+				return exitErr(2)
+			}
+			if len(runtimeFilters) > 0 && len(names) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team wait: --runtime cannot be combined with instance names.")
 				return exitErr(2)
 			}
 			if len(phaseFilters) > 0 && len(names) > 0 {
@@ -2193,6 +2198,10 @@ func newTeamWaitCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			if _, err := lifecycleStatusFilterSet(statusFilters); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team wait: %v\n", err)
+				return exitErr(2)
+			}
+			if _, err := lifecycleRuntimeFilterSet(runtimeFilters); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team wait: %v\n", err)
 				return exitErr(2)
 			}
@@ -2243,11 +2252,11 @@ func newTeamWaitCmd() *cobra.Command {
 				}
 			}
 			if latest {
-				names, err = waitLatestInstanceNamesWithPhasesStaleAndUnhealthy(lister, nil, statusFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly)
+				names, err = waitLatestInstanceNamesWithPhasesStaleRuntimeAndUnhealthy(lister, nil, statusFilters, runtimeFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly)
 			} else if last > 0 {
-				names, err = waitLatestInstanceNamesLimitWithPhasesStaleAndUnhealthy(lister, nil, statusFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly, last)
-			} else if len(statusFilters) > 0 || len(phaseFilters) > 0 || staleOnly || unhealthyOnly {
-				names, err = waitFilteredInstanceNamesWithPhasesStaleAndUnhealthy(lister, nil, statusFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly)
+				names, err = waitLatestInstanceNamesLimitWithPhasesStaleRuntimeAndUnhealthy(lister, nil, statusFilters, runtimeFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly, last)
+			} else if len(statusFilters) > 0 || len(runtimeFilters) > 0 || len(phaseFilters) > 0 || staleOnly || unhealthyOnly {
+				names, err = waitFilteredInstanceNamesWithPhasesStaleRuntimeAndUnhealthy(lister, nil, statusFilters, runtimeFilters, phaseFilters, phaseByInstance, staleInstances, staleOnly, unhealthyOnly)
 			} else if len(names) == 0 {
 				names, err = waitAllInstanceNames(lister)
 			}
@@ -2331,6 +2340,7 @@ func newTeamWaitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Wait for the most recently started team-owned instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Wait for the N most recently started team-owned instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Wait for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Wait for team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Wait for team-owned instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Wait for team-owned instances that are crashed or stale.")
