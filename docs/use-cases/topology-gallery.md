@@ -1,7 +1,10 @@
 # Topology Gallery
 
 These examples are complete `.agent_team/instances.toml` starting points. Copy
-one, edit names and targets, then validate before running it.
+one, edit names and targets, then validate before running it. The same
+topologies are tracked as copyable fixtures under
+[`examples/topologies/`](https://github.com/jamesaud/agent-team/tree/main/examples/topologies)
+and parsed in CI.
 
 ```sh
 agent-team topology summary
@@ -15,6 +18,8 @@ agent-team sync --dry-run --summary
 Use this for one product team that turns incoming tickets into pull requests.
 The manager and ticket manager are persistent. Workers are ephemeral and spawn
 only when `agent.dispatch` targets `worker`.
+
+Copyable file: [`examples/topologies/single-delivery-team.instances.toml`](https://github.com/jamesaud/agent-team/blob/main/examples/topologies/single-delivery-team.instances.toml)
 
 ```toml
 [instances.manager]
@@ -95,6 +100,8 @@ agent-team team repair delivery --dry-run --jobs
 Use this when one repo contains two ownership areas. Each team gets its own
 manager, worker pool, pipeline, and schedule. The target names keep queue,
 pipeline, and team filters unambiguous.
+
+Copyable file: [`examples/topologies/product-platform-teams.instances.toml`](https://github.com/jamesaud/agent-team/blob/main/examples/topologies/product-platform-teams.instances.toml)
 
 ```toml
 [instances.product-manager]
@@ -198,6 +205,8 @@ agent-team team queue platform --state dead
 Use this when a small on-call group needs scheduled checks, incident intake,
 and explicit worker handoff. The incident manager stays persistent; workers are
 ephemeral so investigation logs stay tied to the job instance.
+
+Copyable file: [`examples/topologies/reliability-rotation.instances.toml`](https://github.com/jamesaud/agent-team/blob/main/examples/topologies/reliability-rotation.instances.toml)
 
 ```toml
 [instances.incident-manager]

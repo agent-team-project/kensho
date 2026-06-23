@@ -52,6 +52,7 @@ Built or substantially implemented:
 - optional GitHub PR merge verification for job/team cleanup
 - intake server deployment guide
 - runtime profile guide for Claude and Codex
+- copyable topology example fixtures parsed in CI
 
 ## What Still Needs Design Care
 
@@ -60,7 +61,6 @@ Areas likely to need continued refinement:
 - runtime abstraction beyond the current primary runtime
 - richer pipeline semantics without overbuilding a workflow engine
 - deciding whether to publish generated CLI reference artifacts
-- richer docs examples using realistic fake teams
 - webhook security hardening beyond shared-secret verification
 - template upgrade apply mode
 - long-running agent UX and resumability across runtimes
@@ -84,7 +84,7 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- richer docs examples using realistic fake teams
+- template upgrade apply mode
 
 ## Anti-Patterns
 

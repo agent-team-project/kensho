@@ -94,6 +94,32 @@ func TestParse_Sample(t *testing.T) {
 	}
 }
 
+func TestParse_ExampleTopologies(t *testing.T) {
+	root := filepath.Join("..", "..", "examples", "topologies")
+	paths, err := filepath.Glob(filepath.Join(root, "*.toml"))
+	if err != nil {
+		t.Fatalf("glob examples: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no example topology files found")
+	}
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read example: %v", err)
+			}
+			top, err := Parse(body)
+			if err != nil {
+				t.Fatalf("parse example: %v", err)
+			}
+			if len(top.Instances) == 0 || len(top.Teams) == 0 {
+				t.Fatalf("example should declare instances and teams: %+v", top)
+			}
+		})
+	}
+}
+
 func TestParse_Pipelines(t *testing.T) {
 	top, err := Parse([]byte(`
 [instances.worker]

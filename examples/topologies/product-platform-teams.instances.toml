@@ -1,0 +1,85 @@
+[instances.product-manager]
+agent = "manager"
+ephemeral = false
+description = "Coordinates product-facing work."
+
+[[instances.product-manager.triggers]]
+event = "agent.dispatch"
+match.target = "product-manager"
+
+[instances.product-worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+description = "Implements product tickets."
+
+[[instances.product-worker.triggers]]
+event = "agent.dispatch"
+match.target = "product-worker"
+
+[instances.platform-manager]
+agent = "manager"
+ephemeral = false
+description = "Coordinates platform work."
+
+[[instances.platform-manager.triggers]]
+event = "agent.dispatch"
+match.target = "platform-manager"
+
+[instances.platform-worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+description = "Implements platform tickets."
+
+[[instances.platform-worker.triggers]]
+event = "agent.dispatch"
+match.target = "platform-worker"
+
+[pipelines.product_ticket_to_pr]
+trigger.event = "ticket.created"
+trigger.match.area = "product"
+
+[[pipelines.product_ticket_to_pr.steps]]
+id = "implement"
+target = "product-worker"
+
+[[pipelines.product_ticket_to_pr.steps]]
+id = "review"
+target = "product-manager"
+after = ["implement"]
+
+[pipelines.platform_ticket_to_pr]
+trigger.event = "ticket.created"
+trigger.match.area = "platform"
+
+[[pipelines.platform_ticket_to_pr.steps]]
+id = "implement"
+target = "platform-worker"
+
+[[pipelines.platform_ticket_to_pr.steps]]
+id = "review"
+target = "platform-manager"
+after = ["implement"]
+
+[schedules.product_weekly]
+every = "168h"
+payload.target = "product-manager"
+payload.reason = "weekly product queue review"
+
+[schedules.platform_daily]
+every = "24h"
+payload.target = "platform-manager"
+payload.reason = "daily platform queue review"
+
+[teams.product]
+description = "Product delivery."
+instances = ["product-manager", "product-worker"]
+pipelines = ["product_ticket_to_pr"]
+schedules = ["product_weekly"]
+
+[teams.platform]
+description = "Platform delivery."
+instances = ["platform-manager", "platform-worker"]
+pipelines = ["platform_ticket_to_pr"]
+schedules = ["platform_daily"]

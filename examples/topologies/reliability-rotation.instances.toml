@@ -1,0 +1,52 @@
+[instances.incident-manager]
+agent = "manager"
+ephemeral = false
+description = "Owns incident triage and escalation."
+
+[[instances.incident-manager.triggers]]
+event = "agent.dispatch"
+match.target = "incident-manager"
+
+[[instances.incident-manager.triggers]]
+event = "schedule"
+match.target = "incident-manager"
+
+[instances.incident-worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+description = "Investigates one incident or reliability task."
+
+[[instances.incident-worker.triggers]]
+event = "agent.dispatch"
+match.target = "incident-worker"
+
+[pipelines.incident_response]
+trigger.event = "ticket.created"
+trigger.match.kind = "incident"
+
+[[pipelines.incident_response.steps]]
+id = "triage"
+target = "incident-manager"
+
+[[pipelines.incident_response.steps]]
+id = "investigate"
+target = "incident-worker"
+after = ["triage"]
+
+[[pipelines.incident_response.steps]]
+id = "review"
+target = "incident-manager"
+after = ["investigate"]
+
+[schedules.on_call_handoff]
+every = "12h"
+run_on_start = true
+payload.target = "incident-manager"
+payload.reason = "on-call handoff"
+
+[teams.reliability]
+description = "On-call and incident response."
+instances = ["incident-manager", "incident-worker"]
+pipelines = ["incident_response"]
+schedules = ["on_call_handoff"]

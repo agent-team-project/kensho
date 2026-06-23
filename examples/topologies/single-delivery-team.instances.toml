@@ -1,0 +1,62 @@
+[instances.manager]
+agent = "manager"
+ephemeral = false
+description = "Coordinates active delivery work."
+
+[[instances.manager.triggers]]
+event = "user_invocation"
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[instances.ticket-manager]
+agent = "ticket-manager"
+ephemeral = false
+description = "Normalizes incoming ticket events."
+
+[[instances.ticket-manager.triggers]]
+event = "ticket.created"
+
+[[instances.ticket-manager.triggers]]
+event = "agent.dispatch"
+match.target = "ticket-manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 3
+description = "Implements assigned tickets in job-owned worktrees."
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "triage"
+target = "ticket-manager"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+after = ["triage"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[schedules.nightly]
+every = "24h"
+run_on_start = false
+payload.target = "manager"
+payload.reason = "nightly delivery review"
+
+[teams.delivery]
+description = "Default software delivery team."
+instances = ["manager", "ticket-manager", "worker"]
+pipelines = ["ticket_to_pr"]
+schedules = ["nightly"]
