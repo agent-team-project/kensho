@@ -63,6 +63,8 @@ Team-scoped:
 ```sh
 agent-team team queue delivery --state dead
 agent-team team queue delivery --summary
+agent-team team queue delivery --runtime codex
+agent-team team queue delivery --summary --runtime codex
 ```
 
 ## Retry and Drop
@@ -74,6 +76,7 @@ agent-team queue retry --all --dry-run
 agent-team queue retry --all --runtime codex --dry-run
 agent-team job queue retry squ-42 --all --dry-run
 agent-team team queue retry delivery --all --job SQU-42 --dry-run
+agent-team team queue retry delivery --all --runtime codex --dry-run
 ```
 
 Apply retries:
@@ -95,6 +98,7 @@ Batch drops default to dead-letter entries:
 ```sh
 agent-team queue drop --all --state dead --older-than 24h --dry-run
 agent-team queue drop --all --runtime codex --dry-run
+agent-team team queue drop delivery --all --runtime codex --dry-run
 ```
 
 ## Queue Doctor

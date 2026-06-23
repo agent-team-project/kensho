@@ -3274,10 +3274,22 @@ instances = ["other"]
 			EventType:  "agent.dispatch",
 			Instance:   "worker",
 			InstanceID: "worker-squ-501",
-			Payload:    map[string]any{"job_id": "squ-501", "target": "worker"},
+			Payload:    map[string]any{"job_id": "squ-501", "target": "worker", "runtime": "codex"},
 			Attempts:   daemon.MaxQueueAttempts,
 			LastError:  "spawn failed",
 			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "q-team-claude",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-claude",
+			Payload:    map[string]any{"target": "worker", "runtime": "claude"},
+			Attempts:   daemon.MaxQueueAttempts,
+			LastError:  "spawn failed",
+			QueuedAt:   now.Add(-30 * time.Minute),
 			UpdatedAt:  now,
 		},
 		{
@@ -3286,7 +3298,7 @@ instances = ["other"]
 			EventType:  "agent.dispatch",
 			Instance:   "worker",
 			InstanceID: "worker-direct",
-			Payload:    map[string]any{"target": "worker"},
+			Payload:    map[string]any{"target": "worker", "runtime": "codex"},
 			QueuedAt:   now,
 			UpdatedAt:  now,
 		},
@@ -3296,7 +3308,7 @@ instances = ["other"]
 			EventType:  "agent.dispatch",
 			Instance:   "other",
 			InstanceID: "other-oth-1",
-			Payload:    map[string]any{"job_id": "oth-1", "target": "other"},
+			Payload:    map[string]any{"job_id": "oth-1", "target": "other", "runtime": "codex"},
 			QueuedAt:   now,
 			UpdatedAt:  now,
 		},
@@ -3306,7 +3318,7 @@ instances = ["other"]
 			EventType:  "agent.dispatch",
 			Instance:   "other",
 			InstanceID: "other-direct",
-			Payload:    map[string]any{"target": "other"},
+			Payload:    map[string]any{"target": "other", "runtime": "codex"},
 			QueuedAt:   now,
 			UpdatedAt:  now,
 		},
@@ -3354,8 +3366,24 @@ instances = ["other"]
 	if err := json.Unmarshal(listOut.Bytes(), &items); err != nil {
 		t.Fatalf("decode team queue: %v\nbody=%s", err, listOut.String())
 	}
-	if got := queueItemIDs(items); strings.Join(got, ",") != "q-team-job,q-team-target" {
+	if got := queueItemIDs(items); strings.Join(got, ",") != "q-team-job,q-team-claude,q-team-target" {
 		t.Fatalf("team queue ids = %v", got)
+	}
+
+	runtimeList := NewRootCmd()
+	runtimeListOut, runtimeListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runtimeList.SetOut(runtimeListOut)
+	runtimeList.SetErr(runtimeListErr)
+	runtimeList.SetArgs([]string{"team", "queue", "delivery", "--repo", root, "--runtime", "codex", "--json"})
+	if err := runtimeList.Execute(); err != nil {
+		t.Fatalf("team queue runtime filter: %v\nstderr=%s", err, runtimeListErr.String())
+	}
+	var runtimeItems []daemon.QueueItem
+	if err := json.Unmarshal(runtimeListOut.Bytes(), &runtimeItems); err != nil {
+		t.Fatalf("decode team queue runtime filter: %v\nbody=%s", err, runtimeListOut.String())
+	}
+	if got := queueItemIDs(runtimeItems); strings.Join(got, ",") != "q-team-job,q-team-target" {
+		t.Fatalf("team queue runtime-filtered ids = %v", got)
 	}
 
 	summary := NewRootCmd()
@@ -3366,12 +3394,28 @@ instances = ["other"]
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("team queue summary: %v\nstderr=%s", err, summaryErr.String())
 	}
-	var queueSummary queueSummary
-	if err := json.Unmarshal(summaryOut.Bytes(), &queueSummary); err != nil {
+	var queueSummaryResult queueSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &queueSummaryResult); err != nil {
 		t.Fatalf("decode queue summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if queueSummary.Total != 1 || queueSummary.Dead != 1 || queueSummary.Quarantined != 2 || queueSummary.QuarantineRestorable != 1 || queueSummary.QuarantineUnrestorable != 1 || queueSummary.Instances["worker"] != 1 {
-		t.Fatalf("queue summary = %+v", queueSummary)
+	if queueSummaryResult.Total != 2 || queueSummaryResult.Dead != 2 || queueSummaryResult.Quarantined != 2 || queueSummaryResult.QuarantineRestorable != 1 || queueSummaryResult.QuarantineUnrestorable != 1 || queueSummaryResult.Instances["worker"] != 2 || queueSummaryResult.Runtimes["codex"] != 1 || queueSummaryResult.Runtimes["claude"] != 1 {
+		t.Fatalf("queue summary = %+v", queueSummaryResult)
+	}
+
+	runtimeSummaryCmd := NewRootCmd()
+	runtimeSummaryOut, runtimeSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runtimeSummaryCmd.SetOut(runtimeSummaryOut)
+	runtimeSummaryCmd.SetErr(runtimeSummaryErr)
+	runtimeSummaryCmd.SetArgs([]string{"team", "queue", "delivery", "--repo", root, "--state", "dead", "--runtime", "codex", "--summary", "--json"})
+	if err := runtimeSummaryCmd.Execute(); err != nil {
+		t.Fatalf("team queue runtime summary: %v\nstderr=%s", err, runtimeSummaryErr.String())
+	}
+	var runtimeSummary queueSummary
+	if err := json.Unmarshal(runtimeSummaryOut.Bytes(), &runtimeSummary); err != nil {
+		t.Fatalf("decode team queue runtime summary: %v\nbody=%s", err, runtimeSummaryOut.String())
+	}
+	if runtimeSummary.Total != 1 || runtimeSummary.Dead != 1 || runtimeSummary.Quarantined != 0 || runtimeSummary.Runtimes["codex"] != 1 {
+		t.Fatalf("runtime queue summary = %+v", runtimeSummary)
 	}
 
 	quarantine := NewRootCmd()
@@ -3662,7 +3706,7 @@ instances = ["other"]
 	retryDryOut, retryDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	retryDry.SetOut(retryDryOut)
 	retryDry.SetErr(retryDryErr)
-	retryDry.SetArgs([]string{"team", "queue", "retry", "delivery", "--repo", root, "--all", "--job", "SQU-501", "--dry-run", "--json"})
+	retryDry.SetArgs([]string{"team", "queue", "retry", "delivery", "--repo", root, "--all", "--job", "SQU-501", "--runtime", "codex", "--dry-run", "--json"})
 	if err := retryDry.Execute(); err != nil {
 		t.Fatalf("team queue retry --all dry-run: %v\nstderr=%s", err, retryDryErr.String())
 	}
@@ -3677,11 +3721,27 @@ instances = ["other"]
 		t.Fatalf("retry dry-run changed item=%+v err=%v", item, err)
 	}
 
+	retryRuntimeDry := NewRootCmd()
+	retryRuntimeDryOut, retryRuntimeDryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retryRuntimeDry.SetOut(retryRuntimeDryOut)
+	retryRuntimeDry.SetErr(retryRuntimeDryErr)
+	retryRuntimeDry.SetArgs([]string{"team", "queue", "retry", "delivery", "--repo", root, "--all", "--runtime", "codex", "--dry-run", "--json"})
+	if err := retryRuntimeDry.Execute(); err != nil {
+		t.Fatalf("team queue retry --all runtime dry-run: %v\nstderr=%s", err, retryRuntimeDryErr.String())
+	}
+	var retryRuntimeResults []queueRetryResult
+	if err := json.Unmarshal(retryRuntimeDryOut.Bytes(), &retryRuntimeResults); err != nil {
+		t.Fatalf("decode team queue retry runtime dry-run: %v\nbody=%s", err, retryRuntimeDryOut.String())
+	}
+	if len(retryRuntimeResults) != 1 || retryRuntimeResults[0].ID != "q-team-job" {
+		t.Fatalf("retry runtime dry-run results = %+v", retryRuntimeResults)
+	}
+
 	retryDryFormat := NewRootCmd()
 	retryDryFormatOut, retryDryFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	retryDryFormat.SetOut(retryDryFormatOut)
 	retryDryFormat.SetErr(retryDryFormatErr)
-	retryDryFormat.SetArgs([]string{"team", "queue", "retry", "delivery", "--repo", root, "--all", "--job", "SQU-501", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
+	retryDryFormat.SetArgs([]string{"team", "queue", "retry", "delivery", "--repo", root, "--all", "--job", "SQU-501", "--runtime", "codex", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
 	if err := retryDryFormat.Execute(); err != nil {
 		t.Fatalf("team queue retry --all dry-run format: %v\nstderr=%s", err, retryDryFormatErr.String())
 	}
@@ -3724,7 +3784,7 @@ instances = ["other"]
 	dropReadyOut, dropReadyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dropReady.SetOut(dropReadyOut)
 	dropReady.SetErr(dropReadyErr)
-	dropReady.SetArgs([]string{"team", "queue", "drop", "delivery", "--repo", root, "--all", "--ready", "--dry-run", "--json"})
+	dropReady.SetArgs([]string{"team", "queue", "drop", "delivery", "--repo", root, "--all", "--ready", "--runtime", "codex", "--dry-run", "--json"})
 	if err := dropReady.Execute(); err != nil {
 		t.Fatalf("team queue drop --all ready dry-run: %v\nstderr=%s", err, dropReadyErr.String())
 	}
@@ -3747,7 +3807,7 @@ instances = ["other"]
 	dropReadyFormatOut, dropReadyFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dropReadyFormat.SetOut(dropReadyFormatOut)
 	dropReadyFormat.SetErr(dropReadyFormatErr)
-	dropReadyFormat.SetArgs([]string{"team", "queue", "drop", "delivery", "--repo", root, "--all", "--ready", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
+	dropReadyFormat.SetArgs([]string{"team", "queue", "drop", "delivery", "--repo", root, "--all", "--ready", "--runtime", "codex", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
 	if err := dropReadyFormat.Execute(); err != nil {
 		t.Fatalf("team queue drop --all ready dry-run format: %v\nstderr=%s", err, dropReadyFormatErr.String())
 	}

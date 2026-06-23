@@ -157,7 +157,9 @@ Shortcuts:
 | `agent-team team jobs <team>` | Scoped job list or summary; filter mixed-runtime ownership with `--runtime` |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
 | `agent-team team repair <team>` | Scoped repair loop |
-| `agent-team team queue <team>` | Scoped queue list |
+| `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime` |
+| `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |
+| `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter batch actions with `--runtime` |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
