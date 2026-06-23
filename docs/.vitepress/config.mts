@@ -43,6 +43,7 @@ export default defineConfig({
         text: 'Runtime',
         items: [
           { text: 'Daemon', link: '/runtime/daemon' },
+          { text: 'Runtime Profiles', link: '/runtime/profiles' },
           { text: 'Instances', link: '/runtime/instances' },
           { text: 'Status, Mailbox, Channels', link: '/runtime/status-mailbox-channels' }
         ]

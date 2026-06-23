@@ -340,6 +340,7 @@ Environment variables take precedence:
 - `AGENT_TEAM_RUNTIME_BIN=/path/to/wrapper` overrides the binary for the selected runtime.
 
 Run `agent-team runtime` to confirm the selected profile, resolved binary path, config source, and supported capabilities.
+See [`docs/runtime/profiles.md`](./docs/runtime/profiles.md) for the Claude/Codex capability matrix and troubleshooting notes.
 
 The launcher creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports the same session contract for every runtime:
 

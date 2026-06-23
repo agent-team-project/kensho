@@ -51,6 +51,7 @@ Built or substantially implemented:
 - template smoke validation command
 - optional GitHub PR merge verification for job/team cleanup
 - intake server deployment guide
+- runtime profile guide for Claude and Codex
 
 ## What Still Needs Design Care
 
@@ -83,7 +84,6 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- runtime profile docs for non-primary runtimes
 - richer docs examples using realistic fake teams
 
 ## Anti-Patterns
