@@ -189,6 +189,21 @@ docker build -t agent-team:local .
 
 CI publishes the same image recipe to `ghcr.io/jamesaud/agent-team` on pushes to `main` and `v*` release tags, then signs published digests with keyless cosign. Use that image when you want a registry-hosted base instead of a local build.
 
+Verify a published image before pinning it in deployment manifests:
+
+```sh
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/jamesaud/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/jamesaud/agent-team:latest
+
+cosign verify-attestation \
+  --type slsaprovenance \
+  --certificate-identity-regexp 'https://github.com/jamesaud/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/jamesaud/agent-team:latest
+```
+
 ```sh
 agent-team intake service compose \
   --image agent-team:local \

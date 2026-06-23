@@ -99,7 +99,8 @@ docker build -t agent-team:local .
 ```
 
 Pushes to `main` and `v*` tags publish the same image recipe to
-`ghcr.io/jamesaud/agent-team` and sign published digests with keyless cosign.
+`ghcr.io/jamesaud/agent-team`, sign published digests with keyless cosign,
+and attach SBOM/provenance attestations.
 
 The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.
 

@@ -62,6 +62,7 @@ Built or substantially implemented:
 - GHCR container publish workflow for main and release tags
 - Kubernetes intake manifests with Secret, Deployment, Service, and workspace PVC reference
 - keyless cosign signing for published GHCR image digests
+- SBOM/provenance attestations and image verification docs
 
 ## What Still Needs Design Care
 
@@ -93,7 +94,7 @@ High-value follow-up work:
 
 - runtime resume/adopt flows for long-running agents
 - richer pipeline gates beyond manual approval
-- published-image verification docs and production webhook deployment examples
+- production webhook deployment examples
 
 ## Anti-Patterns
 
