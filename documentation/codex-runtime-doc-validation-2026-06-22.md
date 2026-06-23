@@ -347,6 +347,11 @@ Suggested improvement:
 
 Severity: high for Codex runtime
 
+Status: fixed after validation. Persistent-target dispatch now checks recorded
+PID liveness before reporting a message as delivered, so stale `running`
+records are downgraded before pipeline step outcomes are applied. A persistent
+pipeline target with no live process is queued instead of marked running.
+
 Repro after creating `doc-101`:
 
 ```sh

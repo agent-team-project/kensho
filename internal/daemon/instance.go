@@ -664,9 +664,31 @@ func (m *InstanceManager) List() []*Metadata {
 
 func (m *InstanceManager) isRunning(instance string) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	t, ok := m.instances[instance]
-	return ok && t.meta.Status == StatusRunning
+	if !ok || t.meta.Status != StatusRunning {
+		m.mu.Unlock()
+		return false
+	}
+	if PidLiveCheck(t.meta.PID) {
+		m.mu.Unlock()
+		return true
+	}
+	// Adopted records loaded from disk have no reaper to observe the missing
+	// process. Reconcile this one record so event routing does not message a
+	// dead persistent target.
+	if t.reaped != nil {
+		m.mu.Unlock()
+		return false
+	}
+	now := time.Now().UTC()
+	t.meta.Status = StatusExited
+	t.meta.ExitedAt = now
+	meta := *t.meta
+	m.mu.Unlock()
+	if err := WriteMetadata(m.daemonRoot, &meta); err == nil {
+		m.recordEvent("exit", &meta, "reconciled missing process")
+	}
+	return false
 }
 
 // reap waits for the child to exit and finalises its metadata. Non-zero exit

@@ -1035,6 +1035,77 @@ after = ["implement"]
 	}
 }
 
+func TestEvent_PipelineQueuesStalePersistentTarget(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_review]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_review.steps]]
+id = "review"
+target = "manager"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    StatusRunning,
+		PID:       999_999_999,
+		Workspace: t.TempDir(),
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("write stale metadata: %v", err)
+	}
+	m := NewInstanceManager(root, nil)
+	if err := m.LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"ticket.created","payload":{"ticket":"SQU-93","kickoff":"review SQU-93"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var got struct {
+		Queued   []string         `json:"queued"`
+		Messaged []string         `json:"messaged"`
+		Rejected []map[string]any `json:"rejected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Rejected) != 0 || len(got.Messaged) != 0 || len(got.Queued) != 1 || got.Queued[0] != "manager" {
+		t.Fatalf("response = %+v, want queued stale manager", got)
+	}
+	j, err := jobstore.Read(teamDir, "squ-93")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Status != jobstore.StatusQueued || len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusQueued || j.Steps[0].Instance != "manager" {
+		t.Fatalf("job = %+v, want queued review step for manager", j)
+	}
+	meta, err := ReadMetadata(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager metadata: %v", err)
+	}
+	if meta.Status != StatusExited {
+		t.Fatalf("manager status = %s, want reconciled exited", meta.Status)
+	}
+}
+
 func TestEvent_SchedulePublishesDueEvent(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
