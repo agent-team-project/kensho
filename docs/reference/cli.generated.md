@@ -2509,6 +2509,7 @@ Subcommands:
 - `agent-team pipeline graph` - Render a declared pipeline step graph.
 - `agent-team pipeline jobs` - List jobs for one pipeline.
 - `agent-team pipeline ls` - List declared pipelines.
+- `agent-team pipeline next` - Print recommended next actions for pipeline jobs.
 - `agent-team pipeline ready` - List ready pipeline jobs.
 - `agent-team pipeline retry` - Reset failed pipeline steps for another attempt.
 - `agent-team pipeline run` - Create a durable job from a pipeline declaration.
@@ -2638,6 +2639,26 @@ Flags:
 ```text
       --format string   Render each pipeline with a Go template, e.g. '{{.Name}} {{len .Steps}}'.
       --json            Emit pipelines as JSON.
+      --repo string     Repo root. (default "<repo>")
+```
+
+## `agent-team pipeline next`
+
+Print recommended next actions for pipeline jobs.
+
+Print read-only recommended next actions from pipeline status rows. With no pipeline, all declared pipelines are considered.
+
+```text
+agent-team pipeline next [<pipeline>|--all] [flags]
+```
+
+Flags:
+
+```text
+      --all             Consider all pipelines. This is the default when no pipeline is passed.
+      --format string   Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
+      --json            Emit recommended actions as JSON.
+      --limit int       Maximum number of actions to print (0 = no limit).
       --repo string     Repo root. (default "<repo>")
 ```
 

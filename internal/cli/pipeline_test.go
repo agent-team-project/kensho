@@ -776,6 +776,101 @@ target = "manager"
 	}
 }
 
+func TestPipelineNextReportsRecommendedActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-710",
+			Ticket:    "SQU-710",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusBlocked},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+		{
+			ID:        "squ-711",
+			Ticket:    "SQU-711",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "next", "--repo", root, "--limit", "2", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline next json: %v\nstderr=%s", err, stderr.String())
+	}
+	var actions []pipelineNextAction
+	if err := json.Unmarshal(out.Bytes(), &actions); err != nil {
+		t.Fatalf("decode pipeline next json: %v\nbody=%s", err, out.String())
+	}
+	if len(actions) != 2 {
+		t.Fatalf("actions = %+v, want two limited actions", actions)
+	}
+	if actions[0].Pipeline != "ticket_to_pr" || actions[0].Reason != "ready_steps=1" || actions[0].Action != "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes" || actions[0].Status.ReadySteps != 1 {
+		t.Fatalf("first action = %+v, want ready advance", actions[0])
+	}
+	if actions[1].Reason != "failed_steps=1" || actions[1].Action != "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes" || actions[1].Status.FailedSteps != 1 {
+		t.Fatalf("second action = %+v, want failed retry", actions[1])
+	}
+
+	formatCmd := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatCmd.SetOut(formatOut)
+	formatCmd.SetErr(formatErr)
+	formatCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
+	if err := formatCmd.Execute(); err != nil {
+		t.Fatalf("pipeline next format: %v\nstderr=%s", err, formatErr.String())
+	}
+	for _, want := range []string{
+		"ticket_to_pr|ready_steps=1|agent-team pipeline advance ticket_to_pr --dry-run --preview-routes",
+		"ticket_to_pr|failed_steps=1|agent-team repair --retry-pipelines --dry-run --preview-routes",
+		"ticket_to_pr|failed_steps=1|agent-team pipeline ready ticket_to_pr --state failed",
+	} {
+		if !strings.Contains(formatOut.String(), want) {
+			t.Fatalf("pipeline next format missing %q:\n%s", want, formatOut.String())
+		}
+	}
+}
+
 func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

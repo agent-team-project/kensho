@@ -28,6 +28,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineDoctorCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
 	cmd.AddCommand(newPipelineStatusCmd())
+	cmd.AddCommand(newPipelineNextCmd())
 	cmd.AddCommand(newPipelineReadyCmd())
 	cmd.AddCommand(newPipelineAdvanceCmd())
 	cmd.AddCommand(newPipelineApproveCmd())
@@ -331,6 +332,71 @@ func newPipelineStatusCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "Summarize all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline status rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.")
+	return cmd
+}
+
+func newPipelineNextCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		limit   int
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "next [<pipeline>|--all]",
+		Short: "Print recommended next actions for pipeline jobs.",
+		Long:  "Print read-only recommended next actions from pipeline status rows. With no pipeline, all declared pipelines are considered.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineNextFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: pipeline name is required.")
+				return exitErr(2)
+			}
+			rows, err := collectPipelineStatusRows(teamDir, pipelineName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
+				return exitErr(1)
+			}
+			actions := pipelineNextActionsFromStatus(rows, limit)
+			return renderPipelineNextActions(cmd.OutOrStdout(), actions, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&all, "all", false, "Consider all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of actions to print (0 = no limit).")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.")
 	return cmd
 }
 
@@ -849,6 +915,13 @@ type pipelineStatusRow struct {
 	DoneSteps    int      `json:"done_steps"`
 	NoStep       int      `json:"no_step"`
 	Actions      []string `json:"actions,omitempty"`
+}
+
+type pipelineNextAction struct {
+	Pipeline string            `json:"pipeline"`
+	Action   string            `json:"action"`
+	Reason   string            `json:"reason,omitempty"`
+	Status   pipelineStatusRow `json:"status"`
 }
 
 type pipelineAdvanceResult struct {
@@ -1425,6 +1498,47 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 		actions = append(actions, "agent-team tick")
 	}
 	row.Actions = actions
+}
+
+func pipelineNextActionsFromStatus(rows []pipelineStatusRow, limit int) []pipelineNextAction {
+	actions := []pipelineNextAction{}
+	for _, row := range rows {
+		for _, action := range row.Actions {
+			action = strings.TrimSpace(action)
+			if action == "" {
+				continue
+			}
+			actions = append(actions, pipelineNextAction{
+				Pipeline: row.Pipeline,
+				Action:   action,
+				Reason:   pipelineNextActionReason(row, action),
+				Status:   row,
+			})
+			if limit > 0 && len(actions) >= limit {
+				return actions
+			}
+		}
+	}
+	return actions
+}
+
+func pipelineNextActionReason(row pipelineStatusRow, action string) string {
+	switch {
+	case strings.Contains(action, " pipeline advance "):
+		return fmt.Sprintf("ready_steps=%d", row.ReadySteps)
+	case strings.Contains(action, " pipeline retry "),
+		strings.Contains(action, " --retry-pipelines "),
+		strings.Contains(action, " --state failed"):
+		return fmt.Sprintf("failed_steps=%d", row.FailedSteps)
+	case strings.Contains(action, " pipeline approve "):
+		return fmt.Sprintf("manual_gates=%d", row.ManualGates)
+	case strings.Contains(action, " --state blocked"):
+		return fmt.Sprintf("blocked_steps=%d", row.BlockedSteps)
+	case action == "agent-team tick":
+		return fmt.Sprintf("queued_steps=%d", row.QueuedSteps)
+	default:
+		return ""
+	}
 }
 
 func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, selection runtimeSelection, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
@@ -2145,6 +2259,17 @@ func parsePipelineStatusFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
+func parsePipelineNextFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-next-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
 func renderPipelineStatusRows(w io.Writer, rows []pipelineStatusRow, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
@@ -2188,6 +2313,41 @@ func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
 			row.NoStep,
 			emptyDash(strings.Join(row.Actions, "; ")),
 		)
+	}
+	_ = tw.Flush()
+}
+
+func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(actions)
+	}
+	if tmpl != nil {
+		for _, action := range actions {
+			if err := tmpl.Execute(w, action); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderPipelineNextActionTable(w, actions)
+	return nil
+}
+
+func renderPipelineNextActionTable(w io.Writer, actions []pipelineNextAction) {
+	if len(actions) == 0 {
+		fmt.Fprintln(w, "(no pipeline actions)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PIPELINE\tREASON\tACTION")
+	for _, action := range actions {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n",
+			action.Pipeline,
+			emptyDash(action.Reason),
+			action.Action)
 	}
 	_ = tw.Flush()
 }
