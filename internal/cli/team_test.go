@@ -2273,11 +2273,11 @@ instances = ["other", "build-worker"]
 	}
 	now := time.Now().UTC()
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(time.Minute), Workspace: root},
-		{Instance: "worker-squ-101", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(2 * time.Minute), Workspace: root},
-		{Instance: "worker-squ-100", Agent: "worker", Status: daemon.StatusStopped, PID: os.Getpid(), StartedAt: now.Add(3 * time.Minute), Workspace: root},
-		{Instance: "build-worker-1", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(4 * time.Minute), Workspace: root},
-		{Instance: "other", Agent: "other", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(5 * time.Minute), Workspace: root},
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(time.Minute), Workspace: root},
+		{Instance: "worker-squ-101", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(2 * time.Minute), Workspace: root},
+		{Instance: "worker-squ-100", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusStopped, PID: os.Getpid(), StartedAt: now.Add(3 * time.Minute), Workspace: root},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(4 * time.Minute), Workspace: root},
+		{Instance: "other", Agent: "other", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(5 * time.Minute), Workspace: root},
 	} {
 		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -2298,6 +2298,34 @@ instances = ["other", "build-worker"]
 	}
 	if got := sendTargets(dryRows); strings.Join(got, ",") != "manager,worker-squ-101" {
 		t.Fatalf("team send dry-run targets = %v", got)
+	}
+
+	codex := NewRootCmd()
+	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codex.SetOut(codexOut)
+	codex.SetErr(codexErr)
+	codex.SetArgs([]string{"team", "send", "delivery", "--repo", root, "--runtime", "codex", "--dry-run", "--json", "hello"})
+	if err := codex.Execute(); err != nil {
+		t.Fatalf("team send --runtime dry-run: %v\nstderr=%s", err, codexErr.String())
+	}
+	var codexRows []sendJSON
+	if err := json.Unmarshal(codexOut.Bytes(), &codexRows); err != nil {
+		t.Fatalf("decode team send --runtime: %v\nbody=%s", err, codexOut.String())
+	}
+	if got := sendTargets(codexRows); strings.Join(got, ",") != "worker-squ-101" {
+		t.Fatalf("team send --runtime targets = %v", got)
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "send", "delivery", "--repo", root, "--runtime", "llama", "hello"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team send accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
 	}
 
 	allStatuses := NewRootCmd()

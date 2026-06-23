@@ -1999,27 +1999,28 @@ func newTeamEventsCmd() *cobra.Command {
 
 func newTeamSendCmd() *cobra.Command {
 	var (
-		repo          string
-		from          string
-		message       string
-		messageFile   string
-		allStatuses   bool
-		latest        bool
-		last          int
-		statusFilters []string
-		phaseFilters  []string
-		staleOnly     bool
-		unhealthyOnly bool
-		dryRun        bool
-		jsonOut       bool
-		format        string
+		repo           string
+		from           string
+		message        string
+		messageFile    string
+		allStatuses    bool
+		latest         bool
+		last           int
+		statusFilters  []string
+		runtimeFilters []string
+		phaseFilters   []string
+		staleOnly      bool
+		unhealthyOnly  bool
+		dryRun         bool
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "send <team> [message...]",
 		Short: "Send a mailbox message to team-owned instances.",
 		Long: "Send a mailbox message to running daemon-known instances owned by one declared team. " +
-			"Use --all to include every lifecycle status, or combine selectors such as --status, --phase, --latest, --last, --stale, and --unhealthy.",
+			"Use --all to include every lifecycle status, or combine selectors such as --status, --runtime, --phase, --latest, --last, --stale, and --unhealthy.",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -2067,6 +2068,7 @@ func newTeamSendCmd() *cobra.Command {
 				Latest:          latest,
 				Limit:           last,
 				StatusFilters:   effectiveStatuses,
+				RuntimeFilters:  runtimeFilters,
 				PhaseFilters:    phaseFilters,
 				Stale:           staleOnly,
 				Unhealthy:       unhealthyOnly,
@@ -2090,6 +2092,7 @@ func newTeamSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Send to the most recently started team-owned daemon-known instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Send to the N most recently started team-owned daemon-known instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Send to team-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to team-owned instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to team-owned instances that are crashed or stale.")

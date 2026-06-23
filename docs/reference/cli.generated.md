@@ -4598,7 +4598,7 @@ Flags:
 
 Send a mailbox message to team-owned instances.
 
-Send a mailbox message to running daemon-known instances owned by one declared team. Use --all to include every lifecycle status, or combine selectors such as --status, --phase, --latest, --last, --stale, and --unhealthy.
+Send a mailbox message to running daemon-known instances owned by one declared team. Use --all to include every lifecycle status, or combine selectors such as --status, --runtime, --phase, --latest, --last, --stale, and --unhealthy.
 
 ```text
 agent-team team send <team> [message...] [flags]
@@ -4618,6 +4618,7 @@ Flags:
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string           Repo root. (default "<repo>")
+      --runtime strings       Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to team-owned instances whose status.toml is stale.
       --status strings        Send to team-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --unhealthy             Send to team-owned instances that are crashed or stale.
