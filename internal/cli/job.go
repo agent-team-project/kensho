@@ -6984,6 +6984,7 @@ func renderJobRecentEvents(w io.Writer, events []job.Event) {
 
 func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem) {
 	actions := jobDetailActions(j, teamDir, queueItems, statusPreviews, quarantineItems, time.Now().UTC())
+	runtimeMeta := jobRuntimeMetadataForDetail(teamDir, j)
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
@@ -6993,6 +6994,14 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	fmt.Fprintf(w, "Target:      %s\n", j.Target)
 	if j.Instance != "" {
 		fmt.Fprintf(w, "Instance:    %s\n", j.Instance)
+		if meta := runtimeMeta[j.Instance]; meta != nil {
+			if runtime := metadataRuntimeKey(meta); runtime != "unknown" {
+				fmt.Fprintf(w, "Runtime:     %s\n", runtime)
+			}
+			if strings.TrimSpace(meta.RuntimeBinary) != "" {
+				fmt.Fprintf(w, "Runtime Bin: %s\n", meta.RuntimeBinary)
+			}
+		}
 	}
 	if j.Pipeline != "" {
 		fmt.Fprintf(w, "Pipeline:    %s\n", j.Pipeline)
@@ -7041,6 +7050,14 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 					parts = append(parts, "skip_reason="+step.SkipReason)
 				}
 			}
+			if meta := runtimeMeta[step.Instance]; meta != nil {
+				if runtime := metadataRuntimeKey(meta); runtime != "unknown" {
+					parts = append(parts, "runtime="+runtime)
+				}
+				if strings.TrimSpace(meta.RuntimeBinary) != "" {
+					parts = append(parts, "runtime_bin="+meta.RuntimeBinary)
+				}
+			}
 			fmt.Fprintf(w, "  %s  %s\n", step.ID, strings.Join(parts, " "))
 		}
 	}
@@ -7083,6 +7100,36 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	}
 	fmt.Fprintf(w, "Created:     %s\n", j.CreatedAt.Format(time.RFC3339))
 	fmt.Fprintf(w, "Updated:     %s\n", j.UpdatedAt.Format(time.RFC3339))
+}
+
+func jobRuntimeMetadataForDetail(teamDir string, j *job.Job) map[string]*daemon.Metadata {
+	if strings.TrimSpace(teamDir) == "" || j == nil {
+		return nil
+	}
+	names := map[string]bool{}
+	if strings.TrimSpace(j.Instance) != "" {
+		names[j.Instance] = true
+	}
+	for _, step := range j.Steps {
+		if strings.TrimSpace(step.Instance) != "" {
+			names[step.Instance] = true
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]*daemon.Metadata, len(names))
+	for _, meta := range metas {
+		if meta == nil || !names[meta.Instance] {
+			continue
+		}
+		out[meta.Instance] = meta
+	}
+	return out
 }
 
 func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem, now time.Time) []string {

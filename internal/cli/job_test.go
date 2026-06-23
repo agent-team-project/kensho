@@ -183,6 +183,58 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobShowDisplaysRuntimeMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-45",
+		Ticket:    "SQU-45",
+		Target:    "worker",
+		Instance:  "worker-squ-45",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Instance: "worker-squ-45", Status: job.StatusRunning},
+			{ID: "review", Target: "manager", Instance: "manager-review", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-45", Agent: "worker", Runtime: string(runtimebin.KindCodex), RuntimeBinary: "codex-dev", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: tmp, StartedAt: now},
+		{Instance: "manager-review", Agent: "manager", Runtime: string(runtimebin.KindClaude), RuntimeBinary: "claude-code", Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: tmp, StartedAt: now},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "show", "squ-45", "--repo", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job show runtime metadata: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"Instance:    worker-squ-45",
+		"Runtime:     codex",
+		"Runtime Bin: codex-dev",
+		"implement  target=worker status=running instance=worker-squ-45 after=- runtime=codex runtime_bin=codex-dev",
+		"review  target=manager status=blocked instance=manager-review after=implement runtime=claude runtime_bin=claude-code",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("job show missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestJobShowIncludesStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
