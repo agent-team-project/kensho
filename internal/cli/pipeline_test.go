@@ -12,6 +12,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestPipelineListAndShow(t *testing.T) {
@@ -495,12 +496,21 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	for _, j := range []*job.Job{
-		{ID: "squ-301", Ticket: "SQU-301", Target: "worker", Pipeline: "ticket_to_pr", Status: job.StatusRunning, CreatedAt: now, UpdatedAt: now},
-		{ID: "squ-302", Ticket: "SQU-302", Target: "manager", Pipeline: "nightly", Status: job.StatusQueued, CreatedAt: now, UpdatedAt: now},
-		{ID: "squ-303", Ticket: "SQU-303", Target: "manager", Pipeline: "ticket_to_pr", Status: job.StatusDone, CreatedAt: now, UpdatedAt: now},
+		{ID: "squ-301", Ticket: "SQU-301", Target: "worker", Instance: "worker-squ-301", Pipeline: "ticket_to_pr", Status: job.StatusRunning, CreatedAt: now, UpdatedAt: now},
+		{ID: "squ-302", Ticket: "SQU-302", Target: "manager", Instance: "manager-squ-302", Pipeline: "nightly", Status: job.StatusQueued, CreatedAt: now, UpdatedAt: now},
+		{ID: "squ-303", Ticket: "SQU-303", Target: "manager", Instance: "manager-squ-303", Pipeline: "ticket_to_pr", Status: job.StatusDone, CreatedAt: now, UpdatedAt: now},
 	} {
 		if err := job.Write(teamDir, j); err != nil {
 			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-301", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "manager-squ-302", Agent: "manager", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "manager-squ-303", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
 		}
 	}
 
@@ -530,6 +540,38 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	if got := strings.Split(strings.TrimSpace(formatOut.String()), "\n"); strings.Join(got, ",") != "squ-301 running,squ-303 done" {
 		t.Fatalf("pipeline jobs format output = %q", formatOut.String())
+	}
+
+	runtimeCmd := NewRootCmd()
+	runtimeOut, runtimeErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runtimeCmd.SetOut(runtimeOut)
+	runtimeCmd.SetErr(runtimeErr)
+	runtimeCmd.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", root, "--runtime", "codex", "--json"})
+	if err := runtimeCmd.Execute(); err != nil {
+		t.Fatalf("pipeline jobs runtime: %v\nstderr=%s", err, runtimeErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(runtimeOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline jobs runtime json: %v\nbody=%s", err, runtimeOut.String())
+	}
+	if len(rows) != 1 || rows[0].ID != "squ-301" {
+		t.Fatalf("pipeline runtime rows = %+v", rows)
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", root, "--runtime", "codex", "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("pipeline jobs summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode pipeline summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Total != 1 || summary.Runtimes["codex"] != 1 {
+		t.Fatalf("pipeline summary = %+v", summary)
 	}
 
 	invalid := NewRootCmd()

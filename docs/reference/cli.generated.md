@@ -2596,10 +2596,12 @@ agent-team pipeline jobs <pipeline> [flags]
 Flags:
 
 ```text
-      --format string   Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --json            Emit jobs as JSON.
-      --repo string     Repo root. (default "<repo>")
-      --status string   Filter by job status: queued, running, blocked, done, or failed.
+      --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json              Emit jobs as JSON.
+      --repo string       Repo root. (default "<repo>")
+      --runtime strings   Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
+      --status string     Filter by job status: queued, running, blocked, done, or failed.
+      --summary           Show aggregate pipeline job counts instead of job rows.
 ```
 
 ## `agent-team pipeline ls`

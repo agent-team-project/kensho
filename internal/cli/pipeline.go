@@ -217,10 +217,12 @@ func newPipelineDoctorCmd() *cobra.Command {
 
 func newPipelineJobsCmd() *cobra.Command {
 	var (
-		repo    string
-		status  string
-		jsonOut bool
-		format  string
+		repo           string
+		status         string
+		runtimeFilters []string
+		summary        bool
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -232,12 +234,16 @@ func newPipelineJobsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if format != "" && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
 			tmpl, err := parseJobFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := newJobListFilters(status, "", "", args[0], "", "", "", nil)
+			filters, err := newJobListFilters(status, "", "", args[0], "", "", "", runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
@@ -246,11 +252,26 @@ func newPipelineJobsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if summary {
+				filtered, err := filteredJobs(teamDir, filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
+					return exitErr(1)
+				}
+				s := summarizeJobsWithRuntime(teamDir, filtered)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(s)
+				}
+				renderJobSummary(cmd.OutOrStdout(), s)
+				return nil
+			}
 			return runJobList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline job counts instead of job rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
