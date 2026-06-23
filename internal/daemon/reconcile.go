@@ -74,8 +74,13 @@ func Reconcile(daemonRoot string, m *InstanceManager) error {
 				Action:   "exit",
 				Instance: md.Instance,
 				Agent:    md.Agent,
+				Job:      md.Job,
+				Ticket:   md.Ticket,
+				Branch:   md.Branch,
+				PR:       md.PR,
 				Status:   md.Status,
 				PID:      md.PID,
+				ExitCode: md.ExitCode,
 				Message:  "reconciled missing process",
 			})
 		case StatusStopped, StatusExited, StatusCrashed:

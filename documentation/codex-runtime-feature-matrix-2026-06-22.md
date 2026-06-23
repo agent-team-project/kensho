@@ -104,11 +104,22 @@ and `tick` do not advance them.
    `logs worker-doc-701` and `inspect worker-doc-701` failed because ephemeral
    metadata/log state had been removed. The durable job remained `running`.
 
+   Status after follow-up: lifecycle events now carry job/ticket/branch/PR and
+   exit-code metadata, and `job reconcile events` can complete or fail a durable
+   job from the terminal lifecycle row even after daemon instance metadata has
+   been removed. Preserving post-mortem child logs and inspectable metadata is
+   still separate follow-up work.
+
 6. **`job reconcile status` does not recover missing-state ephemeral jobs.**
    After `worker-doc-701` was removed, `job reconcile status --dry-run` returned
    `[]`, because there was no `status.toml` left to read. GitHub reconciliation
    by branch can still close the job, but there is no local automatic recovery
    from ephemeral exit/removal.
+
+   Status after follow-up: status-file reconciliation still cannot recover a
+   missing state directory by design, but `job reconcile events` now provides a
+   local recovery path when the daemon lifecycle log contains a job-scoped
+   terminal event.
 
 7. **Daemon-spawned Codex workers could not use daemon-local tools from inside the Codex sandbox.**
    The queue-recovered worker log showed `inbox check` missing and
@@ -199,8 +210,8 @@ and `tick` do not advance them.
 
 1. Finish standardizing help text and examples around global `--repo`; keep
    command-local `--target` for destination, agent, or event target semantics.
-2. Preserve post-mortem metadata/logs for job-owned ephemeral workers, and
-   reconcile job status from daemon exit events.
+2. Preserve post-mortem metadata/logs for job-owned ephemeral workers. Job
+   status can now be reconciled from job-scoped daemon lifecycle exit events.
 3. Confirm the selected Codex sandbox allows daemon Unix socket connections
    from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
 4. Make empty JSON maps consistently encode as `{}`.

@@ -96,6 +96,12 @@ Metadata tracks:
 
 The CLI reads metadata even when the daemon is down, which makes `ps`, `inspect`, `logs`, and `monitor` useful after crashes.
 
+## Lifecycle Events
+
+Lifecycle events are appended to `.agent_team/daemon/events.jsonl`.
+
+Job-owned events include job, ticket, branch, PR, lifecycle status, and exit-code metadata when known. This lets `agent-team job reconcile events` recover a durable job from a terminal daemon event even if the per-instance daemon metadata has already been removed.
+
 ## Reconcile
 
 Daemon metadata can get stale if:

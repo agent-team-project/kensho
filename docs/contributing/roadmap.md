@@ -34,6 +34,7 @@ Built or substantially implemented:
 - jobs
 - job events
 - worktree/branch/PR metadata
+- job reconciliation from daemon lifecycle events after metadata removal
 - pipelines and ready-step advancement
 - persistent queue
 - dead-letter retry/drop/prune

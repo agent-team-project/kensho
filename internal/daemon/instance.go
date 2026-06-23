@@ -841,8 +841,13 @@ func (m *InstanceManager) recordEvent(action string, meta *Metadata, message str
 		Action:   action,
 		Instance: meta.Instance,
 		Agent:    meta.Agent,
+		Job:      meta.Job,
+		Ticket:   meta.Ticket,
+		Branch:   meta.Branch,
+		PR:       meta.PR,
 		Status:   meta.Status,
 		PID:      meta.PID,
+		ExitCode: meta.ExitCode,
 		Message:  message,
 	})
 }

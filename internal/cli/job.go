@@ -4842,7 +4842,8 @@ func reconcileJobsFromStatus(teamDir string, dryRun bool, now time.Time) ([]jobS
 }
 
 func reconcileJobsFromEvents(teamDir string, dryRun bool, now time.Time) ([]jobEventReconcileResult, error) {
-	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	metas, err := daemon.ListMetadata(daemonRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -4851,6 +4852,7 @@ func reconcileJobsFromEvents(teamDir string, dryRun bool, now time.Time) ([]jobE
 		return nil, err
 	}
 	results := make([]jobEventReconcileResult, 0)
+	reconciledInstances := make(map[string]bool)
 	for _, meta := range metas {
 		if !daemonMetadataTerminal(meta) {
 			continue
@@ -4866,7 +4868,13 @@ func reconcileJobsFromEvents(teamDir string, dryRun bool, now time.Time) ([]jobE
 			}
 		}
 		results = append(results, result)
+		reconciledInstances[strings.TrimSpace(meta.Instance)] = true
 	}
+	lifecycleResults, err := reconcileJobsFromLifecycleEvents(teamDir, daemonRoot, jobs, reconciledInstances, dryRun, now)
+	if err != nil {
+		return nil, err
+	}
+	results = append(results, lifecycleResults...)
 	return results, nil
 }
 
@@ -4880,6 +4888,86 @@ func daemonMetadataTerminal(meta *daemon.Metadata) bool {
 	default:
 		return false
 	}
+}
+
+func reconcileJobsFromLifecycleEvents(teamDir, daemonRoot string, jobs []*job.Job, reconciledInstances map[string]bool, dryRun bool, now time.Time) ([]jobEventReconcileResult, error) {
+	events, err := daemon.ListLifecycleEvents(daemonRoot)
+	if err != nil {
+		return nil, err
+	}
+	latestByInstance := make(map[string]*daemon.LifecycleEvent)
+	for _, ev := range events {
+		if !daemonLifecycleEventTerminal(ev) {
+			continue
+		}
+		instance := strings.TrimSpace(ev.Instance)
+		if reconciledInstances[instance] {
+			continue
+		}
+		if job.IDFromInput(ev.Job) == "" {
+			continue
+		}
+		latestByInstance[instance] = ev
+	}
+	instances := make([]string, 0, len(latestByInstance))
+	for instance := range latestByInstance {
+		instances = append(instances, instance)
+	}
+	sort.Strings(instances)
+	results := make([]jobEventReconcileResult, 0, len(instances))
+	for _, instance := range instances {
+		ev := latestByInstance[instance]
+		meta := daemonMetadataFromLifecycleEvent(ev)
+		j, matchedBy := jobForDaemonMetadata(jobs, meta)
+		if j == nil {
+			continue
+		}
+		result := reconcileJobFromDaemonMetadata(j, meta, matchedBy, dryRun, now)
+		if result.Changed && !dryRun {
+			data := jobEventReconcileDataWithSource(meta, matchedBy, "lifecycle_event")
+			if ev.ID != "" {
+				data["lifecycle_event_id"] = ev.ID
+			}
+			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, data); err != nil {
+				return nil, err
+			}
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func daemonLifecycleEventTerminal(ev *daemon.LifecycleEvent) bool {
+	if ev == nil || strings.TrimSpace(ev.Instance) == "" {
+		return false
+	}
+	switch ev.Status {
+	case daemon.StatusExited, daemon.StatusCrashed:
+		return true
+	default:
+		return false
+	}
+}
+
+func daemonMetadataFromLifecycleEvent(ev *daemon.LifecycleEvent) *daemon.Metadata {
+	if ev == nil {
+		return nil
+	}
+	meta := &daemon.Metadata{
+		Instance: ev.Instance,
+		Agent:    ev.Agent,
+		Job:      ev.Job,
+		Ticket:   ev.Ticket,
+		Branch:   ev.Branch,
+		PR:       ev.PR,
+		Status:   ev.Status,
+		PID:      ev.PID,
+		ExitCode: ev.ExitCode,
+	}
+	if !ev.TS.IsZero() {
+		meta.ExitedAt = ev.TS
+	}
+	return meta
 }
 
 func jobForDaemonMetadata(jobs []*job.Job, meta *daemon.Metadata) (*job.Job, string) {
@@ -5103,8 +5191,15 @@ func jobEventReconcileChanged(before, after *job.Job) bool {
 }
 
 func jobEventReconcileData(meta *daemon.Metadata, matchedBy string) map[string]string {
+	return jobEventReconcileDataWithSource(meta, matchedBy, "daemon_metadata")
+}
+
+func jobEventReconcileDataWithSource(meta *daemon.Metadata, matchedBy, source string) map[string]string {
+	if source == "" {
+		source = "daemon_metadata"
+	}
 	data := map[string]string{
-		"source":     "daemon_metadata",
+		"source":     source,
 		"matched_by": matchedBy,
 	}
 	if meta == nil {

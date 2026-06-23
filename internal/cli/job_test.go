@@ -2005,6 +2005,75 @@ func TestJobReconcileEventsFromTerminalMetadata(t *testing.T) {
 	}
 }
 
+func TestJobReconcileEventsFromLifecycleEventAfterMetadataRemoved(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-133",
+		Ticket:    "SQU-133",
+		Target:    "worker",
+		Instance:  "worker-squ-133",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	exitCode := 0
+	if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), &daemon.LifecycleEvent{
+		ID:       "event-worker-squ-133-exit",
+		TS:       now,
+		Action:   "exit",
+		Instance: "worker-squ-133",
+		Agent:    "worker",
+		Job:      "squ-133",
+		Ticket:   "SQU-133",
+		Branch:   "worker-squ-133",
+		PR:       "https://github.com/acme/repo/pull/133",
+		Status:   daemon.StatusExited,
+		ExitCode: &exitCode,
+		Message:  "instance process exited",
+	}); err != nil {
+		t.Fatalf("AppendLifecycleEvent: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile events lifecycle: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobEventReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode lifecycle events reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].JobID != "squ-133" || result[0].After != job.StatusDone || result[0].Event != "instance_exited" || !result[0].Changed || result[0].MatchedBy != "job" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-133")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.Instance != "worker-squ-133" || updated.Branch != "worker-squ-133" || updated.PR == "" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if updated.LastEvent != "instance_exited" || updated.LastStatus != "instance exited successfully" {
+		t.Fatalf("updated status fields = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-133")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "instance_exited" || events[0].Data["source"] != "lifecycle_event" || events[0].Data["lifecycle_event_id"] != "event-worker-squ-133-exit" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobReconcileEventsMarksCrashedMetadataFailed(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
