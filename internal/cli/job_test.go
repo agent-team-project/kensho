@@ -3958,6 +3958,58 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	}
 }
 
+func TestJobCleanupMergedRejectsRunningJob(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	initGitRepoForJobTest(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	branch := "worktree-worker-squ-45"
+	runGitForJobTest(t, target, "checkout", "-b", branch)
+	runGitForJobTest(t, target, "checkout", "main")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-45",
+		Ticket:    "SQU-45",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Branch:    branch,
+		Worktree:  filepath.Join(target, ".claude", "worktrees", "worker-squ-45"),
+		PR:        "https://github.com/acme/repo/pull/45",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write running job: %v", err)
+	}
+
+	cleanupCmd := NewRootCmd()
+	cleanupOut, cleanupErr := &bytes.Buffer{}, &bytes.Buffer{}
+	cleanupCmd.SetOut(cleanupOut)
+	cleanupCmd.SetErr(cleanupErr)
+	cleanupCmd.SetArgs([]string{"job", "cleanup", "squ-45", "--merged", "--repo", target, "--json"})
+	err := cleanupCmd.Execute()
+	if err == nil {
+		t.Fatalf("running cleanup unexpectedly succeeded: stdout=%s", cleanupOut.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("cleanup err = %v, want exit 2", err)
+	}
+	if !strings.Contains(cleanupErr.String(), "close or reconcile it as done before cleanup") {
+		t.Fatalf("cleanup stderr = %q", cleanupErr.String())
+	}
+	stillRunning, err := job.Read(teamDir, "squ-45")
+	if err != nil {
+		t.Fatalf("read running job: %v", err)
+	}
+	if stillRunning.Status != job.StatusRunning || stillRunning.Branch != branch || stillRunning.Worktree != j.Worktree {
+		t.Fatalf("running cleanup mutated job = %+v", stillRunning)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("cleanup removed branch %s", branch)
+	}
+}
+
 func TestJobCleanupCanForceDeleteUnmergedBranch(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
