@@ -20,6 +20,7 @@ as the output directory instead.
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check` | Compare current template lock to target |
 | `agent-team doctor` | Validate local layout and runtime availability |
+| `agent-team docs cli` | Generate markdown reference from the live command tree |
 
 ## Runtime and Daemon
 

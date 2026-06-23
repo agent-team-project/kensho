@@ -43,6 +43,7 @@ Built or substantially implemented:
 - delivery history, replay, doctor, prune
 - overview, next, health, monitor, snapshot, repair
 - VitePress developer docs site
+- generated CLI reference command
 
 ## What Still Needs Design Care
 
@@ -51,7 +52,7 @@ Areas likely to need continued refinement:
 - runtime abstraction beyond the current primary runtime
 - richer pipeline semantics without overbuilding a workflow engine
 - safer PR merge confirmation for cleanup
-- better generated CLI reference
+- publishing generated CLI reference artifacts without review noise
 - richer docs examples using realistic fake teams
 - webhook security hardening and deployment guidance
 - template upgrade apply mode
@@ -76,7 +77,6 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- generated command reference from Cobra metadata
 - example topology gallery
 - realistic local demo repo with fake spawner
 - richer health policy configuration

@@ -76,6 +76,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newInstanceCmd())
 	root.AddCommand(newTemplateCmd())
+	root.AddCommand(newDocsCmd())
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newPsCmd())
 	root.AddCommand(newLogsCmd())

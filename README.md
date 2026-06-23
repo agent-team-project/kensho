@@ -75,6 +75,13 @@ npm run docs:dev
 npm run docs:build
 ```
 
+After changing CLI commands or flags, regenerate a command reference from the
+live Cobra tree:
+
+```sh
+agent-team docs cli --output docs/reference/cli.generated.md
+```
+
 The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.
 
 ## Quickstart
@@ -181,6 +188,8 @@ agent-team monitor [-w] [--no-clear] [-a] [--summary [--resources]] [--plan [--s
                                                 # combined health, instance, resource, event-history, and job-status snapshot; uses local metadata if the daemon is down
 agent-team runtime [--format '{{.Runtime}} {{.Available}}'] [--json]
                                                 # inspect selected LLM runtime profile, binary path, and supported capabilities
+agent-team docs cli [--output docs/reference/cli.generated.md]
+                                                # generate markdown CLI reference from the live command tree
 agent-team snapshot [--events N|-1] [--intake-deliveries N|-1] [--schedule-limit N] [--no-redact] [--json | --output snapshot.json]
                                                 # capture a redacted read-only diagnostic report with health, plan, jobs, job-status previews, queue, schedules, runtime, and recent events
 agent-team watch [--no-clear] [-a] [--summary [--resources]] [--plan [--stop-extras] [--action start]] [--jobs] [--schedules] [--latest | --last N] [--events N [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--unhealthy]

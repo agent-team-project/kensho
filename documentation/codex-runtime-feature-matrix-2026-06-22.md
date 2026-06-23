@@ -88,6 +88,11 @@ and `tick` do not advance them.
    `pipeline advance`, `team advance`, and `tick` returned no work for the same
    fresh queued first step.
 
+   Status after follow-up: fresh first steps are now covered by
+   `TestPipelineAdvanceIncludesQueuedReadyFirstStep`, `TestTickRunsMaintenanceCycle`,
+   and team-scoped tick/advance tests. `pipeline advance`, `team advance`, and
+   `tick` share the same ready-row path for queued ready first steps.
+
 4. **Pipeline persistent steps can be marked running without a live instance.**
    `job step doc-402 implement --status done --advance` marked `review` as
    running with instance `manager` even though no live manager session existed.
@@ -125,6 +130,9 @@ and `tick` do not advance them.
    branch and cleared the job metadata even though the job was still `running`.
    It was constrained to the owned worktree, but the status precondition should
    probably be stricter or require a reconciled PR URL/status.
+
+   Status after follow-up: non-dry-run cleanup now requires `status = "done"`.
+   `TestJobCleanupMergedRejectsRunningJob` covers the running-job rejection.
 
 9. **Queue quarantine and recovery work, but recovery starts pending fixtures immediately.**
    Starting the daemon with a pending queue fixture dispatched it as
@@ -191,13 +199,10 @@ and `tick` do not advance them.
 
 1. Finish standardizing help text and examples around global `--repo`; keep
    command-local `--target` for destination, agent, or event target semantics.
-2. Fix `pipeline advance` / `team advance` / `tick` so fresh queued first steps
-   advance the same way `job advance` previews.
-3. Preserve post-mortem metadata/logs for job-owned ephemeral workers, and
+2. Preserve post-mortem metadata/logs for job-owned ephemeral workers, and
    reconcile job status from daemon exit events.
-4. Confirm the selected Codex sandbox allows daemon Unix socket connections
+3. Confirm the selected Codex sandbox allows daemon Unix socket connections
    from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
-5. Tighten `job cleanup --merged` preconditions for jobs still marked running.
-6. Make empty JSON maps consistently encode as `{}`.
-7. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+4. Make empty JSON maps consistently encode as `{}`.
+5. Investigate why `agent-team`-supervised `codex exec -` stalls even though
    raw replay with the same stdin/add-dir succeeds.
