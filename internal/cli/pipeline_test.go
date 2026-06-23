@@ -1632,7 +1632,7 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(runOut)
 	run.SetErr(runErr)
-	run.SetArgs([]string{"pipeline", "retry", "ticket_triage", "--repo", target, "--limit", "1", "--json"})
+	run.SetArgs([]string{"pipeline", "retry", "ticket_triage", "--repo", target, "--limit", "1", "--message", "operator retry approved", "--json"})
 	if err := run.Execute(); err != nil {
 		t.Fatalf("pipeline retry: %v\nstderr=%s", err, runErr.String())
 	}
@@ -1640,14 +1640,14 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	if err := json.Unmarshal(runOut.Bytes(), &runRows); err != nil {
 		t.Fatalf("decode retry: %v\nbody=%s", err, runOut.String())
 	}
-	if len(runRows) != 1 || runRows[0].Action != "retried" || runRows[0].StepStatus != job.StatusBlocked || runRows[0].Instance != "" {
+	if len(runRows) != 1 || runRows[0].Action != "retried" || runRows[0].StepStatus != job.StatusBlocked || runRows[0].Instance != "" || runRows[0].Message != "operator retry approved" {
 		t.Fatalf("run rows = %+v", runRows)
 	}
 	retried, err := job.Read(teamDir, "squ-601")
 	if err != nil {
 		t.Fatalf("read retried: %v", err)
 	}
-	if retried.Status != job.StatusQueued || retried.LastEvent != "reopened" || retried.Steps[0].Status != job.StatusBlocked || retried.Steps[0].Instance != "" || !retried.Steps[0].FinishedAt.IsZero() {
+	if retried.Status != job.StatusQueued || retried.LastEvent != "reopened" || retried.LastStatus != "operator retry approved" || retried.Steps[0].Status != job.StatusBlocked || retried.Steps[0].Instance != "" || !retried.Steps[0].FinishedAt.IsZero() {
 		t.Fatalf("retried job = %+v", retried)
 	}
 	events, err := job.ListEvents(teamDir, "squ-601")

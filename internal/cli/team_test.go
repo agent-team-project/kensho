@@ -607,7 +607,7 @@ pipelines = ["platform_ops"]
 	runOut, runErr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(runOut)
 	run.SetErr(runErr)
-	run.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--json"})
+	run.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--message", "delivery retry approved", "--json"})
 	if err := run.Execute(); err != nil {
 		t.Fatalf("team retry: %v\nstderr=%s", err, runErr.String())
 	}
@@ -615,7 +615,7 @@ pipelines = ["platform_ops"]
 	if err := json.Unmarshal(runOut.Bytes(), &runRows); err != nil {
 		t.Fatalf("decode team retry: %v\nbody=%s", err, runOut.String())
 	}
-	if len(runRows) != 1 || runRows[0].Action != "retried" || runRows[0].StepStatus != job.StatusBlocked {
+	if len(runRows) != 1 || runRows[0].Action != "retried" || runRows[0].StepStatus != job.StatusBlocked || runRows[0].Message != "delivery retry approved" {
 		t.Fatalf("run rows = %+v", runRows)
 	}
 	delivery, err := job.Read(teamDir, "squ-901")
@@ -626,7 +626,7 @@ pipelines = ["platform_ops"]
 	if err != nil {
 		t.Fatalf("read platform: %v", err)
 	}
-	if delivery.Status != job.StatusQueued || delivery.Steps[0].Status != job.StatusBlocked || delivery.Steps[0].Instance != "" {
+	if delivery.Status != job.StatusQueued || delivery.LastStatus != "delivery retry approved" || delivery.Steps[0].Status != job.StatusBlocked || delivery.Steps[0].Instance != "" {
 		t.Fatalf("delivery job = %+v", delivery)
 	}
 	if platform.Status != job.StatusFailed || platform.Steps[0].Status != job.StatusFailed || platform.Steps[0].Instance != "platform-old" {

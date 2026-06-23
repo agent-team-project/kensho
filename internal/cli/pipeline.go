@@ -451,6 +451,7 @@ func newPipelineRetryCmd() *cobra.Command {
 		limit         int
 		dispatchNow   bool
 		workspace     string
+		message       string
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -501,7 +502,7 @@ func newPipelineRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			results, err := retryPipelineJobs(cmd, teamDir, pipelineName, workspace, limit, dispatchNow, dryRun, previewRoutes)
+			results, err := retryPipelineJobs(cmd, teamDir, pipelineName, workspace, message, limit, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline retry: %v\n", err)
 				return exitErr(1)
@@ -514,6 +515,7 @@ func newPipelineRetryCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum failed jobs to retry (0 = no limit).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each reset failed step immediately.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each retried job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview failed-step resets and optional dispatches without writing job or daemon state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include route and payload previews.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit retry results as JSON.")
@@ -1350,7 +1352,7 @@ func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace s
 	return results, nil
 }
 
-func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
+func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace, message string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
 	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"failed": true})
 	if err != nil {
 		return nil, err
@@ -1387,6 +1389,9 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 		j.Status = job.StatusQueued
 		j.LastEvent = "reopened"
 		j.LastStatus = "reopened step " + stepID + " for retry"
+		if strings.TrimSpace(message) != "" {
+			j.LastStatus = strings.TrimSpace(message)
+		}
 		j.UpdatedAt = now
 		result.StepID = stepID
 		if idx := jobStepIndex(j, stepID); idx >= 0 {

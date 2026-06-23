@@ -2600,6 +2600,7 @@ Flags:
       --format string      Render each retry result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
       --json               Emit retry results as JSON.
       --limit int          Maximum failed jobs to retry (0 = no limit).
+      --message string     Status message recorded on each retried job.
       --preview-routes     With --dry-run --dispatch, include route and payload previews.
       --repo string        Repo root. (default "<repo>")
       --workspace string   Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
@@ -4441,6 +4442,7 @@ Flags:
       --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
       --json               Emit retry results as JSON.
       --limit int          Retry at most this many failed team jobs; 0 means no limit.
+      --message string     Status message recorded on each retried team job.
       --preview-routes     With --dry-run --dispatch, include local topology route and dispatch payload previews.
       --repo string        Repo root. (default "<repo>")
       --workspace string   Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
