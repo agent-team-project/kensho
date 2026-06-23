@@ -44,6 +44,7 @@ Built or substantially implemented:
 - overview, next, health, monitor, snapshot, repair
 - VitePress developer docs site
 - generated CLI reference command and check mode
+- topology gallery examples
 
 ## What Still Needs Design Care
 
@@ -77,7 +78,6 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- example topology gallery
 - realistic local demo repo with fake spawner
 - richer health policy configuration
 - pipeline visualization in docs

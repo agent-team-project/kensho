@@ -11,6 +11,7 @@ This section shows how the product layers combine into real workflows.
 | [External Intake](./external-intake.md) | Linear/GitHub events, delivery history, replay, job updates |
 | [On-call Recovery](./on-call-recovery.md) | Health, overview, queue retry, quarantine, unblock, repair |
 | [Template Authoring](./template-authoring.md) | Creating reusable teams and parameters |
+| [Topology Gallery](./topology-gallery.md) | Copyable team, pipeline, trigger, and schedule layouts |
 
 ## Choosing the Right Entry Point
 

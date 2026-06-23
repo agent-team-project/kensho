@@ -73,7 +73,8 @@ export default defineConfig({
           { text: 'Multi-Team Repo', link: '/use-cases/multi-team-repo' },
           { text: 'External Intake', link: '/use-cases/external-intake' },
           { text: 'On-call Recovery', link: '/use-cases/on-call-recovery' },
-          { text: 'Template Authoring', link: '/use-cases/template-authoring' }
+          { text: 'Template Authoring', link: '/use-cases/template-authoring' },
+          { text: 'Topology Gallery', link: '/use-cases/topology-gallery' }
         ]
       },
       {
