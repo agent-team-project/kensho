@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -37,6 +39,7 @@ type runConfig struct {
 	readyTimeout   time.Duration
 	jsonOut        bool
 	format         string
+	lastMessage    bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -71,6 +74,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&cfg.readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for daemon readiness with --detach or --attach (0 = no timeout).")
 	cmd.Flags().BoolVar(&cfg.jsonOut, "json", false, "Emit daemon dispatch metadata as JSON. Requires --prompt or --detach.")
 	cmd.Flags().StringVar(&cfg.format, "format", "", "Render daemon dispatch metadata with a Go template, e.g. '{{.Instance}} {{.PID}}'. Requires --prompt or --detach.")
+	cmd.Flags().BoolVar(&cfg.lastMessage, "last-message", false, "With Codex --prompt runs, bypass the daemon and print only the clean final response sidecar.")
 	return cmd
 }
 
@@ -101,6 +105,26 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	}
 	if cfg.format != "" && cfg.noDaemon {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --format cannot be combined with --no-daemon.")
+		return exitErr(2)
+	}
+	if cfg.lastMessage && cfg.prompt == "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --last-message requires --prompt.")
+		return exitErr(2)
+	}
+	if cfg.lastMessage && cfg.jsonOut {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --last-message cannot be combined with --json.")
+		return exitErr(2)
+	}
+	if cfg.lastMessage && cfg.format != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --last-message cannot be combined with --format.")
+		return exitErr(2)
+	}
+	if cfg.lastMessage && cfg.detach {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --last-message cannot be combined with --detach.")
+		return exitErr(2)
+	}
+	if cfg.lastMessage && cfg.attach {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --last-message cannot be combined with --attach.")
 		return exitErr(2)
 	}
 	if cfg.detach && cfg.noDaemon {
@@ -154,6 +178,17 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if rt.Kind == runtimebin.KindCodex && (cfg.detach || cfg.attach) && strings.TrimSpace(cfg.prompt) == "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: codex daemon dispatch requires --prompt so Codex can run with `codex exec`.\n")
 		return exitErr(2)
+	}
+	if cfg.lastMessage {
+		if rt.Kind != runtimebin.KindCodex {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: --last-message requires the codex runtime.\n")
+			return exitErr(2)
+		}
+		if hasForwardedRuntimeFlag(forwarded, "--output-last-message") {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: --last-message cannot be combined with forwarded --output-last-message.\n")
+			return exitErr(2)
+		}
+		cfg.noDaemon = true
 	}
 
 	agents, err := loader.LoadAllAgents(teamDir)
@@ -355,6 +390,9 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		// Daemon not running → fall through to direct exec.
 	}
 
+	if cfg.lastMessage {
+		return execRuntimeAndPrintLastMessage(cmd, runtimeArgs, env, target, runtimeStdin, lastMessagePath)
+	}
 	return execClaude(cmd, runtimeArgs, env, target, runtimeStdin)
 }
 
@@ -462,11 +500,34 @@ func printRunDispatchLine(w fmtWriter, disp *dispatchResponse) {
 		disp.InstanceID, runtime, disp.PID)
 }
 
+func execRuntimeAndPrintLastMessage(cmd *cobra.Command, args []string, env []string, cwd, stdin, lastMessagePath string) error {
+	var stdout, stderr bytes.Buffer
+	err := execRuntime(cmd, args, env, cwd, stdin, &stdout, &stderr)
+	if err != nil {
+		_, _ = stdout.WriteTo(cmd.OutOrStdout())
+		_, _ = stderr.WriteTo(cmd.ErrOrStderr())
+		return err
+	}
+	if err := writeLastMessageFile(cmd.OutOrStdout(), lastMessagePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: Codex last message not found at %s.\n", lastMessagePath)
+			fmt.Fprintln(cmd.ErrOrStderr(), "  The runtime exited successfully but did not write the expected --output-last-message sidecar.")
+			return exitErr(1)
+		}
+		return err
+	}
+	return nil
+}
+
 // execClaude is split out so tests can intercept the exec.
 var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string) error {
+	return execRuntime(cmd, args, env, cwd, stdin, cmd.OutOrStdout(), cmd.ErrOrStderr())
+}
+
+var execRuntime = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
 	bin, err := runtimebin.Binary()
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+		fmt.Fprintf(stderr, "agent-team: %v\n", err)
 		return exitErr(2)
 	}
 	c := exec.Command(bin, args...)
@@ -483,8 +544,8 @@ var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdi
 	} else if len(args) == 0 || args[0] != "exec" {
 		c.Stdin = os.Stdin
 	}
-	c.Stdout = cmd.OutOrStdout()
-	c.Stderr = cmd.ErrOrStderr()
+	c.Stdout = stdout
+	c.Stderr = stderr
 	var runErr error
 	if cleanupStdin != nil {
 		runErr = c.Start()
@@ -498,7 +559,7 @@ var execClaude = func(cmd *cobra.Command, args []string, env []string, cwd, stdi
 	if runErr != nil {
 		var execErr *exec.Error
 		if errors.As(runErr, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
-			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: runtime CLI %q not found in PATH. Install it first or set %s.\n", bin, runtimebin.EnvBinary)
+			fmt.Fprintf(stderr, "agent-team: runtime CLI %q not found in PATH. Install it first or set %s.\n", bin, runtimebin.EnvBinary)
 			return exitErr(127)
 		}
 		var exitErrTyped *exec.ExitError

@@ -188,13 +188,16 @@ and `tick` do not advance them.
     Codex replay with the captured agent-team stdin, add-dir, environment
     config, and last-message path succeeded.
 
-15. **`agent-team`-supervised Codex still stalls after reading stdin.**
-    Direct `agent-team run ... AGENT_TEAM_RUNTIME=codex` and daemon-managed
-    variants were observed with the Codex child holding fd 0 on the generated
-    stdin temp file at EOF, no stdout/stderr output, and no last-message
-    sidecar. Replaying the exact stdin file and add-dir through raw `codex exec`
-    completed successfully. This suggests a supervision/process-launch nuance
-    remains outside the prompt encoding fix.
+15. **Previously observed supervised Codex stdin stall did not reproduce.**
+    Earlier direct `agent-team run ... AGENT_TEAM_RUNTIME=codex` and
+    daemon-managed variants were observed with the Codex child holding fd 0 on
+    the generated stdin temp file at EOF, no stdout/stderr output, and no
+    last-message sidecar. Re-running direct `agent-team run --prompt
+    --no-daemon` with the current stdin adapter completed successfully. Keep
+    this on the watch list for full validation, but the known remaining UX
+    issue is noisy raw Codex output; `run --prompt --last-message` now provides
+    a quiet direct one-shot path by printing only the captured final sidecar on
+    success.
 
 ## Feature Notes
 

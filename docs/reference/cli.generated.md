@@ -3256,6 +3256,7 @@ Flags:
       --format string            Render daemon dispatch metadata with a Go template, e.g. '{{.Instance}} {{.PID}}'. Requires --prompt or --detach.
       --instance-config string   Path to a per-instance TOML config that layers on top of repo config (below --set).
       --json                     Emit daemon dispatch metadata as JSON. Requires --prompt or --detach.
+      --last-message             With Codex --prompt runs, bypass the daemon and print only the clean final response sidecar.
   -n, --name string              Instance name (defaults to the agent name). State dir: .agent_team/state/<name>/.
       --no-daemon                Bypass the daemon: exec the runtime directly even if the daemon is running. Useful for debugging.
   -p, --prompt string            Kickoff message. With this, the runtime runs in one-shot mode when supported; without, interactive.

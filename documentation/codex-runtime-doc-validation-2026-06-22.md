@@ -537,12 +537,15 @@ The captured Codex logs include:
 - final answer and token usage
 
 This is still usable, but `agent-team logs` is noisy for simple status checks.
+`agent-team run --prompt --last-message` now provides a quiet direct Codex
+one-shot mode: it captures Codex stdout/stderr internally, replays them only on
+failure, and prints the `--output-last-message` sidecar on success.
 
 Suggested improvement:
 
-- Consider a `--last-message` capture path for Codex runs using
-  `codex exec --output-last-message`.
-- Consider documenting that Codex adapter logs include Codex CLI diagnostics and
+- Keep daemon-managed `logs --last-message` documented as the retrieval path for
+  detached Codex work.
+- Keep documenting that raw Codex adapter logs include Codex CLI diagnostics and
   full prompt echo today.
 
 ## Suggested Next Fix Order

@@ -56,6 +56,7 @@ AGENT_TEAM_RUNTIME=codex AGENT_TEAM_RUNTIME_BIN=/opt/bin/codex-wrapper agent-tea
 | --- | --- | --- |
 | Direct interactive `run` | yes | yes |
 | Daemon-managed one-shot `run --prompt` | yes | yes |
+| Direct clean one-shot `run --prompt --last-message` | no | yes |
 | Direct CLI resume outside daemon ownership | yes | yes |
 | Native subagent registry | yes | no |
 | Managed resume/start | yes | no |
@@ -99,6 +100,14 @@ Interactive direct run:
 AGENT_TEAM_RUNTIME=codex agent-team run manager --no-daemon
 ```
 
+Clean direct one-shot run:
+
+```sh
+AGENT_TEAM_RUNTIME=codex agent-team run manager \
+  --prompt "summarize the current job status" \
+  --last-message
+```
+
 One-shot daemon run:
 
 ```sh
@@ -108,7 +117,7 @@ AGENT_TEAM_RUNTIME=codex agent-team run worker \
   --json
 ```
 
-For one-shot runs, the adapter uses `codex exec -` and sends the assembled agent prompt over stdin. This avoids placing large prompts in argv.
+For one-shot runs, the adapter uses `codex exec -` and sends the assembled agent prompt over stdin. This avoids placing large prompts in argv. `run --prompt --last-message` bypasses the daemon, waits for Codex to exit, suppresses raw Codex stdout/stderr on success, and prints only the captured final response. If Codex exits nonzero, raw stdout/stderr are replayed for diagnosis.
 
 Codex daemon runs also capture:
 

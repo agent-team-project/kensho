@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -40,6 +41,17 @@ type runCapture struct {
 	agentsJSON  string
 }
 
+type runtimeCapture struct {
+	args        []string
+	env         []string
+	cwd         string
+	stdin       string
+	rc          error
+	stdout      string
+	stderr      string
+	lastMessage string
+}
+
 func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 	t.Helper()
 	cap := &runCapture{rc: rc}
@@ -69,6 +81,35 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 		return cap.rc
 	}
 	return cap, func() { execClaude = prev }
+}
+
+func captureRuntime(t *testing.T, rc error) (*runtimeCapture, func()) {
+	t.Helper()
+	cap := &runtimeCapture{rc: rc}
+	prev := execRuntime
+	execRuntime = func(cmd *cobra.Command, args []string, env []string, cwd, stdin string, stdout, stderr io.Writer) error {
+		cap.args = args
+		cap.env = env
+		cap.cwd = cwd
+		cap.stdin = stdin
+		if cap.stdout != "" {
+			_, _ = io.WriteString(stdout, cap.stdout)
+		}
+		if cap.stderr != "" {
+			_, _ = io.WriteString(stderr, cap.stderr)
+		}
+		if cap.lastMessage != "" {
+			path, ok := argValue(args, "--output-last-message")
+			if !ok {
+				t.Fatalf("runtime args missing --output-last-message: %v", args)
+			}
+			if err := os.WriteFile(path, []byte(cap.lastMessage), 0o644); err != nil {
+				t.Fatalf("write captured last message: %v", err)
+			}
+		}
+		return cap.rc
+	}
+	return cap, func() { execRuntime = prev }
 }
 
 func startRunTestDaemon(t *testing.T, teamDir string, mgr *daemon.InstanceManager) func() {
@@ -343,6 +384,103 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 		if !strings.Contains(cap.stdin, want) {
 			t.Fatalf("codex stdin prompt missing %q:\n%s", want, cap.stdin)
 		}
+	}
+}
+
+func TestRun_CodexLastMessagePrintsCleanSidecar(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRuntime(t, nil)
+	defer restore()
+	cap.stdout = "raw codex stdout\n"
+	cap.stderr = "raw codex stderr\n"
+	cap.lastMessage = "clean codex answer\n"
+
+	cmd := NewRootCmd()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run last-message: %v\nstderr: %s", err, stderr.String())
+	}
+	if got := stdout.String(); got != "clean codex answer\n" {
+		t.Fatalf("stdout = %q, want clean sidecar only", got)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want raw stderr suppressed on success", got)
+	}
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Fatalf("codex args = %v, want exec", cap.args)
+	}
+	wantTeamDir := filepath.Join(cap.cwd, ".agent_team")
+	wantLastMessage := filepath.Join(wantTeamDir, "state", "manager", runtimebin.CodexLastMessageFile)
+	if got, ok := argValue(cap.args, "--output-last-message"); !ok || got != wantLastMessage {
+		t.Fatalf("codex args last-message path = %q, %v; want %q in %v", got, ok, wantLastMessage, cap.args)
+	}
+	if !strings.Contains(cap.stdin, "codex task") {
+		t.Fatalf("codex stdin missing task:\n%s", cap.stdin)
+	}
+}
+
+func TestRun_CodexLastMessageReplaysRawOutputOnFailure(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRuntime(t, exitErr(17))
+	defer restore()
+	cap.stdout = "raw stdout before failure\n"
+	cap.stderr = "raw stderr before failure\n"
+
+	cmd := NewRootCmd()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected runtime failure")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || code != 17 {
+		t.Fatalf("err = %v, want exit 17", err)
+	}
+	if got := stdout.String(); got != cap.stdout {
+		t.Fatalf("stdout = %q, want replayed raw stdout", got)
+	}
+	if got := stderr.String(); got != cap.stderr {
+		t.Fatalf("stderr = %q, want replayed raw stderr", got)
+	}
+}
+
+func TestRun_CodexLastMessageMissingSidecarFails(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, restore := captureRuntime(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected missing last-message sidecar to fail")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if !strings.Contains(stderr.String(), "Codex last message not found") {
+		t.Fatalf("stderr = %q, want missing last-message hint", stderr.String())
 	}
 }
 
@@ -716,6 +854,78 @@ func TestRunAttachRejectsConflictingModes(t *testing.T) {
 		if !strings.Contains(stderr.String(), tc.want) {
 			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
 		}
+	}
+}
+
+func TestRunLastMessageRejectsConflictingModes(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"run", "manager", "--last-message"}, "--last-message requires --prompt"},
+		{[]string{"run", "manager", "--prompt", "hello", "--last-message", "--json"}, "--last-message cannot be combined with --json"},
+		{[]string{"run", "manager", "--prompt", "hello", "--last-message", "--format", "{{.Instance}}"}, "--last-message cannot be combined with --format"},
+		{[]string{"run", "manager", "--prompt", "hello", "--last-message", "--detach"}, "--last-message cannot be combined with --detach"},
+		{[]string{"run", "manager", "--prompt", "hello", "--last-message", "--attach"}, "--last-message cannot be combined with --attach"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		stderr := &bytes.Buffer{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+	}
+}
+
+func TestRunLastMessageRequiresCodexRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "hello", "--last-message"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected --last-message with claude runtime to fail")
+	}
+	if !strings.Contains(stderr.String(), "--last-message requires the codex runtime") {
+		t.Fatalf("stderr = %q, want codex runtime validation", stderr.String())
+	}
+}
+
+func TestRunLastMessageRejectsForwardedOutputLastMessage(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"run", "manager",
+		"--target", tmp,
+		"--prompt", "hello",
+		"--last-message",
+		"--",
+		"--output-last-message", filepath.Join(tmp, "other.txt"),
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected forwarded --output-last-message conflict")
+	}
+	if !strings.Contains(stderr.String(), "--last-message cannot be combined with forwarded --output-last-message") {
+		t.Fatalf("stderr = %q, want forwarded flag validation", stderr.String())
 	}
 }
 
