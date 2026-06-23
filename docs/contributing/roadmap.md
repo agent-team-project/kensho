@@ -43,7 +43,7 @@ Built or substantially implemented:
 - delivery history, replay, doctor, prune
 - overview, next, health, monitor, snapshot, repair
 - VitePress developer docs site
-- generated CLI reference command
+- generated CLI reference command and check mode
 
 ## What Still Needs Design Care
 
@@ -52,7 +52,7 @@ Areas likely to need continued refinement:
 - runtime abstraction beyond the current primary runtime
 - richer pipeline semantics without overbuilding a workflow engine
 - safer PR merge confirmation for cleanup
-- publishing generated CLI reference artifacts without review noise
+- deciding whether to publish generated CLI reference artifacts
 - richer docs examples using realistic fake teams
 - webhook security hardening and deployment guidance
 - template upgrade apply mode

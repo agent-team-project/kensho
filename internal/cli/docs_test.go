@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,5 +59,80 @@ func TestDocsCLIWritesOutputFile(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("docs cli --output wrote stderr: %s", stderr.String())
+	}
+}
+
+func TestDocsCLIChecksOutputFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.generated.md")
+	write := NewRootCmd()
+	write.SetOut(&bytes.Buffer{})
+	write.SetErr(&bytes.Buffer{})
+	write.SetArgs([]string{"docs", "cli", "--output", path})
+	if err := write.Execute(); err != nil {
+		t.Fatalf("write docs fixture: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"docs", "cli", "--check", path})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("docs cli --check: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "CLI reference is up to date:") {
+		t.Fatalf("check stdout = %q", out.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("docs cli --check wrote stderr: %s", stderr.String())
+	}
+}
+
+func TestDocsCLICheckFailsWhenStale(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.generated.md")
+	if err := os.WriteFile(path, []byte("stale\n"), 0o644); err != nil {
+		t.Fatalf("write stale docs: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"docs", "cli", "--check", path})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("docs cli --check succeeded for stale file")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("error = %v, want exit 1", err)
+	}
+	if !strings.Contains(stderr.String(), "is stale") || !strings.Contains(stderr.String(), "agent-team docs cli --output") {
+		t.Fatalf("check stderr = %q", stderr.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stale check wrote stdout: %s", out.String())
+	}
+}
+
+func TestDocsCLIRejectsOutputAndCheck(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"docs", "cli", "--output", "out.md", "--check", "out.md"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("docs cli accepted --output with --check")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--output cannot be combined with --check") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("validation wrote stdout: %s", out.String())
 	}
 }

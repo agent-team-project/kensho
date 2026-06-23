@@ -24,6 +24,7 @@ func newDocsCmd() *cobra.Command {
 func newDocsCLICmd() *cobra.Command {
 	var (
 		output        string
+		check         string
 		includeHidden bool
 	)
 	cmd := &cobra.Command{
@@ -33,9 +34,16 @@ func newDocsCLICmd() *cobra.Command {
 			"Use this to refresh docs after adding or changing commands and flags.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(output) != "" && strings.TrimSpace(check) != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team docs cli: --output cannot be combined with --check.")
+				return exitErr(2)
+			}
 			body, err := generateCLIReferenceMarkdown(cmd.Root(), includeHidden)
 			if err != nil {
 				return err
+			}
+			if strings.TrimSpace(check) != "" {
+				return checkCLIReferenceMarkdown(cmd, check, body)
 			}
 			if strings.TrimSpace(output) == "" || output == "-" {
 				_, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(body))
@@ -56,8 +64,27 @@ func newDocsCLICmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write markdown to this path instead of stdout. Use '-' for stdout.")
+	cmd.Flags().StringVar(&check, "check", "", "Exit non-zero if this markdown file does not match generated output.")
 	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "Include hidden commands.")
 	return cmd
+}
+
+func checkCLIReferenceMarkdown(cmd *cobra.Command, path string, want []byte) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	got, err := os.ReadFile(abs)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team docs cli: cannot read %s: %v\n", abs, err)
+		return exitErr(1)
+	}
+	if !bytes.Equal(got, want) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team docs cli: %s is stale; rerun `agent-team docs cli --output %s`.\n", abs, abs)
+		return exitErr(1)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "CLI reference is up to date: %s\n", abs)
+	return nil
 }
 
 func generateCLIReferenceMarkdown(root *cobra.Command, includeHidden bool) ([]byte, error) {
