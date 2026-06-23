@@ -64,6 +64,7 @@ agent-team template run bundled manager --runtime codex --prompt "check status" 
 agent-team dispatch worker SQU-42 --runtime codex --kickoff "implement the ticket"
 agent-team job dispatch squ-42 --runtime codex --runtime-bin /opt/bin/codex-wrapper
 agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
+agent-team team advance delivery --runtime codex --dry-run --preview-routes
 ```
 
 ## Capability Matrix

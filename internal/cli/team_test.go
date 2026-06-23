@@ -262,7 +262,7 @@ since = "2026-06-18T12:00:00Z"
 	advanceOut, advanceErr := &bytes.Buffer{}, &bytes.Buffer{}
 	advance.SetOut(advanceOut)
 	advance.SetErr(advanceErr)
-	advance.SetArgs([]string{"team", "advance", "delivery", "--repo", root, "--dry-run", "--json"})
+	advance.SetArgs([]string{"team", "advance", "delivery", "--repo", root, "--dry-run", "--preview-routes", "--json", "--runtime", "codex", "--runtime-bin", "codex-dev"})
 	if err := advance.Execute(); err != nil {
 		t.Fatalf("team advance dry-run: %v\nstderr=%s", err, advanceErr.String())
 	}
@@ -272,6 +272,13 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if len(advanceRows) != 1 || advanceRows[0].JobID != "squ-801" || advanceRows[0].Action != "would_advance" || !advanceRows[0].DryRun || advanceRows[0].StepID != "review" {
 		t.Fatalf("team advance rows = %+v", advanceRows)
+	}
+	if advanceRows[0].Preview == nil || advanceRows[0].Preview.Dispatch == nil || advanceRows[0].Preview.Dispatch.Preview == nil {
+		t.Fatalf("team advance preview missing route payload = %+v", advanceRows[0].Preview)
+	}
+	advancePayload := advanceRows[0].Preview.Dispatch.Preview.Payload
+	if advancePayload["runtime"] != "codex" || advancePayload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team advance payload = %+v", advancePayload)
 	}
 
 	advanceFormat := NewRootCmd()
@@ -576,7 +583,7 @@ pipelines = ["platform_ops"]
 	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
 	preview.SetOut(previewOut)
 	preview.SetErr(previewErr)
-	preview.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--dispatch", "--workspace", "repo", "--dry-run", "--preview-routes", "--json"})
+	preview.SetArgs([]string{"team", "retry", "delivery", "--repo", root, "--dispatch", "--workspace", "repo", "--dry-run", "--preview-routes", "--json", "--runtime", "codex", "--runtime-bin", "codex-dev"})
 	if err := preview.Execute(); err != nil {
 		t.Fatalf("team retry preview: %v\nstderr=%s", err, previewErr.String())
 	}
@@ -584,11 +591,15 @@ pipelines = ["platform_ops"]
 	if err := json.Unmarshal(previewOut.Bytes(), &previewRows); err != nil {
 		t.Fatalf("decode team retry preview: %v\nbody=%s", err, previewOut.String())
 	}
-	if len(previewRows) != 1 || previewRows[0].Action != "would_dispatch" || previewRows[0].Preview == nil || previewRows[0].Preview.Dispatch == nil {
+	if len(previewRows) != 1 || previewRows[0].Action != "would_dispatch" || previewRows[0].Preview == nil || previewRows[0].Preview.Dispatch == nil || previewRows[0].Preview.Dispatch.Preview == nil {
 		t.Fatalf("preview rows = %+v", previewRows)
 	}
 	if !containsString(previewRows[0].Preview.Dispatch.Preview.Matched, "worker") {
 		t.Fatalf("preview routes = %+v", previewRows[0].Preview.Dispatch.Preview)
+	}
+	retryPayload := previewRows[0].Preview.Dispatch.Preview.Payload
+	if retryPayload["runtime"] != "codex" || retryPayload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team retry payload = %+v", retryPayload)
 	}
 
 	format := NewRootCmd()
@@ -799,7 +810,7 @@ pipelines = ["ticket_to_pr"]
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryRun.SetOut(dryOut)
 	dryRun.SetErr(dryErr)
-	dryRun.SetArgs([]string{"team", "approve", "delivery", "--repo", root, "--dry-run", "--dispatch", "--preview-routes", "--json"})
+	dryRun.SetArgs([]string{"team", "approve", "delivery", "--repo", root, "--dry-run", "--dispatch", "--preview-routes", "--json", "--runtime", "codex", "--runtime-bin", "codex-dev"})
 	if err := dryRun.Execute(); err != nil {
 		t.Fatalf("team approve dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -807,8 +818,12 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
 		t.Fatalf("decode team approve dry-run: %v\nbody=%s", err, dryOut.String())
 	}
-	if len(preview) != 1 || preview[0].JobID != "squ-930" || preview[0].Action != "would_dispatch" || preview[0].Preview == nil {
+	if len(preview) != 1 || preview[0].JobID != "squ-930" || preview[0].Action != "would_dispatch" || preview[0].Preview == nil || preview[0].Preview.Dispatch == nil || preview[0].Preview.Dispatch.Preview == nil {
 		t.Fatalf("team approve preview = %+v", preview)
+	}
+	approvePayload := preview[0].Preview.Dispatch.Preview.Payload
+	if approvePayload["runtime"] != "codex" || approvePayload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team approve payload = %+v", approvePayload)
 	}
 	if strings.Contains(dryOut.String(), "squ-931") {
 		t.Fatalf("team approve leaked foreign job:\n%s", dryOut.String())
@@ -1542,6 +1557,29 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(teamDir, "jobs", "squ-811.toml")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote team run job file, err=%v", err)
+	}
+
+	dispatchPreviewCmd := NewRootCmd()
+	dispatchPreviewOut, dispatchPreviewErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatchPreviewCmd.SetOut(dispatchPreviewOut)
+	dispatchPreviewCmd.SetErr(dispatchPreviewErr)
+	dispatchPreviewCmd.SetArgs([]string{"team", "run", "delivery", "SQU-812", "--repo", root, "--kickoff", "ship it", "--dispatch", "--dry-run", "--json", "--runtime", "codex", "--runtime-bin", "codex-dev"})
+	if err := dispatchPreviewCmd.Execute(); err != nil {
+		t.Fatalf("team run dispatch dry-run: %v\nstderr=%s", err, dispatchPreviewErr.String())
+	}
+	var dispatchPreview jobAdvancePreview
+	if err := json.Unmarshal(dispatchPreviewOut.Bytes(), &dispatchPreview); err != nil {
+		t.Fatalf("decode team run dispatch preview: %v\nbody=%s", err, dispatchPreviewOut.String())
+	}
+	if !dispatchPreview.DryRun || dispatchPreview.Job == nil || dispatchPreview.Job.ID != "squ-812" || dispatchPreview.Dispatch == nil || dispatchPreview.Dispatch.Preview == nil {
+		t.Fatalf("dispatch preview = %+v", dispatchPreview)
+	}
+	dispatchPayload := dispatchPreview.Dispatch.Preview.Payload
+	if dispatchPayload["runtime"] != "codex" || dispatchPayload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team run dispatch payload = %+v", dispatchPayload)
+	}
+	if _, err := os.Stat(filepath.Join(teamDir, "jobs", "squ-812.toml")); !os.IsNotExist(err) {
+		t.Fatalf("dispatch dry-run wrote team run job file, err=%v", err)
 	}
 
 	createCmd := NewRootCmd()

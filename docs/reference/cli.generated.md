@@ -3841,13 +3841,15 @@ agent-team team advance <team> [flags]
 Flags:
 
 ```text
-      --dry-run            Preview ready steps without dispatching them.
-      --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit advance results as JSON.
-      --limit int          Advance at most this many ready team jobs; 0 means no limit.
-      --preview-routes     With --dry-run, include local topology route and dispatch payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --workspace string   Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
+      --dry-run              Preview ready steps without dispatching them.
+      --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit advance results as JSON.
+      --limit int            Advance at most this many ready team jobs; 0 means no limit.
+      --preview-routes       With --dry-run, include local topology route and dispatch payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --workspace string     Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team approve`
@@ -3863,16 +3865,18 @@ agent-team team approve <team> [flags]
 Flags:
 
 ```text
-      --dispatch           Dispatch each approved manual gate immediately.
-      --dry-run            Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit approval results as JSON.
-      --limit int          Approve at most this many manual gates; 0 means no limit.
-      --message string     Status message recorded on each approved team job.
-      --preview-routes     With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --step string        Approve only manual gates whose next blocked step has this id.
-      --workspace string   Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
+      --dispatch             Dispatch each approved manual gate immediately.
+      --dry-run              Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit approval results as JSON.
+      --limit int            Approve at most this many manual gates; 0 means no limit.
+      --message string       Status message recorded on each approved team job.
+      --preview-routes       With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
+      --step string          Approve only manual gates whose next blocked step has this id.
+      --workspace string     Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team cleanup`
@@ -4523,16 +4527,18 @@ agent-team team retry <team> [flags]
 Flags:
 
 ```text
-      --dispatch           Dispatch each reset failed step immediately.
-      --dry-run            Preview failed-step resets and optional dispatches without writing job or daemon state.
-      --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit retry results as JSON.
-      --limit int          Retry at most this many failed team jobs; 0 means no limit.
-      --message string     Status message recorded on each retried team job.
-      --preview-routes     With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --step string        Retry only failed team jobs whose next failed step has this id.
-      --workspace string   Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
+      --dispatch             Dispatch each reset failed step immediately.
+      --dry-run              Preview failed-step resets and optional dispatches without writing job or daemon state.
+      --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit retry results as JSON.
+      --limit int            Retry at most this many failed team jobs; 0 means no limit.
+      --message string       Status message recorded on each retried team job.
+      --preview-routes       With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
+      --step string          Retry only failed team jobs whose next failed step has this id.
+      --workspace string     Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team run`
@@ -4557,6 +4563,8 @@ Flags:
       --kickoff-file string   Read kickoff text from a file.
       --pipeline string       Team pipeline to use when the team declares more than one.
       --repo string           Repo root. (default "<repo>")
+      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string     Canonical ticket URL to store on the job.
       --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```

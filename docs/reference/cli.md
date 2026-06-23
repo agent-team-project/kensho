@@ -150,13 +150,13 @@ Shortcuts:
 | `agent-team team health <team>` | Scoped health |
 | `agent-team team status <team>` | Scoped status |
 | `agent-team team monitor <team>` | Scoped dashboard |
-| `agent-team team run <team> <ticket>` | Create a team-owned job |
+| `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
 | `agent-team team repair <team>` | Scoped repair loop |
 | `agent-team team queue <team>` | Scoped queue list |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
-| `agent-team team advance <team>` | Scoped pipeline advance |
+| `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |
 | `agent-team team retry <team>` | Scoped failed-step retry |
 | `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
