@@ -129,6 +129,7 @@ A pipeline is a declared sequence of job steps in `instances.toml`.
 The initial engine supports simple dependency edges through `after = [...]`. It is intentionally not a complex DAG engine yet.
 
 Pipeline state is recorded in the job file, so `job show`, `job ready`, `job advance`, `pipeline status`, and team-scoped commands can reason about the next step. Gates such as `manual` and `pr` are also stored on job steps, making waiting reasons visible in the same commands.
+Skipped steps are stored as `done` with `skipped = true`, which keeps dependency handling simple while preserving the fact that an operator bypassed a stage.
 
 ## Team
 

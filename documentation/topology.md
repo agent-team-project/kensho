@@ -150,6 +150,8 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].after` | no | empty | Step dependency or list of dependencies. All referenced steps must be done before this step is ready. |
 | `steps[].gate` | no | empty | Set to `"manual"` to require operator approval before the step can dispatch, even after dependencies are done. Approve with `agent-team job step <job-id> <step-id> --status queued`. |
 
+Operators can intentionally bypass a stored step with `agent-team job step <job-id> <step-id> --skip`. The job records `status = "done"` and `skipped = true` on that step, so later `after` dependencies treat it as terminal while `job show` still surfaces the bypass.
+
 ### Schedule field reference
 
 Schedules live under `[schedules.<name>]`. They publish a `schedule` event with payload `source = "schedule"` and `name = "<name>"`; keys under `[schedules.<name>.payload]` are merged into that payload.

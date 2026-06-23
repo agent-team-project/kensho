@@ -59,6 +59,7 @@ agent-team job next squ-42
 agent-team job ready
 agent-team job advance squ-42 --dry-run --preview-routes
 agent-team job step squ-42 implement --advance --dry-run
+agent-team job step squ-42 review --skip --message "review folded into implementation"
 ```
 
 ## Step State
@@ -75,6 +76,7 @@ Common states:
 - `none`
 
 `job triage`, `pipeline status`, `pipeline ready`, and `team triage` all read the same job state.
+When an operator intentionally bypasses a stage, `agent-team job step <job-id> <step-id> --skip` records that step as `done` with `skipped = true`, so dependency checks can continue while `job show` still reports the bypass.
 
 Supported gates:
 

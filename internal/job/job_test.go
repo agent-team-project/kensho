@@ -157,6 +157,16 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err == nil {
 		t.Fatalf("Validate accepted invalid gate")
 	}
+	j.Steps[0].Gate = ""
+	j.Steps[0].Skipped = true
+	j.Steps[0].Status = StatusBlocked
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted skipped non-done step")
+	}
+	j.Steps[0].Status = StatusDone
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected skipped done step: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

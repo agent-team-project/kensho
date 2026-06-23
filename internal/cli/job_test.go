@@ -5357,6 +5357,104 @@ func TestJobStepDoneAdvanceDispatchesNextStep(t *testing.T) {
 	}
 }
 
+func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-224",
+		Ticket:    "SQU-224",
+		Target:    "manager",
+		Kickoff:   "SQU-224: skip triage",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusRunning, Instance: "manager", StartedAt: now},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	dryRun := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryRun.SetOut(dryOut)
+	dryRun.SetErr(dryErr)
+	dryRun.SetArgs([]string{"job", "step", "squ-224", "triage", "--skip", "--message", "covered by implementation", "--repo", target, "--dry-run", "--json"})
+	if err := dryRun.Execute(); err != nil {
+		t.Fatalf("job step --skip dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview jobStepPreview
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode dry-run json: %v\nbody=%s", err, dryOut.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.Steps[0].Status != job.StatusDone || !preview.Job.Steps[0].Skipped || preview.Job.Steps[0].SkipReason != "covered by implementation" {
+		t.Fatalf("skip preview = %+v", preview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-224")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Steps[0].Status != job.StatusRunning || unchanged.Steps[0].Skipped {
+		t.Fatalf("dry-run mutated job = %+v", unchanged.Steps[0])
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "step", "squ-224", "triage", "--skip", "--message", "covered by implementation", "--repo", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job step --skip: %v\nstderr=%s", err, stderr.String())
+	}
+	if body := out.String(); !strings.Contains(body, "skipped=true") || !strings.Contains(body, "skip_reason=covered by implementation") {
+		t.Fatalf("job show output missing skip metadata:\n%s", body)
+	}
+	updated, err := job.Read(teamDir, "squ-224")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.LastEvent != "step_skipped" || updated.LastStatus != "covered by implementation" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if updated.Steps[0].Status != job.StatusDone || !updated.Steps[0].Skipped || updated.Steps[0].SkipReason != "covered by implementation" {
+		t.Fatalf("updated step = %+v", updated.Steps[0])
+	}
+
+	next := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	next.SetOut(nextOut)
+	next.SetErr(nextErr)
+	next.SetArgs([]string{"job", "next", "squ-224", "--repo", target, "--format", "{{.State}} {{.Step.ID}}"})
+	if err := next.Execute(); err != nil {
+		t.Fatalf("job next after skip: %v\nstderr=%s", err, nextErr.String())
+	}
+	if got := nextOut.String(); got != "ready review\n" {
+		t.Fatalf("job next after skip = %q", got)
+	}
+
+	conflict := NewRootCmd()
+	conflictErr := &bytes.Buffer{}
+	conflict.SetOut(&bytes.Buffer{})
+	conflict.SetErr(conflictErr)
+	conflict.SetArgs([]string{"job", "step", "squ-224", "review", "--skip", "--status", "blocked", "--repo", target})
+	err = conflict.Execute()
+	if err == nil {
+		t.Fatal("job step --skip --status blocked succeeded")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("expected exit 2, got %v", err)
+	}
+	if !strings.Contains(conflictErr.String(), "--skip can only be combined with --status done") {
+		t.Fatalf("conflict stderr = %q", conflictErr.String())
+	}
+}
+
 func initGitRepoForJobTest(t *testing.T, dir string) {
 	t.Helper()
 	runGitForJobTest(t, dir, "init", "-b", "main")

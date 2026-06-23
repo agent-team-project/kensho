@@ -2401,6 +2401,7 @@ func newJobStepCmd() *cobra.Command {
 		branch    string
 		worktree  string
 		advance   bool
+		skip      bool
 		workspace string
 		dryRun    bool
 		jsonOut   bool
@@ -2426,6 +2427,13 @@ func newJobStepCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 				return exitErr(2)
 			}
+			if skip {
+				if cmd.Flags().Changed("status") && stepStatus != job.StatusDone {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job step: --skip can only be combined with --status done.")
+					return exitErr(2)
+				}
+				stepStatus = job.StatusDone
+			}
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
 				return err
@@ -2436,6 +2444,7 @@ func newJobStepCmd() *cobra.Command {
 				PR:       pr,
 				Branch:   branch,
 				Worktree: worktree,
+				Skip:     skip,
 			}); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 				return exitErr(2)
@@ -2485,6 +2494,7 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name to record on the job.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path to record on the job.")
 	cmd.Flags().BoolVar(&advance, "advance", false, "After marking the step done, dispatch the next ready step.")
+	cmd.Flags().BoolVar(&skip, "skip", false, "Mark this step as intentionally skipped; stored as done so dependent steps can continue.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for an advanced step: auto, worktree, or repo.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the step update and optional advance dispatch without writing job or daemon state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or advance result as JSON.")
@@ -5082,6 +5092,8 @@ func jobEventReconcileChanged(before, after *job.Job) bool {
 	for i := range before.Steps {
 		if before.Steps[i].Status != after.Steps[i].Status ||
 			strings.TrimSpace(before.Steps[i].Instance) != strings.TrimSpace(after.Steps[i].Instance) ||
+			before.Steps[i].Skipped != after.Steps[i].Skipped ||
+			strings.TrimSpace(before.Steps[i].SkipReason) != strings.TrimSpace(after.Steps[i].SkipReason) ||
 			!before.Steps[i].StartedAt.Equal(after.Steps[i].StartedAt) ||
 			!before.Steps[i].FinishedAt.Equal(after.Steps[i].FinishedAt) {
 			return true
@@ -5365,6 +5377,7 @@ type jobStepUpdate struct {
 	PR       string
 	Branch   string
 	Worktree string
+	Skip     bool
 }
 
 type jobAdvanceResult struct {
@@ -5479,9 +5492,23 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	if update.Worktree != "" {
 		j.Worktree = update.Worktree
 	}
-	j.LastEvent = "step_" + string(status)
-	if strings.TrimSpace(update.Message) != "" {
-		j.LastStatus = strings.TrimSpace(update.Message)
+	message := strings.TrimSpace(update.Message)
+	if status == job.StatusDone && update.Skip {
+		step.Skipped = true
+		step.SkipReason = message
+	} else {
+		step.Skipped = false
+		step.SkipReason = ""
+	}
+	if status == job.StatusDone && update.Skip {
+		j.LastEvent = "step_skipped"
+	} else {
+		j.LastEvent = "step_" + string(status)
+	}
+	if message != "" {
+		j.LastStatus = message
+	} else if status == job.StatusDone && update.Skip {
+		j.LastStatus = stepID + " skipped"
 	} else {
 		j.LastStatus = stepID + " " + string(status)
 	}
@@ -6776,8 +6803,22 @@ func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.Qu
 			if len(step.After) > 0 {
 				after = strings.Join(step.After, ",")
 			}
-			fmt.Fprintf(w, "  %s  target=%s status=%s instance=%s after=%s\n",
-				step.ID, step.Target, step.Status, instance, after)
+			parts := []string{
+				"target=" + step.Target,
+				"status=" + string(step.Status),
+				"instance=" + instance,
+				"after=" + after,
+			}
+			if step.Gate != "" {
+				parts = append(parts, "gate="+step.Gate)
+			}
+			if step.Skipped {
+				parts = append(parts, "skipped=true")
+				if strings.TrimSpace(step.SkipReason) != "" {
+					parts = append(parts, "skip_reason="+step.SkipReason)
+				}
+			}
+			fmt.Fprintf(w, "  %s  %s\n", step.ID, strings.Join(parts, " "))
 		}
 	}
 	if len(queueItems) > 0 {

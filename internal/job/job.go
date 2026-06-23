@@ -61,6 +61,8 @@ type Step struct {
 	Instance   string    `toml:"instance,omitempty"`
 	After      []string  `toml:"after,omitempty"`
 	Gate       string    `toml:"gate,omitempty"`
+	Skipped    bool      `toml:"skipped,omitempty"`
+	SkipReason string    `toml:"skip_reason,omitempty"`
 	StartedAt  time.Time `toml:"started_at,omitempty"`
 	FinishedAt time.Time `toml:"finished_at,omitempty"`
 }
@@ -225,6 +227,9 @@ func Validate(j *Job) error {
 		}
 		if !ValidStepGate(step.Gate) {
 			return fmt.Errorf("steps[%d]: unknown gate %q", i, step.Gate)
+		}
+		if step.Skipped && step.Status != StatusDone {
+			return fmt.Errorf("steps[%d]: skipped steps must have status %q", i, StatusDone)
 		}
 	}
 	return nil

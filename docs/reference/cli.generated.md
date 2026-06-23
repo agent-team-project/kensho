@@ -2126,6 +2126,7 @@ Flags:
       --message string     Status message recorded on the job.
       --pr string          PR URL to record on the job.
       --repo string        Repo root. (default "<repo>")
+      --skip               Mark this step as intentionally skipped; stored as done so dependent steps can continue.
       --status string      Step status: queued, running, blocked, done, or failed. (default "done")
       --workspace string   Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
       --worktree string    Worktree path to record on the job.

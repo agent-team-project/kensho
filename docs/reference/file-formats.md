@@ -141,6 +141,17 @@ after = ["implement"]
 gate = "pr"
 ```
 
+Skipped steps are encoded as terminal steps, not a new lifecycle state:
+
+```toml
+[[steps]]
+id = "triage"
+target = "manager"
+status = "done"
+skipped = true
+skip_reason = "triage folded into implementation"
+```
+
 Supported step gates are:
 
 - `manual`: waits for operator approval with `agent-team job step <job-id> <step-id> --status queued`.

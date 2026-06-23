@@ -114,6 +114,8 @@ Pipeline state is stored in jobs, not in a separate scheduler database. A step w
 
 Use `gate = "pr"` when a later step should wait for PR metadata. The step remains blocked with `waiting_for = ["pr"]` until the job has `pr` set, for example through `agent-team job update <job-id> --pr <url>` or status-file reconciliation.
 
+Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionally bypassed. The job stores that step as `status = "done"` plus `skipped = true`, allowing dependent steps to continue while preserving the operator decision.
+
 ## Teams
 
 Teams scope operations:

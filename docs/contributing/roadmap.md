@@ -56,6 +56,7 @@ Built or substantially implemented:
 - conservative template upgrade apply mode
 - manual pipeline gates and approval hints
 - PR metadata pipeline gates
+- skipped pipeline step metadata
 - systemd, launchd, and compose intake service generators
 - local Dockerfile for the compose intake service
 - env-file secret references for service generation
