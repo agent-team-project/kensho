@@ -139,8 +139,11 @@ func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 	if body.Ready || body.SocketExists || body.StalePidfile || body.Instances != 0 {
 		t.Fatalf("status json should report daemon down without readiness: %+v", body)
 	}
-	for _, want := range []string{".agent_team", "daemon.sock", "daemon.pid", "agent-teamd.log"} {
-		joined := body.TeamDir + body.Socket + body.Pidfile + body.Log
+	if body.Socket != daemon.SocketPath(body.TeamDir) {
+		t.Fatalf("socket = %q, want %q", body.Socket, daemon.SocketPath(body.TeamDir))
+	}
+	for _, want := range []string{".agent_team", "daemon.pid", "agent-teamd.log"} {
+		joined := body.TeamDir + body.Pidfile + body.Log
 		if !strings.Contains(joined, want) {
 			t.Fatalf("status json missing %q: %+v", want, body)
 		}

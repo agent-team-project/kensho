@@ -188,6 +188,13 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
+	lastMessagePath := ""
+	if rt.Kind == runtimebin.KindCodex && strings.TrimSpace(cfg.prompt) != "" {
+		lastMessagePath = filepath.Join(stateDir, runtimebin.CodexLastMessageFile)
+		if err := os.Remove(lastMessagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove stale Codex last message: %w", err)
+		}
+	}
 
 	// Resolve the config tree:
 	//   repo `config.toml` ← declared overrides (instances.toml)
@@ -257,7 +264,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		"AGENT_TEAM_INSTANCE=" + instance,
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 	}
-	runtimeArgs, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv)
+	runtimeArgs, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
@@ -348,7 +355,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	return execClaude(cmd, runtimeArgs, env, target)
 }
 
-func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string) ([]string, error) {
+func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string) ([]string, error) {
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		args := []string{
@@ -368,6 +375,9 @@ func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptF
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args, "-C", target, "--add-dir", addDir)
 		args = append(args, forwarded...)
+		if prompt != "" && strings.TrimSpace(lastMessagePath) != "" && !hasForwardedRuntimeFlag(forwarded, "--output-last-message") {
+			args = append(args, "--output-last-message", lastMessagePath)
+		}
 		args = append(args, codexInitialPrompt(kickoff, prompt, agents))
 		return args, nil
 	default:

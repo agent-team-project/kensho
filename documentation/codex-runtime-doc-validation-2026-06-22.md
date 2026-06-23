@@ -524,6 +524,11 @@ Suggested improvement:
 
 Severity: low
 
+Status: fixed after validation. Codex `exec` runs now pass
+`--output-last-message .agent_team/state/<instance>/last-message.txt`, clear
+stale sidecars before launch, and expose the clean response through
+`agent-team logs <instance> --last-message`.
+
 The captured Codex logs include:
 
 - `Reading additional input from stdin...`
@@ -542,5 +547,4 @@ Suggested improvement:
 
 ## Suggested Next Fix Order
 
-1. Improve Codex log capture ergonomics.
-2. Re-run the full Codex docs validation after the next runtime UX change.
+1. Re-run the full Codex docs validation after the next runtime UX change.

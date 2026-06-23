@@ -107,6 +107,15 @@ func containsString(items []string, want string) bool {
 	return false
 }
 
+func argValue(items []string, flag string) (string, bool) {
+	for i := 0; i+1 < len(items); i++ {
+		if items[i] == flag {
+			return items[i+1], true
+		}
+	}
+	return "", false
+}
+
 func TestEvent_PersistentMessages(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
@@ -391,6 +400,10 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 		if !containsString(call, want) {
 			t.Fatalf("codex spawn call missing %q: %#v", want, call)
 		}
+	}
+	wantLastMessage := filepath.Join(teamDir, "state", "worker-squ-42", runtimebin.CodexLastMessageFile)
+	if got, ok := argValue(call, "--output-last-message"); !ok || got != wantLastMessage {
+		t.Fatalf("codex spawn call last-message path = %q, %v; want %q in %#v", got, ok, wantLastMessage, call)
 	}
 	for _, want := range []string{
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(teamDir),

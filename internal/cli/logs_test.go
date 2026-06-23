@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 // TestRun_NoDaemonFlagBypassesDaemonProbe lives here alongside the other
@@ -40,6 +41,17 @@ func setChildLogModTimeForTest(t *testing.T, daemonRoot, instance string, modTim
 	path := filepath.Join(daemonRoot, instance, "child.log")
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatalf("chtimes %s: %v", instance, err)
+	}
+}
+
+func writeLastMessageForTest(t *testing.T, teamDir, instance, body string) {
+	t.Helper()
+	path := filepath.Join(teamDir, "state", instance, runtimebin.CodexLastMessageFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir last message dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write last message: %v", err)
 	}
 }
 
@@ -90,6 +102,76 @@ func TestLogsSingleInstanceUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	}
 	if got := out.String(); got != "last\n" {
 		t.Fatalf("logs output = %q, want last line", got)
+	}
+}
+
+func TestLogsLastMessageUsesStateSidecarWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusExited,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "manager", "codex diagnostic noise\nfinal answer buried\n")
+	writeLastMessageForTest(t, teamDir, "manager", "clean final answer")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"logs", "manager", "--last-message", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("logs last-message: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := out.String(), "clean final answer\n"; got != want {
+		t.Fatalf("last-message output = %q, want %q", got, want)
+	}
+}
+
+func TestLogsLastMessageLatestAndLastUseMetadataOrdering(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "old", Agent: "worker", Status: daemon.StatusExited, StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "new", Agent: "worker", Status: daemon.StatusExited, StartedAt: now.Add(-5 * time.Minute)},
+		{Instance: "mid", Agent: "worker", Status: daemon.StatusExited, StartedAt: now.Add(-30 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+		writeLastMessageForTest(t, teamDir, meta.Instance, meta.Instance+" final")
+	}
+
+	latest := NewRootCmd()
+	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	latest.SetOut(latestOut)
+	latest.SetErr(latestErr)
+	latest.SetArgs([]string{"logs", "--latest", "--last-message", "--target", tmp})
+	if err := latest.Execute(); err != nil {
+		t.Fatalf("logs latest last-message: %v\nstderr=%s", err, latestErr.String())
+	}
+	if got, want := latestOut.String(), "new final\n"; got != want {
+		t.Fatalf("latest last-message = %q, want %q", got, want)
+	}
+
+	last := NewRootCmd()
+	lastOut, lastErr := &bytes.Buffer{}, &bytes.Buffer{}
+	last.SetOut(lastOut)
+	last.SetErr(lastErr)
+	last.SetArgs([]string{"logs", "--last", "2", "--last-message", "--target", tmp})
+	if err := last.Execute(); err != nil {
+		t.Fatalf("logs last 2 last-message: %v\nstderr=%s", err, lastErr.String())
+	}
+	if got, want := lastOut.String(), "new                  | new final\nmid                  | mid final\n"; got != want {
+		t.Fatalf("last 2 last-message = %q, want %q", got, want)
 	}
 }
 
@@ -1069,6 +1151,7 @@ func TestLogsGrepValidation(t *testing.T) {
 		{[]string{"logs", "manager", "--grep", "error", "--follow"}, "--grep cannot be combined with --follow"},
 		{[]string{"logs", "--list", "--grep", "error"}, "--grep cannot be combined with --list"},
 		{[]string{"logs", "manager", "--grep", "["}, "invalid --grep pattern"},
+		{[]string{"logs", "manager", "--last-message", "--follow"}, "--last-message cannot be combined with --follow"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

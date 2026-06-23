@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
 
@@ -39,6 +40,7 @@ func newLogsCmd() *cobra.Command {
 		daemonLog bool
 		latest    bool
 		last      int
+		lastMsg   bool
 		list      bool
 		jsonOut   bool
 		noPrefix  bool
@@ -92,6 +94,7 @@ func newLogsCmd() *cobra.Command {
 				Follow:        follow,
 				Latest:        latest,
 				Limit:         last,
+				LastMessage:   lastMsg,
 				List:          list,
 				JSON:          jsonOut,
 				NoPrefix:      noPrefix,
@@ -114,6 +117,7 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&daemonLog, "daemon", false, "Show the agent-teamd daemon log instead of instance logs.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show logs for the most recently started instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show logs for the N most recently started instances after other filters (0 = all).")
+	cmd.Flags().BoolVar(&lastMsg, "last-message", false, "Show the clean final Codex response sidecar instead of the raw runtime log.")
 	cmd.Flags().BoolVar(&list, "list", false, "List daemon-known instance log streams instead of printing log content.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with --list.")
 	cmd.Flags().BoolVar(&noPrefix, "no-prefix", false, "Do not prefix lines when streaming multiple instance logs.")
@@ -258,6 +262,7 @@ type logsOptions struct {
 	Follow        bool
 	Latest        bool
 	Limit         int
+	LastMessage   bool
 	List          bool
 	JSON          bool
 	NoPrefix      bool
@@ -390,6 +395,34 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --no-prefix cannot be combined with --list or --daemon.")
 		return exitErr(2)
 	}
+	if opts.LastMessage {
+		switch {
+		case opts.Daemon:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --daemon.")
+			return exitErr(2)
+		case opts.List:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --list.")
+			return exitErr(2)
+		case opts.JSON:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --json.")
+			return exitErr(2)
+		case opts.Format != nil:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --format.")
+			return exitErr(2)
+		case opts.Follow:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --follow.")
+			return exitErr(2)
+		case opts.TailSet:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --tail.")
+			return exitErr(2)
+		case opts.Since != nil:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --since.")
+			return exitErr(2)
+		case opts.Grep != nil:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --grep.")
+			return exitErr(2)
+		}
+	}
 	hasFilters := len(opts.StatusFilters) > 0 || len(opts.AgentFilters) > 0 || len(opts.PhaseFilters) > 0 || opts.Stale || opts.Unhealthy
 	if opts.NoPrefix && !opts.All && !hasFilters && !opts.Latest && opts.Limit == 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --no-prefix requires --all, --latest, --last, --status, --agent, --phase, --stale, or --unhealthy.")
@@ -434,6 +467,9 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 	}
 	if opts.List {
 		return runLogsList(cmd, target, opts.JSON, opts.Format, listOpts, opts.Since, opts.Limit)
+	}
+	if opts.LastMessage {
+		return runLogsLastMessage(cmd, target, args, opts, listOpts, hasFilters)
 	}
 
 	teamDir, err := resolveTeamDir(cmd, target)
@@ -681,6 +717,96 @@ func runLogsLocal(cmd *cobra.Command, teamDir string, args []string, opts logsOp
 		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix)
 	}
 	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep)
+}
+
+func runLogsLastMessage(cmd *cobra.Command, target string, args []string, opts logsOptions, listOpts logListOptions, hasFilters bool) error {
+	teamDir, err := resolveTeamDir(cmd, target)
+	if err != nil {
+		return err
+	}
+	rows, err := collectLocalLogListRows(teamDir)
+	if err != nil {
+		return err
+	}
+	if opts.Latest {
+		rows = filterLogListRows(rows, listOpts)
+		row, ok := latestLogListRow(rows)
+		if !ok {
+			fmt.Fprintln(cmd.OutOrStdout(), "(no instances)")
+			return nil
+		}
+		return streamSelectedLastMessage(cmd, teamDir, row)
+	}
+	if !opts.All && !hasFilters && opts.Limit == 0 {
+		row, ok := findLogListRow(rows, args[0])
+		if !ok {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: no daemon metadata for instance %q.\n", args[0])
+			fmt.Fprintln(cmd.ErrOrStderr(), "  Run a daemon-managed Codex one-shot first, then retry with `agent-team logs --last-message`.")
+			return exitErr(1)
+		}
+		return streamSelectedLastMessage(cmd, teamDir, row)
+	}
+	rows = filterLogListRows(rows, listOpts)
+	rows = latestLogListRowsLimit(rows, opts.Limit)
+	if len(rows) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "(no instances)")
+		return nil
+	}
+	return streamLastMessageRows(cmd.OutOrStdout(), teamDir, rows, !opts.NoPrefix)
+}
+
+func streamSelectedLastMessage(cmd *cobra.Command, teamDir string, row logListRow) error {
+	path := lastMessagePathForInstance(teamDir, row.Instance)
+	if err := writeLastMessageFile(cmd.OutOrStdout(), path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: last message not found at %s.\n", displayPathFromTeamDir(teamDir, path))
+			fmt.Fprintln(cmd.ErrOrStderr(), "  Codex last-message capture is available for one-shot runs launched after this feature was added.")
+			return exitErr(1)
+		}
+		return err
+	}
+	return nil
+}
+
+func streamLastMessageRows(w io.Writer, teamDir string, rows []logListRow, prefix bool) error {
+	var mu sync.Mutex
+	wrote := false
+	for _, row := range rows {
+		path := lastMessagePathForInstance(teamDir, row.Instance)
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		pw := multiLogWriter(w, row.Instance, &mu, prefix)
+		if err := writeLastMessageFile(pw, path); err != nil {
+			return err
+		}
+		wrote = true
+	}
+	if !wrote {
+		fmt.Fprintln(w, "(no matching last messages)")
+	}
+	return nil
+}
+
+func writeLastMessageFile(w io.Writer, path string) error {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(body); err != nil {
+		return err
+	}
+	if len(body) == 0 || body[len(body)-1] != '\n' {
+		_, err = io.WriteString(w, "\n")
+	}
+	return err
+}
+
+func lastMessagePathForInstance(teamDir, instance string) string {
+	return filepath.Join(teamDir, "state", instance, runtimebin.CodexLastMessageFile)
 }
 
 func runLatestLogWithClient(ctx context.Context, cmd *cobra.Command, teamDir string, client *daemonClient, opts logsOptions, listOpts logListOptions) error {

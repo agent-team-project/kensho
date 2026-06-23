@@ -35,10 +35,12 @@ agent-team ps -a
 agent-team inspect manager
 agent-team stats --all --summary
 agent-team logs worker-squ-42 --tail 200
+agent-team logs worker-squ-42 --last-message
 agent-team monitor --jobs --schedules
 ```
 
 `inspect` combines runtime metadata, daemon-known topology, status file data, and state paths.
+For Codex one-shot runs, `logs --last-message` reads the captured final response sidecar instead of the raw Codex diagnostic log.
 
 ## Attach
 

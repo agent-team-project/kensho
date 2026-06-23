@@ -19,6 +19,10 @@ const (
 	DefaultRuntime = KindClaude
 	EnvRuntime     = "AGENT_TEAM_RUNTIME"
 	EnvBinary      = "AGENT_TEAM_RUNTIME_BIN"
+
+	// CodexLastMessageFile is the per-instance sidecar filename used with
+	// `codex exec --output-last-message` to capture a clean final response.
+	CodexLastMessageFile = "last-message.txt"
 )
 
 type Runtime struct {

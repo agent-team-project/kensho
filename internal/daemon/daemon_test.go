@@ -28,6 +28,46 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
+func TestSocketPathFallsBackForLongTeamDir(t *testing.T) {
+	root := filepath.Join("/private/var/folders", strings.Repeat("x", 96), "repo", ".agent_team")
+	inRepo := filepath.Join(root, "daemon.sock")
+	if len(inRepo) <= maxUnixSocketPathLen {
+		t.Fatalf("test path is not long enough: %d", len(inRepo))
+	}
+	got := SocketPath(root)
+	if got == inRepo || strings.Contains(got, root) {
+		t.Fatalf("SocketPath(%q) = %q, want hashed fallback", root, got)
+	}
+	if len(got) > maxUnixSocketPathLen {
+		t.Fatalf("fallback socket path len=%d path=%q, want <= %d", len(got), got, maxUnixSocketPathLen)
+	}
+	if !strings.HasSuffix(got, ".sock") {
+		t.Fatalf("fallback socket path = %q, want .sock suffix", got)
+	}
+	if again := SocketPath(root); again != got {
+		t.Fatalf("SocketPath not deterministic: %q then %q", got, again)
+	}
+}
+
+func TestDaemonBootsWithLongTeamDir(t *testing.T) {
+	teamDir := filepath.Join(shortTempDir(t), strings.Repeat("very-long-segment-", 8), ".agent_team")
+	if len(filepath.Join(teamDir, "daemon.sock")) <= maxUnixSocketPathLen {
+		t.Fatalf("test path is not long enough: %s", teamDir)
+	}
+	d := startDaemon(t, teamDir, newFakeSpawner(30*time.Second).spawn)
+	defer d.Shutdown(context.Background())
+
+	client := unixClient(SocketPath(teamDir))
+	resp, err := client.Get("http://daemon/v1/instances")
+	if err != nil {
+		t.Fatalf("GET /v1/instances: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/instances status = %d", resp.StatusCode)
+	}
+}
+
 // startDaemon boots a daemon in-process against teamDir and returns it. The
 // caller MUST defer Shutdown.
 func startDaemon(t *testing.T, teamDir string, spawner Spawner) *Daemon {

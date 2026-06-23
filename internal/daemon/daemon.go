@@ -9,6 +9,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +29,8 @@ import (
 // Config is the runtime config for one daemon instance.
 type Config struct {
 	// TeamDir is the absolute path to the consumer's `.agent_team/`. The
-	// socket lives at TeamDir/daemon.sock; per-instance metadata under
+	// socket usually lives at TeamDir/daemon.sock; long paths fall back to a
+	// hashed socket under /tmp. Per-instance metadata stays under
 	// TeamDir/daemon/<instance>/.
 	TeamDir string
 
@@ -39,9 +42,26 @@ type Config struct {
 	SpawnerOverride Spawner
 }
 
-// SocketPath returns the daemon socket path under teamDir.
+const maxUnixSocketPathLen = 100
+
+// SocketPath returns the daemon socket path for teamDir. Unix-domain sockets
+// have small platform path limits, so very long repo paths use a deterministic
+// short socket path while keeping pidfiles and metadata in the repo.
 func SocketPath(teamDir string) string {
-	return filepath.Join(teamDir, "daemon.sock")
+	inRepo := filepath.Join(teamDir, "daemon.sock")
+	if len(inRepo) <= maxUnixSocketPathLen {
+		return inRepo
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(teamDir)))
+	name := hex.EncodeToString(sum[:8]) + ".sock"
+	return filepath.Join(shortSocketBaseDir(), "agent-team-"+strconv.Itoa(os.Getuid()), name)
+}
+
+func shortSocketBaseDir() string {
+	if st, err := os.Stat("/tmp"); err == nil && st.IsDir() {
+		return "/tmp"
+	}
+	return os.TempDir()
 }
 
 // PidPath returns the daemon pidfile path under teamDir.
@@ -127,6 +147,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	defer os.Remove(PidPath(d.cfg.TeamDir))
 
 	socket := SocketPath(d.cfg.TeamDir)
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		return fmt.Errorf("daemon: mkdir socket dir: %w", err)
+	}
 	// Stale socket from a prior crashed daemon would cause `bind: address in
 	// use`. Best-effort remove before listen.
 	_ = os.Remove(socket)

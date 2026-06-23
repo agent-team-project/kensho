@@ -38,7 +38,7 @@ This is a developer-oriented command map. Run `agent-team <command> --help` for 
 | `agent-team restart [instances...]` | Restart/resume selected instances |
 | `agent-team ps` | List instance rows |
 | `agent-team inspect [instances...]` | Show runtime and state detail |
-| `agent-team logs [instance]` | Read/follow instance logs |
+| `agent-team logs [instance]` | Read/follow instance logs, or use `--last-message` for clean Codex final responses |
 | `agent-team stats` | Show CPU/RSS data |
 | `agent-team attach <instance>` | Interactive runtime resume handoff |
 | `agent-team wait [instances...]` | Wait for lifecycle or phase conditions |

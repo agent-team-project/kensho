@@ -1,6 +1,6 @@
 # Runtime API
 
-The daemon API is HTTP over a Unix socket at `.agent_team/daemon.sock`.
+The daemon API is HTTP over a Unix socket. It normally lives at `.agent_team/daemon.sock`; when that path would exceed the OS socket limit, agent-team uses a deterministic hashed socket under `/tmp/agent-team-<uid>/`.
 
 The CLI is the supported interface, but the API boundary is useful when working on daemon features.
 

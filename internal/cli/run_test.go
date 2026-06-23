@@ -108,6 +108,15 @@ func containsString(items []string, want string) bool {
 	return false
 }
 
+func argValue(items []string, flag string) (string, bool) {
+	for i := 0; i+1 < len(items); i++ {
+		if items[i] == flag {
+			return items[i+1], true
+		}
+	}
+	return "", false
+}
+
 func containsEnvPrefix(env []string, prefix string) bool {
 	for _, item := range env {
 		if strings.HasPrefix(item, prefix) {
@@ -226,6 +235,13 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
 	tmp := t.TempDir()
 	initInto(t, tmp)
+	staleLastMessage := filepath.Join(tmp, ".agent_team", "state", "manager", runtimebin.CodexLastMessageFile)
+	if err := os.MkdirAll(filepath.Dir(staleLastMessage), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleLastMessage, []byte("stale response"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cap, restore := captureRun(t, nil)
 	defer restore()
@@ -263,6 +279,13 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 		t.Fatalf("forwarded codex args missing: %v", cap.args)
 	}
 	wantTeamDir := filepath.Join(cap.cwd, ".agent_team")
+	wantLastMessage := filepath.Join(wantTeamDir, "state", "manager", runtimebin.CodexLastMessageFile)
+	if got, ok := argValue(cap.args, "--output-last-message"); !ok || got != wantLastMessage {
+		t.Fatalf("codex args last-message path = %q, %v; want %q in %v", got, ok, wantLastMessage, cap.args)
+	}
+	if _, err := os.Stat(wantLastMessage); !os.IsNotExist(err) {
+		t.Fatalf("stale last message still exists or stat failed: %v", err)
+	}
 	for _, want := range []string{
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(wantTeamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("manager"),
@@ -421,6 +444,10 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 		t.Fatalf("codex daemon args missing add-dir or task prompt: %v", args)
 	}
 	wantTeamDir := filepath.Join(workspace, ".agent_team")
+	wantLastMessage := filepath.Join(wantTeamDir, "state", "manager", runtimebin.CodexLastMessageFile)
+	if got, ok := argValue(args, "--output-last-message"); !ok || got != wantLastMessage {
+		t.Fatalf("codex daemon args last-message path = %q, %v; want %q in %v", got, ok, wantLastMessage, args)
+	}
 	for _, want := range []string{
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(wantTeamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("manager"),

@@ -897,11 +897,16 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			"-p", prompt,
 		}, rt, nil
 	case runtimebin.KindCodex:
+		lastMessagePath := filepath.Join(stateDir, runtimebin.CodexLastMessageFile)
+		if err := os.Remove(lastMessagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, runtimebin.Runtime{}, fmt.Errorf("event runtime: remove stale Codex last message: %w", err)
+		}
 		args := []string{"exec"}
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args,
 			"-C", r.teamDirParent(),
 			"--add-dir", runtimeDir,
+			"--output-last-message", lastMessagePath,
 			codexEventPrompt(kickoff, prompt, agents),
 		)
 		return args, rt, nil

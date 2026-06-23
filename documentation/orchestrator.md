@@ -300,7 +300,7 @@ Decide at implementation time; either keeps the public surface identical.
 
 | Path | Owner | Purpose |
 |---|---|---|
-| `.agent_team/daemon.sock` | daemon (gitignored) | Unix socket. Removed on graceful shutdown; recreated on next start. |
+| `.agent_team/daemon.sock` | daemon (gitignored) | Default Unix socket. Long repo paths use a hashed `/tmp/agent-team-<uid>/*.sock` fallback. Removed on graceful shutdown; recreated on next start. |
 | `.agent_team/daemon.pid` | daemon (gitignored) | Pidfile. Read by `agent-team daemon status/stop`. |
 | `.agent_team/daemon/agent-teamd.log` | daemon (gitignored) | Stdout/stderr from a `--detach`'d daemon. Distinct from per-instance child logs. |
 | `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |

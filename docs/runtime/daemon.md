@@ -27,7 +27,7 @@ Important paths:
 
 | Path | Purpose |
 | --- | --- |
-| `.agent_team/daemon.sock` | Unix socket |
+| `.agent_team/daemon.sock` | Unix socket when the repo path is short enough; otherwise a hashed `/tmp/agent-team-<uid>/*.sock` path |
 | `.agent_team/daemon.pid` | PID file |
 | `.agent_team/daemon/daemon.log` | Daemon log |
 | `.agent_team/daemon/events.jsonl` | Lifecycle event log |
