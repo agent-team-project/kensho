@@ -154,6 +154,7 @@ type tickOptions struct {
 
 type tickResult struct {
 	Reconcile *daemonReconcileResponse   `json:"reconcile,omitempty"`
+	JobEvents []jobEventReconcileResult  `json:"job_events,omitempty"`
 	JobStatus []jobStatusReconcileResult `json:"job_status,omitempty"`
 	Schedule  *daemon.ScheduleFireResult `json:"schedule,omitempty"`
 	Queue     *daemon.QueueDrainResult   `json:"queue,omitempty"`
@@ -187,6 +188,11 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 			return nil, err
 		}
 		result.JobStatus = status
+		events, err := reconcileJobsFromEvents(teamDir, opts.DryRun, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		result.JobEvents = events
 	}
 	if !opts.SkipSchedules {
 		schedule, err := dc.ScheduleFire(opts.DryRun)
@@ -277,6 +283,11 @@ func tickResultIsIdle(result *tickResult) bool {
 	}
 	if result.Schedule != nil && (result.Schedule.Fired > 0 || result.Schedule.WouldFire > 0) {
 		return false
+	}
+	for _, event := range result.JobEvents {
+		if event.Changed {
+			return false
+		}
 	}
 	for _, status := range result.JobStatus {
 		if status.Changed {
@@ -375,6 +386,15 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 		}
 	} else {
 		fmt.Fprintln(w, "Job status: skipped")
+	}
+	fmt.Fprintln(w)
+	if result.JobEvents != nil {
+		fmt.Fprintln(w, "Job events:")
+		if err := renderJobEventReconcileResults(w, result.JobEvents, false, nil); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "Job events: skipped")
 	}
 	fmt.Fprintln(w)
 	if result.Schedule != nil {

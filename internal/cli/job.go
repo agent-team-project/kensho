@@ -2537,8 +2537,49 @@ func newJobReconcileCmd() *cobra.Command {
 		Short: "Reconcile external runtime state back into jobs.",
 	}
 	cmd.AddCommand(newJobReconcileGitHubCmd())
+	cmd.AddCommand(newJobReconcileEventsCmd())
 	cmd.AddCommand(newJobReconcileQueueCmd())
 	cmd.AddCommand(newJobReconcileStatusCmd())
+	return cmd
+}
+
+func newJobReconcileEventsCmd() *cobra.Command {
+	var (
+		repo    string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "events",
+		Short: "Reconcile terminal daemon instance metadata back into owning jobs.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile events: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobEventReconcileFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile events: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			results, err := reconcileJobsFromEvents(teamDir, dryRun, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			return renderJobEventReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
 	return cmd
 }
 
@@ -4746,6 +4787,297 @@ func reconcileJobsFromStatus(teamDir string, dryRun bool, now time.Time) ([]jobS
 	return results, nil
 }
 
+func reconcileJobsFromEvents(teamDir string, dryRun bool, now time.Time) ([]jobEventReconcileResult, error) {
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]jobEventReconcileResult, 0)
+	for _, meta := range metas {
+		if !daemonMetadataTerminal(meta) {
+			continue
+		}
+		j, matchedBy := jobForDaemonMetadata(jobs, meta)
+		if j == nil {
+			continue
+		}
+		result := reconcileJobFromDaemonMetadata(j, meta, matchedBy, dryRun, now)
+		if result.Changed && !dryRun {
+			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, jobEventReconcileData(meta, matchedBy)); err != nil {
+				return nil, err
+			}
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func daemonMetadataTerminal(meta *daemon.Metadata) bool {
+	if meta == nil {
+		return false
+	}
+	switch meta.Status {
+	case daemon.StatusExited, daemon.StatusCrashed:
+		return strings.TrimSpace(meta.Instance) != ""
+	default:
+		return false
+	}
+}
+
+func jobForDaemonMetadata(jobs []*job.Job, meta *daemon.Metadata) (*job.Job, string) {
+	if meta == nil {
+		return nil, ""
+	}
+	instance := strings.TrimSpace(meta.Instance)
+	if id := job.IDFromInput(meta.Job); id != "" {
+		for _, j := range jobs {
+			if j.ID != id {
+				continue
+			}
+			if len(j.Steps) > 0 && instance != "" && strings.TrimSpace(j.Instance) == "" && !jobHasStepInstance(j, instance) && jobHasAnyStepInstance(j) {
+				return nil, ""
+			}
+			if instance == "" || strings.TrimSpace(j.Instance) == "" || strings.TrimSpace(j.Instance) == instance || jobHasStepInstance(j, instance) {
+				return j, "job"
+			}
+			return nil, ""
+		}
+	}
+	if instance == "" {
+		return nil, ""
+	}
+	for _, j := range jobs {
+		if strings.TrimSpace(j.Instance) == instance {
+			return j, "instance"
+		}
+	}
+	for _, j := range jobs {
+		if jobHasStepInstance(j, instance) {
+			return j, "step_instance"
+		}
+	}
+	return nil, ""
+}
+
+func jobHasStepInstance(j *job.Job, instance string) bool {
+	if j == nil || strings.TrimSpace(instance) == "" {
+		return false
+	}
+	instance = strings.TrimSpace(instance)
+	for _, step := range j.Steps {
+		if strings.TrimSpace(step.Instance) == instance {
+			return true
+		}
+	}
+	return false
+}
+
+func jobHasAnyStepInstance(j *job.Job) bool {
+	if j == nil {
+		return false
+	}
+	for _, step := range j.Steps {
+		if strings.TrimSpace(step.Instance) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileJobFromDaemonMetadata(j *job.Job, meta *daemon.Metadata, matchedBy string, dryRun bool, now time.Time) jobEventReconcileResult {
+	before := cloneJobForEventReconcile(j)
+	target := j
+	if dryRun {
+		target = cloneJobForEventReconcile(j)
+	}
+	outcome, eventType, message := daemonMetadataJobOutcome(meta)
+	stepID, stepMatched, stepActive := reconcileJobStepFromDaemonMetadata(target, meta.Instance, outcome, now)
+	if stepMatched && !stepActive {
+		result := jobEventReconcileResult{
+			JobID:     target.ID,
+			Instance:  meta.Instance,
+			Lifecycle: string(meta.Status),
+			MatchedBy: matchedBy,
+			StepID:    stepID,
+			Event:     eventType,
+			Before:    before.Status,
+			After:     target.Status,
+			Branch:    target.Branch,
+			PR:        target.PR,
+			Message:   target.LastStatus,
+			ExitCode:  meta.ExitCode,
+			DryRun:    dryRun,
+		}
+		result.Changed = jobEventReconcileChanged(before, target)
+		return result
+	}
+	if strings.TrimSpace(meta.Instance) != "" {
+		target.Instance = strings.TrimSpace(meta.Instance)
+	}
+	if strings.TrimSpace(meta.Ticket) != "" {
+		target.Ticket = strings.TrimSpace(meta.Ticket)
+	}
+	if strings.TrimSpace(meta.Branch) != "" {
+		target.Branch = strings.TrimSpace(meta.Branch)
+	}
+	if strings.TrimSpace(meta.PR) != "" {
+		target.PR = strings.TrimSpace(meta.PR)
+	}
+	if stepMatched {
+		if outcome == job.StatusDone && !allJobStepsDone(target) {
+			target.Status = job.StatusRunning
+			message = "completed pipeline step"
+		} else {
+			target.Status = outcome
+		}
+	} else {
+		target.Status = outcome
+	}
+	target.LastEvent = eventType
+	target.LastStatus = message
+	target.UpdatedAt = now.UTC()
+
+	result := jobEventReconcileResult{
+		JobID:     target.ID,
+		Instance:  meta.Instance,
+		Lifecycle: string(meta.Status),
+		MatchedBy: matchedBy,
+		StepID:    stepID,
+		Event:     eventType,
+		Before:    before.Status,
+		After:     target.Status,
+		Branch:    target.Branch,
+		PR:        target.PR,
+		Message:   message,
+		ExitCode:  meta.ExitCode,
+		DryRun:    dryRun,
+	}
+	result.Changed = jobEventReconcileChanged(before, target)
+	return result
+}
+
+func daemonMetadataJobOutcome(meta *daemon.Metadata) (job.Status, string, string) {
+	status := job.StatusDone
+	eventType := "instance_exited"
+	message := "instance exited successfully"
+	if meta == nil {
+		return status, eventType, message
+	}
+	if meta.Status == daemon.StatusCrashed || (meta.ExitCode != nil && *meta.ExitCode != 0) {
+		status = job.StatusFailed
+		eventType = "instance_crashed"
+		message = "instance crashed"
+		if meta.ExitCode != nil {
+			message = fmt.Sprintf("instance exited with code %d", *meta.ExitCode)
+		}
+	}
+	return status, eventType, message
+}
+
+func reconcileJobStepFromDaemonMetadata(j *job.Job, instance string, status job.Status, now time.Time) (string, bool, bool) {
+	if j == nil || strings.TrimSpace(instance) == "" {
+		return "", false, false
+	}
+	instance = strings.TrimSpace(instance)
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if strings.TrimSpace(step.Instance) != instance {
+			continue
+		}
+		active := step.Status == job.StatusRunning || step.Status == job.StatusQueued
+		if !active {
+			return step.ID, true, false
+		}
+		step.Status = status
+		if step.StartedAt.IsZero() {
+			step.StartedAt = now.UTC()
+		}
+		step.FinishedAt = now.UTC()
+		return step.ID, true, true
+	}
+	return "", false, false
+}
+
+func cloneJobForEventReconcile(j *job.Job) *job.Job {
+	if j == nil {
+		return nil
+	}
+	cloned := *j
+	if len(j.Steps) > 0 {
+		cloned.Steps = make([]job.Step, len(j.Steps))
+		copy(cloned.Steps, j.Steps)
+		for i := range cloned.Steps {
+			if len(j.Steps[i].After) > 0 {
+				cloned.Steps[i].After = append([]string(nil), j.Steps[i].After...)
+			}
+		}
+	}
+	return &cloned
+}
+
+func jobEventReconcileChanged(before, after *job.Job) bool {
+	if before == nil || after == nil {
+		return before != after
+	}
+	if before.Status != after.Status ||
+		strings.TrimSpace(before.Instance) != strings.TrimSpace(after.Instance) ||
+		strings.TrimSpace(before.Ticket) != strings.TrimSpace(after.Ticket) ||
+		strings.TrimSpace(before.Branch) != strings.TrimSpace(after.Branch) ||
+		strings.TrimSpace(before.PR) != strings.TrimSpace(after.PR) ||
+		strings.TrimSpace(before.LastEvent) != strings.TrimSpace(after.LastEvent) ||
+		strings.TrimSpace(before.LastStatus) != strings.TrimSpace(after.LastStatus) {
+		return true
+	}
+	if len(before.Steps) != len(after.Steps) {
+		return true
+	}
+	for i := range before.Steps {
+		if before.Steps[i].Status != after.Steps[i].Status ||
+			strings.TrimSpace(before.Steps[i].Instance) != strings.TrimSpace(after.Steps[i].Instance) ||
+			!before.Steps[i].StartedAt.Equal(after.Steps[i].StartedAt) ||
+			!before.Steps[i].FinishedAt.Equal(after.Steps[i].FinishedAt) {
+			return true
+		}
+	}
+	return false
+}
+
+func jobEventReconcileData(meta *daemon.Metadata, matchedBy string) map[string]string {
+	data := map[string]string{
+		"source":     "daemon_metadata",
+		"matched_by": matchedBy,
+	}
+	if meta == nil {
+		return data
+	}
+	if meta.Instance != "" {
+		data["instance"] = meta.Instance
+	}
+	if meta.Status != "" {
+		data["lifecycle"] = string(meta.Status)
+	}
+	if meta.Job != "" {
+		data["metadata_job"] = meta.Job
+	}
+	if meta.Ticket != "" {
+		data["ticket"] = meta.Ticket
+	}
+	if meta.Branch != "" {
+		data["branch"] = meta.Branch
+	}
+	if meta.PR != "" {
+		data["pr"] = meta.PR
+	}
+	if meta.ExitCode != nil {
+		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
+	}
+	return data
+}
+
 func statusRowSupersededByUnblock(j *job.Job, row instanceRow) bool {
 	if j == nil || strings.ToLower(strings.TrimSpace(row.Phase)) != "blocked" || j.LastEvent != "unblocked" {
 		return false
@@ -5013,6 +5345,23 @@ type jobQueueReconcileResult struct {
 	Message    string     `json:"message,omitempty"`
 	Changed    bool       `json:"changed"`
 	DryRun     bool       `json:"dry_run,omitempty"`
+}
+
+type jobEventReconcileResult struct {
+	JobID     string     `json:"job_id"`
+	Instance  string     `json:"instance"`
+	Lifecycle string     `json:"lifecycle"`
+	MatchedBy string     `json:"matched_by"`
+	StepID    string     `json:"step_id,omitempty"`
+	Event     string     `json:"event"`
+	Before    job.Status `json:"before"`
+	After     job.Status `json:"after"`
+	Branch    string     `json:"branch,omitempty"`
+	PR        string     `json:"pr,omitempty"`
+	Message   string     `json:"message,omitempty"`
+	ExitCode  *int       `json:"exit_code,omitempty"`
+	Changed   bool       `json:"changed"`
+	DryRun    bool       `json:"dry_run,omitempty"`
 }
 
 type jobStatusReconcileResult struct {
@@ -5859,6 +6208,17 @@ func parseJobQueueReconcileFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
+func parseJobEventReconcileFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("job-event-reconcile-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
 func parseJobStatusReconcileFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -6139,6 +6499,41 @@ func renderJobQueueReconcileResults(w io.Writer, results []jobQueueReconcileResu
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			result.JobID, result.QueueID, result.QueueState, result.Before, result.After, emptyDash(result.Instance), action, emptyDash(result.Message))
+	}
+	return tw.Flush()
+}
+
+func renderJobEventReconcileResults(w io.Writer, results []jobEventReconcileResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if tmpl != nil {
+		for _, result := range results {
+			if err := tmpl.Execute(w, result); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(w, "(no event-backed jobs reconciled)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "JOB\tINSTANCE\tLIFECYCLE\tEVENT\tBEFORE\tAFTER\tMATCH\tACTION\tMESSAGE")
+	for _, result := range results {
+		action := "unchanged"
+		if result.Changed {
+			action = "updated"
+			if result.DryRun {
+				action = "would_update"
+			}
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			result.JobID, result.Instance, result.Lifecycle, result.Event, result.Before, result.After, result.MatchedBy, action, emptyDash(result.Message))
 	}
 	return tw.Flush()
 }

@@ -1914,6 +1914,237 @@ branch = "worker-squ-120"
 	}
 }
 
+func TestJobReconcileEventsFromTerminalMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-130",
+		Ticket:    "SQU-130",
+		Target:    "worker",
+		Instance:  "worker-squ-130",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	exitCode := 0
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-130",
+		Agent:     "worker",
+		Job:       "squ-130",
+		Ticket:    "SQU-130",
+		Branch:    "worker-squ-130",
+		PR:        "https://github.com/acme/repo/pull/130",
+		Workspace: tmp,
+		Status:    daemon.StatusExited,
+		ExitCode:  &exitCode,
+		StartedAt: now.Add(-time.Minute),
+		ExitedAt:  now,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("job reconcile events dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []jobEventReconcileResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode dry events reconcile json: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-130" || preview[0].After != job.StatusDone || preview[0].Event != "instance_exited" || !preview[0].Changed || !preview[0].DryRun {
+		t.Fatalf("preview = %+v", preview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-130")
+	if err != nil {
+		t.Fatalf("read dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning || unchanged.Branch != "" || unchanged.PR != "" {
+		t.Fatalf("dry-run changed job = %+v", unchanged)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("job reconcile events: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied []jobEventReconcileResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode events reconcile json: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(applied) != 1 || applied[0].JobID != "squ-130" || applied[0].After != job.StatusDone || !applied[0].Changed || applied[0].DryRun {
+		t.Fatalf("applied = %+v", applied)
+	}
+	updated, err := job.Read(teamDir, "squ-130")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.Instance != "worker-squ-130" || updated.Branch != "worker-squ-130" || updated.PR == "" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if updated.LastEvent != "instance_exited" || updated.LastStatus != "instance exited successfully" {
+		t.Fatalf("updated status fields = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-130")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "instance_exited" || events[0].Actor != "cli" || events[0].Data["source"] != "daemon_metadata" || events[0].Data["matched_by"] != "job" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobReconcileEventsMarksCrashedMetadataFailed(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-131",
+		Ticket:    "SQU-131",
+		Target:    "worker",
+		Instance:  "worker-squ-131",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	exitCode := 2
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-131",
+		Agent:     "worker",
+		Job:       "squ-131",
+		Ticket:    "SQU-131",
+		Workspace: tmp,
+		Status:    daemon.StatusCrashed,
+		ExitCode:  &exitCode,
+		StartedAt: now.Add(-time.Minute),
+		ExitedAt:  now,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile events crashed: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobEventReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode crashed events reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].After != job.StatusFailed || result[0].Event != "instance_crashed" || result[0].Message != "instance exited with code 2" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-131")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "instance_crashed" || updated.LastStatus != "instance exited with code 2" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobReconcileEventsCompletesPipelineStepIdempotently(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-132",
+		Ticket:    "SQU-132",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-132-implement", StartedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	exitCode := 0
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-132-implement",
+		Agent:     "worker",
+		Job:       "squ-132",
+		Ticket:    "SQU-132",
+		Branch:    "worker-squ-132",
+		Workspace: tmp,
+		Status:    daemon.StatusExited,
+		ExitCode:  &exitCode,
+		StartedAt: now.Add(-30 * time.Minute),
+		ExitedAt:  now,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile events pipeline: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobEventReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline events reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].StepID != "implement" || result[0].After != job.StatusRunning || result[0].Message != "completed pipeline step" || !result[0].Changed {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-132")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.Steps[0].Status != job.StatusDone || updated.Steps[0].FinishedAt.IsZero() || updated.LastEvent != "instance_exited" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+
+	again := NewRootCmd()
+	againOut, againErr := &bytes.Buffer{}, &bytes.Buffer{}
+	again.SetOut(againOut)
+	again.SetErr(againErr)
+	again.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--json"})
+	if err := again.Execute(); err != nil {
+		t.Fatalf("job reconcile events pipeline again: %v\nstderr=%s", err, againErr.String())
+	}
+	var second []jobEventReconcileResult
+	if err := json.Unmarshal(againOut.Bytes(), &second); err != nil {
+		t.Fatalf("decode second pipeline events reconcile json: %v\nbody=%s", err, againOut.String())
+	}
+	if len(second) != 1 || second[0].After != job.StatusRunning || second[0].Changed {
+		t.Fatalf("second result = %+v", second)
+	}
+	events, err := job.ListEvents(teamDir, "squ-132")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "instance_exited" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobCreateFromPipeline(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

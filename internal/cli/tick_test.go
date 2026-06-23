@@ -199,6 +199,85 @@ branch = "worker-squ-94"
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickReconcilesJobEvents(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-141",
+		Ticket:    "SQU-141",
+		Target:    "worker",
+		Instance:  "worker-squ-141",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	exitCode := 0
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-141",
+		Agent:     "worker",
+		Job:       "squ-141",
+		Ticket:    "SQU-141",
+		Workspace: target,
+		Status:    daemon.StatusExited,
+		ExitCode:  &exitCode,
+		StartedAt: now.Add(-time.Minute),
+		ExitedAt:  now,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("tick dry-run event reconcile: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview tickResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode tick dry-run event json: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview.JobEvents) != 1 || preview.JobEvents[0].JobID != "squ-141" || preview.JobEvents[0].After != job.StatusDone || !preview.JobEvents[0].Changed || !preview.JobEvents[0].DryRun {
+		t.Fatalf("tick preview job events = %+v", preview.JobEvents)
+	}
+	unchanged, err := job.Read(teamDir, "squ-141")
+	if err != nil {
+		t.Fatalf("read dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning {
+		t.Fatalf("tick dry-run mutated job = %+v", unchanged)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--target", target, "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick event reconcile: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick event json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.JobEvents) != 1 || result.JobEvents[0].JobID != "squ-141" || result.JobEvents[0].After != job.StatusDone || !result.JobEvents[0].Changed {
+		t.Fatalf("tick job events result = %+v", result.JobEvents)
+	}
+	updated, err := job.Read(teamDir, "squ-141")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastEvent != "instance_exited" {
+		t.Fatalf("tick reconciled job = %+v", updated)
+	}
+}
+
 func TestTickDryRunIncludesDueSchedules(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-tick-")
 	if err != nil {
