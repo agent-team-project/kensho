@@ -6732,7 +6732,7 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 	if err != nil {
 		return err
 	}
-	renderJobDetailWithRuntime(w, j, queueItems, statusPreviews, quarantineItems)
+	renderJobDetailWithRuntime(w, teamDir, j, queueItems, statusPreviews, quarantineItems)
 	if includeEvents {
 		events, err := job.ListEvents(teamDir, j.ID)
 		if err != nil {
@@ -6871,11 +6871,11 @@ func renderJobStatusReconcileResults(w io.Writer, results []jobStatusReconcileRe
 }
 
 func renderJobDetail(w io.Writer, j *job.Job) {
-	renderJobDetailWithRuntime(w, j, nil, nil, nil)
+	renderJobDetailWithRuntime(w, "", j, nil, nil, nil)
 }
 
 func renderJobDetailWithQueue(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem) {
-	renderJobDetailWithRuntime(w, j, queueItems, nil, nil)
+	renderJobDetailWithRuntime(w, "", j, queueItems, nil, nil)
 }
 
 func renderJobRecentEvents(w io.Writer, events []job.Event) {
@@ -6883,8 +6883,8 @@ func renderJobRecentEvents(w io.Writer, events []job.Event) {
 	renderJobEventTable(w, events, true)
 }
 
-func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem) {
-	actions := jobDetailActions(j, queueItems, statusPreviews, quarantineItems, time.Now().UTC())
+func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem) {
+	actions := jobDetailActions(j, teamDir, queueItems, statusPreviews, quarantineItems, time.Now().UTC())
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
@@ -6986,7 +6986,7 @@ func renderJobDetailWithRuntime(w io.Writer, j *job.Job, queueItems []*daemon.Qu
 	fmt.Fprintf(w, "Updated:     %s\n", j.UpdatedAt.Format(time.RFC3339))
 }
 
-func jobDetailActions(j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem, now time.Time) []string {
+func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem, now time.Time) []string {
 	if j == nil {
 		return nil
 	}
@@ -7023,6 +7023,11 @@ func jobDetailActions(j *job.Job, queueItems []*daemon.QueueItem, statusPreviews
 	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, now, 0); ok {
 		for _, action := range triage.Actions {
 			add(action)
+		}
+	}
+	if strings.TrimSpace(teamDir) != "" && strings.TrimSpace(j.Instance) != "" {
+		if st, err := os.Stat(lastMessagePathForInstance(teamDir, j.Instance)); err == nil && !st.IsDir() {
+			add(fmt.Sprintf("agent-team job logs %s --last-message", j.ID))
 		}
 	}
 	for _, preview := range statusPreviews {

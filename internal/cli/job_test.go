@@ -276,6 +276,43 @@ func TestJobShowIncludesCleanupActionForDoneOwnedWorktree(t *testing.T) {
 	}
 }
 
+func TestJobShowIncludesLastMessageActionWhenSidecarExists(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-210",
+		Ticket:    "SQU-210",
+		Target:    "worker",
+		Status:    job.StatusDone,
+		Instance:  "worker-squ-210",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeLastMessageForTest(t, teamDir, "worker-squ-210", "clean final")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "show", "squ-210", "--repo", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job show last-message action: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"Actions:",
+		"agent-team job logs squ-210 --last-message",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("job show missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

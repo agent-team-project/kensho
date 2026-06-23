@@ -89,6 +89,9 @@ Human output includes:
 - action hints
 - recent events when requested
 
+If a Codex one-shot captured `.agent_team/state/<instance>/last-message.txt`,
+`job show` includes an action hint for `agent-team job logs <job-id> --last-message`.
+
 ## Dispatching Jobs
 
 ```sh
