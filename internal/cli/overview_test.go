@@ -64,6 +64,12 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
 		}
 	}
+	if len(overview.ActionDetails) != len(overview.Actions) {
+		t.Fatalf("action details = %+v, want one detail per action", overview.ActionDetails)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team job queue retry squ-700 --all --dry-run"); !ok || detail.Source != "queue" || detail.Reason != "queue_dead_letter" {
+		t.Fatalf("queue retry detail = %+v, ok=%v", detail, ok)
+	}
 	if stringSliceContains(overview.Actions, "agent-team queue quarantine ls") {
 		t.Fatalf("actions should use job-scoped queue quarantine: %+v", overview.Actions)
 	}
@@ -380,6 +386,9 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 		if !stringSliceContains(overview.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
 		}
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team team advance delivery --dry-run --preview-routes"); !ok || detail.Team != "delivery" || detail.Source != "pipelines" || detail.Reason == "" {
+		t.Fatalf("team advance detail = %+v, ok=%v", detail, ok)
 	}
 	if stringSliceContains(overview.Actions, "agent-team team queue retry delivery --all --dry-run") {
 		t.Fatalf("team actions should prefer job-filtered retry: %+v", overview.Actions)

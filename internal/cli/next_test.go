@@ -32,10 +32,16 @@ func TestNextCommandReportsRecommendedActions(t *testing.T) {
 	if len(result.Actions) != 2 || result.TotalActions <= len(result.Actions) || result.HiddenActions == 0 {
 		t.Fatalf("result actions = %+v", result)
 	}
+	if len(result.ActionDetails) != len(result.Actions) {
+		t.Fatalf("action details = %+v, want one detail per visible action", result.ActionDetails)
+	}
 	for _, want := range []string{"agent-team repair --dry-run --jobs", "agent-team daemon start"} {
 		if !stringSliceContains(result.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, result.Actions)
 		}
+	}
+	if detail, ok := findOperatorActionHint(result.ActionDetails, "agent-team repair --dry-run --jobs"); !ok || detail.Source != "health" || detail.Reason != "unhealthy" {
+		t.Fatalf("repair detail = %+v, ok=%v", detail, ok)
 	}
 }
 
@@ -88,6 +94,9 @@ func TestTeamNextCommandReportsScopedActions(t *testing.T) {
 	if len(result.Actions) != 2 || result.HiddenActions == 0 {
 		t.Fatalf("team next actions = %+v", result)
 	}
+	if len(result.ActionDetails) != len(result.Actions) {
+		t.Fatalf("team next action details = %+v, want one detail per visible action", result.ActionDetails)
+	}
 	for _, want := range []string{
 		"agent-team team repair delivery --dry-run --jobs",
 		"agent-team daemon start",
@@ -95,6 +104,9 @@ func TestTeamNextCommandReportsScopedActions(t *testing.T) {
 		if !stringSliceContains(result.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, result.Actions)
 		}
+	}
+	if detail, ok := findOperatorActionHint(result.ActionDetails, "agent-team team repair delivery --dry-run --jobs"); !ok || detail.Team != "delivery" || detail.Source != "health" {
+		t.Fatalf("team repair detail = %+v, ok=%v", detail, ok)
 	}
 
 	text := NewRootCmd()
@@ -122,12 +134,12 @@ func TestNextCommandFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--limit", "1", "--format", "{{.State}}|{{.HiddenActions}}|{{index .Actions 0}}"})
+	cmd.SetArgs([]string{"next", "--target", root, "--limit", "1", "--format", "{{.State}}|{{.HiddenActions}}|{{index .Actions 0}}|{{(index .ActionDetails 0).Source}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next format: %v\nstderr=%s", err, stderr.String())
 	}
 	body := out.String()
-	if !strings.HasPrefix(body, "attention|") || !strings.Contains(body, "agent-team repair --dry-run --jobs") {
+	if !strings.HasPrefix(body, "attention|") || !strings.Contains(body, "agent-team repair --dry-run --jobs|health") {
 		t.Fatalf("next format output = %q", body)
 	}
 }
@@ -293,7 +305,7 @@ func TestNextActionResultHandlesNoActions(t *testing.T) {
 		OK:    true,
 		State: "ok",
 	}, 0)
-	if !result.OK || result.State != "ok" || len(result.Actions) != 0 || result.TotalActions != 0 {
+	if !result.OK || result.State != "ok" || len(result.Actions) != 0 || len(result.ActionDetails) != 0 || result.TotalActions != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 
@@ -304,6 +316,15 @@ func TestNextActionResultHandlesNoActions(t *testing.T) {
 	if !strings.Contains(out.String(), "actions: none") {
 		t.Fatalf("rendered next:\n%s", out.String())
 	}
+}
+
+func findOperatorActionHint(hints []operatorActionHint, command string) (operatorActionHint, bool) {
+	for _, hint := range hints {
+		if hint.Command == command {
+			return hint, true
+		}
+	}
+	return operatorActionHint{}, false
 }
 
 func TestNextWatchRendersUntilContextDone(t *testing.T) {

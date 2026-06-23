@@ -197,8 +197,8 @@ Shortcuts:
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team overview` | Compact state and action hints |
-| `agent-team next` | Recommended next commands |
+| `agent-team overview` | Compact state and action hints; JSON includes structured `action_details` |
+| `agent-team next` | Recommended next commands with structured JSON `action_details` |
 | `agent-team health` | Scriptable health check |
 | `agent-team monitor` | Operator dashboard |
 | `agent-team watch` | Continuous monitor |

@@ -31,6 +31,10 @@ It summarizes:
 - intake
 - action hints
 
+JSON output includes both `actions` (the compatibility list of command
+strings) and `action_details` with a command, source, reason, and team scope
+where applicable.
+
 Team scoped:
 
 ```sh
@@ -45,7 +49,10 @@ agent-team next --team delivery
 agent-team team next delivery
 ```
 
-`next` is a compact command-hint view derived from overview.
+`next` is a compact command-hint view derived from overview. Text output stays
+focused on copyable commands; JSON output also includes `action_details` so
+scripts can group recommendations by source and reason without parsing command
+strings.
 
 Use it in scripts or when a human wants a short checklist.
 

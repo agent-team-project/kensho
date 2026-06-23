@@ -170,13 +170,14 @@ func newTeamNextCmd() *cobra.Command {
 }
 
 type nextActionResult struct {
-	OK            bool      `json:"ok"`
-	State         string    `json:"state"`
-	CapturedAt    string    `json:"captured_at,omitempty"`
-	Team          *teamInfo `json:"team,omitempty"`
-	Actions       []string  `json:"actions"`
-	TotalActions  int       `json:"total_actions"`
-	HiddenActions int       `json:"hidden_actions,omitempty"`
+	OK            bool                 `json:"ok"`
+	State         string               `json:"state"`
+	CapturedAt    string               `json:"captured_at,omitempty"`
+	Team          *teamInfo            `json:"team,omitempty"`
+	Actions       []string             `json:"actions"`
+	ActionDetails []operatorActionHint `json:"action_details,omitempty"`
+	TotalActions  int                  `json:"total_actions"`
+	HiddenActions int                  `json:"hidden_actions,omitempty"`
 }
 
 func nextActionResultFromOverview(overview *overviewResult, limit int) nextActionResult {
@@ -184,11 +185,15 @@ func nextActionResultFromOverview(overview *overviewResult, limit int) nextActio
 		return nextActionResult{OK: true, State: "ok", Actions: []string{}}
 	}
 	actions := append([]string{}, overview.Actions...)
+	details := nextActionDetailsFromOverview(overview, actions)
 	total := len(actions)
 	hidden := 0
 	if limit > 0 && len(actions) > limit {
 		hidden = len(actions) - limit
 		actions = actions[:limit]
+		if len(details) > limit {
+			details = details[:limit]
+		}
 	}
 	return nextActionResult{
 		OK:            overview.OK,
@@ -196,9 +201,49 @@ func nextActionResultFromOverview(overview *overviewResult, limit int) nextActio
 		CapturedAt:    overview.CapturedAt,
 		Team:          overview.Team,
 		Actions:       actions,
+		ActionDetails: details,
 		TotalActions:  total,
 		HiddenActions: hidden,
 	}
+}
+
+func nextActionDetailsFromOverview(overview *overviewResult, actions []string) []operatorActionHint {
+	if overview == nil || len(actions) == 0 {
+		return nil
+	}
+	if len(overview.ActionDetails) > 0 {
+		detailsByCommand := make(map[string]operatorActionHint, len(overview.ActionDetails))
+		for _, detail := range overview.ActionDetails {
+			if strings.TrimSpace(detail.Command) == "" {
+				continue
+			}
+			if _, exists := detailsByCommand[detail.Command]; !exists {
+				detailsByCommand[detail.Command] = detail
+			}
+		}
+		details := make([]operatorActionHint, 0, len(actions))
+		for _, action := range actions {
+			if detail, ok := detailsByCommand[action]; ok {
+				details = append(details, detail)
+			}
+		}
+		if len(details) == len(actions) {
+			return details
+		}
+	}
+	team := ""
+	if overview.Team != nil {
+		team = overview.Team.Name
+	}
+	details := make([]operatorActionHint, 0, len(actions))
+	for _, action := range actions {
+		detail := operatorActionHint{Command: action, Source: "overview"}
+		if team != "" {
+			detail.Team = team
+		}
+		details = append(details, detail)
+	}
+	return details
 }
 
 func renderNextActionResult(w io.Writer, result nextActionResult, jsonOut bool, tmpl *template.Template) error {

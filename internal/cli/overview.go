@@ -153,7 +153,15 @@ type overviewResult struct {
 	Schedules     overviewScheduleSummary `json:"schedules"`
 	Intake        overviewIntakeSummary   `json:"intake"`
 	Actions       []string                `json:"actions,omitempty"`
+	ActionDetails []operatorActionHint    `json:"action_details,omitempty"`
 	SectionErrors map[string]string       `json:"section_errors,omitempty"`
+}
+
+type operatorActionHint struct {
+	Command string `json:"command"`
+	Source  string `json:"source,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Team    string `json:"team,omitempty"`
 }
 
 type overviewHealthSummary struct {
@@ -270,7 +278,8 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 		applyQueueQuarantineSummary(&out.Queue, quarantined)
 	}
 
-	out.Actions = overviewActions(out, health)
+	out.ActionDetails = overviewActionHints(out, health)
+	out.Actions = overviewActionCommands(out.ActionDetails)
 	out.OK = overviewOK(out, health)
 	out.State = overviewState(out)
 	return out
@@ -337,7 +346,8 @@ func collectTeamOverview(teamDir, name string, now time.Time, scheduleLimit int)
 		out.Schedules = overviewSchedulesFromRows(schedules, now, scheduleLimit)
 	}
 
-	out.Actions = overviewActionsForScope(out, health, team.Name)
+	out.ActionDetails = overviewActionHintsForScope(out, health, team.Name)
+	out.Actions = overviewActionCommands(out.ActionDetails)
 	out.OK = overviewOK(out, health)
 	out.State = overviewState(out)
 	return out, nil
@@ -467,119 +477,151 @@ func overviewIntakeFromDeliveries(deliveries []intakeDelivery) overviewIntakeSum
 }
 
 func overviewActions(out *overviewResult, health *healthResult) []string {
-	return overviewActionsForScope(out, health, "")
+	return overviewActionCommands(overviewActionHints(out, health))
 }
 
 func overviewActionsForScope(out *overviewResult, health *healthResult, teamName string) []string {
+	return overviewActionCommands(overviewActionHintsForScope(out, health, teamName))
+}
+
+func overviewActionHints(out *overviewResult, health *healthResult) []operatorActionHint {
+	return overviewActionHintsForScope(out, health, "")
+}
+
+func overviewActionHintsForScope(out *overviewResult, health *healthResult, teamName string) []operatorActionHint {
 	seen := map[string]bool{}
-	var actions []string
-	add := func(action string) {
+	var actions []operatorActionHint
+	add := func(action, source, reason string) {
 		action = strings.TrimSpace(action)
 		if action == "" || seen[action] {
 			return
 		}
 		seen[action] = true
-		actions = append(actions, action)
+		hint := operatorActionHint{
+			Command: action,
+			Source:  strings.TrimSpace(source),
+			Reason:  strings.TrimSpace(reason),
+		}
+		if strings.TrimSpace(teamName) != "" {
+			hint.Team = strings.TrimSpace(teamName)
+		}
+		actions = append(actions, hint)
 	}
 
 	if health != nil && !health.Healthy {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team repair %s --dry-run --jobs", teamName))
+			add(fmt.Sprintf("agent-team team repair %s --dry-run --jobs", teamName), "health", "unhealthy")
 		} else {
-			add("agent-team repair --dry-run --jobs")
+			add("agent-team repair --dry-run --jobs", "health", "unhealthy")
 		}
 	}
 	if health != nil {
 		for _, issue := range health.Issues {
 			if issue.Code == "daemon_not_running" || issue.Code == "daemon_not_ready" {
-				add("agent-team daemon start")
+				add("agent-team daemon start", "health", issue.Code)
 			}
 			for _, action := range issue.Actions {
-				add(overviewIssueAction(action))
+				action = overviewIssueAction(action)
+				add(action, overviewIssueActionSource(action, issue.Code), issue.Code)
 			}
 		}
 	}
 	if out.Topology != nil && !out.Topology.OK {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team doctor %s", teamName))
+			add(fmt.Sprintf("agent-team team doctor %s", teamName), "topology", "topology_not_ok")
 		} else {
-			add("agent-team topology summary")
-			add("agent-team pipeline doctor --all")
-			add("agent-team team doctor --all")
+			add("agent-team topology summary", "topology", "topology_not_ok")
+			add("agent-team pipeline doctor --all", "topology", "topology_not_ok")
+			add("agent-team team doctor --all", "topology", "topology_not_ok")
 		}
 	}
 	if out.Queue.Dead > 0 {
-		add(overviewQueueDeadRetryAction(health, teamName))
+		add(overviewQueueDeadRetryAction(health, teamName), "queue", fmt.Sprintf("dead=%d", out.Queue.Dead))
 	}
 	if out.Queue.Pending > out.Queue.Delayed {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team tick %s --dry-run --skip-schedules --skip-advance", teamName))
+			add(fmt.Sprintf("agent-team team tick %s --dry-run --skip-schedules --skip-advance", teamName), "queue", fmt.Sprintf("ready_pending=%d", out.Queue.Pending-out.Queue.Delayed))
 		} else {
-			add("agent-team queue drain --dry-run")
+			add("agent-team queue drain --dry-run", "queue", fmt.Sprintf("ready_pending=%d", out.Queue.Pending-out.Queue.Delayed))
 		}
 	}
 	if out.Queue.Quarantined > 0 {
-		add(overviewQueueQuarantineAction(health, teamName))
+		add(overviewQueueQuarantineAction(health, teamName), "queue", fmt.Sprintf("quarantined=%d", out.Queue.Quarantined))
 	}
 	if out.Jobs.Attention > 0 {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team triage %s", teamName))
+			add(fmt.Sprintf("agent-team team triage %s", teamName), "jobs", fmt.Sprintf("attention=%d", out.Jobs.Attention))
 		} else {
-			add("agent-team job triage")
+			add("agent-team job triage", "jobs", fmt.Sprintf("attention=%d", out.Jobs.Attention))
 		}
 	}
 	if out.Jobs.CleanupReady > 0 {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team cleanup %s --dry-run", teamName))
+			add(fmt.Sprintf("agent-team team cleanup %s --dry-run", teamName), "jobs", fmt.Sprintf("cleanup_ready=%d", out.Jobs.CleanupReady))
 		} else {
-			add("agent-team job cleanup --all --dry-run")
+			add("agent-team job cleanup --all --dry-run", "jobs", fmt.Sprintf("cleanup_ready=%d", out.Jobs.CleanupReady))
 		}
 	}
 	if out.Jobs.StatusChanges > 0 {
-		add("agent-team job reconcile status")
+		add("agent-team job reconcile status", "jobs", fmt.Sprintf("status_changes=%d", out.Jobs.StatusChanges))
 	}
 	if out.Jobs.ReadySteps > 0 || out.Pipelines.ReadySteps > 0 {
+		reason := fmt.Sprintf("ready_steps=%d", out.Jobs.ReadySteps+out.Pipelines.ReadySteps)
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team advance %s --dry-run --preview-routes", teamName))
+			add(fmt.Sprintf("agent-team team advance %s --dry-run --preview-routes", teamName), "pipelines", reason)
 		} else {
-			add("agent-team pipeline advance --all --dry-run --preview-routes")
+			add("agent-team pipeline advance --all --dry-run --preview-routes", "pipelines", reason)
 		}
 	}
 	if out.Pipelines.ManualGates > 0 {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team approve %s --dry-run --dispatch --preview-routes", teamName))
+			add(fmt.Sprintf("agent-team team approve %s --dry-run --dispatch --preview-routes", teamName), "pipelines", fmt.Sprintf("manual_gates=%d", out.Pipelines.ManualGates))
 		} else {
-			add("agent-team pipeline approve --all --dry-run --dispatch --preview-routes")
+			add("agent-team pipeline approve --all --dry-run --dispatch --preview-routes", "pipelines", fmt.Sprintf("manual_gates=%d", out.Pipelines.ManualGates))
 		}
 	}
 	if out.Schedules.Due > 0 {
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team tick %s --dry-run --skip-drain --skip-advance", teamName))
+			add(fmt.Sprintf("agent-team team tick %s --dry-run --skip-drain --skip-advance", teamName), "schedules", fmt.Sprintf("due=%d", out.Schedules.Due))
 		} else {
-			add("agent-team schedule fire --dry-run --preview-triggers")
+			add("agent-team schedule fire --dry-run --preview-triggers", "schedules", fmt.Sprintf("due=%d", out.Schedules.Due))
 		}
 	}
 	if teamName == "" && out.Intake.Errors > 0 {
-		add("agent-team intake summary")
-		add("agent-team intake deliveries --status error")
+		add("agent-team intake summary", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
+		add("agent-team intake deliveries --status error", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
 		if out.Intake.Replayable > 0 {
-			add("agent-team intake replay --all --dry-run --preview-triggers")
+			add("agent-team intake replay --all --dry-run --preview-triggers", "intake", fmt.Sprintf("replayable=%d", out.Intake.Replayable))
 		}
 	}
 	if len(out.SectionErrors) > 0 {
 		if teamName == "" && strings.TrimSpace(out.SectionErrors["intake"]) != "" {
-			add("agent-team intake doctor")
+			add("agent-team intake doctor", "section_errors", "intake")
 		}
 		if overviewHasQueueSectionError(out) {
-			add("agent-team queue doctor")
+			add("agent-team queue doctor", "section_errors", "queue")
 		}
 		if teamName != "" {
-			add(fmt.Sprintf("agent-team team snapshot %s --json", teamName))
+			add(fmt.Sprintf("agent-team team snapshot %s --json", teamName), "section_errors", fmt.Sprintf("count=%d", len(out.SectionErrors)))
 		} else {
-			add("agent-team snapshot --json")
+			add("agent-team snapshot --json", "section_errors", fmt.Sprintf("count=%d", len(out.SectionErrors)))
 		}
 	}
 	return actions
+}
+
+func overviewActionCommands(hints []operatorActionHint) []string {
+	if len(hints) == 0 {
+		return nil
+	}
+	commands := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		if strings.TrimSpace(hint.Command) == "" {
+			continue
+		}
+		commands = append(commands, hint.Command)
+	}
+	return commands
 }
 
 func overviewQueueDeadRetryAction(health *healthResult, teamName string) string {
@@ -634,6 +676,25 @@ func overviewIssueAction(action string) string {
 		return appendDryRunFlag(action)
 	}
 	return action
+}
+
+func overviewIssueActionSource(action, code string) string {
+	action = strings.TrimSpace(action)
+	code = strings.TrimSpace(code)
+	switch {
+	case strings.HasPrefix(code, "queue_") || strings.Contains(action, " queue "):
+		return "queue"
+	case strings.HasPrefix(code, "job_") || strings.HasPrefix(action, "agent-team job "):
+		return "jobs"
+	case strings.HasPrefix(code, "pipeline_") || strings.HasPrefix(action, "agent-team pipeline "):
+		return "pipelines"
+	case strings.HasPrefix(code, "intake_") || strings.HasPrefix(action, "agent-team intake "):
+		return "intake"
+	case strings.HasPrefix(code, "topology_") || strings.HasPrefix(action, "agent-team topology ") || strings.Contains(action, " doctor"):
+		return "topology"
+	default:
+		return "health"
+	}
 }
 
 func overviewIssueActionPrefersDryRun(action string) bool {
