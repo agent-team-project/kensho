@@ -821,10 +821,10 @@ func TestMergeDaemonRowsUpdatesAgentForExistingStateRow(t *testing.T) {
 		{Instance: "adhoc", Agent: "—", Phase: "—", Age: "—"},
 	}
 	metas := []*daemon.Metadata{
-		{Instance: "adhoc", Agent: "manager", Status: daemon.StatusRunning, PID: 42, StartedAt: started, StoppedAt: stopped, ExitedAt: exited},
+		{Instance: "adhoc", Agent: "manager", Status: daemon.StatusRunning, Runtime: "codex", RuntimeBinary: "codex-dev", PID: 42, StartedAt: started, StoppedAt: stopped, ExitedAt: exited},
 	}
 	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true})
-	if got[0].Agent != "manager" || got[0].Lifecycle != "running" || got[0].PID != 42 || !got[0].StartedAt.Equal(started) || !got[0].StoppedAt.Equal(stopped) || !got[0].ExitedAt.Equal(exited) {
+	if got[0].Agent != "manager" || got[0].Lifecycle != "running" || got[0].Runtime != "codex" || got[0].RuntimeBinary != "codex-dev" || got[0].PID != 42 || !got[0].StartedAt.Equal(started) || !got[0].StoppedAt.Equal(stopped) || !got[0].ExitedAt.Equal(exited) {
 		t.Fatalf("row = %+v, want daemon agent/status/pid", got[0])
 	}
 }
@@ -834,14 +834,21 @@ func TestPsJSONRowsIncludeLifecycleTimestamps(t *testing.T) {
 	stopped := time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC)
 	exited := time.Date(2026, 6, 17, 11, 5, 0, 0, time.UTC)
 	rows := psJSONRows([]instanceRow{{
-		Instance:  "manager",
-		Agent:     "manager",
-		StartedAt: started,
-		StoppedAt: stopped,
-		ExitedAt:  exited,
+		Instance:      "manager",
+		Agent:         "manager",
+		Runtime:       "codex",
+		RuntimeBinary: "codex-dev",
+		StartedAt:     started,
+		StoppedAt:     stopped,
+		ExitedAt:      exited,
 	}})
-	if len(rows) != 1 || rows[0].StartedAt != started.Format(time.RFC3339) || rows[0].StoppedAt != stopped.Format(time.RFC3339) || rows[0].ExitedAt != exited.Format(time.RFC3339) {
-		t.Fatalf("rows = %+v, want RFC3339 lifecycle timestamps", rows)
+	if len(rows) != 1 ||
+		rows[0].Runtime != "codex" ||
+		rows[0].RuntimeBinary != "codex-dev" ||
+		rows[0].StartedAt != started.Format(time.RFC3339) ||
+		rows[0].StoppedAt != stopped.Format(time.RFC3339) ||
+		rows[0].ExitedAt != exited.Format(time.RFC3339) {
+		t.Fatalf("rows = %+v, want runtime metadata and RFC3339 lifecycle timestamps", rows)
 	}
 }
 

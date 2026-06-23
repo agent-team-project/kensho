@@ -246,21 +246,22 @@ type inspectStateJSON struct {
 }
 
 type inspectRuntimeJSON struct {
-	Lifecycle string `json:"lifecycle"`
-	Agent     string `json:"agent,omitempty"`
-	Runtime   string `json:"runtime,omitempty"`
-	Job       string `json:"job,omitempty"`
-	Ticket    string `json:"ticket,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	PR        string `json:"pr,omitempty"`
-	PID       int    `json:"pid,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	StartedAt string `json:"started_at,omitempty"`
-	StoppedAt string `json:"stopped_at,omitempty"`
-	ExitedAt  string `json:"exited_at,omitempty"`
-	ExitCode  *int   `json:"exit_code,omitempty"`
-	LogPath   string `json:"log_path,omitempty"`
+	Lifecycle     string `json:"lifecycle"`
+	Agent         string `json:"agent,omitempty"`
+	Runtime       string `json:"runtime,omitempty"`
+	RuntimeBinary string `json:"runtime_binary,omitempty"`
+	Job           string `json:"job,omitempty"`
+	Ticket        string `json:"ticket,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	PR            string `json:"pr,omitempty"`
+	PID           int    `json:"pid,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	StoppedAt     string `json:"stopped_at,omitempty"`
+	ExitedAt      string `json:"exited_at,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
+	LogPath       string `json:"log_path,omitempty"`
 }
 
 type inspectStatusJSON struct {
@@ -311,17 +312,18 @@ func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectR
 		return nil
 	}
 	out := &inspectRuntimeJSON{
-		Lifecycle: metadataStatusKey(meta),
-		Agent:     meta.Agent,
-		Runtime:   meta.Runtime,
-		Job:       meta.Job,
-		Ticket:    meta.Ticket,
-		Branch:    meta.Branch,
-		PR:        meta.PR,
-		PID:       meta.PID,
-		Workspace: filepath.ToSlash(meta.Workspace),
-		SessionID: meta.SessionID,
-		ExitCode:  meta.ExitCode,
+		Lifecycle:     metadataStatusKey(meta),
+		Agent:         meta.Agent,
+		Runtime:       meta.Runtime,
+		RuntimeBinary: meta.RuntimeBinary,
+		Job:           meta.Job,
+		Ticket:        meta.Ticket,
+		Branch:        meta.Branch,
+		PR:            meta.PR,
+		PID:           meta.PID,
+		Workspace:     filepath.ToSlash(meta.Workspace),
+		SessionID:     meta.SessionID,
+		ExitCode:      meta.ExitCode,
 	}
 	if !meta.StartedAt.IsZero() {
 		out.StartedAt = meta.StartedAt.Format(time.RFC3339)
@@ -453,6 +455,9 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	}
 	if runtime.Runtime != "" {
 		fmt.Fprintf(w, "  runtime:     %s\n", runtime.Runtime)
+	}
+	if runtime.RuntimeBinary != "" {
+		fmt.Fprintf(w, "  binary:      %s\n", runtime.RuntimeBinary)
 	}
 	if runtime.Job != "" {
 		fmt.Fprintf(w, "  job:         %s\n", runtime.Job)

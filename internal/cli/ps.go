@@ -752,6 +752,8 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 			rows[idx].Agent = m.Agent
 		}
 		rows[idx].Lifecycle = metadataStatusKey(m)
+		rows[idx].Runtime = m.Runtime
+		rows[idx].RuntimeBinary = m.RuntimeBinary
 		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
 		rows[idx].Ticket = firstNonEmpty(rows[idx].Ticket, m.Ticket)
 		rows[idx].Branch = firstNonEmpty(rows[idx].Branch, m.Branch)
@@ -793,43 +795,47 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 }
 
 type psJSONRow struct {
-	Instance  string `json:"instance"`
-	Agent     string `json:"agent"`
-	Status    string `json:"status"`
-	Phase     string `json:"phase"`
-	Age       string `json:"age"`
-	Summary   string `json:"summary,omitempty"`
-	Job       string `json:"job,omitempty"`
-	Ticket    string `json:"ticket,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	PR        string `json:"pr,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
-	Stale     bool   `json:"stale"`
-	HasStatus bool   `json:"has_status"`
-	PID       int    `json:"pid,omitempty"`
-	StartedAt string `json:"started_at,omitempty"`
-	StoppedAt string `json:"stopped_at,omitempty"`
-	ExitedAt  string `json:"exited_at,omitempty"`
+	Instance      string `json:"instance"`
+	Agent         string `json:"agent"`
+	Status        string `json:"status"`
+	Phase         string `json:"phase"`
+	Age           string `json:"age"`
+	Summary       string `json:"summary,omitempty"`
+	Runtime       string `json:"runtime,omitempty"`
+	RuntimeBinary string `json:"runtime_binary,omitempty"`
+	Job           string `json:"job,omitempty"`
+	Ticket        string `json:"ticket,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	PR            string `json:"pr,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	Stale         bool   `json:"stale"`
+	HasStatus     bool   `json:"has_status"`
+	PID           int    `json:"pid,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	StoppedAt     string `json:"stopped_at,omitempty"`
+	ExitedAt      string `json:"exited_at,omitempty"`
 }
 
 func psJSONRows(rows []instanceRow) []psJSONRow {
 	out := make([]psJSONRow, 0, len(rows))
 	for _, r := range rows {
 		row := psJSONRow{
-			Instance:  r.Instance,
-			Agent:     r.Agent,
-			Status:    psStatusKey(r),
-			Phase:     psPhaseKey(r),
-			Age:       r.Age,
-			Summary:   r.Summary,
-			Job:       r.Job,
-			Ticket:    r.Ticket,
-			Branch:    r.Branch,
-			PR:        r.PR,
-			Workspace: filepath.ToSlash(r.Workspace),
-			Stale:     r.Stale,
-			HasStatus: r.HasFile,
-			PID:       r.PID,
+			Instance:      r.Instance,
+			Agent:         r.Agent,
+			Status:        psStatusKey(r),
+			Phase:         psPhaseKey(r),
+			Age:           r.Age,
+			Summary:       r.Summary,
+			Runtime:       r.Runtime,
+			RuntimeBinary: r.RuntimeBinary,
+			Job:           r.Job,
+			Ticket:        r.Ticket,
+			Branch:        r.Branch,
+			PR:            r.PR,
+			Workspace:     filepath.ToSlash(r.Workspace),
+			Stale:         r.Stale,
+			HasStatus:     r.HasFile,
+			PID:           r.PID,
 		}
 		if !r.StartedAt.IsZero() {
 			row.StartedAt = r.StartedAt.UTC().Format(time.RFC3339)
@@ -855,20 +861,22 @@ func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool) instanceRow 
 		agent = guessAgentName(m.Instance, agentNames)
 	}
 	return instanceRow{
-		Instance:  m.Instance,
-		Agent:     agent,
-		Phase:     "—",
-		Age:       "—",
-		Lifecycle: metadataStatusKey(m),
-		Job:       m.Job,
-		Ticket:    m.Ticket,
-		Branch:    m.Branch,
-		PR:        m.PR,
-		Workspace: m.Workspace,
-		PID:       m.PID,
-		StartedAt: m.StartedAt,
-		StoppedAt: m.StoppedAt,
-		ExitedAt:  m.ExitedAt,
+		Instance:      m.Instance,
+		Agent:         agent,
+		Phase:         "—",
+		Age:           "—",
+		Lifecycle:     metadataStatusKey(m),
+		Runtime:       m.Runtime,
+		RuntimeBinary: m.RuntimeBinary,
+		Job:           m.Job,
+		Ticket:        m.Ticket,
+		Branch:        m.Branch,
+		PR:            m.PR,
+		Workspace:     m.Workspace,
+		PID:           m.PID,
+		StartedAt:     m.StartedAt,
+		StoppedAt:     m.StoppedAt,
+		ExitedAt:      m.ExitedAt,
 	}
 }
 

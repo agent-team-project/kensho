@@ -122,14 +122,16 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	started := time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
 	meta := &daemon.Metadata{
-		Instance:  "adhoc",
-		Agent:     "manager",
-		Status:    daemon.StatusRunning,
-		PID:       12345,
-		Workspace: tmp,
-		SessionID: "session-1",
-		StartedAt: started,
-		LogPath:   filepath.Join(teamDir, "daemon", "adhoc", "child.log"),
+		Instance:      "adhoc",
+		Agent:         "manager",
+		Status:        daemon.StatusRunning,
+		Runtime:       "codex",
+		RuntimeBinary: "codex-dev",
+		PID:           12345,
+		Workspace:     tmp,
+		SessionID:     "session-1",
+		StartedAt:     started,
+		LogPath:       filepath.Join(teamDir, "daemon", "adhoc", "child.log"),
 	}
 
 	var out bytes.Buffer
@@ -139,6 +141,8 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		"runtime:",
 		"lifecycle:   running",
 		"agent:       manager",
+		"runtime:     codex",
+		"binary:      codex-dev",
 		"pid:         12345",
 		"workspace:   " + filepath.ToSlash(tmp),
 		"session_id:  session-1",
@@ -171,11 +175,13 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance:  "adhoc",
-		Agent:     "manager",
-		Status:    daemon.StatusStopped,
-		Workspace: tmp,
-		SessionID: "session-1",
+		Instance:      "adhoc",
+		Agent:         "manager",
+		Status:        daemon.StatusStopped,
+		Runtime:       "codex",
+		RuntimeBinary: "codex-dev",
+		Workspace:     tmp,
+		SessionID:     "session-1",
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -195,7 +201,12 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	if body.State.Exists {
 		t.Fatalf("state should be missing for daemon-only metadata: %+v", body.State)
 	}
-	if body.Runtime == nil || body.Runtime.Lifecycle != "stopped" || body.Runtime.Agent != "manager" || body.Runtime.SessionID != "session-1" {
+	if body.Runtime == nil ||
+		body.Runtime.Lifecycle != "stopped" ||
+		body.Runtime.Agent != "manager" ||
+		body.Runtime.Runtime != "codex" ||
+		body.Runtime.RuntimeBinary != "codex-dev" ||
+		body.Runtime.SessionID != "session-1" {
 		t.Fatalf("runtime = %+v, want stopped manager session", body.Runtime)
 	}
 	if body.Runtime.LogPath != ".agent_team/daemon/adhoc/child.log" {
