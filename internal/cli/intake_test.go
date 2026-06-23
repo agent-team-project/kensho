@@ -484,7 +484,7 @@ func TestIntakeServiceSystemd(t *testing.T) {
 		"Environment=LINEAR_SECRET=replace-me",
 		"Environment=GITHUB_SECRET=replace-me",
 		"ExecStartPre=/usr/local/bin/agent-team daemon start",
-		"ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr",
+		"ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --github-replay-window 24h0m0s --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr",
 		"Restart=on-failure",
 		"WantedBy=multi-user.target",
 	} {
@@ -568,7 +568,7 @@ func TestIntakeServiceLaunchd(t *testing.T) {
 		"<key>GITHUB_SECRET</key>",
 		"<string>/bin/sh</string>",
 		"<string>-lc</string>",
-		"<string>&#39;/Applications/Agent Team/bin/agent-team&#39; daemon start &amp;&amp; exec &#39;/Applications/Agent Team/bin/agent-team&#39; intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr</string>",
+		"<string>&#39;/Applications/Agent Team/bin/agent-team&#39; daemon start &amp;&amp; exec &#39;/Applications/Agent Team/bin/agent-team&#39; intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --github-replay-window 24h0m0s --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr</string>",
 		"<key>RunAtLoad</key>",
 		"<true/>",
 		"<key>KeepAlive</key>",
@@ -625,7 +625,7 @@ func TestIntakeServiceCompose(t *testing.T) {
 		`      "GITHUB_SECRET": "replace-me"`,
 		`      - "/bin/sh"`,
 		`      - "-lc"`,
-		`      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"`,
+		`      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"`,
 		"    restart: unless-stopped",
 	} {
 		if !strings.Contains(body, want) {
@@ -718,7 +718,7 @@ func TestIntakeServiceKubernetes(t *testing.T) {
 		`          workingDir: "/workspace/repo"`,
 		`            - "/bin/sh"`,
 		`            - "-lc"`,
-		`            - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"`,
+		`            - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"`,
 		"              containerPort: 8787",
 		`            - name: "LINEAR_SECRET"`,
 		`                  name: "agent-team-intake-secrets"`,
@@ -765,6 +765,7 @@ func TestIntakeServiceValidation(t *testing.T) {
 		{[]string{"intake", "service", "kubernetes", "--ingress-host", "intake.example.com", "--tls-secret", "bad_name"}, "--tls-secret must be a Kubernetes DNS label"},
 		{[]string{"intake", "service", "systemd", "--github-verify-pr"}, "--github-verify-pr requires --github-cleanup-merged"},
 		{[]string{"intake", "service", "systemd", "--github-cleanup-merged"}, "--github-cleanup-merged requires --github-reconcile-job"},
+		{[]string{"intake", "service", "systemd", "--github-replay-window", "-1s"}, "--github-replay-window must be >= 0"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -1724,11 +1725,18 @@ func TestIntakeServeLinearSignatureAndTimestamp(t *testing.T) {
 
 func TestIntakeServeGitHubSignature(t *testing.T) {
 	secret := "github-secret"
+	teamDir := t.TempDir()
+	handler := newIntakeServeHandler(teamDir, intakeServeOptions{
+		DryRun:             true,
+		GitHubSecret:       secret,
+		GitHubReplayWindow: defaultGitHubReplayWindow,
+	})
 	body := []byte(`{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":203,"merged":false,"html_url":"https://github.com/acme/repo/pull/203","head":{"ref":"worker-squ-203"}}}`)
 	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
 	req.Header.Set("X-Hub-Signature-256", hmacSHA256Hex(secret, body, "sha256="))
+	req.Header.Set("X-GitHub-Delivery", "github-delivery-203")
 	rec := httptest.NewRecorder()
-	newIntakeServeHandler(t.TempDir(), intakeServeOptions{DryRun: true, GitHubSecret: secret}).ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -1739,12 +1747,59 @@ func TestIntakeServeGitHubSignature(t *testing.T) {
 	if result.Event == nil || result.Event.Type != "pr.opened" {
 		t.Fatalf("signed github event = %+v", result.Event)
 	}
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		t.Fatalf("list deliveries: %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].RequestID != "github-delivery-203" {
+		t.Fatalf("signed delivery rows = %+v", deliveries)
+	}
+
+	duplicateReq := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	duplicateReq.Header.Set("X-Hub-Signature-256", hmacSHA256Hex(secret, body, "sha256="))
+	duplicateReq.Header.Set("X-GitHub-Delivery", "github-delivery-203")
+	duplicateRec := httptest.NewRecorder()
+	handler.ServeHTTP(duplicateRec, duplicateReq)
+	if duplicateRec.Code != http.StatusConflict || !strings.Contains(duplicateRec.Body.String(), "duplicate X-GitHub-Delivery") {
+		t.Fatalf("duplicate status = %d body=%s", duplicateRec.Code, duplicateRec.Body.String())
+	}
 
 	missingReq := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
 	missingRec := httptest.NewRecorder()
-	newIntakeServeHandler(t.TempDir(), intakeServeOptions{DryRun: true, GitHubSecret: secret}).ServeHTTP(missingRec, missingReq)
+	handler.ServeHTTP(missingRec, missingReq)
 	if missingRec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing signature status = %d body=%s", missingRec.Code, missingRec.Body.String())
+	}
+
+	missingDeliveryReq := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	missingDeliveryReq.Header.Set("X-Hub-Signature-256", hmacSHA256Hex(secret, body, "sha256="))
+	missingDeliveryRec := httptest.NewRecorder()
+	handler.ServeHTTP(missingDeliveryRec, missingDeliveryReq)
+	if missingDeliveryRec.Code != http.StatusUnauthorized || !strings.Contains(missingDeliveryRec.Body.String(), "missing X-GitHub-Delivery") {
+		t.Fatalf("missing delivery status = %d body=%s", missingDeliveryRec.Code, missingDeliveryRec.Body.String())
+	}
+
+	poisonTeamDir := t.TempDir()
+	poisonHandler := newIntakeServeHandler(poisonTeamDir, intakeServeOptions{
+		DryRun:             true,
+		GitHubSecret:       secret,
+		GitHubReplayWindow: defaultGitHubReplayWindow,
+	})
+	poisonReq := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	poisonReq.Header.Set("X-Hub-Signature-256", "sha256=bad")
+	poisonReq.Header.Set("X-GitHub-Delivery", "poisoned-delivery")
+	poisonRec := httptest.NewRecorder()
+	poisonHandler.ServeHTTP(poisonRec, poisonReq)
+	if poisonRec.Code != http.StatusUnauthorized {
+		t.Fatalf("poison status = %d body=%s", poisonRec.Code, poisonRec.Body.String())
+	}
+	validAfterPoison := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	validAfterPoison.Header.Set("X-Hub-Signature-256", hmacSHA256Hex(secret, body, "sha256="))
+	validAfterPoison.Header.Set("X-GitHub-Delivery", "poisoned-delivery")
+	validAfterPoisonRec := httptest.NewRecorder()
+	poisonHandler.ServeHTTP(validAfterPoisonRec, validAfterPoison)
+	if validAfterPoisonRec.Code != http.StatusOK {
+		t.Fatalf("valid after poison status = %d body=%s", validAfterPoisonRec.Code, validAfterPoisonRec.Body.String())
 	}
 }
 

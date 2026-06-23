@@ -1309,6 +1309,7 @@ Flags:
       --dry-run                               Normalize requests and return previews without publishing to the daemon.
       --github-cleanup-merged                 With --github-reconcile-job, remove the job-owned worktree and branch after a merged PR event.
       --github-reconcile-job                  For GitHub PR events, also reconcile the owning durable job.
+      --github-replay-window duration         Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable. (default 24h0m0s)
       --github-secret string                  GitHub webhook secret. Defaults to GITHUB_WEBHOOK_SECRET when set.
       --github-verify-pr                      With --github-cleanup-merged, verify recorded GitHub PRs are merged with gh before cleanup.
       --linear-max-age duration               Maximum accepted Linear webhook age after signature verification. (default 1m0s)
@@ -1345,6 +1346,7 @@ Flags:
       --env-file string                       Secret environment file for systemd EnvironmentFile or compose env_file; launchd does not support this.
       --github-cleanup-merged                 Include --github-cleanup-merged in ExecStart; requires --github-reconcile-job.
       --github-reconcile-job                  Include --github-reconcile-job in ExecStart.
+      --github-replay-window duration         Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable. (default 24h0m0s)
       --github-secret-env string              Environment variable name containing the GitHub webhook secret; empty omits it. (default "GITHUB_WEBHOOK_SECRET")
       --github-verify-pr                      Include --github-verify-pr in ExecStart; requires --github-cleanup-merged.
       --image string                          Container image used by compose service generation. (default "agent-team:local")

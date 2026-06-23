@@ -42,6 +42,7 @@ type intakeDelivery struct {
 	Method       string         `json:"method,omitempty"`
 	Path         string         `json:"path,omitempty"`
 	RemoteAddr   string         `json:"remote_addr,omitempty"`
+	RequestID    string         `json:"request_id,omitempty"`
 	EventType    string         `json:"event_type,omitempty"`
 	Payload      map[string]any `json:"payload,omitempty"`
 	Ticket       string         `json:"ticket,omitempty"`
@@ -497,7 +498,17 @@ func newIntakeDeliveryRecord(provider string, r *http.Request, now time.Time, dr
 		Method:     r.Method,
 		Path:       r.URL.Path,
 		RemoteAddr: r.RemoteAddr,
+		RequestID:  providerWebhookRequestID(provider, r.Header),
 		DryRun:     dryRun,
+	}
+}
+
+func providerWebhookRequestID(provider string, header http.Header) string {
+	switch provider {
+	case "github":
+		return strings.TrimSpace(header.Get("X-GitHub-Delivery"))
+	default:
+		return ""
 	}
 }
 

@@ -70,6 +70,8 @@ If you use a tunnel instead, point the tunnel at `http://127.0.0.1:8787` and con
 
 Do not depend on network location alone for trust. Configure provider webhook secrets and keep the public proxy limited to `/linear`, `/github`, and `/healthz` when possible.
 
+Signed GitHub webhooks also use `X-GitHub-Delivery` replay protection by default. The server rejects duplicate delivery IDs seen in the last 24 hours; tune this with `--github-replay-window`, or set it to `0` only for nonstandard test senders.
+
 ## Secrets
 
 Secrets can come from flags or environment variables:
@@ -121,7 +123,7 @@ WorkingDirectory=/srv/agent-team/my-repo
 Environment=LINEAR_WEBHOOK_SECRET=replace-me
 Environment=GITHUB_WEBHOOK_SECRET=replace-me
 ExecStartPre=/usr/local/bin/agent-team daemon start
-ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr
+ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr
 Restart=on-failure
 RestartSec=5s
 
@@ -169,7 +171,7 @@ The generated plist starts the repo daemon, then replaces the shell with the for
   <array>
     <string>/bin/sh</string>
     <string>-lc</string>
-    <string>/opt/homebrew/bin/agent-team daemon start &amp;&amp; exec /opt/homebrew/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr</string>
+    <string>/opt/homebrew/bin/agent-team daemon start &amp;&amp; exec /opt/homebrew/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -234,7 +236,7 @@ services:
     command:
       - "/bin/sh"
       - "-lc"
-      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"
+      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"
     restart: unless-stopped
 ```
 

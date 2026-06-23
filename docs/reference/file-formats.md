@@ -218,7 +218,7 @@ Active queue files live in `pending/` or `dead/`. Quarantined files preserve the
 
 ## Intake Delivery JSONL
 
-Delivery rows record normalized external events and replay state.
+Delivery rows record normalized external events and replay state. Server-created rows may include `request_id`, such as GitHub's `X-GitHub-Delivery`, so intake can reject duplicate signed deliveries inside the configured replay window.
 
 Use:
 

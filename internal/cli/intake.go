@@ -241,6 +241,7 @@ type intakeServeOptions struct {
 	LinearSecret            string
 	GitHubSecret            string
 	LinearMaxAge            time.Duration
+	GitHubReplayWindow      time.Duration
 	PruneOKOlderThan        time.Duration
 	PruneRecoveredOlderThan time.Duration
 	Now                     func() time.Time
@@ -268,9 +269,12 @@ type intakeServiceOptions struct {
 	GitHubCleanupMerged     bool
 	GitHubVerifyPR          bool
 	LinearMaxAge            time.Duration
+	GitHubReplayWindow      time.Duration
 	PruneOKOlderThan        time.Duration
 	PruneRecoveredOlderThan time.Duration
 }
+
+const defaultGitHubReplayWindow = 24 * time.Hour
 
 func newIntakeServiceCmd() *cobra.Command {
 	var opts intakeServiceOptions
@@ -284,6 +288,7 @@ func newIntakeServiceCmd() *cobra.Command {
 	opts.LinearSecretEnv = "LINEAR_WEBHOOK_SECRET"
 	opts.GitHubSecretEnv = "GITHUB_WEBHOOK_SECRET"
 	opts.LinearMaxAge = time.Minute
+	opts.GitHubReplayWindow = defaultGitHubReplayWindow
 	opts.PruneOKOlderThan = 7 * 24 * time.Hour
 	opts.PruneRecoveredOlderThan = 7 * 24 * time.Hour
 	cwd, _ := os.Getwd()
@@ -352,6 +357,7 @@ func newIntakeServiceCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.GitHubCleanupMerged, "github-cleanup-merged", false, "Include --github-cleanup-merged in ExecStart; requires --github-reconcile-job.")
 	cmd.Flags().BoolVar(&opts.GitHubVerifyPR, "github-verify-pr", false, "Include --github-verify-pr in ExecStart; requires --github-cleanup-merged.")
 	cmd.Flags().DurationVar(&opts.LinearMaxAge, "linear-max-age", opts.LinearMaxAge, "Maximum accepted Linear webhook age after signature verification.")
+	cmd.Flags().DurationVar(&opts.GitHubReplayWindow, "github-replay-window", opts.GitHubReplayWindow, "Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable.")
 	cmd.Flags().DurationVar(&opts.PruneOKOlderThan, "prune-ok-older-than", opts.PruneOKOlderThan, "Prune successful delivery history older than this duration after each request. Use 0 to disable.")
 	cmd.Flags().DurationVar(&opts.PruneRecoveredOlderThan, "prune-recovered-older-than", opts.PruneRecoveredOlderThan, "Prune recovered failed delivery history older than this duration after each request. Use 0 to disable.")
 	return cmd
@@ -416,6 +422,9 @@ func validateIntakeServiceOptions(kind string, opts intakeServiceOptions) error 
 	}
 	if opts.LinearMaxAge <= 0 {
 		return fmt.Errorf("--linear-max-age must be > 0")
+	}
+	if opts.GitHubReplayWindow < 0 {
+		return fmt.Errorf("--github-replay-window must be >= 0")
 	}
 	if opts.PruneOKOlderThan < 0 {
 		return fmt.Errorf("--prune-ok-older-than must be >= 0")
@@ -730,6 +739,7 @@ func intakeServeArgs(opts intakeServiceOptions) []string {
 		"intake", "serve",
 		"--addr", opts.Addr,
 		"--linear-max-age", opts.LinearMaxAge.String(),
+		"--github-replay-window", opts.GitHubReplayWindow.String(),
 		"--prune-ok-older-than", opts.PruneOKOlderThan.String(),
 		"--prune-recovered-older-than", opts.PruneRecoveredOlderThan.String(),
 	}
@@ -753,6 +763,7 @@ func newIntakeServeCmd() *cobra.Command {
 	)
 	opts.PruneOKOlderThan = 7 * 24 * time.Hour
 	opts.PruneRecoveredOlderThan = 7 * 24 * time.Hour
+	opts.GitHubReplayWindow = defaultGitHubReplayWindow
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -773,6 +784,10 @@ func newIntakeServeCmd() *cobra.Command {
 			}
 			if opts.LinearMaxAge <= 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --linear-max-age must be > 0.")
+				return exitErr(2)
+			}
+			if opts.GitHubReplayWindow < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-replay-window must be >= 0.")
 				return exitErr(2)
 			}
 			if opts.PruneOKOlderThan < 0 {
@@ -834,6 +849,7 @@ func newIntakeServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.LinearSecret, "linear-secret", "", "Linear webhook signing secret. Defaults to LINEAR_WEBHOOK_SECRET when set.")
 	cmd.Flags().StringVar(&opts.GitHubSecret, "github-secret", "", "GitHub webhook secret. Defaults to GITHUB_WEBHOOK_SECRET when set.")
 	cmd.Flags().DurationVar(&opts.LinearMaxAge, "linear-max-age", time.Minute, "Maximum accepted Linear webhook age after signature verification.")
+	cmd.Flags().DurationVar(&opts.GitHubReplayWindow, "github-replay-window", opts.GitHubReplayWindow, "Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable.")
 	cmd.Flags().DurationVar(&opts.PruneOKOlderThan, "prune-ok-older-than", opts.PruneOKOlderThan, "Prune successful delivery history older than this duration after each request. Use 0 to disable.")
 	cmd.Flags().DurationVar(&opts.PruneRecoveredOlderThan, "prune-recovered-older-than", opts.PruneRecoveredOlderThan, "Prune recovered failed delivery history older than this duration after each request. Use 0 to disable.")
 	return cmd
@@ -891,6 +907,10 @@ func handleIntakeServeWebhook(w http.ResponseWriter, r *http.Request, teamDir, p
 		return
 	}
 	if status, err := verifyIntakeServeWebhook(provider, r.Header, body, opts); err != nil {
+		fail(status, err.Error())
+		return
+	}
+	if status, err := verifyIntakeServeReplay(teamDir, provider, delivery, opts); err != nil {
 		fail(status, err.Error())
 		return
 	}
@@ -988,6 +1008,34 @@ func verifyIntakeServeWebhook(provider string, header http.Header, body []byte, 
 		if !verifyHexHMACSHA256(opts.GitHubSecret, body, signature, "sha256=") {
 			return http.StatusUnauthorized, errors.New("invalid X-Hub-Signature-256 header")
 		}
+	}
+	return http.StatusOK, nil
+}
+
+func verifyIntakeServeReplay(teamDir, provider string, delivery intakeDelivery, opts intakeServeOptions) (int, error) {
+	if provider != "github" || strings.TrimSpace(opts.GitHubSecret) == "" || opts.GitHubReplayWindow <= 0 {
+		return http.StatusOK, nil
+	}
+	requestID := strings.TrimSpace(delivery.RequestID)
+	if requestID == "" {
+		return http.StatusUnauthorized, errors.New("missing X-GitHub-Delivery header")
+	}
+	deliveries, err := listIntakeDeliveries(teamDir)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("read intake delivery history: %w", err)
+	}
+	cutoff := delivery.Time.Add(-opts.GitHubReplayWindow)
+	for _, previous := range deliveries {
+		if previous.Provider != "github" || strings.TrimSpace(previous.RequestID) != requestID {
+			continue
+		}
+		if previous.HTTPStatus == http.StatusUnauthorized {
+			continue
+		}
+		if previous.Time.IsZero() || previous.Time.Before(cutoff) {
+			continue
+		}
+		return http.StatusConflict, fmt.Errorf("duplicate X-GitHub-Delivery %q", requestID)
 	}
 	return http.StatusOK, nil
 }
