@@ -54,6 +54,7 @@ Built or substantially implemented:
 - runtime profile guide for Claude and Codex
 - copyable topology example fixtures parsed in CI
 - conservative template upgrade apply mode
+- manual pipeline gates and approval hints
 
 ## What Still Needs Design Care
 
@@ -85,7 +86,7 @@ Use these when evaluating feature ideas:
 High-value follow-up work:
 
 - runtime resume/adopt flows for long-running agents
-- pipeline gates and approval steps
+- richer pipeline gates beyond manual approval
 - hosted webhook deployment examples
 
 ## Anti-Patterns

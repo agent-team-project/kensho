@@ -142,6 +142,7 @@ target = "worker"
 id = "review"
 target = "manager"
 after = ["implement"]
+gate = "manual"
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -153,12 +154,33 @@ after = ["implement"]
 	if p.Trigger.Event != "ticket.created" || p.Trigger.Match["project"].Single != "Core" {
 		t.Fatalf("trigger = %+v", p.Trigger)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" {
+	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "manual" {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
 		t.Fatalf("matched = %+v", matched)
+	}
+}
+
+func TestParse_PipelineRejectsUnknownGate(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+gate = "robot"
+`))
+	if err == nil {
+		t.Fatal("expected unknown gate error")
+	}
+	if !strings.Contains(err.Error(), "gate must be manual") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

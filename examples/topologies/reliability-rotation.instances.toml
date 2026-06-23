@@ -38,6 +38,7 @@ after = ["triage"]
 id = "review"
 target = "incident-manager"
 after = ["investigate"]
+gate = "manual"
 
 [schedules.on_call_handoff]
 every = "12h"

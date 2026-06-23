@@ -97,6 +97,12 @@ trigger.event = "ticket.created"
 id = "implement"
 target = "worker"
 
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+gate = "manual"
+
 [teams.delivery]
 instances = ["manager", "worker"]
 pipelines = ["ticket_to_pr"]
@@ -126,6 +132,13 @@ updated_at = "2026-06-22T10:15:00Z"
 id = "implement"
 target = "worker"
 status = "running"
+
+[[steps]]
+id = "review"
+target = "manager"
+status = "blocked"
+after = ["implement"]
+gate = "manual"
 ```
 
 Exact encoding is owned by `internal/job`.

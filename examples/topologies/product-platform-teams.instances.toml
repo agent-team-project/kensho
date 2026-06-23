@@ -48,6 +48,7 @@ target = "product-worker"
 id = "review"
 target = "product-manager"
 after = ["implement"]
+gate = "manual"
 
 [pipelines.platform_ticket_to_pr]
 trigger.event = "ticket.created"
@@ -61,6 +62,7 @@ target = "platform-worker"
 id = "review"
 target = "platform-manager"
 after = ["implement"]
+gate = "manual"
 
 [schedules.product_weekly]
 every = "168h"

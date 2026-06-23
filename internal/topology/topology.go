@@ -97,6 +97,7 @@ type PipelineStep struct {
 	ID     string
 	Target string
 	After  []string
+	Gate   string
 }
 
 // Schedule is a periodic source of `schedule` events.
@@ -653,7 +654,11 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after})
+		gate, err := parseStepGate(body["gate"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -663,6 +668,23 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		}
 	}
 	return steps, nil
+}
+
+func parseStepGate(raw any) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !ok || value == "" {
+		return "", fmt.Errorf("gate must be a non-empty string")
+	}
+	switch value {
+	case "manual":
+		return value, nil
+	default:
+		return "", fmt.Errorf("gate must be manual")
+	}
 }
 
 func parseStepAfter(raw any) ([]string, error) {

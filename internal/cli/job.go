@@ -877,6 +877,7 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			Target: step.Target,
 			Status: status,
 			After:  append([]string(nil), step.After...),
+			Gate:   step.Gate,
 		})
 	}
 	return steps
@@ -4145,6 +4146,7 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.Target = next.Step.Target
 		row.StepStatus = next.Step.Status
 		row.Instance = next.Step.Instance
+		row.Gate = next.Step.Gate
 	}
 	row.Actions = actionsForJobReadyRow(row)
 	return row
@@ -4162,6 +4164,12 @@ func actionsForJobReadyRow(row jobReadyRow) []string {
 	case "failed":
 		return []string{fmt.Sprintf("agent-team job retry %s --dispatch", row.JobID)}
 	case "blocked":
+		if row.Gate == job.StepGateManual {
+			if len(row.WaitingFor) == 0 && strings.TrimSpace(row.StepID) != "" {
+				return []string{fmt.Sprintf("agent-team job step %s %s --status queued", row.JobID, row.StepID)}
+			}
+			return nil
+		}
 		return []string{fmt.Sprintf("agent-team job unblock %s <answer...>", row.JobID)}
 	default:
 		return nil
@@ -5427,6 +5435,7 @@ type jobReadyRow struct {
 	Target     string     `json:"target,omitempty"`
 	StepStatus job.Status `json:"step_status,omitempty"`
 	Instance   string     `json:"instance,omitempty"`
+	Gate       string     `json:"gate,omitempty"`
 	WaitingFor []string   `json:"waiting_for,omitempty"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	Message    string     `json:"message"`
@@ -5659,9 +5668,14 @@ func inspectNextJobStep(j *job.Job) jobNextResult {
 		res.State = "blocked"
 		res.Step = cloneJobStep(step)
 		res.WaitingFor = unmetJobStepDependencies(j, step)
-		if len(res.WaitingFor) > 0 {
+		switch {
+		case step.Gate == job.StepGateManual && len(res.WaitingFor) > 0:
+			res.Message = "step " + step.ID + " is waiting for " + strings.Join(res.WaitingFor, ",") + " before manual approval"
+		case step.Gate == job.StepGateManual:
+			res.Message = "step " + step.ID + " is waiting for manual approval"
+		case len(res.WaitingFor) > 0:
 			res.Message = "step " + step.ID + " is waiting for " + strings.Join(res.WaitingFor, ",")
-		} else {
+		default:
 			res.Message = "step " + step.ID + " is blocked"
 		}
 		return res
@@ -5716,6 +5730,9 @@ func nextReadyJobStep(j *job.Job) *job.Step {
 	}
 	for i := range j.Steps {
 		step := &j.Steps[i]
+		if stepManualGatePending(step) {
+			continue
+		}
 		if step.Status == job.StatusDone || step.Status == job.StatusFailed || step.Status == job.StatusRunning || step.Status == job.StatusQueued {
 			continue
 		}
@@ -5747,6 +5764,10 @@ func nextReadyJobStep(j *job.Job) *job.Step {
 		}
 	}
 	return nil
+}
+
+func stepManualGatePending(step *job.Step) bool {
+	return step != nil && step.Status == job.StatusBlocked && step.Gate == job.StepGateManual
 }
 
 func resetFailedPipelineStepForRetry(j *job.Job) string {
@@ -5830,12 +5851,16 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	if len(res.Step.After) > 0 {
 		after = strings.Join(res.Step.After, ",")
 	}
+	gate := "-"
+	if res.Step.Gate != "" {
+		gate = res.Step.Gate
+	}
 	waiting := "-"
 	if len(res.WaitingFor) > 0 {
 		waiting = strings.Join(res.WaitingFor, ",")
 	}
-	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s waiting_for=%s\n",
-		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, waiting)
+	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s waiting_for=%s\n",
+		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, waiting)
 	return nil
 }
 

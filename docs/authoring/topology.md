@@ -107,9 +107,10 @@ after = ["triage"]
 id = "review"
 target = "manager"
 after = ["implement"]
+gate = "manual"
 ```
 
-Pipeline state is stored in jobs, not in a separate scheduler database.
+Pipeline state is stored in jobs, not in a separate scheduler database. A step with `gate = "manual"` stays blocked after its dependencies finish until an operator approves it with `agent-team job step <job-id> <step-id> --status queued`; after that, normal `job advance`, `pipeline advance`, `team advance`, or `tick` dispatch can run it.
 
 ## Teams
 

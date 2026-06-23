@@ -48,6 +48,7 @@ after = ["triage"]
 id = "review"
 target = "manager"
 after = ["implement"]
+gate = "manual"
 
 [schedules.nightly]
 every = "24h"

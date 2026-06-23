@@ -72,6 +72,7 @@ after = ["triage"]
 id = "review"
 target = "manager"
 after = ["implement"]
+gate = "manual"
 
 [schedules.nightly]
 every = "24h"
@@ -154,6 +155,7 @@ target = "product-worker"
 id = "review"
 target = "product-manager"
 after = ["implement"]
+gate = "manual"
 
 [pipelines.platform_ticket_to_pr]
 trigger.event = "ticket.created"
@@ -167,6 +169,7 @@ target = "platform-worker"
 id = "review"
 target = "platform-manager"
 after = ["implement"]
+gate = "manual"
 
 [schedules.product_weekly]
 every = "168h"
@@ -249,6 +252,7 @@ after = ["triage"]
 id = "review"
 target = "incident-manager"
 after = ["investigate"]
+gate = "manual"
 
 [schedules.on_call_handoff]
 every = "12h"

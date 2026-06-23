@@ -113,6 +113,7 @@ target = "worker"
 id     = "review"
 target = "manager"
 after  = ["implement"]
+gate   = "manual"
 
 [schedules.nightly]
 every = "24h"
@@ -135,6 +136,19 @@ schedules   = ["nightly"]
 | `config.<dotted.key>` | no | — | Override values for the resolved per-instance config (layers between repo and CLI flags). Same dotted-key syntax as parameter declarations in `template.toml`. |
 | `replicas` | no | `1` | Max concurrent runs. Ephemeral only — for persistent, this is implicitly 1. |
 | `triggers` | no | empty | List of trigger blocks. Empty triggers list → instance only invokable by explicit `agent-team run <name>`. |
+
+### Pipeline field reference
+
+Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates a durable job, and each `[[pipelines.<name>.steps]]` entry becomes a stored job step.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `trigger.event` | yes | — | Event type that creates or updates a pipeline job. |
+| `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. |
+| `steps[].id` | yes | — | Unique step identifier within the pipeline. |
+| `steps[].target` | yes | — | Dispatch target. The target should resolve through an `agent.dispatch` trigger. |
+| `steps[].after` | no | empty | Step dependency or list of dependencies. All referenced steps must be done before this step is ready. |
+| `steps[].gate` | no | empty | Set to `"manual"` to require operator approval before the step can dispatch, even after dependencies are done. Approve with `agent-team job step <job-id> <step-id> --status queued`. |
 
 ### Schedule field reference
 

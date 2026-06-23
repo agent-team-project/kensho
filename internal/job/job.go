@@ -27,6 +27,11 @@ const (
 	StatusFailed  Status = "failed"
 )
 
+// Supported pipeline step gates.
+const (
+	StepGateManual = "manual"
+)
+
 // Job is one durable work unit under `.agent_team/jobs/<id>.toml`.
 type Job struct {
 	ID         string    `toml:"id"`
@@ -54,6 +59,7 @@ type Step struct {
 	Status     Status    `toml:"status"`
 	Instance   string    `toml:"instance,omitempty"`
 	After      []string  `toml:"after,omitempty"`
+	Gate       string    `toml:"gate,omitempty"`
 	StartedAt  time.Time `toml:"started_at,omitempty"`
 	FinishedAt time.Time `toml:"finished_at,omitempty"`
 }
@@ -215,6 +221,9 @@ func Validate(j *Job) error {
 		}
 		if !ValidStatus(step.Status) {
 			return fmt.Errorf("steps[%d]: unknown status %q", i, step.Status)
+		}
+		if strings.TrimSpace(step.Gate) != "" && step.Gate != StepGateManual {
+			return fmt.Errorf("steps[%d]: unknown gate %q", i, step.Gate)
 		}
 	}
 	return nil
