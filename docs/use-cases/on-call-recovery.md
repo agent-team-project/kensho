@@ -54,10 +54,11 @@ agent-team queue retry --all --dry-run
 ```sh
 agent-team pipeline ready --state failed
 agent-team repair --retry-pipelines --dry-run --preview-routes
+agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-message "retry after fixing credentials"
 ```
 
-For one owned area, use `agent-team team repair <team> --retry-pipelines --dry-run --preview-routes`.
+Use `--retry-step <id>` when a fixed issue only affects one stage. For one owned area, use `agent-team team repair <team> --retry-pipelines --dry-run --preview-routes`.
 
 ## If Queue Files Are Quarantined
 

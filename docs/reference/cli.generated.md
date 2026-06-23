@@ -3173,6 +3173,7 @@ Flags:
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --retry-message string     Audit message to record when --retry-pipelines resets failed steps.
       --retry-pipelines          Reset failed pipeline steps and dispatch them before the maintenance tick.
+      --retry-step string        With --retry-pipelines, retry only failed jobs whose next failed step has this id.
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry dead-letter queue items.
       --skip-tick                Do not run a maintenance tick after queue retry.
@@ -4395,6 +4396,7 @@ Flags:
       --repo string              Repo root. (default "<repo>")
       --retry-message string     Audit message to record when --retry-pipelines resets failed team steps.
       --retry-pipelines          Reset failed team pipeline steps and dispatch them before the scoped team tick.
+      --retry-step string        With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry team-owned dead-letter queue items.
       --skip-tick                Do not run a scoped team tick after queue retry.

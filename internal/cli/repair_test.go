@@ -467,6 +467,90 @@ func TestRepairRetryPipelinesDispatchesAndAudits(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-124-implement")
 }
 
+func TestRepairRetryPipelinesStepFilter(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:         "squ-125",
+			Ticket:     "SQU-125",
+			Target:     "worker",
+			Kickoff:    "implement failed",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "implement failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-implement", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+		{
+			ID:         "squ-126",
+			Ticket:     "SQU-126",
+			Target:     "worker",
+			Kickoff:    "review failed",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "review failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "review", Target: "worker", Status: job.StatusFailed, Instance: "worker-review", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"repair",
+		"--target", target,
+		"--dry-run",
+		"--retry-pipelines",
+		"--retry-step", "review",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--workspace", "repo",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair retry pipelines --retry-step: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair retry step json: %v\nbody=%s", err, out.String())
+	}
+	if result.PipelineRetry.Action != "would_dispatch" || len(result.PipelineRetry.Results) != 1 {
+		t.Fatalf("pipeline retry step = %+v", result.PipelineRetry)
+	}
+	row := result.PipelineRetry.Results[0]
+	if row.JobID != "squ-126" || row.StepID != "review" || row.Action != "would_dispatch" {
+		t.Fatalf("retry row = %+v", row)
+	}
+	if strings.Contains(out.String(), "squ-125") {
+		t.Fatalf("repair retry step leaked nonmatching job:\n%s", out.String())
+	}
+	unchanged, err := job.Read(teamDir, "squ-125")
+	if err != nil {
+		t.Fatalf("read unchanged: %v", err)
+	}
+	if unchanged.Status != job.StatusFailed || unchanged.Steps[0].Status != job.StatusFailed || unchanged.Steps[0].Instance != "worker-implement" {
+		t.Fatalf("dry-run changed nonmatching job = %+v", unchanged)
+	}
+}
+
 func TestRepairRetriesDeadQueueOffline(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -552,6 +636,11 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "retry message without retry pipelines",
 			args: []string{"repair", "--retry-message", "incident"},
 			want: "--retry-message requires --retry-pipelines",
+		},
+		{
+			name: "retry step without retry pipelines",
+			args: []string{"repair", "--retry-step", "review"},
+			want: "--retry-step requires --retry-pipelines",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -126,6 +126,7 @@ agent-team repair --skip-daemon
 agent-team repair --skip-queue
 agent-team repair --skip-tick
 agent-team repair --retry-pipelines --dry-run --preview-routes
+agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --until-idle
 agent-team team repair delivery --dry-run --jobs
 ```
@@ -139,6 +140,7 @@ Repair can:
 5. include before/after health snapshots
 
 `--dry-run` should be the first step.
+Use `--retry-step <id>` with `--retry-pipelines` when a broad repair pass should target only one failed stage, such as rerunning review jobs after fixing a reviewer prompt.
 
 ## Recovery Rules of Thumb
 
@@ -151,6 +153,7 @@ Repair can:
 | Queue parsing fails | `agent-team queue doctor --quarantine --dry-run` |
 | Dead queue entries | `agent-team repair --dry-run --jobs` |
 | Failed pipeline steps | `agent-team repair --retry-pipelines --dry-run --preview-routes` |
+| Failed stage across jobs | `agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes` |
 | One stuck job | `agent-team job show <job-id> --events all` |
 | One team stuck | `agent-team team overview <team>` |
 | Worker blocked | `agent-team job unblock <job-id> <answer...>` |

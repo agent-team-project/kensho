@@ -29,6 +29,7 @@ func newRepairCmd() *cobra.Command {
 		skipTick       bool
 		includeJobs    bool
 		retryPipelines bool
+		retryStep      string
 		retryMessage   string
 		untilIdle      bool
 		readyTimeout   time.Duration
@@ -83,6 +84,10 @@ func newRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --retry-message requires --retry-pipelines.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(retryStep) != "" && !retryPipelines {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --retry-step requires --retry-pipelines.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -106,6 +111,7 @@ func newRepairCmd() *cobra.Command {
 				SkipTick:       skipTick,
 				IncludeJobs:    includeJobs,
 				RetryPipelines: retryPipelines,
+				RetryStep:      retryStep,
 				RetryMessage:   retryMessage,
 				UntilIdle:      untilIdle,
 				ReadyTimeout:   readyTimeout,
@@ -132,6 +138,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&skipTick, "skip-tick", false, "Do not run a maintenance tick after queue retry.")
 	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include durable job triage and status-file previews in health snapshots.")
 	cmd.Flags().BoolVar(&retryPipelines, "retry-pipelines", false, "Reset failed pipeline steps and dispatch them before the maintenance tick.")
+	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed steps.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
@@ -150,6 +157,7 @@ type repairOptions struct {
 	SkipTick       bool
 	IncludeJobs    bool
 	RetryPipelines bool
+	RetryStep      string
 	RetryMessage   string
 	UntilIdle      bool
 	ReadyTimeout   time.Duration
@@ -340,7 +348,7 @@ func runRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, opts repairO
 	if message == "" {
 		message = "repair retry failed pipeline step"
 	}
-	results, err := retryPipelineJobs(cmd, teamDir, "", opts.Workspace, "", message, opts.Limit, true, opts.DryRun, opts.PreviewRoutes)
+	results, err := retryPipelineJobs(cmd, teamDir, "", opts.Workspace, opts.RetryStep, message, opts.Limit, true, opts.DryRun, opts.PreviewRoutes)
 	if err != nil {
 		return repairPipelineRetryStep{Action: "error", Reason: err.Error()}, err
 	}
