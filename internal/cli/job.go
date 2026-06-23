@@ -148,7 +148,7 @@ func newJobQueueShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderQueueItemResult(cmd.OutOrStdout(), item, jsonOut, tmpl, queueRuntimeMap(teamDir))
+			return renderQueueItemResultWithActions(cmd.OutOrStdout(), item, jsonOut, tmpl, jobQueueActionResolver(j.ID), queueRuntimeMap(teamDir))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
@@ -4781,8 +4781,50 @@ func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListF
 	if tmpl != nil {
 		return renderQueueItemsFormat(w, filtered, tmpl)
 	}
-	renderQueueTable(w, filtered, runtimeByInstance)
+	renderQueueTableWithActions(w, filtered, runtimeByInstance, jobQueueActionResolver(j.ID))
 	return nil
+}
+
+func jobQueueActionResolver(jobID string) queueActionResolver {
+	return func(item *daemon.QueueItem, now time.Time) []string {
+		return jobQueueItemActions(jobID, item, now)
+	}
+}
+
+func jobQueueItemActions(jobID string, item *daemon.QueueItem, now time.Time) []string {
+	if item == nil {
+		return nil
+	}
+	id := queueItemActionJobID(item)
+	if id == "" {
+		id = job.NormalizeID(jobID)
+	}
+	if id == "" {
+		return queueItemActions(item, now)
+	}
+	queueCommand := func(verb string) string {
+		return fmt.Sprintf("agent-team job queue %s %s %s", verb, id, item.ID)
+	}
+	switch item.State {
+	case daemon.QueueStateDead:
+		return []string{
+			queueCommand("retry"),
+			queueCommand("drop"),
+		}
+	case daemon.QueueStatePending:
+		if !item.NextRetry.IsZero() && item.NextRetry.After(now.UTC()) {
+			return []string{
+				queueCommand("show"),
+				queueCommand("drop"),
+			}
+		}
+		return []string{
+			"agent-team queue drain",
+			queueCommand("drop"),
+		}
+	default:
+		return nil
+	}
 }
 
 func collectJobQueueQuarantineItems(teamDir string, j *job.Job, filters queueListFilters) ([]queueQuarantineItem, error) {

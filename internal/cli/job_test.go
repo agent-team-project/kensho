@@ -780,6 +780,24 @@ func TestJobQueueListsOwnedItems(t *testing.T) {
 		t.Fatalf("job queue ids = %s", got)
 	}
 
+	textList := NewRootCmd()
+	textListOut, textListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	textList.SetOut(textListOut)
+	textList.SetErr(textListErr)
+	textList.SetArgs([]string{"job", "queue", "SQU-120", "--repo", tmp})
+	if err := textList.Execute(); err != nil {
+		t.Fatalf("job queue text: %v\nstderr=%s", err, textListErr.String())
+	}
+	for _, want := range []string{
+		"agent-team job queue retry squ-120 q-job-dead; agent-team job queue drop squ-120 q-job-dead",
+		"agent-team queue drain; agent-team job queue drop squ-120 q-job-ready",
+		"agent-team job queue show squ-120 q-job-delayed; agent-team job queue drop squ-120 q-job-delayed",
+	} {
+		if !strings.Contains(textListOut.String(), want) {
+			t.Fatalf("job queue text missing %q:\n%s", want, textListOut.String())
+		}
+	}
+
 	runtimeList := NewRootCmd()
 	runtimeListOut, runtimeListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	runtimeList.SetOut(runtimeListOut)
@@ -807,6 +825,20 @@ func TestJobQueueListsOwnedItems(t *testing.T) {
 	for _, want := range []string{"Runtime:     codex", "agent-team job queue retry squ-120 q-job-dead", "agent-team job queue drop squ-120 q-job-dead"} {
 		if !strings.Contains(showTextOut.String(), want) {
 			t.Fatalf("job queue show missing %q:\n%s", want, showTextOut.String())
+		}
+	}
+
+	showReady := NewRootCmd()
+	showReadyOut, showReadyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	showReady.SetOut(showReadyOut)
+	showReady.SetErr(showReadyErr)
+	showReady.SetArgs([]string{"job", "queue", "show", "SQU-120", "q-job-ready", "--repo", tmp})
+	if err := showReady.Execute(); err != nil {
+		t.Fatalf("job queue show ready text: %v\nstderr=%s", err, showReadyErr.String())
+	}
+	for _, want := range []string{"Runtime:     codex", "agent-team queue drain", "agent-team job queue drop squ-120 q-job-ready"} {
+		if !strings.Contains(showReadyOut.String(), want) {
+			t.Fatalf("job queue show ready missing %q:\n%s", want, showReadyOut.String())
 		}
 	}
 
