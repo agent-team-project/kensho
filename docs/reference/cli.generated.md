@@ -1789,6 +1789,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --older-than duration   Only prune job-owned items older than this duration based on retry/dead-letter/update time.
       --repo string           Repo root. (default "<repo>")
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
 
@@ -2993,6 +2994,7 @@ Flags:
       --format string         Render each result with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json                  Emit prune results as JSON.
       --older-than duration   Only prune items older than this duration based on retry/dead-letter/update time.
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
       --target string         Repo root. (default "<repo>")
 ```
@@ -4388,6 +4390,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --older-than duration   Only prune team-owned items older than this duration based on retry/dead-letter/update time.
       --repo string           Repo root. (default "<repo>")
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
 

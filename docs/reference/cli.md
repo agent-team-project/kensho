@@ -102,7 +102,7 @@ Shortcuts:
 | `agent-team job queue retry <job-id> --all` | Retry matching job-owned queue items; filter batch actions with `--runtime` |
 | `agent-team job queue drop <job-id> <id>` | Drop one job-owned queue item |
 | `agent-team job queue drop <job-id> --all` | Drop matching job-owned queue items; filter batch actions with `--runtime` |
-| `agent-team job queue prune <job-id>` | Age-prune job-owned queue entries |
+| `agent-team job queue prune <job-id>` | Age-prune job-owned queue entries; filter prune candidates with `--runtime` |
 | `agent-team job queue quarantine <job-id>` | List job-owned quarantined queue files |
 | `agent-team job queue quarantine show <job-id> <path>` | Inspect one preserved file |
 | `agent-team job queue quarantine restore <job-id> <path>` | Restore one preserved file |
@@ -121,7 +121,7 @@ Shortcuts:
 | `agent-team queue retry --all` | Retry matching entries; filter batch actions with `--runtime` |
 | `agent-team queue drop <id>` | Drop one entry |
 | `agent-team queue drop --all` | Drop matching entries; filter batch actions with `--runtime` |
-| `agent-team queue prune` | Age-prune entries |
+| `agent-team queue prune` | Age-prune entries; filter prune candidates with `--runtime` |
 | `agent-team queue doctor` | Validate queue files |
 | `agent-team queue quarantine ls` | List quarantined queue files |
 | `agent-team queue quarantine show <path>` | Inspect quarantined queue file |
@@ -161,6 +161,7 @@ Shortcuts:
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime` |
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |
 | `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter batch actions with `--runtime` |
+| `agent-team team queue prune <team>` | Age-prune team-owned entries; filter prune candidates with `--runtime` |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |

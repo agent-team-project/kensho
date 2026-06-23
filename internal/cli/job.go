@@ -571,6 +571,7 @@ func newJobQueuePruneCmd() *cobra.Command {
 		dryRun    bool
 		jsonOut   bool
 		format    string
+		runtimes  []string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -597,16 +598,22 @@ func newJobQueuePruneCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue prune: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err := parseQueueListFiltersWithRuntime("", nil, nil, nil, runtimes, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue prune: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
 				return err
 			}
-			return runJobQueuePrune(cmd.OutOrStdout(), teamDir, j, state, olderThan, time.Now().UTC(), dryRun, jsonOut, tmpl)
+			return runJobQueuePrune(cmd.OutOrStdout(), teamDir, j, state, olderThan, filters, time.Now().UTC(), dryRun, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune job-owned items older than this duration based on retry/dead-letter/update time.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job-owned queue items that would be pruned without dropping them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -4830,14 +4837,16 @@ func runJobQueueDropAll(w io.Writer, teamDir string, j *job.Job, filters queueLi
 	return renderQueueDropResults(w, results, jsonOut, tmpl)
 }
 
-func runJobQueuePrune(w io.Writer, teamDir string, j *job.Job, state string, olderThan time.Duration, now time.Time, dryRun, jsonOut bool, tmpl *template.Template) error {
+func runJobQueuePrune(w io.Writer, teamDir string, j *job.Job, state string, olderThan time.Duration, filters queueListFilters, now time.Time, dryRun, jsonOut bool, tmpl *template.Template) error {
 	items, err := queueItemsForJob(teamDir, j)
 	if err != nil {
 		return err
 	}
+	runtimeByInstance := queueRuntimeMap(teamDir)
+	queueFilters := filters.withNow(now).withRuntimeByInstance(runtimeByInstance)
 	matches := make([]*daemon.QueueItem, 0, len(items))
 	for _, item := range items {
-		if queueItemMatchesPrune(item, state, olderThan, now) {
+		if queueFilters.match(item) && queueItemMatchesPrune(item, state, olderThan, now) {
 			matches = append(matches, item)
 		}
 	}

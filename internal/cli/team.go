@@ -1762,6 +1762,7 @@ func newTeamQueuePruneCmd() *cobra.Command {
 		dryRun    bool
 		jsonOut   bool
 		format    string
+		runtimes  []string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1788,16 +1789,22 @@ func newTeamQueuePruneCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue prune: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err := parseQueueListFiltersWithRuntime("", nil, nil, nil, runtimes, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue prune: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			return runTeamQueuePrune(cmd.OutOrStdout(), teamDir, args[0], state, olderThan, time.Now().UTC(), dryRun, jsonOut, tmpl)
+			return runTeamQueuePrune(cmd.OutOrStdout(), teamDir, args[0], state, olderThan, filters, time.Now().UTC(), dryRun, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune team-owned items older than this duration based on retry/dead-letter/update time.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned queue items that would be pruned without dropping them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -5116,8 +5123,8 @@ func runTeamQueueDropAll(w io.Writer, teamDir, name string, filters queueListFil
 	return renderQueueDropResults(w, results, jsonOut, tmpl)
 }
 
-func runTeamQueuePrune(w io.Writer, teamDir, name, state string, olderThan time.Duration, now time.Time, dryRun, jsonOut bool, tmpl *template.Template) error {
-	items, err := collectTeamQueueItems(teamDir, name, queueListFilters{}, now)
+func runTeamQueuePrune(w io.Writer, teamDir, name, state string, olderThan time.Duration, filters queueListFilters, now time.Time, dryRun, jsonOut bool, tmpl *template.Template) error {
+	items, err := collectTeamQueueItems(teamDir, name, filters, now)
 	if err != nil {
 		return err
 	}

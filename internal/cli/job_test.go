@@ -1335,6 +1335,102 @@ func TestJobQueuePruneScopesOwnedItems(t *testing.T) {
 	}
 }
 
+func TestJobQueuePruneRuntimeFiltersItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	j, err := job.New("SQU-124", "worker", "runtime scoped cleanup", time.Now())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Instance = "worker-squ-124"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-job-old-codex",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-124",
+			Payload: map[string]any{
+				"job_id":  "squ-124",
+				"runtime": "codex",
+				"ticket":  "SQU-124",
+				"target":  "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+		{
+			ID:         "q-job-old-claude",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-124-claude",
+			Payload: map[string]any{
+				"job_id":  "squ-124",
+				"runtime": "claude",
+				"ticket":  "SQU-124",
+				"target":  "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"job", "queue", "prune", "SQU-124", "--repo", tmp, "--older-than", "24h", "--runtime", "codex", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("job queue prune runtime dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []queuePruneResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode job runtime prune dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "q-job-old-codex" || !dryResults[0].DryRun || dryResults[0].Dropped {
+		t.Fatalf("job runtime dry-run results = %+v", dryResults)
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"job", "queue", "prune", "SQU-124", "--repo", tmp, "--older-than", "24h", "--runtime", "codex", "--json"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("job queue prune runtime: %v\nstderr=%s", err, pruneErr.String())
+	}
+	var pruneResults []queuePruneResult
+	if err := json.Unmarshal(pruneOut.Bytes(), &pruneResults); err != nil {
+		t.Fatalf("decode job runtime prune: %v\nbody=%s", err, pruneOut.String())
+	}
+	if len(pruneResults) != 1 || pruneResults[0].ID != "q-job-old-codex" || !pruneResults[0].Dropped {
+		t.Fatalf("job runtime prune results = %+v", pruneResults)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-old-codex"); !os.IsNotExist(err) {
+		t.Fatalf("codex job item err=%v, want not exist", err)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-old-claude"); err != nil {
+		t.Fatalf("claude job item should remain: %v", err)
+	}
+}
+
 func TestJobQueueRejectsFormatCombinations(t *testing.T) {
 	for _, tc := range []struct {
 		name string

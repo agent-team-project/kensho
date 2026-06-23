@@ -516,6 +516,7 @@ func newQueuePruneCmd() *cobra.Command {
 		dryRun    bool
 		jsonOut   bool
 		format    string
+		runtimes  []string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -542,11 +543,16 @@ func newQueuePruneCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue prune: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err := parseQueueListFiltersWithRuntime("", nil, nil, nil, runtimes, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue prune: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
 			}
-			results, err := pruneQueueItems(teamDir, state, olderThan, time.Now().UTC(), dryRun)
+			results, err := pruneQueueItems(teamDir, state, olderThan, time.Now().UTC(), dryRun, filters)
 			if err != nil {
 				return err
 			}
@@ -556,6 +562,7 @@ func newQueuePruneCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune items older than this duration based on retry/dead-letter/update time.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview queue items that would be pruned without dropping them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -867,14 +874,16 @@ func parseQueuePruneState(raw string) (string, error) {
 	}
 }
 
-func pruneQueueItems(teamDir, state string, olderThan time.Duration, now time.Time, dryRun bool) ([]queuePruneResult, error) {
+func pruneQueueItems(teamDir, state string, olderThan time.Duration, now time.Time, dryRun bool, filters queueListFilters) ([]queuePruneResult, error) {
 	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
 	}
+	runtimeByInstance := queueRuntimeMap(teamDir)
+	queueFilters := filters.withNow(now).withRuntimeByInstance(runtimeByInstance)
 	matches := make([]*daemon.QueueItem, 0, len(items))
 	for _, item := range items {
-		if queueItemMatchesPrune(item, state, olderThan, now) {
+		if queueFilters.match(item) && queueItemMatchesPrune(item, state, olderThan, now) {
 			matches = append(matches, item)
 		}
 	}

@@ -99,10 +99,18 @@ agent-team queue drop <id>
 Batch drops default to dead-letter entries:
 
 ```sh
-agent-team queue drop --all --state dead --older-than 24h --dry-run
+agent-team queue drop --all --state dead --dry-run
 agent-team queue drop --all --runtime codex --dry-run
 agent-team job queue drop squ-42 --all --runtime codex --dry-run
 agent-team team queue drop delivery --all --runtime codex --dry-run
+```
+
+Age-prune old entries:
+
+```sh
+agent-team queue prune --older-than 24h --runtime codex --dry-run
+agent-team job queue prune squ-42 --older-than 24h --runtime codex --dry-run
+agent-team team queue prune delivery --older-than 24h --runtime codex --dry-run
 ```
 
 ## Queue Doctor

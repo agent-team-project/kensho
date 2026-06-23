@@ -1822,6 +1822,91 @@ func TestQueuePruneLocal(t *testing.T) {
 	}
 }
 
+func TestQueuePruneRuntimeFiltersItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-old-codex",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-codex",
+			Payload: map[string]any{
+				"runtime": "codex",
+				"target":  "worker",
+				"ticket":  "SQU-801",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+		{
+			ID:         "q-old-claude",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-claude",
+			Payload: map[string]any{
+				"runtime": "claude",
+				"target":  "worker",
+				"ticket":  "SQU-802",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--runtime", "codex", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("queue prune runtime dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []queuePruneResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode runtime prune dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "q-old-codex" || !dryResults[0].DryRun || dryResults[0].Dropped {
+		t.Fatalf("runtime dry-run results = %+v", dryResults)
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--runtime", "codex", "--json"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("queue prune runtime: %v\nstderr=%s", err, pruneErr.String())
+	}
+	var pruneResults []queuePruneResult
+	if err := json.Unmarshal(pruneOut.Bytes(), &pruneResults); err != nil {
+		t.Fatalf("decode runtime prune: %v\nbody=%s", err, pruneOut.String())
+	}
+	if len(pruneResults) != 1 || pruneResults[0].ID != "q-old-codex" || !pruneResults[0].Dropped {
+		t.Fatalf("runtime prune results = %+v", pruneResults)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-old-codex"); !os.IsNotExist(err) {
+		t.Fatalf("codex item err=%v, want not exist", err)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-old-claude"); err != nil {
+		t.Fatalf("claude item should remain: %v", err)
+	}
+}
+
 func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

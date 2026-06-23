@@ -3966,6 +3966,124 @@ instances = ["other"]
 	}
 }
 
+func TestTeamQueuePruneRuntimeFiltersItems(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.other]
+agent = "other"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["other"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-team-codex",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-710",
+			Payload: map[string]any{
+				"runtime": "codex",
+				"target":  "worker",
+				"ticket":  "SQU-710",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+		{
+			ID:         "q-team-claude",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-711",
+			Payload: map[string]any{
+				"runtime": "claude",
+				"target":  "worker",
+				"ticket":  "SQU-711",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+		{
+			ID:         "q-other-codex",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "other",
+			InstanceID: "other-oth-710",
+			Payload: map[string]any{
+				"runtime": "codex",
+				"target":  "other",
+				"ticket":  "OTH-710",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"team", "queue", "prune", "delivery", "--repo", root, "--older-than", "24h", "--runtime", "codex", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("team queue prune runtime dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResults []queuePruneResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResults); err != nil {
+		t.Fatalf("decode team runtime prune dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResults) != 1 || dryResults[0].ID != "q-team-codex" || !dryResults[0].DryRun || dryResults[0].Dropped {
+		t.Fatalf("team runtime dry-run results = %+v", dryResults)
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"team", "queue", "prune", "delivery", "--repo", root, "--older-than", "24h", "--runtime", "codex", "--json"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("team queue prune runtime: %v\nstderr=%s", err, pruneErr.String())
+	}
+	var pruneResults []queuePruneResult
+	if err := json.Unmarshal(pruneOut.Bytes(), &pruneResults); err != nil {
+		t.Fatalf("decode team runtime prune: %v\nbody=%s", err, pruneOut.String())
+	}
+	if len(pruneResults) != 1 || pruneResults[0].ID != "q-team-codex" || !pruneResults[0].Dropped {
+		t.Fatalf("team runtime prune results = %+v", pruneResults)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-team-codex"); !os.IsNotExist(err) {
+		t.Fatalf("codex team item err=%v, want not exist", err)
+	}
+	for _, id := range []string{"q-team-claude", "q-other-codex"} {
+		if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id); err != nil {
+			t.Fatalf("queue item %s should remain: %v", id, err)
+		}
+	}
+}
+
 func TestTeamQueueRetryDropRejectsFormatCombinations(t *testing.T) {
 	for _, tc := range []struct {
 		name string
