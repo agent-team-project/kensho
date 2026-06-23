@@ -15,6 +15,23 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 )
 
+func TestQueueSummaryEncodesEmptyMapsAsObjects(t *testing.T) {
+	body, err := json.Marshal(queueSummary{})
+	if err != nil {
+		t.Fatalf("marshal queue summary: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("decode queue summary: %v\nbody=%s", err, string(body))
+	}
+	if _, ok := raw["instances"].(map[string]any); !ok {
+		t.Fatalf("instances = %#v, want object in %s", raw["instances"], string(body))
+	}
+	if _, ok := raw["events"].(map[string]any); !ok {
+		t.Fatalf("events = %#v, want object in %s", raw["events"], string(body))
+	}
+}
+
 func TestQueueCommandListShowDropLocal(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

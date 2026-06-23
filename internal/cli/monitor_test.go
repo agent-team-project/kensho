@@ -43,6 +43,24 @@ func TestMonitorCommandJSONDoesNotExitUnhealthy(t *testing.T) {
 	if body.StatsError != "" {
 		t.Fatalf("stats_error = %q, want empty local fallback error", body.StatsError)
 	}
+	var raw map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw monitor json: %v\nbody=%s", err, stdout.String())
+	}
+	health, ok := raw["health"].(map[string]any)
+	if !ok {
+		t.Fatalf("raw health = %#v, want object", raw["health"])
+	}
+	queue, ok := health["queue"].(map[string]any)
+	if !ok {
+		t.Fatalf("raw health.queue = %#v, want object", health["queue"])
+	}
+	if _, ok := queue["instances"].(map[string]any); !ok {
+		t.Fatalf("raw health.queue.instances = %#v, want empty object", queue["instances"])
+	}
+	if _, ok := queue["events"].(map[string]any); !ok {
+		t.Fatalf("raw health.queue.events = %#v, want empty object", queue["events"])
+	}
 }
 
 func TestMonitorSummaryJSONUsesHealthSnapshot(t *testing.T) {

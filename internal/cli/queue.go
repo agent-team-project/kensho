@@ -811,6 +811,17 @@ type queueSummary struct {
 	Events                 map[string]int `json:"events"`
 }
 
+func (s queueSummary) MarshalJSON() ([]byte, error) {
+	type queueSummaryJSON queueSummary
+	if s.Instances == nil {
+		s.Instances = map[string]int{}
+	}
+	if s.Events == nil {
+		s.Events = map[string]int{}
+	}
+	return json.Marshal(queueSummaryJSON(s))
+}
+
 func parseQueuePruneState(raw string) (string, error) {
 	state := strings.ToLower(strings.TrimSpace(raw))
 	switch state {
