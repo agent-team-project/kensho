@@ -30,6 +30,7 @@ func newHealthCmd() *cobra.Command {
 		latest          bool
 		last            int
 		statusFilters   []string
+		runtimeFilters  []string
 		agentFilters    []string
 		phaseFilters    []string
 		instanceFilters []string
@@ -84,7 +85,7 @@ func newHealthCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team health: %v\n", err)
 				return exitErr(2)
 			}
-			opts, err := newHealthOptionsWithInstancesAndUnhealthy(statusFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
+			opts, err := newHealthOptionsWithRuntimeInstancesAndUnhealthy(statusFilters, runtimeFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team health: %v\n", err)
 				return exitErr(2)
@@ -157,6 +158,7 @@ func newHealthCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Only check the most recently started instance after other filters. Daemon health remains global.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Only check the N most recently started instances after other filters (0 = all). Daemon health remains global.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only check daemon-known instances for this runtime: claude or codex. Daemon health remains global. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only check declared and daemon-known instances for this agent. Daemon health remains global. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only check instances with this name. Daemon health remains global. Can repeat or comma-separate.")
@@ -184,7 +186,11 @@ func newHealthOptionsWithInstances(statusFilters, agentFilters, phaseFilters, in
 }
 
 func newHealthOptionsWithInstancesAndUnhealthy(statusFilters, agentFilters, phaseFilters, instanceFilters []string, staleOnly, unhealthyOnly bool) (healthOptions, error) {
-	filters, err := newPsOptionsWithInstancesAndUnhealthy(statusFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
+	return newHealthOptionsWithRuntimeInstancesAndUnhealthy(statusFilters, nil, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
+}
+
+func newHealthOptionsWithRuntimeInstancesAndUnhealthy(statusFilters, runtimeFilters, agentFilters, phaseFilters, instanceFilters []string, staleOnly, unhealthyOnly bool) (healthOptions, error) {
+	filters, err := newPsOptionsWithRuntimeInstancesAndUnhealthy(statusFilters, runtimeFilters, agentFilters, phaseFilters, instanceFilters, staleOnly, unhealthyOnly)
 	if err != nil {
 		return healthOptions{}, err
 	}
@@ -875,6 +881,9 @@ func healthRowMatchesFilters(row instanceRow, opts healthOptions) bool {
 		return false
 	}
 	if len(filters.statuses) > 0 && !filters.statuses[psStatusKey(row)] {
+		return false
+	}
+	if len(filters.runtimes) > 0 && !filters.runtimes[psRuntimeKey(row)] {
 		return false
 	}
 	if len(filters.agents) > 0 && !filters.agents[row.Agent] {

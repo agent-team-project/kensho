@@ -158,6 +158,40 @@ func TestHealthInstanceFilterScopesInstanceAndDeclaredIssues(t *testing.T) {
 	}
 }
 
+func TestHealthRuntimeFilterScopesInstanceAndDeclaredIssues(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	topo := &topology.Topology{Instances: map[string]*topology.Instance{
+		"codex-worker":   {Name: "codex-worker", Agent: "worker"},
+		"claude-manager": {Name: "claude-manager", Agent: "manager"},
+	}}
+	rows := []instanceRow{
+		{Instance: "codex-worker", Agent: "worker", Runtime: "codex", RuntimeBinary: "codex-dev", Lifecycle: string(daemon.StatusCrashed), Phase: "blocked", PID: 10},
+		{Instance: "claude-manager", Agent: "manager", Runtime: "claude", RuntimeBinary: "claude-code", Lifecycle: string(daemon.StatusCrashed), Phase: "blocked", PID: 11},
+	}
+	opts, err := newHealthOptionsWithRuntimeInstancesAndUnhealthy(nil, []string{"codex"}, nil, nil, nil, false, false)
+	if err != nil {
+		t.Fatalf("newHealthOptionsWithRuntimeInstancesAndUnhealthy: %v", err)
+	}
+	scoped := buildHealthWithOptions(true, 123, rows, topo, now, opts)
+	if scoped.Healthy {
+		t.Fatalf("codex-scoped health should see codex crash")
+	}
+	if scoped.Summary.Total != 1 || scoped.Summary.Crashed != 1 {
+		t.Fatalf("summary = %+v, want one crashed codex row", scoped.Summary)
+	}
+	if scoped.Declared.Persistent != 1 || scoped.Declared.Running != 0 {
+		t.Fatalf("declared = %+v, want codex declaration only", scoped.Declared)
+	}
+	if len(scoped.Instances) != 1 || scoped.Instances[0].Instance != "codex-worker" {
+		t.Fatalf("instances = %+v, want codex worker only", scoped.Instances)
+	}
+	for _, issue := range scoped.Issues {
+		if issue.Instance == "claude-manager" {
+			t.Fatalf("claude issue should be filtered out: %+v", scoped.Issues)
+		}
+	}
+}
+
 func TestHealthLastScopesRowsAndDeclaredIssuesToNewestInstances(t *testing.T) {
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	topo := &topology.Topology{Instances: map[string]*topology.Instance{
@@ -422,17 +456,20 @@ func TestHealthFilterValidation(t *testing.T) {
 	cases := []struct {
 		name     string
 		statuses []string
+		runtimes []string
 		phases   []string
 		want     string
 	}{
 		{name: "unknown status", statuses: []string{"paused"}, want: "unknown --status"},
 		{name: "empty status", statuses: []string{"  "}, want: "non-empty status"},
+		{name: "unknown runtime", runtimes: []string{"llama"}, want: "unknown --runtime"},
+		{name: "empty runtime", runtimes: []string{"  "}, want: "non-empty runtime"},
 		{name: "unknown phase", phases: []string{"waiting"}, want: "unknown --phase"},
 		{name: "empty phase", phases: []string{"  "}, want: "non-empty phase"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := newHealthOptions(tc.statuses, nil, tc.phases, false)
+			_, err := newHealthOptionsWithRuntimeInstancesAndUnhealthy(tc.statuses, tc.runtimes, nil, tc.phases, nil, false, false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}

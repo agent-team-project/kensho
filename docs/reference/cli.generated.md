@@ -794,6 +794,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet               Suppress output and use only the exit code.
+      --runtime strings     Only check daemon-known instances for this runtime: claude or codex. Daemon health remains global. Can repeat or comma-separate.
       --stale               Only check instances whose status.toml is stale.
       --status strings      Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --strict-topology     Treat running daemon-known instances not declared in instances.toml as unhealthy.
