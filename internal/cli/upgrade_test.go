@@ -99,7 +99,7 @@ func TestUpgradeCheckJSONAndStrict(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode upgrade json: %v\nbody=%s", err, out.String())
 	}
-	if !result.Differs || result.UpToDate || result.TargetTemplate != "tiny" || result.TargetVersion != "0.0.2" || result.ApplyImplemented {
+	if !result.Differs || result.UpToDate || result.TargetTemplate != "tiny" || result.TargetVersion != "0.0.2" || !result.ApplyImplemented {
 		t.Fatalf("upgrade json result = %+v", result)
 	}
 	if result.LockedHash == "" || result.TargetHash == "" || result.LockedHash == result.TargetHash {
@@ -141,12 +141,122 @@ func TestUpgradeCheckFormatAndStrict(t *testing.T) {
 	if !errors.As(err, &ec) || int(ec) != 1 {
 		t.Fatalf("strict format err = %v, want exit 1\nstderr=%s", err, errOut.String())
 	}
-	if got, want := out.String(), "true 0.0.2 false\n"; got != want {
+	if got, want := out.String(), "true 0.0.2 true\n"; got != want {
 		t.Fatalf("upgrade --format output = %q, want %q", got, want)
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("strict format stderr = %q", errOut.String())
 	}
+}
+
+func TestUpgradeApplyDryRunAndApplyCleanChanges(t *testing.T) {
+	tmplDir := t.TempDir()
+	writeTinyTemplateFiles(t, tmplDir, "tiny", "0.0.1", map[string]string{
+		"skills/tiny/SKILL.md":     "hello\n",
+		"skills/obsolete/SKILL.md": "remove me\n",
+	})
+
+	target := t.TempDir()
+	initCmd := NewRootCmd()
+	initCmd.SetOut(&bytes.Buffer{})
+	initCmd.SetErr(&bytes.Buffer{})
+	initCmd.SetArgs([]string{"init", tmplDir, "--target", target})
+	if err := initCmd.Execute(); err != nil {
+		t.Fatalf("init local template: %v", err)
+	}
+
+	nextDir := t.TempDir()
+	writeTinyTemplateFiles(t, nextDir, "tiny", "0.0.2", map[string]string{
+		"skills/tiny/SKILL.md": "hello again\n",
+		"skills/new/SKILL.md":  "new file\n",
+	})
+
+	dryCmd := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryCmd.SetOut(dryOut)
+	dryCmd.SetErr(dryErr)
+	dryCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--json", "--target", target, "--to", nextDir})
+	if err := dryCmd.Execute(); err != nil {
+		t.Fatalf("upgrade --apply --dry-run: %v\nstderr: %s", err, dryErr.String())
+	}
+	var dryResult upgradeApplyResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResult); err != nil {
+		t.Fatalf("decode dry-run json: %v\nbody=%s", err, dryOut.String())
+	}
+	if !dryResult.DryRun || dryResult.Applied || dryResult.Added != 1 || dryResult.Updated != 1 || dryResult.Removed != 1 || dryResult.Conflicts != 0 {
+		t.Fatalf("dry-run result = %+v", dryResult)
+	}
+	assertFileBody(t, filepath.Join(target, ".agent_team", "skills", "tiny", "SKILL.md"), "hello\n")
+	assertFileBody(t, filepath.Join(target, ".agent_team", "skills", "obsolete", "SKILL.md"), "remove me\n")
+	if _, err := os.Stat(filepath.Join(target, ".agent_team", "skills", "new", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create new file, err=%v", err)
+	}
+
+	applyCmd := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	applyCmd.SetOut(applyOut)
+	applyCmd.SetErr(applyErr)
+	applyCmd.SetArgs([]string{"upgrade", "--apply", "--json", "--target", target, "--to", nextDir})
+	if err := applyCmd.Execute(); err != nil {
+		t.Fatalf("upgrade --apply: %v\nstderr: %s", err, applyErr.String())
+	}
+	var applyResult upgradeApplyResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applyResult); err != nil {
+		t.Fatalf("decode apply json: %v\nbody=%s", err, applyOut.String())
+	}
+	if applyResult.DryRun || !applyResult.Applied || applyResult.Added != 1 || applyResult.Updated != 1 || applyResult.Removed != 1 || applyResult.Conflicts != 0 {
+		t.Fatalf("apply result = %+v", applyResult)
+	}
+	assertFileBody(t, filepath.Join(target, ".agent_team", "skills", "tiny", "SKILL.md"), "hello again\n")
+	assertFileBody(t, filepath.Join(target, ".agent_team", "skills", "new", "SKILL.md"), "new file\n")
+	if _, err := os.Stat(filepath.Join(target, ".agent_team", "skills", "obsolete", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete file should be removed, err=%v", err)
+	}
+	lockBody := readUpgradeTestFile(t, filepath.Join(target, ".agent_team", ".template.lock"))
+	if !strings.Contains(lockBody, `version = "0.0.2"`) || !strings.Contains(lockBody, `ref = "`+nextDir+`"`) {
+		t.Fatalf("lock was not updated to target template:\n%s", lockBody)
+	}
+}
+
+func TestUpgradeApplyReportsConflictForLocalEdit(t *testing.T) {
+	tmplDir := t.TempDir()
+	writeTinyTemplate(t, tmplDir, "tiny", "0.0.1", "hello\n")
+
+	target := t.TempDir()
+	initCmd := NewRootCmd()
+	initCmd.SetOut(&bytes.Buffer{})
+	initCmd.SetErr(&bytes.Buffer{})
+	initCmd.SetArgs([]string{"init", tmplDir, "--target", target})
+	if err := initCmd.Execute(); err != nil {
+		t.Fatalf("init local template: %v", err)
+	}
+
+	currentPath := filepath.Join(target, ".agent_team", "skills", "tiny", "SKILL.md")
+	if err := os.WriteFile(currentPath, []byte("local edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	nextDir := t.TempDir()
+	writeTinyTemplate(t, nextDir, "tiny", "0.0.2", "target edit\n")
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"upgrade", "--apply", "--json", "--target", target, "--to", nextDir})
+	err := cmd.Execute()
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("conflict err = %v, want exit 1\nstderr=%s", err, errOut.String())
+	}
+	var result upgradeApplyResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode conflict json: %v\nbody=%s", err, out.String())
+	}
+	if result.Applied || result.Conflicts != 1 || len(result.Actions) != 1 || result.Actions[0].Action != "conflict" {
+		t.Fatalf("conflict result = %+v", result)
+	}
+	assertFileBody(t, currentPath, "local edit\n")
 }
 
 func TestUpgradeCheckFormatValidation(t *testing.T) {
@@ -186,7 +296,7 @@ func TestUpgradeCheckFormatValidation(t *testing.T) {
 	}
 }
 
-func TestUpgradeRequiresCheckForNow(t *testing.T) {
+func TestUpgradeRequiresMode(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
@@ -197,14 +307,14 @@ func TestUpgradeRequiresCheckForNow(t *testing.T) {
 	cmd.SetArgs([]string{"upgrade", "--target", tmp})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected upgrade without --check to fail")
+		t.Fatal("expected upgrade without a mode to fail")
 	}
 	var ec ExitCode
 	if !errors.As(err, &ec) || int(ec) != 2 {
 		t.Errorf("expected exit 2, got %v", err)
 	}
-	if !strings.Contains(errOut.String(), "pass --check") {
-		t.Errorf("missing --check guidance: %s", errOut.String())
+	if !strings.Contains(errOut.String(), "pass --check") || !strings.Contains(errOut.String(), "--apply") {
+		t.Errorf("missing mode guidance: %s", errOut.String())
 	}
 }
 
@@ -235,6 +345,13 @@ func TestUpgradeCheck_FailsWithoutLock(t *testing.T) {
 
 func writeTinyTemplate(t *testing.T, dir, name, version, body string) {
 	t.Helper()
+	writeTinyTemplateFiles(t, dir, name, version, map[string]string{
+		"skills/tiny/SKILL.md": body,
+	})
+}
+
+func writeTinyTemplateFiles(t *testing.T, dir, name, version string, files map[string]string) {
+	t.Helper()
 	manifest := `[template]
 name = "` + name + `"
 version = "` + version + `"
@@ -242,10 +359,29 @@ version = "` + version + `"
 	if err := os.WriteFile(filepath.Join(dir, "template.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "skills", "tiny"), 0o755); err != nil {
+	for rel, body := range files {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func readUpgradeTestFile(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "skills", "tiny", "SKILL.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
+	return string(body)
+}
+
+func assertFileBody(t *testing.T, path, want string) {
+	t.Helper()
+	if got := readUpgradeTestFile(t, path); got != want {
+		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
 }

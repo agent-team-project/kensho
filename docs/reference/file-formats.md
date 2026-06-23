@@ -27,7 +27,7 @@ either value to `"0"` to disable that stale check.
 
 Template provenance.
 
-Stores source identity and content hash so `upgrade --check` can compare current state against a target ref.
+Stores source identity and content hash so `upgrade --check` can compare current state against a target ref and `upgrade --apply` can render a conservative three-way plan.
 
 ## `template.toml`
 

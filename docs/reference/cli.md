@@ -19,7 +19,7 @@ as the output directory instead.
 | `agent-team template rm <ref>` | Remove a cached template |
 | `agent-team template smoke [ref]` | Render a template in a temp repo and validate it |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
-| `agent-team upgrade --check` | Compare current template lock to target |
+| `agent-team upgrade --check|--apply` | Compare current template lock to target or apply clean template changes |
 | `agent-team doctor` | Validate local layout and runtime availability |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 

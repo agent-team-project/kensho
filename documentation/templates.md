@@ -155,14 +155,14 @@ agent-team init [<ref>] [--set k=v]... [--no-input]
     Required parameters with no default → prompt interactively, or read from --set, or fail under --no-input.
 
 agent-team upgrade --check [--to <ref>]
-    Read-only preflight available today: compare .agent_team/.template.lock
-    against the locked ref or an explicit target ref.
+    Read-only preflight: compare .agent_team/.template.lock against the locked
+    ref or an explicit target ref.
 
-agent-team upgrade [--to <ref>] [--set k=v]...
-    Future apply mode: re-resolve the current repo's template against a
-    (newer) version. Three-way merges template-default → user-current →
-    new-template-default. User edits to authored files are preserved when not
-    in conflict.
+agent-team upgrade --apply [--to <ref>] [--dry-run]
+    Re-render the locked and target templates with the current repo config,
+    compare locked → current → target file contents, and apply only clean
+    add/update/remove actions. Local edits that overlap target changes are
+    reported as conflicts and left untouched.
 
 agent-team template ls
     List bundled + cached templates.
@@ -198,13 +198,13 @@ A template ref identifies *what to instantiate*:
 
 - Templates declare `version` in `template.toml` (semver).
 - Refs can pin (`@v1.2.0`), float to a branch (`@main`), or omit (defaults to latest tagged).
-- `.template.lock` records the resolved ref, manifest identity, and source content hash, enabling reproducible re-instantiation and future upgrade planning.
+- `.template.lock` records the resolved ref, manifest identity, and source content hash, enabling reproducible re-instantiation and conservative upgrade planning/apply.
 
 ## Open questions
 
 1. **Interactive vs. flags-only as default.** Recommended: prompt by default, `--no-input` for CI / scripted use (must supply all required params via `--set` or fail). Aligns with `cookiecutter`, `create-react-app`. Not aligned with `helm install` (flags-only). Verify with users once shipped.
 
-2. **`upgrade` semantics on user-edited files.** Three-way merge is the obvious model but has corner cases (deleted file, renamed file, schema-incompatible parameter change). For v1.2 launch: support upgrade only between same-major-version templates; bail with a diagnostic if the major version changes. Refine later.
+2. **Richer `upgrade` semantics on user-edited files.** The current apply mode is a conservative file-level three-way: clean add/update/remove actions are applied, while overlapping local edits stop the upgrade. Remaining design work includes renames, schema-incompatible parameter changes, and version-policy checks for major template upgrades.
 
 3. **Multi-template repos.** Can one `.agent_team/` host multiple templates? Probably no for v1.2 — keeps the resolution chain simple. Power users with two unrelated agent groups should split into two repos or a sub-directory model. Revisit if pain emerges.
 
@@ -461,33 +461,28 @@ Then `agent-team run ticket-manager --name=tm-platform` picks it up automaticall
 A new version drops upstream:
 
 ```sh
-$ agent-team upgrade --to github.com/acme/eng-team@v1.1.0
-Pulling github.com/acme/eng-team@v1.1.0 ... ✓
-Resolving v1.0.0 → v1.1.0 ...
-
-Changes:
-  template.toml          modified (1 parameter added: linear.priority_default)
-  agents/manager/agent.md modified upstream, unchanged locally  → auto-update
-  agents/worker/agent.md  modified upstream, modified locally   → 3-way merge needed
-
-New parameters required:
-  linear.priority_default (string, default: "medium"):  [Enter to accept default]
-
-Three-way merge required for: agents/worker/agent.md
-  Run `agent-team upgrade --resolve` after editing or pass --strategy=ours / --strategy=theirs.
-
-✗ Upgrade paused. Resolve conflicts and re-run.
+$ agent-team upgrade --apply --to github.com/acme/eng-team@v1.1.0 --dry-run
+agent-team upgrade:
+  Locked: default v1.0.0
+  Target: default v1.1.0
+  Locked ref: github.com/acme/eng-team@v1.0.0
+  Target ref: github.com/acme/eng-team@v1.1.0
+agent-team upgrade: template differs; run `agent-team upgrade --apply --dry-run` to preview clean changes and conflicts
+agent-team upgrade: dry-run plan
+  ~ agents/manager/agent.md
+  ! agents/worker/agent.md (local edits overlap a target template change)
+agent-team upgrade: 1 conflict(s); no files changed
 ```
 
-If the user accepts the default and there's no conflict:
+If there is no conflict:
 
 ```sh
-✓ agents/manager/agent.md updated
-✓ template.toml-derived config.toml updated (linear.priority_default = "medium")
-✓ .template.lock bumped to v1.1.0
+$ agent-team upgrade --apply --to github.com/acme/eng-team@v1.1.0
+  ~ agents/manager/agent.md
+agent-team upgrade: applied clean template changes
 ```
 
-User edits to authored files are preserved when the upstream didn't touch the same regions; conflicts surface explicitly rather than silently overwriting.
+User edits to authored files are preserved when the target template does not touch those files; overlapping edits surface explicitly rather than silently overwriting.
 
 ### 8. Consumer: one-shot ephemeral run
 
@@ -539,7 +534,7 @@ A future `--daemon` flag could opt into spinning up a tempdir-scoped daemon for 
 
 ### Summary of the model in one paragraph
 
-The template is a parameterized image hosted somewhere (git URL today). `template pull` fetches it to a local cache. `init <ref>` resolves required parameters (interactive prompt or `--set` flags), writes the resolved `config.toml` plus rendered `.tmpl` files into the consumer's `.agent_team/`, and pins the version in `.template.lock`. `run` reads `config.toml`, optionally layers a per-instance config and `--set` flags, and exposes the resolved tree to the spawned agent at `$AGENT_TEAM_STATE_DIR/config.toml`. `upgrade` re-resolves against a newer template version with a three-way merge.
+The template is a parameterized image hosted somewhere (git URL today). `template pull` fetches it to a local cache. `init <ref>` resolves required parameters (interactive prompt or `--set` flags), writes the resolved `config.toml` plus rendered `.tmpl` files into the consumer's `.agent_team/`, and pins the version in `.template.lock`. `run` reads `config.toml`, optionally layers a per-instance config and `--set` flags, and exposes the resolved tree to the spawned agent at `$AGENT_TEAM_STATE_DIR/config.toml`. `upgrade` re-resolves against a newer template version with a conservative three-way file apply.
 
 ## Relationship to orchestrator and topology
 

@@ -53,6 +53,7 @@ Built or substantially implemented:
 - intake server deployment guide
 - runtime profile guide for Claude and Codex
 - copyable topology example fixtures parsed in CI
+- conservative template upgrade apply mode
 
 ## What Still Needs Design Care
 
@@ -62,7 +63,6 @@ Areas likely to need continued refinement:
 - richer pipeline semantics without overbuilding a workflow engine
 - deciding whether to publish generated CLI reference artifacts
 - webhook security hardening beyond shared-secret verification
-- template upgrade apply mode
 - long-running agent UX and resumability across runtimes
 
 ## Design Guardrails
@@ -84,7 +84,9 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- template upgrade apply mode
+- runtime resume/adopt flows for long-running agents
+- pipeline gates and approval steps
+- hosted webhook deployment examples
 
 ## Anti-Patterns
 

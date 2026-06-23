@@ -43,7 +43,7 @@ and `tick` do not advance them.
 
 | Area | Commands exercised | Result |
 | --- | --- | --- |
-| Template/bootstrap | `init`, `template ls/show/pull/rm/run`, `doctor`, `upgrade --check`, `runtime` | Passed. `template run` with Codex succeeded when forwarding `--skip-git-repo-check`. |
+| Template/bootstrap | `init`, `template ls/show/pull/rm/run`, `doctor`, `upgrade --check`, `upgrade --apply --dry-run`, `runtime` | Passed. `template run` with Codex succeeded when forwarding `--skip-git-repo-check`. |
 | Direct Codex run | `run manager --detach --prompt ... -- --ephemeral --sandbox read-only`, `wait`, `logs`, `inspect` | Passed. The detached daemon run printed `feature-matrix-ok` and exited 0. |
 | Daemon | `daemon start/status/reconcile/logs/restart/stop` | Passed. Daemon start/restart/stop and reconcile worked. |
 | Topology | `topology summary/show/reload` | Passed. `topology reload` has no `--json`; `show --json` reflects edits after reload. |

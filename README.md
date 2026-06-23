@@ -61,7 +61,7 @@ template pull  →  init  →  run  →  upgrade
 1. **(Optional) `template pull`** — fetch a template into the local cache. Skip this for the bundled default.
 2. **`init`** — instantiate a template into the current repo. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
 3. **`run`** — launch the selected runtime as one of the agents.
-4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref today; full three-way upgrade/apply is future work.
+4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref; `upgrade --apply --dry-run` previews clean three-way changes and conflicts; `upgrade --apply` updates only files that still match the locked template version.
 
 The full design is in [`documentation/templates.md`](./documentation/templates.md).
 
@@ -261,8 +261,8 @@ agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [-
 agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished persisted daemon metadata and state
 agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
-agent-team upgrade --check [--to <ref>] [--strict] [--format '{{.Differs}}'] [--json]
-                                                # compare .template.lock with a template ref; --strict exits 1 on drift
+agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--format '{{.Differs}}'] [--json]
+                                                # compare or apply clean three-way template changes; --dry-run previews apply actions
 agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--format '{{.OK}}'] [--json]
                                                 # validate layout, config, provenance, skill wiring, pipeline workflows, selected runtime, and daemon binary availability
 agent-team --version                            # print version

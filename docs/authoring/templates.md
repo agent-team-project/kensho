@@ -105,7 +105,7 @@ Template pull/cache support exists for local and git-oriented flows. Full regist
 
 `.agent_team/.template.lock` records source provenance.
 
-It lets `upgrade --check` compare the current repo against a target template ref and detect drift. Full three-way upgrade application is future work; the current implementation focuses on read-only checking.
+It lets `upgrade --check` compare the current repo against a target template ref and detect drift. `upgrade --apply --dry-run` renders the locked and target templates with the current repo config, previews add/update/remove actions, and reports conflicts where local edits overlap target changes. `upgrade --apply` applies only a clean plan and then updates `.template.lock`.
 
 ## Template Authoring Checklist
 

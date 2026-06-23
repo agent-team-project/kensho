@@ -89,4 +89,4 @@ doctor`; it exits non-zero if any step fails.
 2. Commit the template to a git repo.
 3. Pull/cache by ref.
 4. Initialize consumer repos from the pinned ref.
-5. Use `upgrade --check` to detect drift.
+5. Use `upgrade --check` to detect drift and `upgrade --apply --dry-run` before applying clean template changes.
