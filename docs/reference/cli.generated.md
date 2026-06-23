@@ -4711,6 +4711,7 @@ Flags:
       --json                Emit team status as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --repo string         Repo root. (default "<repo>")
+      --runtime strings     Only summarize team-owned instances for this runtime: claude or codex. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.
   -w, --watch               Refresh team status until interrupted.
 ```
 

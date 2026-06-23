@@ -2164,6 +2164,89 @@ instances = ["other", "build-worker"]
 	}
 }
 
+func TestTeamStatusFiltersByRuntime(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"manager", "worker"} {
+		if err := os.MkdirAll(filepath.Join(teamDir, "agents", name), 0o755); err != nil {
+			t.Fatalf("mkdir agent %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "worker-squ-301", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-time.Hour)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "status", "delivery", "--repo", root, "--runtime", "codex", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team status runtime: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot teamStatusSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team status runtime: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.InstanceSummary.Total != 1 || snapshot.InstanceSummary.Running != 1 {
+		t.Fatalf("team status runtime summary = %+v", snapshot.InstanceSummary)
+	}
+	if got := psJSONRowNames(snapshot.Instances); strings.Join(got, ",") != "worker-squ-301" {
+		t.Fatalf("team status runtime instances = %v", got)
+	}
+	if snapshot.Instances[0].Runtime != "codex" {
+		t.Fatalf("team status runtime instance = %+v", snapshot.Instances[0])
+	}
+	if strings.Contains(out.String(), "build-worker-1") {
+		t.Fatalf("team status runtime leaked unrelated instance:\n%s", out.String())
+	}
+	if containsString(snapshot.Actions, "agent-team team sync delivery --wait") {
+		t.Fatalf("team status runtime should not suggest sync for filtered manager: %+v", snapshot.Actions)
+	}
+
+	badRuntime := NewRootCmd()
+	badRuntime.SetOut(&bytes.Buffer{})
+	badRuntimeErr := &bytes.Buffer{}
+	badRuntime.SetErr(badRuntimeErr)
+	badRuntime.SetArgs([]string{"team", "status", "delivery", "--repo", root, "--runtime", "llama"})
+	if err := badRuntime.Execute(); err == nil {
+		t.Fatal("team status accepted unknown runtime")
+	}
+	if !strings.Contains(badRuntimeErr.String(), "unknown --runtime") {
+		t.Fatalf("bad runtime stderr = %q", badRuntimeErr.String())
+	}
+}
+
 func TestTeamStatsScopesRows(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

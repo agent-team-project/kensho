@@ -3555,12 +3555,13 @@ func newTeamHealthCmd() *cobra.Command {
 
 func newTeamStatusCmd() *cobra.Command {
 	var (
-		repo     string
-		watch    bool
-		noClear  bool
-		interval time.Duration
-		jsonOut  bool
-		format   string
+		repo           string
+		watch          bool
+		noClear        bool
+		interval       time.Duration
+		jsonOut        bool
+		format         string
+		runtimeFilters []string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -3581,6 +3582,11 @@ func newTeamStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team status: %v\n", err)
 				return exitErr(2)
 			}
+			opts, err := newPsOptionsWithRuntimeInstancesAndUnhealthy(nil, runtimeFilters, nil, nil, nil, false, false)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team status: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -3589,9 +3595,9 @@ func newTeamStatusCmd() *cobra.Command {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
 				clear := !noClear && !jsonOut
-				return runTeamStatusWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear)
+				return runTeamStatusWatchWithOptions(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, jsonOut, clear, opts)
 			}
-			snapshot, err := collectTeamStatus(teamDir, args[0], time.Now().UTC())
+			snapshot, err := collectTeamStatusWithOptions(teamDir, args[0], time.Now().UTC(), opts)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team status: %v\n", err)
 				return exitErr(1)
@@ -3604,6 +3610,7 @@ func newTeamStatusCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team status as JSON.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only summarize team-owned instances for this runtime: claude or codex. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render team status with a Go template, e.g. '{{.Team.Name}} {{.InstanceSummary.Total}}'.")
 	return cmd
 }
@@ -3928,6 +3935,10 @@ func teamInfoFromTopology(team *topology.Team) teamInfo {
 }
 
 func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot, error) {
+	return collectTeamStatusWithOptions(teamDir, name, now, psOptions{})
+}
+
+func collectTeamStatusWithOptions(teamDir, name string, now time.Time, opts psOptions) (*teamStatusSnapshot, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
 		return nil, err
@@ -3936,7 +3947,7 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 	if err != nil {
 		return nil, err
 	}
-	instanceRows := teamInstanceRows(top, team, rows)
+	instanceRows := filterPsRows(teamInstanceRows(top, team, rows), opts)
 	jobs, err := job.List(teamDir)
 	if err != nil {
 		return nil, err
@@ -3971,7 +3982,7 @@ func collectTeamStatus(teamDir, name string, now time.Time) (*teamStatusSnapshot
 		PipelineStatus:  teamPipelineStatus(team, pipelineStatus),
 		Schedules:       teamSchedules(team, schedules),
 	}
-	snapshot.Actions = teamStatusActions(top, team, snapshot)
+	snapshot.Actions = teamStatusActionsWithOptions(top, team, snapshot, opts)
 	return snapshot, nil
 }
 
@@ -5922,13 +5933,17 @@ func runTeamPsWatchWithOptions(ctx context.Context, w io.Writer, teamDir, name s
 }
 
 func runTeamStatusWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool) error {
+	return runTeamStatusWatchWithOptions(ctx, w, teamDir, name, interval, jsonOut, clear, psOptions{})
+}
+
+func runTeamStatusWatchWithOptions(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, jsonOut bool, clear bool, opts psOptions) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		snapshot, err := collectTeamStatus(teamDir, name, time.Now().UTC())
+		snapshot, err := collectTeamStatusWithOptions(teamDir, name, time.Now().UTC(), opts)
 		if err != nil {
 			return err
 		}
@@ -6502,6 +6517,10 @@ func teamSchedules(team *topology.Team, schedules []scheduleInfo) []scheduleInfo
 }
 
 func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *teamStatusSnapshot) []string {
+	return teamStatusActionsWithOptions(top, team, snapshot, psOptions{})
+}
+
+func teamStatusActionsWithOptions(top *topology.Topology, team *topology.Team, snapshot *teamStatusSnapshot, opts psOptions) []string {
 	if top == nil || team == nil || snapshot == nil {
 		return nil
 	}
@@ -6523,13 +6542,15 @@ func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *te
 		rowsByName[row.Instance] = row
 	}
 	var missingPersistent []string
-	for _, name := range team.Instances {
-		inst := top.Instances[name]
-		if inst == nil || inst.Ephemeral {
-			continue
-		}
-		if rowsByName[name].Status != "running" {
-			missingPersistent = append(missingPersistent, name)
+	if !psOptionsHasSelectionFilters(opts) {
+		for _, name := range team.Instances {
+			inst := top.Instances[name]
+			if inst == nil || inst.Ephemeral {
+				continue
+			}
+			if rowsByName[name].Status != "running" {
+				missingPersistent = append(missingPersistent, name)
+			}
 		}
 	}
 	if len(missingPersistent) > 0 {
@@ -6558,6 +6579,10 @@ func teamStatusActions(top *topology.Topology, team *topology.Team, snapshot *te
 		}
 	}
 	return actions
+}
+
+func psOptionsHasSelectionFilters(opts psOptions) bool {
+	return len(opts.statuses) > 0 || len(opts.runtimes) > 0 || len(opts.agents) > 0 || len(opts.phases) > 0 || len(opts.instances) > 0 || opts.stale || opts.unhealthy
 }
 
 func stringSliceSet(items []string) map[string]bool {
