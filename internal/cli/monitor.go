@@ -204,7 +204,7 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show instances, stats, and plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show instances, stats, and plan rows with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only show plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&strictTopology, "strict-topology", false, "Treat running daemon-known instances not declared in instances.toml as unhealthy.")
 	return cmd
 }

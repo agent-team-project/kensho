@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestLifecycleHelpShowsTopLevelStartStop(t *testing.T) {
@@ -2581,6 +2582,37 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	})
 	if resume.Action != "resume" || resume.Status != "stopped" || resume.Detail != "would resume" || resume.PID != 123 || !resume.DryRun {
 		t.Fatalf("resume dry-run = %+v, want stopped resume preview", resume)
+	}
+
+	unsupported := dryRunStartResult(lifecycleTarget{
+		name:  "manager",
+		agent: "manager",
+		meta: &daemon.Metadata{
+			Status:  daemon.StatusStopped,
+			PID:     321,
+			Runtime: string(runtimebin.KindCodex),
+		},
+	})
+	if unsupported.Action != lifecycleActionUnsupported || unsupported.Status != "stopped" || unsupported.PID != 321 || !unsupported.DryRun {
+		t.Fatalf("unsupported dry-run = %+v, want stopped Codex unsupported preview", unsupported)
+	}
+	if !strings.Contains(unsupported.Detail, `runtime "codex" does not support managed resume`) {
+		t.Fatalf("unsupported detail = %q, want Codex resume limitation", unsupported.Detail)
+	}
+
+	staleUnsupported := dryRunStartResultWithDaemonState(lifecycleTarget{
+		name:  "manager",
+		agent: "manager",
+		meta: &daemon.Metadata{
+			Status:  daemon.StatusRunning,
+			Runtime: string(runtimebin.KindCodex),
+		},
+	}, false)
+	if staleUnsupported.Action != lifecycleActionUnsupported || staleUnsupported.Status != "running" || !staleUnsupported.DryRun {
+		t.Fatalf("stale unsupported dry-run = %+v, want stale running Codex unsupported preview", staleUnsupported)
+	}
+	if !strings.Contains(staleUnsupported.Detail, "recorded running pid is not live") {
+		t.Fatalf("stale unsupported detail = %q, want stale pid context", staleUnsupported.Detail)
 	}
 
 	skip := dryRunStartResult(lifecycleTarget{

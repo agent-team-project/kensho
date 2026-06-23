@@ -1535,6 +1535,14 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 			continue
 		}
 		if lt.meta != nil {
+			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+				result := lifecycleTargetUnsupportedResumeResult(lt)
+				results = append(results, result)
+				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+					fmt.Fprintf(out, "  %-7s %-20s %s\n", result.Action, lt.name, result.Detail)
+				}
+				continue
+			}
 			if err := dc.StartInstance(lt.name); err != nil {
 				results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: err.Error()})
 				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
@@ -1923,14 +1931,24 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 	}
 	if target.meta != nil {
 		result.PID = target.meta.PID
-		result.Action = "resume"
-		result.Detail = "would resume"
+		if lifecycleMetadataSupportsManagedResume(target.meta) {
+			result.Action = "resume"
+			result.Detail = "would resume"
+		} else {
+			result.Action = lifecycleActionUnsupported
+			result.Detail = lifecycleUnsupportedResumeDetail(target.meta)
+		}
 	}
 	if target.running() {
 		if !daemonRunning && (target.meta.PID == 0 || !daemon.PidLiveCheck(target.meta.PID)) {
-			result.Action = "resume"
 			result.Status = string(daemon.StatusRunning)
-			result.Detail = "would resume; recorded running pid is not live"
+			if lifecycleMetadataSupportsManagedResume(target.meta) {
+				result.Action = "resume"
+				result.Detail = "would resume; recorded running pid is not live"
+			} else {
+				result.Action = lifecycleActionUnsupported
+				result.Detail = lifecycleStaleUnsupportedResumeDetail(target.meta)
+			}
 			return result
 		}
 		result.Action = "skip"
@@ -1960,6 +1978,10 @@ func dryRunRestartResult(target lifecycleTarget) lifecycleActionResult {
 func renderLifecycleDryRun(w fmtWriter, result lifecycleActionResult) {
 	if result.Action == "skip" {
 		fmt.Fprintf(w, "  skip   %-20s %s\n", result.Instance, result.Detail)
+		return
+	}
+	if result.Action == lifecycleActionUnsupported {
+		fmt.Fprintf(w, "  %-7s %-20s %s\n", result.Action, result.Instance, result.Detail)
 		return
 	}
 	detail := strings.TrimSpace(result.Agent)

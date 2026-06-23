@@ -3170,7 +3170,7 @@ func newTeamSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each sync action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
-	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	return cmd
 }
 
@@ -3235,7 +3235,7 @@ func newTeamPlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team plan as JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running team-agent topology extras as stop actions.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
 }
@@ -3520,7 +3520,7 @@ func newTeamMonitorCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show team-owned instances, stats, and plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show team-owned instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show team-owned instances with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only show plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	return cmd
 }
 
@@ -3827,7 +3827,7 @@ func teamSyncTargetNamesFromCurrentPlan(teamDir string, top *topology.Topology, 
 	names := make([]string, 0, len(rows))
 	for _, row := range rows {
 		switch row.Action {
-		case "start", "resume", "keep":
+		case "start", "resume", "keep", lifecycleActionUnsupported:
 			if row.Kind == "persistent" {
 				names = append(names, row.Instance)
 			}
@@ -3884,6 +3884,14 @@ func runTeamSyncWithStopExtras(cmd *cobra.Command, repo, teamDir string, dc *dae
 			continue
 		}
 		if lt.meta != nil {
+			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+				result := lifecycleTargetUnsupportedResumeResult(lt)
+				results = append(results, result)
+				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+					fmt.Fprintf(out, "  %-7s %-20s %s\n", result.Action, lt.name, result.Detail)
+				}
+				continue
+			}
 			if err := dc.StartInstance(lt.name); err != nil {
 				results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: err.Error()})
 				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {

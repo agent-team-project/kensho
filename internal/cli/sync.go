@@ -39,7 +39,7 @@ func newSyncCmd() *cobra.Command {
 		Use:   "sync",
 		Short: "Apply topology's desired persistent instance state.",
 		Long: "Reload daemon topology, reconcile runtime metadata, then start or resume declared " +
-			"persistent instances. Sync is intentionally non-destructive: daemon-known instances " +
+			"persistent instances when supported by the runtime. Sync is intentionally non-destructive: daemon-known instances " +
 			"that are not declared in topology are reported by plan but are not stopped or removed " +
 			"unless --stop-extras is set.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -111,7 +111,7 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only sync plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only sync plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only sync plan rows with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	return cmd
 }
 
@@ -256,7 +256,7 @@ func syncTargetNamesFromCurrentPlan(teamDir string, filters psOptions, actions m
 	names := make([]string, 0, len(result.Instances))
 	for _, row := range result.Instances {
 		switch row.Action {
-		case "start", "resume", "keep":
+		case "start", "resume", "keep", lifecycleActionUnsupported:
 			if row.Kind == "persistent" {
 				names = append(names, row.Instance)
 			}
@@ -349,6 +349,14 @@ func runSyncWithStopExtras(cmd *cobra.Command, target, teamDir string, dc *daemo
 			continue
 		}
 		if lt.meta != nil {
+			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+				result := lifecycleTargetUnsupportedResumeResult(lt)
+				results = append(results, result)
+				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+					fmt.Fprintf(out, "  %-7s %-20s %s\n", result.Action, lt.name, result.Detail)
+				}
+				continue
+			}
 			if err := dc.StartInstance(lt.name); err != nil {
 				results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: err.Error()})
 				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {

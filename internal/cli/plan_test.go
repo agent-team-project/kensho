@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestPlanJSONShowsTopologyAndDaemonMetadata(t *testing.T) {
@@ -72,6 +73,48 @@ func TestPlanJSONShowsTopologyAndDaemonMetadata(t *testing.T) {
 	}
 	if row := byName["adhoc"]; row.Kind != "extra" || row.Action != "extra" || row.Status != "stopped" {
 		t.Fatalf("adhoc row = %+v, want stopped extra", row)
+	}
+}
+
+func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    daemon.StatusStopped,
+		Runtime:   string(runtimebin.KindCodex),
+		Workspace: tmp,
+	}); err != nil {
+		t.Fatalf("write manager metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"plan", "--json", "--action", "unsupported", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan --json --action unsupported: %v\nstderr: %s", err, stderr.String())
+	}
+
+	var body planResult
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode plan json: %v\nbody=%s", err, out.String())
+	}
+	if body.Summary.Total != 1 || body.Summary.Unsupported != 1 || body.Summary.Resume != 0 {
+		t.Fatalf("summary = %+v, want one unsupported row", body.Summary)
+	}
+	if len(body.Instances) != 1 {
+		t.Fatalf("instances = %+v, want manager only", body.Instances)
+	}
+	row := body.Instances[0]
+	if row.Instance != "manager" || row.Action != lifecycleActionUnsupported || row.Status != string(daemon.StatusStopped) {
+		t.Fatalf("row = %+v, want stopped unsupported manager", row)
+	}
+	if !strings.Contains(row.Detail, `runtime "codex" does not support managed resume`) {
+		t.Fatalf("detail = %q, want Codex resume limitation", row.Detail)
 	}
 }
 

@@ -35,7 +35,7 @@ func newPlanCmd() *cobra.Command {
 		Short: "Preview desired agent instance state from topology and daemon metadata.",
 		Long: "Compare instances.toml with daemon metadata and show the lifecycle actions " +
 			"agent-team would normally take: start missing persistent instances, resume stopped " +
-			"ones, keep running ones, and leave ephemeral declarations on-demand. With --stop-extras, " +
+			"ones when supported by the runtime, keep running ones, and leave ephemeral declarations on-demand. With --stop-extras, " +
 			"running daemon-known instances not declared in topology are previewed as stop actions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && (jsonOut || summary) {
@@ -97,7 +97,7 @@ func newPlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show plan rows with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
 }
@@ -114,13 +114,14 @@ type planDaemon struct {
 }
 
 type planSummary struct {
-	Total    int `json:"total"`
-	Start    int `json:"start"`
-	Resume   int `json:"resume"`
-	Keep     int `json:"keep"`
-	OnDemand int `json:"on_demand"`
-	Stop     int `json:"stop,omitempty"`
-	Extra    int `json:"extra"`
+	Total       int `json:"total"`
+	Start       int `json:"start"`
+	Resume      int `json:"resume"`
+	Keep        int `json:"keep"`
+	Unsupported int `json:"unsupported,omitempty"`
+	OnDemand    int `json:"on_demand"`
+	Stop        int `json:"stop,omitempty"`
+	Extra       int `json:"extra"`
 }
 
 type planRow struct {
@@ -241,9 +242,19 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 		row.Action = "keep"
 		row.Detail = "already running"
 		if !daemonRunning && (meta.PID == 0 || !daemon.PidLiveCheck(meta.PID)) {
-			row.Action = "resume"
-			row.Detail = "recorded running pid is not live; daemon start should reconcile"
+			if lifecycleMetadataSupportsManagedResume(meta) {
+				row.Action = "resume"
+				row.Detail = "recorded running pid is not live; daemon start should reconcile"
+			} else {
+				row.Action = lifecycleActionUnsupported
+				row.Detail = lifecycleStaleUnsupportedResumeDetail(meta)
+			}
 		}
+		return row
+	}
+	if !lifecycleMetadataSupportsManagedResume(meta) {
+		row.Action = lifecycleActionUnsupported
+		row.Detail = lifecycleUnsupportedResumeDetail(meta)
 		return row
 	}
 	row.Action = "resume"
@@ -316,7 +327,7 @@ func planActionFilterSet(actionFilters []string) (map[string]bool, error) {
 		}
 		action, ok := normalizePlanAction(raw)
 		if !ok {
-			return nil, fmt.Errorf("unknown --action %q (want start, resume, keep, on-demand, stop, or extra)", raw)
+			return nil, fmt.Errorf("unknown --action %q (want start, resume, keep, unsupported, on-demand, stop, or extra)", raw)
 		}
 		actions[action] = true
 	}
@@ -331,7 +342,7 @@ func normalizePlanAction(raw string) (string, bool) {
 	switch action {
 	case "":
 		return "", false
-	case "start", "resume", "keep", "stop", "extra":
+	case "start", "resume", "keep", lifecycleActionUnsupported, "stop", "extra":
 		return action, true
 	case "on-demand", "on_demand", "ondemand":
 		return "on-demand", true
@@ -351,6 +362,8 @@ func summarizePlanRows(rows []planRow) planSummary {
 			summary.Resume++
 		case "keep":
 			summary.Keep++
+		case lifecycleActionUnsupported:
+			summary.Unsupported++
 		case "on-demand":
 			summary.OnDemand++
 		case "stop":
@@ -392,6 +405,9 @@ func renderPlanTable(w fmtWriter, result *planResult) {
 	)
 	if result.Summary.Stop > 0 {
 		fmt.Fprintf(w, " stop=%d", result.Summary.Stop)
+	}
+	if result.Summary.Unsupported > 0 {
+		fmt.Fprintf(w, " unsupported=%d", result.Summary.Unsupported)
 	}
 	fmt.Fprintf(w, " extra=%d\n", result.Summary.Extra)
 }

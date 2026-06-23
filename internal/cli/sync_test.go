@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestSyncDryRunJSONUsesPlanAndDoesNotStartDaemon(t *testing.T) {
@@ -306,6 +307,59 @@ func TestSyncFormatPrintsActionRows(t *testing.T) {
 		if !rows[want] {
 			t.Fatalf("sync --format rows missing %q: %q", want, out.String())
 		}
+	}
+}
+
+func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-sync-codex-unsupported-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusStopped,
+		Runtime:  string(runtimebin.KindCodex),
+	}); err != nil {
+		t.Fatalf("write manager metadata: %v", err)
+	}
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "ticket-manager",
+		Agent:    "ticket-manager",
+		Status:   daemon.StatusRunning,
+		PID:      os.Getpid(),
+	}); err != nil {
+		t.Fatalf("write ticket-manager metadata: %v", err)
+	}
+	mgr := daemon.NewInstanceManager(root, nil)
+	if err := mgr.LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"sync", "--action", "unsupported", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.Detail}}", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sync --action unsupported --format: %v\nstderr: %s", err, stderr.String())
+	}
+	got := strings.TrimSpace(out.String())
+	if !strings.HasPrefix(got, "manager:unsupported:stopped:") {
+		t.Fatalf("sync output = %q, want manager unsupported row", got)
+	}
+	if !strings.Contains(got, `runtime "codex" does not support managed resume`) {
+		t.Fatalf("sync output = %q, want Codex resume limitation", got)
+	}
+	meta := metadataByInstanceForTest(mgr.List(), "manager")
+	if meta == nil || meta.Status != daemon.StatusStopped || meta.PID != 0 {
+		t.Fatalf("manager metadata = %+v, want still stopped without daemon start", meta)
 	}
 }
 

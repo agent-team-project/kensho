@@ -757,7 +757,7 @@ func newStatusCmd() *cobra.Command {
 	cmd.Flags().IntVar(&eventTail, "events", 0, "With --summary, include a summary of the last N matching daemon lifecycle events (0 = omit).")
 	cmd.Flags().StringSliceVar(&eventActions, "event-action", nil, "With --events, only include lifecycle events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&eventSince, "since", "", "With --events, only include lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only include plan rows with this action: start, resume, keep, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "With --plan, only include plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show instances for this agent. Can repeat or comma-separate.")

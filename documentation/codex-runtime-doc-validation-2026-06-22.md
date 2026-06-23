@@ -382,6 +382,10 @@ Suggested improvement:
 
 Severity: medium
 
+Status: fixed after validation. `plan`, `sync`, and lifecycle dry-runs now
+surface stopped Codex metadata as action `unsupported` because the daemon cannot
+resume Codex sessions from metadata.
+
 Repro:
 
 ```sh
