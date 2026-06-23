@@ -58,6 +58,7 @@ Built or substantially implemented:
 - systemd, launchd, and compose intake service generators
 - local Dockerfile for the compose intake service
 - env-file secret references for service generation
+- published generated CLI reference with CI drift check
 
 ## What Still Needs Design Care
 
@@ -65,7 +66,6 @@ Areas likely to need continued refinement:
 
 - runtime abstraction beyond the current primary runtime
 - richer pipeline semantics without overbuilding a workflow engine
-- deciding whether to publish generated CLI reference artifacts
 - webhook security hardening beyond shared-secret verification
 - long-running agent UX and resumability across runtimes
 

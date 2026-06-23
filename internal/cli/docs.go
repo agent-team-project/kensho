@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"path/filepath"
@@ -130,10 +131,10 @@ func commandReferenceList(root *cobra.Command, includeHidden bool) []*cobra.Comm
 func renderCommandReference(b *strings.Builder, cmd *cobra.Command, includeHidden bool) {
 	fmt.Fprintf(b, "## `%s`\n\n", cmd.CommandPath())
 	if short := strings.TrimSpace(cmd.Short); short != "" {
-		fmt.Fprintf(b, "%s\n\n", short)
+		fmt.Fprintf(b, "%s\n\n", markdownProse(short))
 	}
 	if long := strings.TrimSpace(cmd.Long); long != "" && long != strings.TrimSpace(cmd.Short) {
-		fmt.Fprintf(b, "%s\n\n", long)
+		fmt.Fprintf(b, "%s\n\n", markdownProse(long))
 	}
 	fmt.Fprintf(b, "```text\n%s\n```\n\n", cmd.UseLine())
 	if aliases := visibleAliases(cmd); len(aliases) > 0 {
@@ -145,7 +146,7 @@ func renderCommandReference(b *strings.Builder, cmd *cobra.Command, includeHidde
 	if children := visibleSubcommands(cmd, includeHidden); len(children) > 0 {
 		b.WriteString("Subcommands:\n\n")
 		for _, child := range children {
-			fmt.Fprintf(b, "- `%s` - %s\n", child.CommandPath(), tableCell(child.Short))
+			fmt.Fprintf(b, "- `%s` - %s\n", child.CommandPath(), markdownTableCell(child.Short))
 		}
 		b.WriteString("\n")
 	}
@@ -198,12 +199,16 @@ func renderFlagUsageReference(b *strings.Builder, title, usage string) {
 	b.WriteString("\n")
 }
 
-func tableCell(value string) string {
+func markdownProse(value string) string {
+	return html.EscapeString(value)
+}
+
+func markdownTableCell(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, "\n", " ")
 	value = strings.ReplaceAll(value, "|", "\\|")
 	if value == "" {
 		return "-"
 	}
-	return value
+	return markdownProse(value)
 }

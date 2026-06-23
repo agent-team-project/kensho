@@ -62,6 +62,7 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'CLI Reference', link: '/reference/cli' },
+          { text: 'Generated CLI Reference', link: '/reference/cli.generated' },
           { text: 'File Formats', link: '/reference/file-formats' },
           { text: 'Runtime API', link: '/reference/runtime-api' }
         ]

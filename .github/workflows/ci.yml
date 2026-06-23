@@ -48,6 +48,9 @@ jobs:
           go build -o bin/agent-team ./cmd/agent-team
           go build -o bin/agent-teamd ./cmd/agent-teamd
 
+      - name: Check generated CLI reference
+        run: bin/agent-team docs cli --check docs/reference/cli.generated.md
+
       - name: CLI smoke test (init + template + doctor)
         run: python3 scripts/ci/smoke_init.py bin/agent-team
 
