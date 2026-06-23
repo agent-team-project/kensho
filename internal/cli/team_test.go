@@ -443,8 +443,11 @@ since = "2026-06-18T12:00:00Z"
 	if !containsString(snapshot.Actions, "agent-team team sync delivery --wait") {
 		t.Fatalf("actions missing team sync hint: %+v", snapshot.Actions)
 	}
-	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all") {
+	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all --job squ-801 --dry-run") {
 		t.Fatalf("actions missing team queue retry hint: %+v", snapshot.Actions)
+	}
+	if containsString(snapshot.Actions, "agent-team team queue retry delivery --all") {
+		t.Fatalf("actions should prefer job-filtered dry-run retry: %+v", snapshot.Actions)
 	}
 	if !containsString(snapshot.Actions, "agent-team team queue quarantine delivery") || !containsString(snapshot.Actions, "agent-team team snapshot delivery --json") {
 		t.Fatalf("actions missing quarantine hints: %+v", snapshot.Actions)
@@ -461,7 +464,7 @@ since = "2026-06-18T12:00:00Z"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team team advance delivery --dry-run --preview-routes"} {
+	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all --job squ-801 --dry-run", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team team advance delivery --dry-run --preview-routes"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team status text missing %q:\n%s", want, textOut.String())
 		}

@@ -3937,6 +3937,8 @@ type teamStatusSnapshot struct {
 	PipelineStatus  []pipelineStatusRow `json:"pipeline_status,omitempty"`
 	Schedules       []scheduleInfo      `json:"schedules,omitempty"`
 	Actions         []string            `json:"actions,omitempty"`
+	ownedJobs       []*job.Job
+	queueItems      []*daemon.QueueItem
 }
 
 type teamPlanSnapshot struct {
@@ -4110,6 +4112,8 @@ func collectTeamStatusWithOptions(teamDir, name string, now time.Time, opts psOp
 		Queue:           queueSummary,
 		PipelineStatus:  teamPipelineStatus(team, pipelineStatus),
 		Schedules:       teamSchedules(team, schedules),
+		ownedJobs:       ownedJobs,
+		queueItems:      teamQueue,
 	}
 	snapshot.Actions = teamStatusActionsWithOptions(top, team, snapshot, opts)
 	return snapshot, nil
@@ -6803,7 +6807,9 @@ func teamStatusActionsWithOptions(top *topology.Topology, team *topology.Team, s
 		add(fmt.Sprintf("agent-team team sync %s --wait", team.Name))
 	}
 	if snapshot.Queue.Dead > 0 {
-		add(fmt.Sprintf("agent-team team queue retry %s --all", team.Name))
+		for _, action := range teamQueueActions(team.Name, snapshot.ownedJobs, snapshot.queueItems) {
+			add(appendDryRunFlag(action))
+		}
 	}
 	if snapshot.Queue.Quarantined > 0 {
 		for _, action := range queueQuarantineHealthActions(snapshot.Queue, team.Name, "") {
