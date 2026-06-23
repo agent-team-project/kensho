@@ -37,6 +37,7 @@ agent-team intake serve \
 ```
 
 The listener records deliveries and can publish normalized events to the daemon.
+For a production-oriented listener setup, see [Intake Deployment](./intake-deployment.md).
 
 ## Delivery History
 

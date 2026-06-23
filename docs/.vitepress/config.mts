@@ -72,6 +72,7 @@ export default defineConfig({
           { text: 'Ticket to PR', link: '/use-cases/ticket-to-pr' },
           { text: 'Multi-Team Repo', link: '/use-cases/multi-team-repo' },
           { text: 'External Intake', link: '/use-cases/external-intake' },
+          { text: 'Intake Deployment', link: '/use-cases/intake-deployment' },
           { text: 'On-call Recovery', link: '/use-cases/on-call-recovery' },
           { text: 'Template Authoring', link: '/use-cases/template-authoring' },
           { text: 'Topology Gallery', link: '/use-cases/topology-gallery' }

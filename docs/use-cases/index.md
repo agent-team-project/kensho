@@ -9,6 +9,7 @@ This section shows how the product layers combine into real workflows.
 | [Ticket to PR](./ticket-to-pr.md) | Durable job, worker dispatch, status, PR ownership, cleanup |
 | [Multi-Team Repo](./multi-team-repo.md) | Team-scoped topology, operations, queue, and diagnostics |
 | [External Intake](./external-intake.md) | Linear/GitHub events, delivery history, replay, job updates |
+| [Intake Deployment](./intake-deployment.md) | Running the webhook listener with secrets, TLS, retention, and recovery |
 | [On-call Recovery](./on-call-recovery.md) | Health, overview, queue retry, quarantine, unblock, repair |
 | [Template Authoring](./template-authoring.md) | Creating reusable teams and parameters |
 | [Topology Gallery](./topology-gallery.md) | Copyable team, pipeline, trigger, and schedule layouts |
@@ -24,7 +25,7 @@ This section shows how the product layers combine into real workflows.
 | Recover stuck work | `agent-team overview` |
 | Debug a handoff | `agent-team snapshot --output diagnostics.json` |
 | Scope to a product area | `agent-team team overview <team>` |
-| Integrate webhooks | `agent-team intake serve` |
+| Integrate webhooks | [Intake Deployment](./intake-deployment.md) |
 
 ## Common Command Pattern
 

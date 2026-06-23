@@ -50,6 +50,7 @@ Built or substantially implemented:
 - pipeline graph visualization command
 - template smoke validation command
 - optional GitHub PR merge verification for job/team cleanup
+- intake server deployment guide
 
 ## What Still Needs Design Care
 
@@ -59,7 +60,7 @@ Areas likely to need continued refinement:
 - richer pipeline semantics without overbuilding a workflow engine
 - deciding whether to publish generated CLI reference artifacts
 - richer docs examples using realistic fake teams
-- webhook security hardening and deployment guidance
+- webhook security hardening beyond shared-secret verification
 - template upgrade apply mode
 - long-running agent UX and resumability across runtimes
 
@@ -82,7 +83,6 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- intake server deployment guide
 - runtime profile docs for non-primary runtimes
 - richer docs examples using realistic fake teams
 

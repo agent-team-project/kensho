@@ -82,6 +82,7 @@ The local server can receive provider webhooks and write delivery history.
 
 Provider secrets and max-age checks are available for safer webhook handling.
 For GitHub merged-PR cleanup, combine `--github-reconcile-job --github-cleanup-merged --github-verify-pr`.
+For reverse proxy, service manager, and recovery guidance, see [Intake Deployment](../use-cases/intake-deployment.md).
 
 ## Delivery History
 
