@@ -384,6 +384,67 @@ func TestIntakeServePrunesRetainedDeliveries(t *testing.T) {
 	}
 }
 
+func TestIntakeServeGitHubVerifyPRDryRunPreview(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	initGitRepoForJobTest(t, target)
+	installFakeGHForJobTest(t, `{"merged":true,"state":"MERGED","mergeCommit":{"oid":"fedcba"}}`, 0)
+
+	teamDir := filepath.Join(target, ".agent_team")
+	branch := "worktree-worker-squ-218"
+	runGitForJobTest(t, target, "checkout", "-b", branch)
+	runGitForJobTest(t, target, "checkout", "main")
+	j := mustNewJob(t, "SQU-218", "worker")
+	j.Status = job.StatusRunning
+	j.Branch = branch
+	j.PR = "https://github.com/acme/repo/pull/218"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	body := `{"action":"closed","repository":{"full_name":"acme/repo"},"pull_request":{"number":218,"merged":true,"html_url":"https://github.com/acme/repo/pull/218","head":{"ref":"worktree-worker-squ-218"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/github", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	newIntakeServeHandler(teamDir, intakeServeOptions{
+		DryRun:              true,
+		GitHubReconcileJob:  true,
+		GitHubCleanupMerged: true,
+		GitHubVerifyPR:      true,
+	}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode serve dry-run json: %v\nbody=%s", err, rec.Body.String())
+	}
+	if !result.DryRun || result.CleanupPreview == nil || !result.CleanupPreview.VerifyPR || result.CleanupPreview.PRVerification == nil || result.CleanupPreview.PRVerification.MergeCommit != "fedcba" {
+		t.Fatalf("serve verify preview = %+v", result.CleanupPreview)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("dry-run removed branch %s", branch)
+	}
+}
+
+func TestIntakeServeGitHubVerifyPRRequiresCleanupMerged(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "serve", "--github-verify-pr"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("intake serve --github-verify-pr succeeded without cleanup: stdout=%s", out.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--github-verify-pr requires --github-cleanup-merged") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")
@@ -1514,16 +1575,74 @@ func TestIntakeGitHubReconcileDoesNotMutateWhenDaemonDown(t *testing.T) {
 
 func TestIntakeGitHubCleanupMergedRequiresReconcileJob(t *testing.T) {
 	payload := `{"action":"closed","pull_request":{"number":1,"merged":true}}`
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "cleanup without reconcile",
+			args: []string{"intake", "github", "--payload", payload, "--cleanup-merged", "--dry-run"},
+			want: "--cleanup-merged requires --reconcile-job",
+		},
+		{
+			name: "verify without cleanup",
+			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--verify-pr", "--dry-run"},
+			want: "--verify-pr requires --cleanup-merged",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("intake github validation succeeded: stdout=%s", out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestIntakeGitHubVerifyPRDryRunPreview(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	initGitRepoForJobTest(t, target)
+	installFakeGHForJobTest(t, `{"merged":true,"state":"MERGED","mergeCommit":{"oid":"def456"}}`, 0)
+
+	teamDir := filepath.Join(target, ".agent_team")
+	branch := "worktree-worker-squ-109"
+	runGitForJobTest(t, target, "checkout", "-b", branch)
+	runGitForJobTest(t, target, "checkout", "main")
+	j := mustNewJob(t, "SQU-109", "worker")
+	j.Status = job.StatusRunning
+	j.Branch = branch
+	j.PR = "https://github.com/acme/repo/pull/109"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	payload := `{"action":"closed","repository":{"full_name":"acme/repo"},"pull_request":{"number":109,"merged":true,"html_url":"https://github.com/acme/repo/pull/109","head":{"ref":"worktree-worker-squ-109"}}}`
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--cleanup-merged", "--dry-run"})
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("intake github --cleanup-merged without --reconcile-job succeeded")
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--cleanup-merged", "--verify-pr", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github verify dry-run: %v\nstderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "--cleanup-merged requires --reconcile-job") {
-		t.Fatalf("stderr = %q", stderr.String())
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.CleanupPreview == nil || !result.CleanupPreview.VerifyPR || result.CleanupPreview.PRVerification == nil || !result.CleanupPreview.PRVerification.Verified {
+		t.Fatalf("intake verify preview = %+v", result.CleanupPreview)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("dry-run removed branch %s", branch)
 	}
 }
 

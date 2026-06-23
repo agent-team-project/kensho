@@ -168,9 +168,9 @@ Shortcuts:
 | `agent-team schedule fire` | Fire due schedules |
 | `agent-team schedule run <name>` | Publish one schedule event |
 | `agent-team intake linear` | Normalize Linear payload |
-| `agent-team intake github` | Normalize GitHub payload |
+| `agent-team intake github` | Normalize GitHub payload, reconcile jobs, and optionally verify PR cleanup |
 | `agent-team intake schedule` | Normalize schedule payload |
-| `agent-team intake serve` | Run local intake server |
+| `agent-team intake serve` | Run local intake server with optional GitHub job reconciliation |
 | `agent-team intake summary` | Summarize delivery history |
 | `agent-team intake deliveries` | Inspect delivery rows |
 | `agent-team intake replay` | Replay failed deliveries |

@@ -64,10 +64,10 @@ Expected use:
 
 ```sh
 agent-team intake github --payload-file github-webhook.json --dry-run --preview-triggers
-agent-team intake github --payload-file github-webhook.json --reconcile-job --cleanup-merged
+agent-team intake github --payload-file github-webhook.json --reconcile-job --cleanup-merged --verify-pr
 ```
 
-GitHub intake can reconcile PR metadata back to jobs, including merged PR cleanup flows when requested.
+GitHub intake can reconcile PR metadata back to jobs, including merged PR cleanup flows when requested. Add `--verify-pr` when cleanup should confirm the recorded PR is merged with `gh` before removing job-owned worktrees or branches.
 
 ## Intake Server
 
@@ -81,6 +81,7 @@ agent-team intake serve \
 The local server can receive provider webhooks and write delivery history.
 
 Provider secrets and max-age checks are available for safer webhook handling.
+For GitHub merged-PR cleanup, combine `--github-reconcile-job --github-cleanup-merged --github-verify-pr`.
 
 ## Delivery History
 

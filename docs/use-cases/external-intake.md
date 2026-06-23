@@ -31,7 +31,9 @@ agent-team intake serve \
   --addr 127.0.0.1:8787 \
   --linear-secret "$LINEAR_WEBHOOK_SECRET" \
   --github-secret "$GITHUB_WEBHOOK_SECRET" \
-  --github-reconcile-job
+  --github-reconcile-job \
+  --github-cleanup-merged \
+  --github-verify-pr
 ```
 
 The listener records deliveries and can publish normalized events to the daemon.
@@ -77,8 +79,8 @@ Example flow:
 
 1. Worker opens PR and records URL.
 2. GitHub sends PR merged webhook.
-3. Intake runs with `--reconcile-job --cleanup-merged`.
-4. Job is marked ready for cleanup or cleanup is applied when explicitly requested.
+3. Intake runs with `--reconcile-job --cleanup-merged --verify-pr`.
+4. Job is reconciled as done, then the job-owned worktree and branch are removed after PR verification.
 
 ## Operational Rule
 

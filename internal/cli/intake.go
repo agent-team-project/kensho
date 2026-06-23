@@ -64,6 +64,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		previewRoutes bool
 		reconcileJob  bool
 		cleanupMerged bool
+		verifyPR      bool
 		jsonOut       bool
 		format        string
 	)
@@ -79,6 +80,10 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			}
 			if provider == "github" && cleanupMerged && !reconcileJob {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --cleanup-merged requires --reconcile-job.")
+				return exitErr(2)
+			}
+			if provider == "github" && verifyPR && !cleanupMerged {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --verify-pr requires --cleanup-merged.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -111,13 +116,13 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				}
 				if provider == "github" && reconcileJob {
 					if dryRun {
-						reconcile, cleanupPreview, err = previewGitHubIntakeJob(teamDir, ev, cleanupMerged)
+						reconcile, cleanupPreview, err = previewGitHubIntakeJob(teamDir, ev, cleanupMerged, verifyPR)
 					} else {
 						if err := preflightIntakeDaemon(teamDir); err != nil {
 							fmt.Fprintln(cmd.ErrOrStderr(), err)
 							return exitErr(2)
 						}
-						reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, cleanupMerged)
+						reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, cleanupMerged, verifyPR)
 					}
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake github: %v\n", err)
@@ -146,6 +151,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 	if provider == "github" {
 		cmd.Flags().BoolVar(&reconcileJob, "reconcile-job", false, "Also reconcile the normalized PR event into the owning durable job.")
 		cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
+		cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.")
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
@@ -229,6 +235,7 @@ type intakeServeOptions struct {
 	PreviewTriggers         bool
 	GitHubReconcileJob      bool
 	GitHubCleanupMerged     bool
+	GitHubVerifyPR          bool
 	LinearSecret            string
 	GitHubSecret            string
 	LinearMaxAge            time.Duration
@@ -258,6 +265,10 @@ func newIntakeServeCmd() *cobra.Command {
 			}
 			if opts.GitHubCleanupMerged && !opts.GitHubReconcileJob {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-cleanup-merged requires --github-reconcile-job.")
+				return exitErr(2)
+			}
+			if opts.GitHubVerifyPR && !opts.GitHubCleanupMerged {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-verify-pr requires --github-cleanup-merged.")
 				return exitErr(2)
 			}
 			if opts.LinearMaxAge <= 0 {
@@ -319,6 +330,7 @@ func newIntakeServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.PreviewTriggers, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&opts.GitHubReconcileJob, "github-reconcile-job", false, "For GitHub PR events, also reconcile the owning durable job.")
 	cmd.Flags().BoolVar(&opts.GitHubCleanupMerged, "github-cleanup-merged", false, "With --github-reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
+	cmd.Flags().BoolVar(&opts.GitHubVerifyPR, "github-verify-pr", false, "With --github-cleanup-merged, verify recorded GitHub PRs are merged with gh before cleanup.")
 	cmd.Flags().StringVar(&opts.LinearSecret, "linear-secret", "", "Linear webhook signing secret. Defaults to LINEAR_WEBHOOK_SECRET when set.")
 	cmd.Flags().StringVar(&opts.GitHubSecret, "github-secret", "", "GitHub webhook secret. Defaults to GITHUB_WEBHOOK_SECRET when set.")
 	cmd.Flags().DurationVar(&opts.LinearMaxAge, "linear-max-age", time.Minute, "Maximum accepted Linear webhook age after signature verification.")
@@ -527,7 +539,7 @@ func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts in
 	if opts.DryRun {
 		result := &intakePublishResult{Event: ev, DryRun: true}
 		if provider == "github" && opts.GitHubReconcileJob {
-			reconcile, cleanupPreview, err := previewGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged)
+			reconcile, cleanupPreview, err := previewGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR)
 			if err != nil {
 				return nil, http.StatusInternalServerError, err
 			}
@@ -551,7 +563,7 @@ func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts in
 			return nil, http.StatusServiceUnavailable, err
 		}
 		var err error
-		reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged)
+		reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR)
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
@@ -736,7 +748,7 @@ func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Eve
 	return nil
 }
 
-func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool) (*job.ReconcileResult, string, error) {
+func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool) (*job.ReconcileResult, string, error) {
 	result, err := job.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
 	if err != nil {
 		return nil, "", err
@@ -744,7 +756,7 @@ func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bo
 	cleanup := ""
 	if cleanupMerged && result.Job.Status == job.StatusDone {
 		repoRoot := filepath.Dir(teamDir)
-		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, false)
+		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, verifyPR)
 		if err != nil {
 			return nil, "", err
 		}
@@ -759,14 +771,14 @@ func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bo
 	return result, cleanup, nil
 }
 
-func previewGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool) (*job.ReconcileResult, *jobCleanupPreview, error) {
+func previewGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool) (*job.ReconcileResult, *jobCleanupPreview, error) {
 	result, err := job.PreviewReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
 	if err != nil {
 		return nil, nil, err
 	}
 	var cleanupPreview *jobCleanupPreview
 	if cleanupMerged && result.Job.Status == job.StatusDone {
-		preview, err := previewJobCleanup(filepath.Dir(teamDir), result.Job, false, false)
+		preview, err := previewJobCleanup(filepath.Dir(teamDir), result.Job, false, verifyPR)
 		if err != nil {
 			return nil, nil, err
 		}

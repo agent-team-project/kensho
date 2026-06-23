@@ -2687,6 +2687,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		payloadFile   string
 		dryRun        bool
 		cleanupMerged bool
+		verifyPR      bool
 		jsonOut       bool
 		format        string
 	)
@@ -2698,6 +2699,10 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if verifyPR && !cleanupMerged {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --verify-pr requires --cleanup-merged.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -2735,14 +2740,14 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			if cleanupMerged && result.Job.Status == job.StatusDone {
 				repoRoot := filepath.Dir(teamDir)
 				if dryRun {
-					preview, err := previewJobCleanup(repoRoot, result.Job, false, false)
+					preview, err := previewJobCleanup(repoRoot, result.Job, false, verifyPR)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 						return exitErr(1)
 					}
 					cleanupPreview = &preview
 				} else {
-					cleanupSummary, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, false)
+					cleanupSummary, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, verifyPR)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 						return exitErr(1)
@@ -2787,6 +2792,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read GitHub webhook JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the owning job update without writing it.")
 	cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "After a merged PR event, remove the job-owned worktree and branch.")
+	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the normalized event and reconciled job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd

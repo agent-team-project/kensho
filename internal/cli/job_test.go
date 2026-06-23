@@ -4781,6 +4781,26 @@ func TestJobReconcileGitHubMergedCleansOwnedWorktree(t *testing.T) {
 	}
 }
 
+func TestJobReconcileGitHubVerifyPRRequiresCleanupMerged(t *testing.T) {
+	payload := `{"action":"closed","pull_request":{"number":1,"merged":true}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "github", "--payload", payload, "--verify-pr", "--dry-run"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("job reconcile github --verify-pr succeeded without cleanup: stdout=%s", out.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--verify-pr requires --cleanup-merged") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestJobNextReportsPipelineState(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
