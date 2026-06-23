@@ -251,14 +251,14 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 				row.Detail = "recorded running pid is not live; daemon start should reconcile"
 			} else {
 				row.Action = lifecycleActionUnsupported
-				row.Detail = lifecycleStaleUnsupportedResumeDetail(meta)
+				row.Detail = lifecycleStaleUnsupportedResumeDetailForInstance(meta, inst.Name)
 			}
 		}
 		return row
 	}
 	if !lifecycleMetadataSupportsManagedResume(meta) {
 		row.Action = lifecycleActionUnsupported
-		row.Detail = lifecycleUnsupportedResumeDetail(meta)
+		row.Detail = lifecycleUnsupportedResumeDetailForInstance(meta, inst.Name)
 		return row
 	}
 	row.Action = "resume"

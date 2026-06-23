@@ -2720,9 +2720,11 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 		name:  "manager",
 		agent: "manager",
 		meta: &daemon.Metadata{
-			Status:  daemon.StatusStopped,
-			PID:     321,
-			Runtime: string(runtimebin.KindCodex),
+			Status:        daemon.StatusStopped,
+			PID:           321,
+			Runtime:       string(runtimebin.KindCodex),
+			RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
+			SessionID:     "sid-manager",
 		},
 	})
 	if unsupported.Action != lifecycleActionUnsupported || unsupported.Status != "stopped" || unsupported.PID != 321 || !unsupported.DryRun {
@@ -2731,13 +2733,23 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	if !strings.Contains(unsupported.Detail, `runtime "codex" does not support managed resume`) {
 		t.Fatalf("unsupported detail = %q, want Codex resume limitation", unsupported.Detail)
 	}
+	for _, want := range []string{
+		`agent-team logs manager --follow`,
+		`agent-team logs manager --last-message`,
+		`codex resume sid-manager`,
+	} {
+		if !strings.Contains(unsupported.Detail, want) {
+			t.Fatalf("unsupported detail = %q, want %q", unsupported.Detail, want)
+		}
+	}
 
 	staleUnsupported := dryRunStartResultWithDaemonState(lifecycleTarget{
 		name:  "manager",
 		agent: "manager",
 		meta: &daemon.Metadata{
-			Status:  daemon.StatusRunning,
-			Runtime: string(runtimebin.KindCodex),
+			Status:    daemon.StatusRunning,
+			Runtime:   string(runtimebin.KindCodex),
+			SessionID: "sid-running",
 		},
 	}, false)
 	if staleUnsupported.Action != lifecycleActionUnsupported || staleUnsupported.Status != "running" || !staleUnsupported.DryRun {
@@ -2745,6 +2757,9 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	}
 	if !strings.Contains(staleUnsupported.Detail, "recorded running pid is not live") {
 		t.Fatalf("stale unsupported detail = %q, want stale pid context", staleUnsupported.Detail)
+	}
+	if !strings.Contains(staleUnsupported.Detail, `agent-team logs manager --last-message`) || !strings.Contains(staleUnsupported.Detail, `codex resume sid-running`) {
+		t.Fatalf("stale unsupported detail = %q, want Codex fallback hints", staleUnsupported.Detail)
 	}
 
 	skip := dryRunStartResult(lifecycleTarget{

@@ -1993,7 +1993,7 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 			result.Detail = "would resume"
 		} else {
 			result.Action = lifecycleActionUnsupported
-			result.Detail = lifecycleUnsupportedResumeDetail(target.meta)
+			result.Detail = lifecycleUnsupportedResumeDetailForInstance(target.meta, target.name)
 		}
 	}
 	if target.running() {
@@ -2004,7 +2004,7 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 				result.Detail = "would resume; recorded running pid is not live"
 			} else {
 				result.Action = lifecycleActionUnsupported
-				result.Detail = lifecycleStaleUnsupportedResumeDetail(target.meta)
+				result.Detail = lifecycleStaleUnsupportedResumeDetailForInstance(target.meta, target.name)
 			}
 			return result
 		}

@@ -81,11 +81,13 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
-		Instance:  "manager",
-		Agent:     "manager",
-		Status:    daemon.StatusStopped,
-		Runtime:   string(runtimebin.KindCodex),
-		Workspace: tmp,
+		Instance:      "manager",
+		Agent:         "manager",
+		Status:        daemon.StatusStopped,
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
+		SessionID:     "sid-manager",
+		Workspace:     tmp,
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
 	}
@@ -115,6 +117,15 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 	}
 	if !strings.Contains(row.Detail, `runtime "codex" does not support managed resume`) {
 		t.Fatalf("detail = %q, want Codex resume limitation", row.Detail)
+	}
+	for _, want := range []string{
+		`agent-team logs manager --follow`,
+		`agent-team logs manager --last-message`,
+		`codex resume sid-manager`,
+	} {
+		if !strings.Contains(row.Detail, want) {
+			t.Fatalf("detail = %q, want %q", row.Detail, want)
+		}
 	}
 }
 

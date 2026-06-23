@@ -368,10 +368,12 @@ func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusStopped,
-		Runtime:  string(runtimebin.KindCodex),
+		Instance:      "manager",
+		Agent:         "manager",
+		Status:        daemon.StatusStopped,
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
+		SessionID:     "sid-manager",
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
 	}
@@ -404,6 +406,15 @@ func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T
 	}
 	if !strings.Contains(got, `runtime "codex" does not support managed resume`) {
 		t.Fatalf("sync output = %q, want Codex resume limitation", got)
+	}
+	for _, want := range []string{
+		`agent-team logs manager --follow`,
+		`agent-team logs manager --last-message`,
+		`codex resume sid-manager`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sync output = %q, want %q", got, want)
+		}
 	}
 	meta := metadataByInstanceForTest(mgr.List(), "manager")
 	if meta == nil || meta.Status != daemon.StatusStopped || meta.PID != 0 {
