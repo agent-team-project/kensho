@@ -27,7 +27,7 @@ func newDaemonCmd() *cobra.Command {
 		Use:   "daemon",
 		Short: "Manage the agent-teamd orchestrator daemon for this repo.",
 		Long: "Manage the agent-teamd orchestrator daemon for this repo.\n\n" +
-			"agent-teamd is the per-repo daemon that owns Claude-compatible subprocess lifecycle " +
+			"agent-teamd is the per-repo daemon that owns runtime subprocess lifecycle " +
 			"(spawn / track / stop / resume) and serves a small JSON API over " +
 			".agent_team/daemon.sock. It is a separate binary; this command group manages it.",
 	}

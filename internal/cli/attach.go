@@ -24,7 +24,7 @@ import (
 //  2. POST /v1/stop {instance} — daemon SIGTERMs the child and (per SQU-28's
 //     reaper-with-channel sync) returns only after metadata is persisted.
 //  3. Read the persisted session_id from /v1/instances.
-//  4. exec the Claude-compatible resume command directly with stdin/stdout/stderr
+//  4. exec the managed-resume command directly with stdin/stdout/stderr
 //     wired to the user's terminal — TTY ownership transfers.
 //  5. When the user exits: unless --no-resume is set, POST /v1/start to put
 //     the instance back under daemon supervision.
@@ -52,8 +52,8 @@ func newAttachCmd() *cobra.Command {
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "attach <instance>",
-		Short: "Open an interactive Claude-compatible session against a daemon-managed persistent instance.",
-		Long: "Stop the daemon-managed Claude-compatible child for <instance>, then exec " +
+		Short: "Open an interactive runtime session against a daemon-managed persistent instance.",
+		Long: "Stop the daemon-managed child for <instance>, then exec " +
 			"`<runtime> --resume <session-id>` in your terminal so the conversation " +
 			"continues interactively. On exit, the daemon resumes supervision " +
 			"automatically — pass --no-resume to leave the instance stopped.\n\n" +

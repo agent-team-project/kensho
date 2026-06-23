@@ -169,6 +169,11 @@ and `tick` do not advance them.
     "Claude-compatible child". Some of this wording may be intentional, but it
     is noisy when validating Codex.
 
+    Status after follow-up: attach, daemon, and job-attach help text now use
+    runtime-neutral wording for managed resume and daemon child lifecycle.
+    Claude-specific wording remains in runtime capability docs and examples
+    where the selected profile is explicitly Claude.
+
 13. **Codex runtime logs are noisy even for successful short runs.**
     Successful Codex runs printed plugin/skill warnings before the expected
     marker text. This is usable, but it makes `logs` harder to scan.

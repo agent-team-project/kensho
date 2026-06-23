@@ -26,7 +26,7 @@ Persistent Flags:
 
 Subcommands:
 
-- `agent-team attach` - Open an interactive Claude-compatible session against a daemon-managed persistent instance.
+- `agent-team attach` - Open an interactive runtime session against a daemon-managed persistent instance.
 - `agent-team channel` - Manage daemon-managed pub/sub channels.
 - `agent-team channels` - List all pub/sub channels (alias for `channel ls`).
 - `agent-team completion` - Generate the autocompletion script for the specified shell
@@ -77,9 +77,9 @@ Subcommands:
 
 ## `agent-team attach`
 
-Open an interactive Claude-compatible session against a daemon-managed persistent instance.
+Open an interactive runtime session against a daemon-managed persistent instance.
 
-Stop the daemon-managed Claude-compatible child for &lt;instance&gt;, then exec `&lt;runtime&gt; --resume &lt;session-id&gt;` in your terminal so the conversation continues interactively. On exit, the daemon resumes supervision automatically — pass --no-resume to leave the instance stopped.
+Stop the daemon-managed child for &lt;instance&gt;, then exec `&lt;runtime&gt; --resume &lt;session-id&gt;` in your terminal so the conversation continues interactively. On exit, the daemon resumes supervision automatically — pass --no-resume to leave the instance stopped.
 
 There is brief downtime during the handoff (Shape A): the daemon child is killed before the runtime resume command reattaches. Channel cursors and mailbox state survive the transfer.
 
@@ -413,7 +413,7 @@ Manage the agent-teamd orchestrator daemon for this repo.
 
 Manage the agent-teamd orchestrator daemon for this repo.
 
-agent-teamd is the per-repo daemon that owns Claude-compatible subprocess lifecycle (spawn / track / stop / resume) and serves a small JSON API over .agent_team/daemon.sock. It is a separate binary; this command group manages it.
+agent-teamd is the per-repo daemon that owns runtime subprocess lifecycle (spawn / track / stop / resume) and serves a small JSON API over .agent_team/daemon.sock. It is a separate binary; this command group manages it.
 
 ```text
 agent-team daemon
@@ -1484,7 +1484,7 @@ Flags:
       --dry-run        Preview the owning instance handoff without stopping or resuming the daemon child.
       --grep string    Log mode with --no-follow: only print log lines matching this regular expression.
       --no-follow      Log mode: print the selected log tail and exit instead of following.
-      --no-resume      Leave the owning instance in stopped state when claude exits.
+      --no-resume      Leave the owning instance in stopped state when the runtime exits.
       --repo string    Repo root. (default "<repo>")
       --since string   Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --tail string    Log mode: show only the last N lines before following (0 or all = all). (default "50")
