@@ -21,6 +21,8 @@ func newDispatchCmd() *cobra.Command {
 		workspace   string
 		kickoff     string
 		kickoffFile string
+		runtimeKind string
+		runtimeBin  string
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -55,6 +57,13 @@ func newDispatchCmd() *cobra.Command {
 			}
 			payload, requestedName, err := buildDispatchEventPayload(targetAgent, ticket, kickoffText, name, source, workspace)
 			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team dispatch: %v\n", err)
+				return exitErr(2)
+			}
+			if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{
+				Kind:   runtimeKind,
+				Binary: runtimeBin,
+			}); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team dispatch: %v\n", err)
 				return exitErr(2)
 			}
@@ -93,6 +102,8 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the dispatched agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template.")
@@ -179,6 +190,19 @@ func buildDispatchEventPayload(targetAgent, ticket, kickoff, name, source, works
 		"workspace": workspace,
 	}
 	return payload, name, nil
+}
+
+func applyDispatchRuntimeSelection(teamDir string, payload map[string]any, selection runtimeSelection) error {
+	if strings.TrimSpace(selection.Kind) == "" && strings.TrimSpace(selection.Binary) == "" {
+		return nil
+	}
+	rt, err := runtimeFromConfigWithOverrides(filepath.Join(teamDir, "config.toml"), selection)
+	if err != nil {
+		return err
+	}
+	payload["runtime"] = string(rt.Kind)
+	payload["runtime_binary"] = rt.Binary
+	return nil
 }
 
 func dispatchWorkspace(targetAgent, workspace string) (string, error) {

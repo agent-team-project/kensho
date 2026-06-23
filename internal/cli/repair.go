@@ -348,7 +348,7 @@ func runRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, opts repairO
 	if message == "" {
 		message = "repair retry failed pipeline step"
 	}
-	results, err := retryPipelineJobs(cmd, teamDir, "", opts.Workspace, opts.RetryStep, message, opts.Limit, true, opts.DryRun, opts.PreviewRoutes)
+	results, err := retryPipelineJobs(cmd, teamDir, "", opts.Workspace, runtimeSelection{}, opts.RetryStep, message, opts.Limit, true, opts.DryRun, opts.PreviewRoutes)
 	if err != nil {
 		return repairPipelineRetryStep{Action: "error", Reason: err.Error()}, err
 	}

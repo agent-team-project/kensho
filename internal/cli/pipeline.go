@@ -376,6 +376,8 @@ func newPipelineAdvanceCmd() *cobra.Command {
 	var (
 		repo          string
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		limit         int
 		all           bool
 		dryRun        bool
@@ -427,7 +429,7 @@ func newPipelineAdvanceCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline advance: pipeline name is required.")
 				return exitErr(2)
 			}
-			results, err := advanceReadyPipelineJobs(cmd, teamDir, pipelineName, workspace, limit, dryRun, previewRoutes)
+			results, err := advanceReadyPipelineJobs(cmd, teamDir, pipelineName, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, limit, dryRun, previewRoutes)
 			if err != nil {
 				return err
 			}
@@ -436,6 +438,8 @@ func newPipelineAdvanceCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready jobs; 0 means no limit.")
 	cmd.Flags().BoolVar(&all, "all", false, "Advance ready steps across all pipelines.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready steps without dispatching them.")
@@ -452,6 +456,8 @@ func newPipelineApproveCmd() *cobra.Command {
 		limit         int
 		dispatchNow   bool
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		step          string
 		message       string
 		dryRun        bool
@@ -504,7 +510,7 @@ func newPipelineApproveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			results, err := approvePipelineManualGates(cmd, teamDir, pipelineName, workspace, step, message, limit, dispatchNow, dryRun, previewRoutes)
+			results, err := approvePipelineManualGates(cmd, teamDir, pipelineName, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
 				return exitErr(1)
@@ -517,6 +523,8 @@ func newPipelineApproveCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum manual gates to approve (0 = no limit).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each approved manual gate immediately.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().StringVar(&step, "step", "", "Approve only manual gates whose next blocked step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each approved job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
@@ -533,6 +541,8 @@ func newPipelineRetryCmd() *cobra.Command {
 		limit         int
 		dispatchNow   bool
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		step          string
 		message       string
 		dryRun        bool
@@ -585,7 +595,7 @@ func newPipelineRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			results, err := retryPipelineJobs(cmd, teamDir, pipelineName, workspace, step, message, limit, dispatchNow, dryRun, previewRoutes)
+			results, err := retryPipelineJobs(cmd, teamDir, pipelineName, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline retry: %v\n", err)
 				return exitErr(1)
@@ -598,6 +608,8 @@ func newPipelineRetryCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum failed jobs to retry (0 = no limit).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each reset failed step immediately.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().StringVar(&step, "step", "", "Retry only failed jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each retried job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview failed-step resets and optional dispatches without writing job or daemon state.")
@@ -616,6 +628,8 @@ func newPipelineRunCmd() *cobra.Command {
 		kickoffFile string
 		dispatchNow bool
 		workspace   string
+		runtimeKind string
+		runtimeBin  string
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -637,6 +651,7 @@ func newPipelineRunCmd() *cobra.Command {
 				KickoffFile: kickoffFile,
 				DispatchNow: dispatchNow,
 				Workspace:   workspace,
+				Runtime:     runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 				DryRun:      dryRun,
 				JSON:        jsonOut,
 				Format:      format,
@@ -651,6 +666,8 @@ func newPipelineRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file.")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the first ready pipeline step immediately using the running daemon.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the pipeline job that would be created without writing it.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the created job or advance result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -664,6 +681,7 @@ type pipelineRunOptions struct {
 	KickoffFile string
 	DispatchNow bool
 	Workspace   string
+	Runtime     runtimeSelection
 	DryRun      bool
 	JSON        bool
 	Format      string
@@ -720,7 +738,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	}
 	if opts.DryRun {
 		if opts.DispatchNow {
-			preview, err := previewJobAdvanceDispatch(teamDir, j, opts.Workspace)
+			preview, err := previewJobAdvanceDispatch(teamDir, j, opts.Workspace, opts.Runtime)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 				return exitErr(1)
@@ -741,7 +759,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 		return err
 	}
 	if opts.DispatchNow {
-		res, err := advanceJob(cmd, teamDir, j, opts.Workspace)
+		res, err := advanceJob(cmd, teamDir, j, opts.Workspace, opts.Runtime)
 		if err != nil {
 			return err
 		}
@@ -1388,7 +1406,7 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 	row.Actions = actions
 }
 
-func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
+func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, selection runtimeSelection, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
 	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"ready": true, "queued": true})
 	if err != nil {
 		return nil, err
@@ -1417,7 +1435,7 @@ func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace s
 				if err != nil {
 					return nil, err
 				}
-				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, selection)
 				if err != nil {
 					return nil, err
 				}
@@ -1437,7 +1455,7 @@ func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace s
 		if err != nil {
 			return nil, err
 		}
-		advanced, err := advanceJob(cmd, teamDir, j, workspace)
+		advanced, err := advanceJob(cmd, teamDir, j, workspace, selection)
 		if err != nil {
 			return nil, err
 		}
@@ -1462,7 +1480,7 @@ func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace s
 	return results, nil
 }
 
-func approvePipelineManualGates(cmd *cobra.Command, teamDir, pipeline, workspace, stepFilter, message string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineApproveResult, error) {
+func approvePipelineManualGates(cmd *cobra.Command, teamDir, pipeline, workspace string, selection runtimeSelection, stepFilter, message string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineApproveResult, error) {
 	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"blocked": true})
 	if err != nil {
 		return nil, err
@@ -1523,7 +1541,7 @@ func approvePipelineManualGates(cmd *cobra.Command, teamDir, pipeline, workspace
 		}
 		if dryRun {
 			if dispatchNow {
-				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, selection)
 				if err != nil {
 					return nil, err
 				}
@@ -1546,7 +1564,7 @@ func approvePipelineManualGates(cmd *cobra.Command, teamDir, pipeline, workspace
 		result.Action = "approved"
 		result.DryRun = false
 		if dispatchNow {
-			advanced, err := advanceJob(cmd, teamDir, j, workspace)
+			advanced, err := advanceJob(cmd, teamDir, j, workspace, selection)
 			if err != nil {
 				return nil, err
 			}
@@ -1586,7 +1604,7 @@ func filterPipelineApproveRows(rows []jobReadyRow, stepFilter string) []jobReady
 	return out
 }
 
-func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace, stepFilter, message string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
+func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, selection runtimeSelection, stepFilter, message string, limit int, dispatchNow, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
 	rows, err := collectJobReadyRows(teamDir, pipeline, map[string]bool{"failed": true})
 	if err != nil {
 		return nil, err
@@ -1642,7 +1660,7 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace, stepFil
 		}
 		if dryRun {
 			if dispatchNow {
-				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, selection)
 				if err != nil {
 					return nil, err
 				}
@@ -1665,7 +1683,7 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace, stepFil
 		result.Action = "retried"
 		result.DryRun = false
 		if dispatchNow {
-			advanced, err := advanceJob(cmd, teamDir, j, workspace)
+			advanced, err := advanceJob(cmd, teamDir, j, workspace, selection)
 			if err != nil {
 				return nil, err
 			}

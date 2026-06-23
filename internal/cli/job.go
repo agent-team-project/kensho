@@ -684,6 +684,8 @@ func newJobCreateCmd() *cobra.Command {
 		instance    string
 		dispatchNow bool
 		workspace   string
+		runtimeKind string
+		runtimeBin  string
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -760,7 +762,7 @@ func newJobCreateCmd() *cobra.Command {
 			if dryRun {
 				if dispatchNow {
 					if len(j.Steps) > 0 {
-						preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+						preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 						if err != nil {
 							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
 							return exitErr(1)
@@ -774,6 +776,10 @@ func newJobCreateCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
+						return exitErr(2)
+					}
 					preview, err := previewDispatchPayload(teamDir, j.Target, requestedName, payload)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
@@ -798,7 +804,7 @@ func newJobCreateCmd() *cobra.Command {
 			}
 			if dispatchNow {
 				if len(j.Steps) > 0 {
-					res, err := advanceJob(cmd, teamDir, j, workspace)
+					res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						return err
 					}
@@ -810,7 +816,7 @@ func newJobCreateCmd() *cobra.Command {
 					}
 					return renderJobAdvanceResult(cmd.OutOrStdout(), res)
 				}
-				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, "", workspace, "agent-team job create")
+				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, "", workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, "agent-team job create")
 				if err != nil {
 					return err
 				}
@@ -837,6 +843,8 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that owns the job (default set during dispatch).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the created job immediately using the running daemon.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the job that would be created without writing it.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -1167,12 +1175,14 @@ func newJobStartCmd() *cobra.Command {
 
 func newJobDispatchCmd() *cobra.Command {
 	var (
-		repo      string
-		source    string
-		workspace string
-		dryRun    bool
-		jsonOut   bool
-		format    string
+		repo        string
+		source      string
+		workspace   string
+		runtimeKind string
+		runtimeBin  string
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1201,6 +1211,10 @@ func newJobDispatchCmd() *cobra.Command {
 				}
 				payload["job_id"] = j.ID
 				payload["job"] = j.ID
+				if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
+					return exitErr(2)
+				}
 				preview, err := previewDispatchPayload(teamDir, j.Target, requestedName, payload)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
@@ -1208,7 +1222,7 @@ func newJobDispatchCmd() *cobra.Command {
 				}
 				return renderJobDispatchPreview(cmd.OutOrStdout(), j, preview, jsonOut, tmpl)
 			}
-			res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, "agent-team job dispatch")
+			res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, "agent-team job dispatch")
 			if err != nil {
 				return err
 			}
@@ -1227,6 +1241,8 @@ func newJobDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&source, "source", "", "Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon or updating the job.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template.")
@@ -1891,6 +1907,8 @@ func newJobReopenCmd() *cobra.Command {
 		dispatchNow bool
 		source      string
 		workspace   string
+		runtimeKind string
+		runtimeBin  string
 		dryRun      bool
 		jsonOut     bool
 		format      string
@@ -1946,7 +1964,7 @@ func newJobReopenCmd() *cobra.Command {
 			if dryRun {
 				if dispatchNow {
 					if len(j.Steps) > 0 {
-						preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+						preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 						if err != nil {
 							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 							return exitErr(1)
@@ -1960,6 +1978,10 @@ func newJobReopenCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
+						return exitErr(2)
+					}
 					preview, err := previewDispatchPayload(teamDir, j.Target, requestedName, payload)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
@@ -1974,7 +1996,7 @@ func newJobReopenCmd() *cobra.Command {
 			}
 			if dispatchNow {
 				if len(j.Steps) > 0 {
-					res, err := advanceJob(cmd, teamDir, j, workspace)
+					res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						return err
 					}
@@ -1986,7 +2008,7 @@ func newJobReopenCmd() *cobra.Command {
 					}
 					return renderJobAdvanceResult(cmd.OutOrStdout(), res)
 				}
-				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, "agent-team job reopen")
+				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, "agent-team job reopen")
 				if err != nil {
 					return err
 				}
@@ -2010,6 +2032,8 @@ func newJobReopenCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the reopened job immediately using the running daemon.")
 	cmd.Flags().StringVar(&source, "source", "", "Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the reopened job and optional dispatch without writing job or daemon state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or dry-run preview as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template.")
@@ -2414,19 +2438,21 @@ func newJobTriageCmd() *cobra.Command {
 
 func newJobStepCmd() *cobra.Command {
 	var (
-		repo      string
-		status    string
-		message   string
-		instance  string
-		pr        string
-		branch    string
-		worktree  string
-		advance   bool
-		skip      bool
-		workspace string
-		dryRun    bool
-		jsonOut   bool
-		format    string
+		repo        string
+		status      string
+		message     string
+		instance    string
+		pr          string
+		branch      string
+		worktree    string
+		advance     bool
+		skip        bool
+		workspace   string
+		runtimeKind string
+		runtimeBin  string
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2472,7 +2498,7 @@ func newJobStepCmd() *cobra.Command {
 			}
 			if dryRun {
 				if advance && stepStatus == job.StatusDone {
-					preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+					preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 						return exitErr(1)
@@ -2485,7 +2511,7 @@ func newJobStepCmd() *cobra.Command {
 				return err
 			}
 			if advance && stepStatus == job.StatusDone {
-				res, err := advanceJob(cmd, teamDir, j, workspace)
+				res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 				if err != nil {
 					return err
 				}
@@ -2517,6 +2543,8 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&advance, "advance", false, "After marking the step done, dispatch the next ready step.")
 	cmd.Flags().BoolVar(&skip, "skip", false, "Mark this step as intentionally skipped; stored as done so dependent steps can continue.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for an advanced step: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the step update and optional advance dispatch without writing job or daemon state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or advance result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.")
@@ -2525,11 +2553,13 @@ func newJobStepCmd() *cobra.Command {
 
 func newJobAdvanceCmd() *cobra.Command {
 	var (
-		repo      string
-		workspace string
-		dryRun    bool
-		jsonOut   bool
-		format    string
+		repo        string
+		workspace   string
+		runtimeKind string
+		runtimeBin  string
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2551,14 +2581,14 @@ func newJobAdvanceCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
-				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace)
+				preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
 					return exitErr(1)
 				}
 				return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 			}
-			res, err := advanceJob(cmd, teamDir, j, workspace)
+			res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 			if err != nil {
 				return err
 			}
@@ -2573,6 +2603,8 @@ func newJobAdvanceCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for the advanced step: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the advanced step dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the next ready step dispatch without changing daemon or job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.")
@@ -4495,7 +4527,7 @@ func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
 	return true
 }
 
-func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, source, workspace, prefix string) (*jobDispatchResult, string, error) {
+func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, source, workspace string, selection runtimeSelection, prefix string) (*jobDispatchResult, string, error) {
 	payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, source, workspace)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
@@ -4503,6 +4535,10 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	}
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
+	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return nil, "", exitErr(2)
+	}
 	dc, err := newDaemonClient(teamDir)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: daemon is not running — start it with `agent-team start`.\n", prefix)
@@ -5648,7 +5684,7 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	return nil
 }
 
-func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string) (*jobAdvanceResult, error) {
+func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string, selection runtimeSelection) (*jobAdvanceResult, error) {
 	step := nextReadyJobStep(j)
 	if step == nil {
 		now := time.Now().UTC()
@@ -5686,6 +5722,10 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = step.ID
+	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+		return nil, exitErr(2)
+	}
 	dc, err := newDaemonClient(teamDir)
 	if err != nil {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: daemon is not running — start it with `agent-team start`.")
@@ -6593,7 +6633,7 @@ type jobAdvancePreview struct {
 	DryRun   bool                  `json:"dry_run"`
 }
 
-func previewJobAdvanceDispatch(teamDir string, j *job.Job, workspace string) (*jobAdvancePreview, error) {
+func previewJobAdvanceDispatch(teamDir string, j *job.Job, workspace string, selection runtimeSelection) (*jobAdvancePreview, error) {
 	step := nextReadyJobStep(j)
 	if step == nil {
 		message := "no ready steps"
@@ -6616,6 +6656,9 @@ func previewJobAdvanceDispatch(teamDir string, j *job.Job, workspace string) (*j
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = step.ID
+	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
+		return nil, err
+	}
 	dispatch, err := previewDispatchPayload(teamDir, step.Target, requestedName, payload)
 	if err != nil {
 		return nil, err

@@ -553,7 +553,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	}
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, prompt, env)
+	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, prompt, env, payload)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -674,7 +674,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "runtime", "runtime_binary"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -833,8 +833,8 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, prompt string, env []string) ([]string, string, runtimebin.Runtime, error) {
-	rt, err := runtimebin.CurrentFromConfig(filepath.Join(r.teamDir, "config.toml"))
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, prompt string, env []string, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
+	rt, err := r.runtimeFromDispatchPayload(payload)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
 	}
@@ -915,6 +915,33 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	default:
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
+}
+
+func (r *EventResolver) runtimeFromDispatchPayload(payload map[string]any) (runtimebin.Runtime, error) {
+	kindRaw := firstPayloadString(payload, "runtime")
+	binRaw := firstPayloadString(payload, "runtime_binary", "runtime_bin")
+	if strings.TrimSpace(kindRaw) != "" {
+		kind, err := runtimebin.ParseKind(kindRaw)
+		if err != nil {
+			return runtimebin.Runtime{}, fmt.Errorf("runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
+		}
+		bin := strings.TrimSpace(binRaw)
+		if bin == "" {
+			bin = runtimebin.DefaultBinaryForKind(kind)
+		}
+		return runtimebin.Runtime{Kind: kind, Binary: bin}, nil
+	}
+	rt, err := runtimebin.CurrentFromConfig(filepath.Join(r.teamDir, "config.toml"))
+	if err != nil {
+		return runtimebin.Runtime{}, err
+	}
+	if bin := strings.TrimSpace(binRaw); bin != "" {
+		rt.Binary = bin
+	}
+	if strings.TrimSpace(rt.Binary) == "" {
+		rt.Binary = runtimebin.DefaultBinaryForKind(rt.Kind)
+	}
+	return rt, nil
 }
 
 func codexEventPrompt(kickoff, prompt string, agents []*loader.Agent) string {

@@ -467,6 +467,37 @@ func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-43", 5*time.Second)
 }
 
+func TestEvent_EphemeralDispatchPayloadRuntimeOverridesEnv(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	t.Setenv(runtimebin.EnvBinary, "claude-wrapper")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-44","kickoff":"implement SQU-44","runtime":"codex","runtime_binary":"codex-dev"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex-dev" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want payload-backed codex-dev exec", call)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-44")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindCodex) || meta.RuntimeBinary != "codex-dev" || meta.SessionID != "" {
+		t.Fatalf("metadata = %+v, want payload-backed codex-dev without Claude session", meta)
+	}
+	_, _ = m.Stop("worker-squ-44")
+	_ = m.WaitForReaper("worker-squ-44", 5*time.Second)
+}
+
 func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

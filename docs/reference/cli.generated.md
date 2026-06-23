@@ -606,6 +606,8 @@ Flags:
       --kickoff string        Kickoff text for the dispatched agent.
       --kickoff-file string   Read kickoff text from a file.
       --name string           Requested instance name (default: <target>-<ticket-slug>).
+      --runtime string        Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for the dispatched instance. Overrides env and repo config.
       --source string         Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
       --target string         Repo root. (default "<repo>")
       --workspace string      Workspace mode for spawned children: auto, worktree, or repo. (default "auto")
@@ -1461,11 +1463,13 @@ agent-team job advance <job-id> [flags]
 Flags:
 
 ```text
-      --dry-run            Preview the next ready step dispatch without changing daemon or job state.
-      --format string      Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
-      --json               Emit the updated job and daemon event outcome as JSON.
-      --repo string        Repo root. (default "<repo>")
-      --workspace string   Workspace mode for the advanced step: auto, worktree, or repo. (default "auto")
+      --dry-run              Preview the next ready step dispatch without changing daemon or job state.
+      --format string        Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
+      --json                 Emit the updated job and daemon event outcome as JSON.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for the advanced step dispatch. Overrides env and repo config.
+      --workspace string     Workspace mode for the advanced step: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job attach`
@@ -1549,6 +1553,8 @@ Flags:
       --kickoff-file string   Read kickoff text from a file.
       --pipeline string       Create this job from a declared pipeline in instances.toml.
       --repo string           Repo root. (default "<repo>")
+      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --target string         Target agent that should own this job. (default "worker")
       --ticket-url string     Canonical ticket URL to store on the job.
       --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
@@ -1565,12 +1571,14 @@ agent-team job dispatch <job-id> [flags]
 Flags:
 
 ```text
-      --dry-run            Preview topology matches without publishing to the daemon or updating the job.
-      --format string      Render the updated job or dry-run preview with a Go template.
-      --json               Emit the updated job and daemon event outcome as JSON.
-      --repo string        Repo root. (default "<repo>")
-      --source string      Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
-      --workspace string   Workspace mode for spawned children: auto, worktree, or repo. (default "auto")
+      --dry-run              Preview topology matches without publishing to the daemon or updating the job.
+      --format string        Render the updated job or dry-run preview with a Go template.
+      --json                 Emit the updated job and daemon event outcome as JSON.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for the dispatched instance. Overrides env and repo config.
+      --source string        Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
+      --workspace string     Workspace mode for spawned children: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job events`
@@ -2017,16 +2025,18 @@ Aliases: `retry`
 Flags:
 
 ```text
-      --dispatch           Dispatch the reopened job immediately using the running daemon.
-      --dry-run            Preview the reopened job and optional dispatch without writing job or daemon state.
-  -f, --force              Allow reopening a job currently marked running.
-      --format string      Render the updated job or dry-run preview with a Go template.
-      --json               Emit the updated job or dry-run preview as JSON.
-      --message string     Status message recorded on the job.
-      --repo string        Repo root. (default "<repo>")
-      --source string      Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).
-      --status string      Reopened status: queued or blocked. (default "queued")
-      --workspace string   Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --dispatch             Dispatch the reopened job immediately using the running daemon.
+      --dry-run              Preview the reopened job and optional dispatch without writing job or daemon state.
+  -f, --force                Allow reopening a job currently marked running.
+      --format string        Render the updated job or dry-run preview with a Go template.
+      --json                 Emit the updated job or dry-run preview as JSON.
+      --message string       Status message recorded on the job.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
+      --source string        Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).
+      --status string        Reopened status: queued or blocked. (default "queued")
+      --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job rm`
@@ -2120,19 +2130,21 @@ agent-team job step <job-id> <step-id> [flags]
 Flags:
 
 ```text
-      --advance            After marking the step done, dispatch the next ready step.
-      --branch string      Branch name to record on the job.
-      --dry-run            Preview the step update and optional advance dispatch without writing job or daemon state.
-      --format string      Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
-      --instance string    Instance that owns or completed this step.
-      --json               Emit the updated job or advance result as JSON.
-      --message string     Status message recorded on the job.
-      --pr string          PR URL to record on the job.
-      --repo string        Repo root. (default "<repo>")
-      --skip               Mark this step as intentionally skipped; stored as done so dependent steps can continue.
-      --status string      Step status: queued, running, blocked, done, or failed. (default "done")
-      --workspace string   Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
-      --worktree string    Worktree path to record on the job.
+      --advance              After marking the step done, dispatch the next ready step.
+      --branch string        Branch name to record on the job.
+      --dry-run              Preview the step update and optional advance dispatch without writing job or daemon state.
+      --format string        Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
+      --instance string      Instance that owns or completed this step.
+      --json                 Emit the updated job or advance result as JSON.
+      --message string       Status message recorded on the job.
+      --pr string            PR URL to record on the job.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --advance dispatch. Overrides env and repo config.
+      --skip                 Mark this step as intentionally skipped; stored as done so dependent steps can continue.
+      --status string        Step status: queued, running, blocked, done, or failed. (default "done")
+      --workspace string     Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
+      --worktree string      Worktree path to record on the job.
 ```
 
 ## `agent-team job stop`
@@ -2484,14 +2496,16 @@ agent-team pipeline advance <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                Advance ready steps across all pipelines.
-      --dry-run            Preview ready steps without dispatching them.
-      --format string      Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit advance results as JSON.
-      --limit int          Advance at most this many ready jobs; 0 means no limit.
-      --preview-routes     With --dry-run, include local topology route and dispatch payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --workspace string   Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
+      --all                  Advance ready steps across all pipelines.
+      --dry-run              Preview ready steps without dispatching them.
+      --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit advance results as JSON.
+      --limit int            Advance at most this many ready jobs; 0 means no limit.
+      --preview-routes       With --dry-run, include local topology route and dispatch payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --workspace string     Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline approve`
@@ -2507,17 +2521,19 @@ agent-team pipeline approve <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                Approve manual gates across all pipelines.
-      --dispatch           Dispatch each approved manual gate immediately.
-      --dry-run            Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --format string      Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit approval results as JSON.
-      --limit int          Maximum manual gates to approve (0 = no limit).
-      --message string     Status message recorded on each approved job.
-      --preview-routes     With --dry-run --dispatch, include route and payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --step string        Approve only manual gates whose next blocked step has this id.
-      --workspace string   Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --all                  Approve manual gates across all pipelines.
+      --dispatch             Dispatch each approved manual gate immediately.
+      --dry-run              Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --format string        Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit approval results as JSON.
+      --limit int            Maximum manual gates to approve (0 = no limit).
+      --message string       Status message recorded on each approved job.
+      --preview-routes       With --dry-run --dispatch, include route and payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
+      --step string          Approve only manual gates whose next blocked step has this id.
+      --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline doctor`
@@ -2622,17 +2638,19 @@ agent-team pipeline retry <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                Retry failed steps across all pipelines.
-      --dispatch           Dispatch each reset failed step immediately.
-      --dry-run            Preview failed-step resets and optional dispatches without writing job or daemon state.
-      --format string      Render each retry result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json               Emit retry results as JSON.
-      --limit int          Maximum failed jobs to retry (0 = no limit).
-      --message string     Status message recorded on each retried job.
-      --preview-routes     With --dry-run --dispatch, include route and payload previews.
-      --repo string        Repo root. (default "<repo>")
-      --step string        Retry only failed jobs whose next failed step has this id.
-      --workspace string   Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --all                  Retry failed steps across all pipelines.
+      --dispatch             Dispatch each reset failed step immediately.
+      --dry-run              Preview failed-step resets and optional dispatches without writing job or daemon state.
+      --format string        Render each retry result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                 Emit retry results as JSON.
+      --limit int            Maximum failed jobs to retry (0 = no limit).
+      --message string       Status message recorded on each retried job.
+      --preview-routes       With --dry-run --dispatch, include route and payload previews.
+      --repo string          Repo root. (default "<repo>")
+      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
+      --step string          Retry only failed jobs whose next failed step has this id.
+      --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline run`
@@ -2654,6 +2672,8 @@ Flags:
       --kickoff string        Kickoff text for the first pipeline step.
       --kickoff-file string   Read kickoff text from a file.
       --repo string           Repo root. (default "<repo>")
+      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string     Canonical ticket URL to store on the job.
       --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```

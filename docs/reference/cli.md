@@ -81,7 +81,7 @@ Shortcuts:
 | `agent-team job create <ticket>` | Create a durable job |
 | `agent-team job ls` | List jobs |
 | `agent-team job show <job-id>` | Show job detail, queue, quarantine, status previews, and actions |
-| `agent-team job dispatch <job-id>` | Dispatch a job |
+| `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection |
 | `agent-team job send <job-id>` | Send message to job instance |
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job |
@@ -133,10 +133,10 @@ Shortcuts:
 | `agent-team pipeline show <pipeline>` | Show one declaration |
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
 | `agent-team pipeline doctor --all` | Validate workflows |
-| `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job |
+| `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts runtime overrides |
 | `agent-team pipeline status` | Summarize pipeline jobs |
 | `agent-team pipeline ready` | List ready steps |
-| `agent-team pipeline advance <pipeline>` | Advance ready work |
+| `agent-team pipeline advance <pipeline>` | Advance ready work; use `--runtime` for dispatched steps |
 | `agent-team pipeline approve <pipeline>` | Approve blocked manual gates |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps |
 

@@ -5610,7 +5610,7 @@ func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topo
 		if limit > 0 {
 			batchLimit = remaining
 		}
-		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, batchLimit, dryRun, previewRoutes)
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, runtimeSelection{}, batchLimit, dryRun, previewRoutes)
 		if err != nil {
 			return nil, err
 		}
@@ -5636,7 +5636,7 @@ func approveTeamPipelineManualGates(cmd *cobra.Command, teamDir string, team *to
 		if limit > 0 {
 			batchLimit = remaining
 		}
-		approved, err := approvePipelineManualGates(cmd, teamDir, pipeline, workspace, stepFilter, message, batchLimit, dispatchNow, dryRun, previewRoutes)
+		approved, err := approvePipelineManualGates(cmd, teamDir, pipeline, workspace, runtimeSelection{}, stepFilter, message, batchLimit, dispatchNow, dryRun, previewRoutes)
 		if err != nil {
 			return nil, err
 		}
@@ -5662,7 +5662,7 @@ func retryTeamPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Te
 		if limit > 0 {
 			batchLimit = remaining
 		}
-		retried, err := retryPipelineJobs(cmd, teamDir, pipeline, workspace, stepFilter, message, batchLimit, dispatchNow, dryRun, previewRoutes)
+		retried, err := retryPipelineJobs(cmd, teamDir, pipeline, workspace, runtimeSelection{}, stepFilter, message, batchLimit, dispatchNow, dryRun, previewRoutes)
 		if err != nil {
 			return nil, err
 		}

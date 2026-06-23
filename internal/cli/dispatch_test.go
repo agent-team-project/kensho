@@ -109,6 +109,8 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 		"--target", target,
 		"--dry-run",
 		"--json",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("dispatch --dry-run --json: %v\nstderr=%s", err, stderr.String())
@@ -123,7 +125,10 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	if preview.Preview == nil || preview.Preview.Type != "agent.dispatch" || len(preview.Preview.Matched) != 1 || preview.Preview.Matched[0] != "worker" {
 		t.Fatalf("event preview = %+v", preview.Preview)
 	}
-	if preview.Preview.Payload["workspace"] != "worktree" || preview.Preview.Payload["kickoff"] != "SQU-242: preview dispatch" {
+	if preview.Preview.Payload["workspace"] != "worktree" ||
+		preview.Preview.Payload["kickoff"] != "SQU-242: preview dispatch" ||
+		preview.Preview.Payload["runtime"] != "codex" ||
+		preview.Preview.Payload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("payload = %+v", preview.Preview.Payload)
 	}
 	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "worker-squ-242"); !os.IsNotExist(err) {

@@ -26,14 +26,14 @@ The command reports:
 
 Runtime selection is deterministic:
 
-1. `--runtime` on commands that inspect or launch a runtime
+1. `--runtime` on commands that inspect, launch, or dispatch a runtime
 2. `AGENT_TEAM_RUNTIME`
 3. `.agent_team/config.toml` `[runtime].kind`
 4. built-in default, `claude`
 
 Binary selection is:
 
-1. `--runtime-bin` on commands that inspect or launch a runtime
+1. `--runtime-bin` on commands that inspect, launch, or dispatch a runtime
 2. when `--runtime` is set without `--runtime-bin`, the built-in default for that runtime
 3. `AGENT_TEAM_RUNTIME_BIN`
 4. `.agent_team/config.toml` `[runtime].binary` or `[runtime].bin`, but only when `AGENT_TEAM_RUNTIME` is not set
@@ -61,6 +61,9 @@ agent-team runtime --runtime codex
 agent-team run worker --runtime codex --prompt "check status" --last-message
 agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --prompt "check status" --detach
 agent-team template run bundled manager --runtime codex --prompt "check status" --last-message
+agent-team dispatch worker SQU-42 --runtime codex --kickoff "implement the ticket"
+agent-team job dispatch squ-42 --runtime codex --runtime-bin /opt/bin/codex-wrapper
+agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
 ```
 
 ## Capability Matrix

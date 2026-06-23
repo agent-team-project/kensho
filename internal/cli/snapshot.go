@@ -182,7 +182,7 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 	} else {
 		out.PipelineStatus = status
 	}
-	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", 0, true, true); err != nil {
+	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", runtimeSelection{}, 0, true, true); err != nil {
 		out.addError("pipeline_advance_preview", err)
 	} else {
 		out.PipelineAdvance = advance
@@ -316,7 +316,7 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 	} else {
 		out.PipelineStatus = teamPipelineStatus(team, status)
 	}
-	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", 0, true, true); err != nil {
+	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", runtimeSelection{}, 0, true, true); err != nil {
 		out.addError("pipeline_advance_preview", err)
 	} else {
 		out.PipelineAdvance = filterPipelineAdvanceResultsByJobIDs(advance, ownedJobIDs)

@@ -106,6 +106,8 @@ Important options:
 | --- | --- |
 | `--workspace auto` | Let agent-team choose repo or worktree |
 | `--workspace worktree` | Force worktree mode |
+| `--runtime codex` | Use Codex for this dispatch instead of the repo/env default |
+| `--runtime-bin <path>` | Use a specific runtime wrapper or binary for this dispatch |
 | `--instance <name>` | Request an instance name |
 | `--dry-run` | Preview route and payload |
 | `--json` | Emit structured result |

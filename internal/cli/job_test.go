@@ -387,7 +387,7 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 	pipelineOut, pipelineErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pipelineCmd.SetOut(pipelineOut)
 	pipelineCmd.SetErr(pipelineErr)
-	pipelineCmd.SetArgs([]string{"job", "create", "SQU-46", "--repo", tmp, "--pipeline", "ticket_to_pr", "--dry-run", "--dispatch", "--json"})
+	pipelineCmd.SetArgs([]string{"job", "create", "SQU-46", "--repo", tmp, "--pipeline", "ticket_to_pr", "--dry-run", "--dispatch", "--json", "--runtime", "codex", "--runtime-bin", "codex-dev"})
 	if err := pipelineCmd.Execute(); err != nil {
 		t.Fatalf("pipeline job create --dry-run --dispatch: %v\nstderr=%s", err, pipelineErr.String())
 	}
@@ -402,7 +402,11 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 		t.Fatalf("advance route preview = %+v", advancePreview.Dispatch)
 	}
 	advancePayload := advancePreview.Dispatch.Preview.Payload
-	if advancePayload["pipeline"] != "ticket_to_pr" || advancePayload["pipeline_step"] != "implement" || advancePayload["job_id"] != "squ-46" {
+	if advancePayload["pipeline"] != "ticket_to_pr" ||
+		advancePayload["pipeline_step"] != "implement" ||
+		advancePayload["job_id"] != "squ-46" ||
+		advancePayload["runtime"] != "codex" ||
+		advancePayload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("advance payload = %+v", advancePayload)
 	}
 	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "jobs", "squ-46.toml")); !os.IsNotExist(err) {
