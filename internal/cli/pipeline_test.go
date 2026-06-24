@@ -885,6 +885,216 @@ target = "manager"
 	}
 }
 
+func TestPipelineAndTeamHoldReleaseJobs(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[pipelines.nightly]
+trigger.event = "schedule"
+trigger.match.name = "nightly"
+
+[[pipelines.nightly.steps]]
+id = "triage"
+target = "manager"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr", "nightly"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-701",
+			Ticket:    "SQU-701",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+		{
+			ID:        "squ-702",
+			Ticket:    "SQU-702",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusDone,
+			CreatedAt: now,
+			UpdatedAt: now.Add(time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone},
+			},
+		},
+		{
+			ID:        "squ-703",
+			Ticket:    "SQU-703",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now.Add(2 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+		{
+			ID:        "squ-704",
+			Ticket:    "SQU-704",
+			Target:    "manager",
+			Pipeline:  "nightly",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now.Add(3 * time.Minute),
+			Steps: []job.Step{
+				{ID: "triage", Target: "manager", Status: job.StatusBlocked},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "release freeze", "--repo", root, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("pipeline hold dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryRows []pipelineHoldResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryRows); err != nil {
+		t.Fatalf("decode dry hold json: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryRows) != 2 || dryRows[0].Action != "would_hold" || dryRows[1].Action != "would_hold" {
+		t.Fatalf("dry hold rows = %+v", dryRows)
+	}
+	unchanged, err := job.Read(teamDir, "squ-703")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Held {
+		t.Fatalf("dry-run held job on disk: %+v", unchanged)
+	}
+
+	holdFailed := NewRootCmd()
+	holdFailedOut, holdFailedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	holdFailed.SetOut(holdFailedOut)
+	holdFailed.SetErr(holdFailedErr)
+	holdFailed.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "--repo", root, "--state", "failed", "--message", "freeze failed work", "--json"})
+	if err := holdFailed.Execute(); err != nil {
+		t.Fatalf("pipeline hold failed: %v\nstderr=%s", err, holdFailedErr.String())
+	}
+	var heldFailed []pipelineHoldResult
+	if err := json.Unmarshal(holdFailedOut.Bytes(), &heldFailed); err != nil {
+		t.Fatalf("decode failed hold json: %v\nbody=%s", err, holdFailedOut.String())
+	}
+	if len(heldFailed) != 1 || heldFailed[0].JobID != "squ-703" || heldFailed[0].Action != "held" || !heldFailed[0].HeldAfter {
+		t.Fatalf("held failed rows = %+v", heldFailed)
+	}
+
+	retryHeld := NewRootCmd()
+	retryHeldOut, retryHeldErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retryHeld.SetOut(retryHeldOut)
+	retryHeld.SetErr(retryHeldErr)
+	retryHeld.SetArgs([]string{"pipeline", "retry", "ticket_to_pr", "--repo", root, "--dry-run", "--json"})
+	if err := retryHeld.Execute(); err != nil {
+		t.Fatalf("pipeline retry held: %v\nstderr=%s", err, retryHeldErr.String())
+	}
+	var retryRows []pipelineRetryResult
+	if err := json.Unmarshal(retryHeldOut.Bytes(), &retryRows); err != nil {
+		t.Fatalf("decode retry held json: %v\nbody=%s", err, retryHeldOut.String())
+	}
+	if len(retryRows) != 0 {
+		t.Fatalf("held failed job was retryable: %+v", retryRows)
+	}
+
+	release := NewRootCmd()
+	releaseOut, releaseErr := &bytes.Buffer{}, &bytes.Buffer{}
+	release.SetOut(releaseOut)
+	release.SetErr(releaseErr)
+	release.SetArgs([]string{"pipeline", "release", "ticket_to_pr", "--repo", root, "--message", "resume failed work", "--json"})
+	if err := release.Execute(); err != nil {
+		t.Fatalf("pipeline release: %v\nstderr=%s", err, releaseErr.String())
+	}
+	var released []pipelineHoldResult
+	if err := json.Unmarshal(releaseOut.Bytes(), &released); err != nil {
+		t.Fatalf("decode release json: %v\nbody=%s", err, releaseOut.String())
+	}
+	if len(released) != 1 || released[0].JobID != "squ-703" || released[0].Action != "released" || released[0].HeldAfter {
+		t.Fatalf("released rows = %+v", released)
+	}
+
+	retryReleased := NewRootCmd()
+	retryReleasedOut, retryReleasedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	retryReleased.SetOut(retryReleasedOut)
+	retryReleased.SetErr(retryReleasedErr)
+	retryReleased.SetArgs([]string{"pipeline", "retry", "ticket_to_pr", "--repo", root, "--dry-run", "--json"})
+	if err := retryReleased.Execute(); err != nil {
+		t.Fatalf("pipeline retry released: %v\nstderr=%s", err, retryReleasedErr.String())
+	}
+	retryRows = nil
+	if err := json.Unmarshal(retryReleasedOut.Bytes(), &retryRows); err != nil {
+		t.Fatalf("decode retry released json: %v\nbody=%s", err, retryReleasedOut.String())
+	}
+	if len(retryRows) != 1 || retryRows[0].JobID != "squ-703" {
+		t.Fatalf("released failed job was not retryable: %+v", retryRows)
+	}
+
+	teamHold := NewRootCmd()
+	teamHoldOut, teamHoldErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamHold.SetOut(teamHoldOut)
+	teamHold.SetErr(teamHoldErr)
+	teamHold.SetArgs([]string{"team", "hold", "delivery", "--repo", root, "--state", "ready", "--limit", "1", "--json"})
+	if err := teamHold.Execute(); err != nil {
+		t.Fatalf("team hold: %v\nstderr=%s", err, teamHoldErr.String())
+	}
+	var teamHeld []pipelineHoldResult
+	if err := json.Unmarshal(teamHoldOut.Bytes(), &teamHeld); err != nil {
+		t.Fatalf("decode team hold json: %v\nbody=%s", err, teamHoldOut.String())
+	}
+	if len(teamHeld) != 1 || teamHeld[0].Action != "held" || !teamHeld[0].HeldAfter {
+		t.Fatalf("team held rows = %+v", teamHeld)
+	}
+
+	teamRelease := NewRootCmd()
+	teamReleaseOut, teamReleaseErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamRelease.SetOut(teamReleaseOut)
+	teamRelease.SetErr(teamReleaseErr)
+	teamRelease.SetArgs([]string{"team", "release", "delivery", "--repo", root, "--json"})
+	if err := teamRelease.Execute(); err != nil {
+		t.Fatalf("team release: %v\nstderr=%s", err, teamReleaseErr.String())
+	}
+	var teamReleased []pipelineHoldResult
+	if err := json.Unmarshal(teamReleaseOut.Bytes(), &teamReleased); err != nil {
+		t.Fatalf("decode team release json: %v\nbody=%s", err, teamReleaseOut.String())
+	}
+	if len(teamReleased) != 1 || teamReleased[0].Action != "released" || teamReleased[0].HeldAfter {
+		t.Fatalf("team release rows = %+v", teamReleased)
+	}
+}
+
 func TestPipelineSnapshotScopesWorkflow(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

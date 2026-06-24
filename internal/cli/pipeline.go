@@ -32,6 +32,8 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineSnapshotCmd())
 	cmd.AddCommand(newPipelineNextCmd())
 	cmd.AddCommand(newPipelineReadyCmd())
+	cmd.AddCommand(newPipelineHoldCmd())
+	cmd.AddCommand(newPipelineReleaseCmd())
 	cmd.AddCommand(newPipelineAdvanceCmd())
 	cmd.AddCommand(newPipelineApproveCmd())
 	cmd.AddCommand(newPipelineRetryCmd())
@@ -796,6 +798,158 @@ func newPipelineRetryCmd() *cobra.Command {
 	return cmd
 }
 
+func newPipelineHoldCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		limit   int
+		states  []string
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "hold <pipeline>|--all [reason...]",
+		Short: "Hold pipeline jobs so automation will not advance them.",
+		Long: "Hold jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status. " +
+			"Held jobs report next-step state held until released.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline hold: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if !all && len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline hold: pass a pipeline name or --all.")
+				return exitErr(2)
+			}
+			if len(args) > 0 && !all {
+				args[0] = strings.TrimSpace(args[0])
+			}
+			if !all && args[0] == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline hold: pipeline name is required.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline hold: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineHoldFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline hold: %v\n", err)
+				return exitErr(2)
+			}
+			var stateFilter map[string]bool
+			stateDefault := !cmd.Flags().Changed("state")
+			if !stateDefault {
+				stateFilter, err = parseJobNextStateFilter(states, false)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline hold: %v\n", err)
+					return exitErr(2)
+				}
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := ""
+			reasonArgs := args
+			if !all {
+				pipelineName = args[0]
+				reasonArgs = args[1:]
+			}
+			reason := jobActionMessage(message, reasonArgs, "held")
+			results, err := holdPipelineJobs(teamDir, pipelineName, reason, stateFilter, stateDefault, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline hold: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineHoldResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Hold jobs across all pipelines.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Hold at most this many matching jobs; 0 means no limit.")
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.")
+	cmd.Flags().StringVar(&message, "message", "", "Hold reason recorded on each job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview holds without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit hold results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.")
+	return cmd
+}
+
+func newPipelineReleaseCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		limit   int
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "release <pipeline>|--all [message...]",
+		Short: "Release held pipeline jobs so automation can advance them.",
+		Long:  "Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if !all && len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: pass a pipeline name or --all.")
+				return exitErr(2)
+			}
+			if len(args) > 0 && !all {
+				args[0] = strings.TrimSpace(args[0])
+			}
+			if !all && args[0] == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: pipeline name is required.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineHoldFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline release: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := ""
+			messageArgs := args
+			if !all {
+				pipelineName = args[0]
+				messageArgs = args[1:]
+			}
+			statusMessage := jobActionMessage(message, messageArgs, "released")
+			results, err := releasePipelineJobs(teamDir, pipelineName, statusMessage, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline release: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineHoldResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Release held jobs across all pipelines.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Release at most this many held jobs; 0 means no limit.")
+	cmd.Flags().StringVar(&message, "message", "", "Release message recorded on each job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview releases without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit release results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.")
+	return cmd
+}
+
 func newPipelineRunCmd() *cobra.Command {
 	var (
 		repo        string
@@ -1079,6 +1233,20 @@ type pipelineRetryResult struct {
 	Step       *job.Step          `json:"step,omitempty"`
 	Event      *eventResponse     `json:"event,omitempty"`
 	Preview    *jobAdvancePreview `json:"preview,omitempty"`
+}
+
+type pipelineHoldResult struct {
+	JobID      string     `json:"job_id"`
+	Ticket     string     `json:"ticket"`
+	Pipeline   string     `json:"pipeline"`
+	Status     job.Status `json:"status"`
+	NextState  string     `json:"next_state,omitempty"`
+	Action     string     `json:"action"`
+	Message    string     `json:"message,omitempty"`
+	HeldBefore bool       `json:"held_before"`
+	HeldAfter  bool       `json:"held_after"`
+	DryRun     bool       `json:"dry_run,omitempty"`
+	Job        *job.Job   `json:"job,omitempty"`
 }
 
 type pipelineDoctorResult struct {
@@ -1729,6 +1897,148 @@ func pipelineNextActionReason(row pipelineStatusRow, action string) string {
 	default:
 		return ""
 	}
+}
+
+func holdPipelineJobs(teamDir, pipeline, reason string, stateFilter map[string]bool, stateDefault bool, limit int, dryRun bool) ([]pipelineHoldResult, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "held"
+	}
+	results := make([]pipelineHoldResult, 0, len(jobs))
+	now := time.Now().UTC()
+	for _, j := range jobs {
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		next := inspectNextJobStep(j)
+		if !holdStateSelected(next.State, stateFilter, stateDefault) {
+			continue
+		}
+		result := pipelineHoldResult{
+			JobID:      j.ID,
+			Ticket:     j.Ticket,
+			Pipeline:   j.Pipeline,
+			Status:     j.Status,
+			NextState:  next.State,
+			Action:     "would_hold",
+			Message:    reason,
+			HeldBefore: j.Held,
+			HeldAfter:  true,
+			DryRun:     dryRun,
+		}
+		if j.Held {
+			result.Action = "skipped"
+			result.Message = "already held"
+			result.Job = j
+			results = append(results, result)
+			continue
+		}
+		j.Held = true
+		j.HoldReason = reason
+		j.LastEvent = "held"
+		j.LastStatus = reason
+		j.UpdatedAt = now
+		result.Job = j
+		if dryRun {
+			results = append(results, result)
+			continue
+		}
+		if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "true", "pipeline": j.Pipeline}); err != nil {
+			return nil, err
+		}
+		result.Action = "held"
+		result.DryRun = false
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func releasePipelineJobs(teamDir, pipeline, message string, limit int, dryRun bool) ([]pipelineHoldResult, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "released"
+	}
+	results := make([]pipelineHoldResult, 0, len(jobs))
+	now := time.Now().UTC()
+	for _, j := range jobs {
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		if !j.Held {
+			continue
+		}
+		next := inspectNextJobStep(j)
+		result := pipelineHoldResult{
+			JobID:      j.ID,
+			Ticket:     j.Ticket,
+			Pipeline:   j.Pipeline,
+			Status:     j.Status,
+			NextState:  next.State,
+			Action:     "would_release",
+			Message:    message,
+			HeldBefore: true,
+			HeldAfter:  false,
+			DryRun:     dryRun,
+		}
+		j.Held = false
+		j.HoldReason = ""
+		j.LastEvent = "released"
+		j.LastStatus = message
+		j.UpdatedAt = now
+		result.Job = j
+		if dryRun {
+			results = append(results, result)
+			continue
+		}
+		if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "false", "pipeline": j.Pipeline}); err != nil {
+			return nil, err
+		}
+		result.Action = "released"
+		result.DryRun = false
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func selectedPipelineJobs(teamDir, pipeline string) ([]*job.Job, error) {
+	pipeline = strings.TrimSpace(pipeline)
+	if pipeline != "" {
+		if _, err := loadPipelineInfo(teamDir, pipeline); err != nil {
+			return nil, err
+		}
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	sortJobs(jobs, "updated")
+	out := make([]*job.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if j == nil || strings.TrimSpace(j.Pipeline) == "" {
+			continue
+		}
+		if pipeline != "" && j.Pipeline != pipeline {
+			continue
+		}
+		out = append(out, j)
+	}
+	return out, nil
+}
+
+func holdStateSelected(state string, stateFilter map[string]bool, stateDefault bool) bool {
+	state = strings.TrimSpace(state)
+	if stateDefault {
+		return state != "held" && state != "done"
+	}
+	return len(stateFilter) == 0 || stateFilter[state]
 }
 
 func advanceReadyPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, selection runtimeSelection, limit int, dryRun bool, previewRoutes bool, allReadySteps bool) ([]pipelineAdvanceResult, error) {
@@ -2578,6 +2888,17 @@ func parsePipelineRetryFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
+func parsePipelineHoldFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-hold-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
 func parsePipelineStatusFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -3044,4 +3365,45 @@ func renderPipelineRetryRoutePreviews(w io.Writer, results []pipelineRetryResult
 		}
 	}
 	return nil
+}
+
+func renderPipelineHoldResults(w io.Writer, results []pipelineHoldResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if tmpl != nil {
+		for _, result := range results {
+			if err := tmpl.Execute(w, result); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderPipelineHoldTable(w, results)
+	return nil
+}
+
+func renderPipelineHoldTable(w io.Writer, results []pipelineHoldResult) {
+	if len(results) == 0 {
+		fmt.Fprintln(w, "(no matching pipeline jobs)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "JOB\tPIPELINE\tSTATUS\tNEXT\tACTION\tHELD_BEFORE\tHELD_AFTER\tMESSAGE")
+	for _, result := range results {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			result.JobID,
+			emptyDash(result.Pipeline),
+			result.Status,
+			emptyDash(result.NextState),
+			result.Action,
+			yesNo(result.HeldBefore),
+			yesNo(result.HeldAfter),
+			emptyDash(result.Message),
+		)
+	}
+	_ = tw.Flush()
 }

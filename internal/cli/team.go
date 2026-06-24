@@ -44,6 +44,8 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamReadyCmd())
 	cmd.AddCommand(newTeamTriageCmd())
 	cmd.AddCommand(newTeamCleanupCmd())
+	cmd.AddCommand(newTeamHoldCmd())
+	cmd.AddCommand(newTeamReleaseCmd())
 	cmd.AddCommand(newTeamAdvanceCmd())
 	cmd.AddCommand(newTeamApproveCmd())
 	cmd.AddCommand(newTeamRetryCmd())
@@ -958,6 +960,129 @@ func newTeamCleanupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned job cleanup without removing anything.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cleanup batch as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup batch with a Go template, e.g. '{{.Team}} {{.Cleaned}} {{.Failed}}'.")
+	return cmd
+}
+
+func newTeamHoldCmd() *cobra.Command {
+	var (
+		repo    string
+		limit   int
+		states  []string
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "hold <team> [reason...]",
+		Short: "Hold pipeline jobs owned by one team.",
+		Long:  "Hold matching jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team hold: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team hold: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineHoldFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team hold: %v\n", err)
+				return exitErr(2)
+			}
+			var stateFilter map[string]bool
+			stateDefault := !cmd.Flags().Changed("state")
+			if !stateDefault {
+				stateFilter, err = parseJobNextStateFilter(states, false)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team hold: %v\n", err)
+					return exitErr(2)
+				}
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			_, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team hold: %v\n", err)
+				return exitErr(1)
+			}
+			reason := jobActionMessage(message, args[1:], "held")
+			results, err := holdTeamPipelineJobs(teamDir, team, reason, stateFilter, stateDefault, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team hold: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineHoldResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().IntVar(&limit, "limit", 0, "Hold at most this many matching team jobs; 0 means no limit.")
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.")
+	cmd.Flags().StringVar(&message, "message", "", "Hold reason recorded on each team job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview holds without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit hold results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.")
+	return cmd
+}
+
+func newTeamReleaseCmd() *cobra.Command {
+	var (
+		repo    string
+		limit   int
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "release <team> [message...]",
+		Short: "Release held pipeline jobs owned by one team.",
+		Long:  "Release held jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team release: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team release: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineHoldFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team release: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			_, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team release: %v\n", err)
+				return exitErr(1)
+			}
+			statusMessage := jobActionMessage(message, args[1:], "released")
+			results, err := releaseTeamPipelineJobs(teamDir, team, statusMessage, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team release: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineHoldResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().IntVar(&limit, "limit", 0, "Release at most this many held team jobs; 0 means no limit.")
+	cmd.Flags().StringVar(&message, "message", "", "Release message recorded on each team job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview releases without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit release results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.")
 	return cmd
 }
 
@@ -6212,6 +6337,58 @@ func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topo
 		results = append(results, advanced...)
 		if limit > 0 {
 			remaining -= len(advanced)
+		}
+	}
+	return results, nil
+}
+
+func holdTeamPipelineJobs(teamDir string, team *topology.Team, reason string, stateFilter map[string]bool, stateDefault bool, limit int, dryRun bool) ([]pipelineHoldResult, error) {
+	if team == nil || len(team.Pipelines) == 0 {
+		return []pipelineHoldResult{}, nil
+	}
+	results := []pipelineHoldResult{}
+	remaining := limit
+	for _, pipeline := range team.Pipelines {
+		if limit > 0 && remaining <= 0 {
+			break
+		}
+		batchLimit := 0
+		if limit > 0 {
+			batchLimit = remaining
+		}
+		held, err := holdPipelineJobs(teamDir, pipeline, reason, stateFilter, stateDefault, batchLimit, dryRun)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, held...)
+		if limit > 0 {
+			remaining -= len(held)
+		}
+	}
+	return results, nil
+}
+
+func releaseTeamPipelineJobs(teamDir string, team *topology.Team, message string, limit int, dryRun bool) ([]pipelineHoldResult, error) {
+	if team == nil || len(team.Pipelines) == 0 {
+		return []pipelineHoldResult{}, nil
+	}
+	results := []pipelineHoldResult{}
+	remaining := limit
+	for _, pipeline := range team.Pipelines {
+		if limit > 0 && remaining <= 0 {
+			break
+		}
+		batchLimit := 0
+		if limit > 0 {
+			batchLimit = remaining
+		}
+		released, err := releasePipelineJobs(teamDir, pipeline, message, batchLimit, dryRun)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, released...)
+		if limit > 0 {
+			remaining -= len(released)
 		}
 	}
 	return results, nil

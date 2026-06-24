@@ -151,6 +151,8 @@ Shortcuts:
 | `agent-team pipeline next` | Print recommended pipeline actions |
 | `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter mixed-runtime ownership with `--runtime` |
 | `agent-team pipeline ready` | List ready steps |
+| `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status |
+| `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline |
 | `agent-team pipeline advance <pipeline>` | Advance ready work; use `--runtime` for dispatched steps |
 | `agent-team pipeline approve <pipeline>` | Approve blocked manual gates |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps |
@@ -178,6 +180,8 @@ Shortcuts:
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team explain <team>` | Expand team-owned pipeline jobs into per-step diagnostics |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
+| `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team |
+| `agent-team team release <team>` | Release held pipeline jobs owned by a team |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |
 | `agent-team team retry <team>` | Scoped failed-step retry |

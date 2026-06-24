@@ -59,6 +59,8 @@ agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json
 agent-team pipeline next
 agent-team pipeline next --team delivery
 agent-team pipeline ready
+agent-team pipeline hold ticket_to_pr "maintenance window"
+agent-team pipeline release ticket_to_pr
 agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
 agent-team pipeline advance ticket_to_pr --all-ready-steps --dry-run --preview-routes
 agent-team pipeline approve ticket_to_pr --dry-run
@@ -144,6 +146,8 @@ agent-team team triage delivery
 agent-team team explain delivery
 agent-team team explain delivery --state failed
 agent-team team ready delivery
+agent-team team hold delivery "maintenance window"
+agent-team team release delivery
 agent-team team advance delivery --dry-run --preview-routes
 agent-team team advance delivery --all-ready-steps --dry-run --preview-routes
 agent-team team approve delivery --dispatch --dry-run --preview-routes
@@ -161,6 +165,7 @@ agent-team team snapshot delivery --output delivery.json
 
 `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
 `tick --all-ready-steps`, `repair --all-ready-steps`, `team tick <team> --all-ready-steps`, `team repair <team> --all-ready-steps`, and `team drain <team> --all-ready-steps` apply that fan-out during maintenance and recovery cycles, including watch and until-idle loops.
+Use `pipeline hold <pipeline>` or `team hold <team>` for maintenance windows and incident freezes. These commands hold matching jobs in bulk without changing lifecycle status; add `--state failed`, `--state ready`, or `--limit N` to narrow the batch, and run with `--dry-run` first. `pipeline release` and `team release` resume held jobs in the same scope.
 
 ## Why Teams Matter
 

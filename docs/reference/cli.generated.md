@@ -2642,10 +2642,12 @@ Subcommands:
 - `agent-team pipeline doctor` - Validate pipeline workflow wiring.
 - `agent-team pipeline explain` - Explain pipeline jobs and step blockers.
 - `agent-team pipeline graph` - Render a declared pipeline step graph.
+- `agent-team pipeline hold` - Hold pipeline jobs so automation will not advance them.
 - `agent-team pipeline jobs` - List jobs for one pipeline.
 - `agent-team pipeline ls` - List declared pipelines.
 - `agent-team pipeline next` - Print recommended next actions for pipeline jobs.
 - `agent-team pipeline ready` - List ready pipeline jobs.
+- `agent-team pipeline release` - Release held pipeline jobs so automation can advance them.
 - `agent-team pipeline retry` - Reset failed pipeline steps for another attempt.
 - `agent-team pipeline run` - Create a durable job from a pipeline declaration.
 - `agent-team pipeline show` - Show one declared pipeline.
@@ -2765,6 +2767,29 @@ Flags:
       --routes          Annotate step targets with matching agent.dispatch route instances.
 ```
 
+## `agent-team pipeline hold`
+
+Hold pipeline jobs so automation will not advance them.
+
+Hold jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status. Held jobs report next-step state held until released.
+
+```text
+agent-team pipeline hold <pipeline>|--all [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --all              Hold jobs across all pipelines.
+      --dry-run          Preview holds without writing job state.
+      --format string    Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
+      --json             Emit hold results as JSON.
+      --limit int        Hold at most this many matching jobs; 0 means no limit.
+      --message string   Hold reason recorded on each job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --state strings    Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
+```
+
 ## `agent-team pipeline jobs`
 
 List jobs for one pipeline.
@@ -2837,6 +2862,28 @@ Flags:
       --json            Emit ready rows as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
       --state strings   Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+```
+
+## `agent-team pipeline release`
+
+Release held pipeline jobs so automation can advance them.
+
+Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.
+
+```text
+agent-team pipeline release <pipeline>|--all [message...] [flags]
+```
+
+Flags:
+
+```text
+      --all              Release held jobs across all pipelines.
+      --dry-run          Preview releases without writing job state.
+      --format string    Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
+      --json             Emit release results as JSON.
+      --limit int        Release at most this many held jobs; 0 means no limit.
+      --message string   Release message recorded on each job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline retry`
@@ -4139,6 +4186,7 @@ Subcommands:
 - `agent-team team explain` - Explain pipeline jobs owned by one team.
 - `agent-team team graph` - Render a declared team graph.
 - `agent-team team health` - Check health for one declared team.
+- `agent-team team hold` - Hold pipeline jobs owned by one team.
 - `agent-team team jobs` - List jobs owned by one team.
 - `agent-team team logs` - Show daemon-captured logs for one team.
 - `agent-team team ls` - List declared teams.
@@ -4151,6 +4199,7 @@ Subcommands:
 - `agent-team team ps` - List instances owned by one team.
 - `agent-team team queue` - List or control queue items scoped to one team.
 - `agent-team team ready` - List ready pipeline jobs owned by one team.
+- `agent-team team release` - Release held pipeline jobs owned by one team.
 - `agent-team team repair` - Recover unhealthy orchestration state for one team.
 - `agent-team team restart` - Restart or resume a team&#39;s declared persistent instances.
 - `agent-team team retry` - Reset failed pipeline steps owned by one team.
@@ -4394,6 +4443,28 @@ Flags:
   -q, --quiet             Suppress output and use only the exit code.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only check team-owned daemon-known instances for this runtime: claude or codex. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.
+```
+
+## `agent-team team hold`
+
+Hold pipeline jobs owned by one team.
+
+Hold matching jobs in pipelines declared on one team without changing their lifecycle status.
+
+```text
+agent-team team hold <team> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run          Preview holds without writing job state.
+      --format string    Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
+      --json             Emit hold results as JSON.
+      --limit int        Hold at most this many matching team jobs; 0 means no limit.
+      --message string   Hold reason recorded on each team job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --state strings    Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
 ```
 
 ## `agent-team team jobs`
@@ -4866,6 +4937,27 @@ Flags:
       --json            Emit team ready rows as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
       --state strings   Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+```
+
+## `agent-team team release`
+
+Release held pipeline jobs owned by one team.
+
+Release held jobs in pipelines declared on one team without changing their lifecycle status.
+
+```text
+agent-team team release <team> [message...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run          Preview releases without writing job state.
+      --format string    Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
+      --json             Emit release results as JSON.
+      --limit int        Release at most this many held team jobs; 0 means no limit.
+      --message string   Release message recorded on each team job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team repair`
