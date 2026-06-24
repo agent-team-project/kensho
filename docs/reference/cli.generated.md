@@ -4697,12 +4697,15 @@ agent-team team explain <team> [flags]
 Flags:
 
 ```text
-      --format string   Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
-      --json            Emit team pipeline explanations as JSON.
-      --limit int       Limit job explanations per team-owned pipeline; 0 means no limit.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
-      --step string     Only include jobs and step details for this pipeline step id.
+      --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit team pipeline explanations as JSON.
+      --limit int           Limit job explanations per team-owned pipeline; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --state strings       Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --step string         Only include jobs and step details for this pipeline step id.
+  -w, --watch               Refresh team pipeline explanations until interrupted.
 ```
 
 ## `agent-team team graph`

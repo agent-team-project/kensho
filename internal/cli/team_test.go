@@ -520,6 +520,33 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team explain format = %q", got)
 	}
 
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	explainWatch := NewRootCmd()
+	explainWatchOut, explainWatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainWatch.SetContext(ctx)
+	explainWatch.SetOut(explainWatchOut)
+	explainWatch.SetErr(explainWatchErr)
+	explainWatch.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--watch", "--no-clear", "--interval", "1h", "--format", "{{.Pipeline}} {{.TotalJobs}} {{.ExplainedJobs}}"})
+	if err := explainWatch.Execute(); err != nil {
+		t.Fatalf("team explain watch: %v\nstderr=%s", err, explainWatchErr.String())
+	}
+	if got := strings.TrimSpace(explainWatchOut.String()); got != "ticket_to_pr 1 1" || strings.Contains(explainWatchOut.String(), watchClearSequence) {
+		t.Fatalf("team explain watch = %q", explainWatchOut.String())
+	}
+
+	explainInterval := NewRootCmd()
+	explainIntervalOut, explainIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainInterval.SetOut(explainIntervalOut)
+	explainInterval.SetErr(explainIntervalErr)
+	explainInterval.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := explainInterval.Execute(); err == nil {
+		t.Fatalf("team explain negative interval succeeded")
+	}
+	if !strings.Contains(explainIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("team explain negative interval stderr = %q", explainIntervalErr.String())
+	}
+
 	explainReady := NewRootCmd()
 	explainReadyOut, explainReadyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainReady.SetOut(explainReadyOut)
