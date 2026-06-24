@@ -4948,9 +4948,25 @@ func collectTeamReadyRows(teamDir, name string, states map[string]bool) ([]jobRe
 		if len(states) > 0 && !states[next.State] {
 			continue
 		}
-		rows = append(rows, jobReadyRowFromJob(j, next))
+		row := jobReadyRowFromJob(j, next)
+		row.Actions = teamReadyRowActions(name, row)
+		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func teamReadyRowActions(teamName string, row jobReadyRow) []string {
+	if row.State == "ready" || (row.State == "queued" && len(row.WaitingFor) == 0 && strings.TrimSpace(row.Instance) == "") {
+		actions := []string{fmt.Sprintf("agent-team team advance %s --dry-run --preview-routes", teamName)}
+		if row.ParallelReadySteps > 1 {
+			actions = append(actions, fmt.Sprintf("agent-team team advance %s --all-ready-steps --dry-run --preview-routes", teamName))
+		}
+		return actions
+	}
+	if row.State == "queued" {
+		return []string{fmt.Sprintf("agent-team team tick %s", teamName)}
+	}
+	return row.Actions
 }
 
 func renderTeamReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *template.Template) error {
