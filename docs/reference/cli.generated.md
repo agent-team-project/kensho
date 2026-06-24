@@ -1493,6 +1493,7 @@ Subcommands:
 - `agent-team job rm` - Remove job files and their event logs.
 - `agent-team job send` - Send a mailbox message to a job&#39;s owning instance.
 - `agent-team job show` - Show one durable job.
+- `agent-team job snapshot` - Capture a job-scoped diagnostic snapshot.
 - `agent-team job start` - Start or resume a job&#39;s owning instance.
 - `agent-team job step` - Update a pipeline job step status.
 - `agent-team job stop` - Stop a job&#39;s owning instance.
@@ -2167,6 +2168,27 @@ Flags:
       --format string   Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json            Emit the job as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job snapshot`
+
+Capture a job-scoped diagnostic snapshot.
+
+Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue ownership, runtime metadata, state files, and optional log tail content.
+
+```text
+agent-team job snapshot <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --events int      Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events. (default 20)
+      --json            Emit the full job snapshot JSON to stdout.
+      --no-redact       Include raw queue payload values instead of redacting sensitive keys.
+  -o, --output string   Write the full JSON snapshot to this file. Use '-' for stdout.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --tail int        Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.
 ```
 
 ## `agent-team job start`

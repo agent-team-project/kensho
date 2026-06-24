@@ -114,8 +114,10 @@ and `tick` do not advance them.
    Status after follow-up: lifecycle events now carry job/ticket/branch/PR and
    exit-code metadata, and `job reconcile events` can complete or fail a durable
    job from the terminal lifecycle row even after daemon instance metadata has
-   been removed. Preserving post-mortem child logs and inspectable metadata is
-   still separate follow-up work.
+   been removed. `agent-team job snapshot <job-id>` now captures a job-scoped
+   post-mortem artifact with durable job state, audit events, daemon lifecycle
+   rows, queue ownership, quarantined queue files, runtime metadata, state-file
+   status, log paths, last-message sidecar paths, and optional log tails.
 
 6. **`job reconcile status` does not recover missing-state ephemeral jobs.**
    After `worker-doc-701` was removed, `job reconcile status --dry-run` returned
@@ -228,11 +230,9 @@ and `tick` do not advance them.
 
 ## Suggested Next Fixes
 
-1. Preserve post-mortem metadata/logs for job-owned ephemeral workers. Job
-   status can now be reconciled from job-scoped daemon lifecycle exit events.
-2. Confirm the selected Codex sandbox allows daemon Unix socket connections
+1. Confirm the selected Codex sandbox allows daemon Unix socket connections
    from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
-3. Reduce noisy raw Codex adapter logs in successful short runs, especially
+2. Reduce noisy raw Codex adapter logs in successful short runs, especially
    plugin/skill warnings that obscure the useful last message.
-4. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+3. Investigate why `agent-team`-supervised `codex exec -` stalls even though
    raw replay with the same stdin/add-dir succeeds.
