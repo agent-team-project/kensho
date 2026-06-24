@@ -197,12 +197,13 @@ type repairQueueStep struct {
 }
 
 type repairIntakeStep struct {
-	Action        string   `json:"action"`
-	Reason        string   `json:"reason,omitempty"`
-	Unresolved    int      `json:"unresolved"`
-	Replayable    int      `json:"replayable"`
-	LatestErrorID string   `json:"latest_error_id,omitempty"`
-	Actions       []string `json:"actions,omitempty"`
+	Action              string   `json:"action"`
+	Reason              string   `json:"reason,omitempty"`
+	Unresolved          int      `json:"unresolved"`
+	Replayable          int      `json:"replayable"`
+	DuplicateRequestIDs int      `json:"duplicate_request_ids,omitempty"`
+	LatestErrorID       string   `json:"latest_error_id,omitempty"`
+	Actions             []string `json:"actions,omitempty"`
 }
 
 type repairPipelineRetryStep struct {
@@ -312,6 +313,7 @@ func collectRepairIntakeStep(teamDir string, opts repairOptions) repairIntakeSte
 		return repairIntakeStep{Action: "error", Reason: err.Error()}
 	}
 	out := repairIntakeStep{Action: "none"}
+	out.DuplicateRequestIDs = len(duplicateIntakeRequestIDs(deliveries, "", ""))
 	var latest time.Time
 	for _, delivery := range deliveries {
 		if !intakeDeliveryNeedsReplay(delivery) {
@@ -326,20 +328,32 @@ func collectRepairIntakeStep(teamDir string, opts repairOptions) repairIntakeSte
 			out.LatestErrorID = delivery.ID
 		}
 	}
-	if out.Unresolved == 0 {
+	if out.Unresolved == 0 && out.DuplicateRequestIDs == 0 {
 		return out
 	}
 	out.Action = "manual"
-	out.Reason = "intake replay is not automatic"
+	switch {
+	case out.Unresolved > 0 && out.DuplicateRequestIDs > 0:
+		out.Reason = "intake replay and duplicate review are not automatic"
+	case out.Unresolved > 0:
+		out.Reason = "intake replay is not automatic"
+	default:
+		out.Reason = "duplicate intake request-id review is not automatic"
+	}
 	if opts.DryRun {
 		out.Action = "would_review"
 	}
-	out.Actions = append(out.Actions, "agent-team intake deliveries --unresolved")
-	if out.Replayable > 0 {
-		out.Actions = append(out.Actions,
-			intakeReplayAllDryRunAction(),
-			intakeReplayAllAction(),
-		)
+	if out.Unresolved > 0 {
+		out.Actions = append(out.Actions, "agent-team intake deliveries --unresolved")
+		if out.Replayable > 0 {
+			out.Actions = append(out.Actions,
+				intakeReplayAllDryRunAction(),
+				intakeReplayAllAction(),
+			)
+		}
+	}
+	if out.DuplicateRequestIDs > 0 {
+		out.Actions = append(out.Actions, "agent-team intake duplicates")
 	}
 	return out
 }
@@ -507,7 +521,7 @@ func renderRepairIntakeStep(w io.Writer, step repairIntakeStep) {
 	if step.Reason != "" {
 		fmt.Fprintf(w, " (%s)", step.Reason)
 	}
-	fmt.Fprintf(w, " unresolved=%d replayable=%d", step.Unresolved, step.Replayable)
+	fmt.Fprintf(w, " unresolved=%d replayable=%d duplicate_request_ids=%d", step.Unresolved, step.Replayable, step.DuplicateRequestIDs)
 	if step.LatestErrorID != "" {
 		fmt.Fprintf(w, " latest=%s", step.LatestErrorID)
 	}

@@ -148,6 +148,69 @@ func TestRepairDryRunReportsIntakeRecoveryActions(t *testing.T) {
 	}
 }
 
+func TestRepairDryRunReportsIntakeDuplicateRequestIDs(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	for _, delivery := range []intakeDelivery{
+		{
+			ID:         "first",
+			Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+			Provider:   "github",
+			RequestID:  "github-delivery-1",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: 200,
+			EventType:  "pr.opened",
+		},
+		{
+			ID:         "second",
+			Time:       time.Date(2026, 6, 19, 12, 1, 0, 0, time.UTC),
+			Provider:   "github",
+			RequestID:  "github-delivery-1",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: 200,
+			EventType:  "pr.opened",
+		},
+	} {
+		if err := appendIntakeDelivery(teamDir, delivery); err != nil {
+			t.Fatalf("append %s: %v", delivery.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair intake duplicate dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair duplicate intake json: %v\nbody=%s", err, out.String())
+	}
+	if result.Intake.Action != "would_review" || result.Intake.Unresolved != 0 || result.Intake.Replayable != 0 || result.Intake.DuplicateRequestIDs != 1 {
+		t.Fatalf("intake repair step = %+v", result.Intake)
+	}
+	if !containsString(result.Intake.Actions, "agent-team intake duplicates") {
+		t.Fatalf("intake duplicate actions = %+v", result.Intake.Actions)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("repair duplicate intake text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"duplicate_request_ids=1", "agent-team intake duplicates"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("repair duplicate intake text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestRepairJobsIncludesStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

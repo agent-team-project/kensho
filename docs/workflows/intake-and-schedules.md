@@ -126,7 +126,7 @@ Successful replays mark failed deliveries recovered.
 
 ## Diagnostics
 
-`overview`, `health`, `next`, `repair --dry-run`, and `snapshot` surface unresolved intake failures with replay commands. `overview` and `next` also surface duplicate provider request IDs with an `intake duplicates` action.
+`overview`, `health`, `next`, `repair --dry-run`, and `snapshot` surface unresolved intake failures with replay commands. `overview`, `next`, and `repair --dry-run` also surface duplicate provider request IDs with an `intake duplicates` action.
 
 Important distinction: `repair` does not automatically replay webhooks. It surfaces replay commands so operators can choose when external events are safe to replay.
 
