@@ -160,6 +160,60 @@ func TestRuntimeProbeSkipDoctorWarningsDoNotFail(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeFormat(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--format", "{{.OK}} {{.Runtime.Runtime}} {{len .Issues}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime probe format: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := out.String(), "true codex 1\n"; got != want {
+		t.Fatalf("runtime probe format = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("runtime probe format stderr = %q", stderr.String())
+	}
+}
+
+func TestRuntimeProbeFormatValidation(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--format", "{{.OK}}", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("runtime probe accepted --format with --json")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--format cannot be combined with --json") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
 func TestRuntimeProbeRequireDaemonFailsWhenStopped(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	t.Setenv(runtimebin.EnvBinary, "")

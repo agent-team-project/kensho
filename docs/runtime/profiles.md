@@ -34,6 +34,7 @@ agent-team runtime probe --runtime codex --skip-doctor
 agent-team runtime probe --runtime codex --require-daemon
 agent-team runtime probe --runtime codex --require-daemon --wait-daemon --timeout 10s
 agent-team runtime probe --runtime codex --start-daemon --require-daemon
+agent-team runtime probe --runtime codex --format '{{.OK}} {{len .Issues}}'
 agent-team runtime probe --runtime codex --exec --timeout 2m
 agent-team runtime probe --runtime codex --exec --timeout 2m --output runtime-probe.json
 ```

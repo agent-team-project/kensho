@@ -3883,6 +3883,7 @@ Flags:
       --daemon-interval duration   Polling interval for --wait-daemon. (default 200ms)
       --exec                       Run a minimal runtime-native execution probe. Currently supports Codex one-shot execution.
       --exec-prompt string         Prompt sent to the runtime when --exec is set. (default "Reply exactly with: agent-team runtime probe ok")
+      --format string              Render the probe result with a Go template, e.g. '{{.OK}} {{len .Issues}}'.
       --json                       Emit machine-readable JSON.
       --output string              Write the full probe result as pretty JSON to this file.
       --require-daemon             Fail when the repo daemon is not running and ready.

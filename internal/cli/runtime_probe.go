@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/loader"
@@ -40,6 +41,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 		requireDaemon  bool
 		waitDaemon     bool
 		startDaemon    bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -51,12 +53,21 @@ func newRuntimeProbeCmd() *cobra.Command {
 			"run a minimal real Codex `exec -` one-shot and verify last-message capture.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime probe: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
 			if timeout < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime probe: --timeout must be >= 0.")
 				return exitErr(2)
 			}
 			if daemonInterval <= 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime probe: --daemon-interval must be > 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parseRuntimeProbeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime probe: %v\n", err)
 				return exitErr(2)
 			}
 			result, err := collectRuntimeProbe(cmd, runtimeProbeOptions{
@@ -88,6 +99,10 @@ func newRuntimeProbeCmd() *cobra.Command {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 					return err
 				}
+			} else if tmpl != nil {
+				if err := renderRuntimeProbeFormat(cmd.OutOrStdout(), result, tmpl); err != nil {
+					return err
+				}
 			} else {
 				renderRuntimeProbe(cmd.OutOrStdout(), result)
 			}
@@ -99,6 +114,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the probe result with a Go template, e.g. '{{.OK}} {{len .Issues}}'.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to probe for this invocation. Overrides env and repo config.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "Maximum time for daemon wait and external runtime diagnostics such as codex doctor --json.")
@@ -698,6 +714,25 @@ func appendRuntimeProbeError(current, next string) string {
 		return current
 	}
 	return current + "; " + next
+}
+
+func parseRuntimeProbeFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("runtime-probe-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderRuntimeProbeFormat(w io.Writer, result *runtimeProbeResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func renderRuntimeProbe(w io.Writer, result *runtimeProbeResult) {
