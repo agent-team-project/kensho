@@ -221,6 +221,15 @@ and `tick` do not advance them.
     a quiet direct one-shot path by printing only the captured final sidecar on
     success.
 
+16. **Runtime probes now have an opt-in real Codex exec smoke test.**
+    `agent-team runtime probe --runtime codex --exec --timeout 2m` runs a
+    minimal `codex exec -` call, sends the prompt over stdin, and verifies that
+    `--output-last-message` writes a sidecar. The default probe remains cheap:
+    runtime selection, daemon readiness, and `codex doctor --json`. Live
+    validation on June 24, 2026 showed the new probe returning structured
+    `exec_probe` failure JSON for the current DNS/provider reachability issue,
+    rather than hanging.
+
 ## Feature Notes
 
 - Channels are valid with leading `#`. The earlier report's concern that
@@ -238,7 +247,10 @@ and `tick` do not advance them.
 
 ## Suggested Next Fixes
 
-1. Re-run `agent-team runtime probe --runtime codex --json` and then a real
-   Codex worker socket check after DNS/provider reachability is healthy.
-2. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+1. Re-run `agent-team runtime probe --runtime codex --json` and
+   `agent-team runtime probe --runtime codex --exec --timeout 2m` after
+   DNS/provider reachability is healthy, then run a real Codex worker socket
+   check.
+2. Investigate why `agent-team`-supervised `codex exec -` stalls if it
+   reproduces again, even though
    raw replay with the same stdin/add-dir succeeds.

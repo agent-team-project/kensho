@@ -554,6 +554,21 @@ Suggested improvement:
   full prompt echo by default; `--clean` is an operator convenience, not a
   replacement for persisted raw logs.
 
+### 11. Codex exec readiness has a first-class smoke probe
+
+Severity: medium
+
+Status: improved after validation. `agent-team runtime probe --runtime codex`
+remains the cheap preflight for runtime selection, daemon readiness, and
+`codex doctor --json`. Add `--exec` to spend a real Codex call: the probe runs
+`codex exec -`, sends a short prompt over stdin, and verifies
+`--output-last-message` sidecar capture.
+
+Validation result on June 24, 2026: the new exec probe did not hang. It exited
+nonzero with structured `exec_probe` JSON after Codex reported the same
+provider/plugin/GitHub DNS reachability failures already seen in this
+environment, and no last-message sidecar was expected on that failed run.
+
 ## Suggested Next Fix Order
 
 1. Re-run the full Codex docs validation after the next runtime UX change.

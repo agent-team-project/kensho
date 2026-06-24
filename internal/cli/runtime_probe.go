@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,9 @@ import (
 )
 
 var runtimeProbeRunCommand = defaultRuntimeProbeRunCommand
+var runtimeProbeRunExecCommand = defaultRuntimeProbeRunExecCommand
+
+const defaultRuntimeProbeExecPrompt = "Reply exactly with: agent-team runtime probe ok"
 
 func newRuntimeProbeCmd() *cobra.Command {
 	var (
@@ -28,6 +32,8 @@ func newRuntimeProbeCmd() *cobra.Command {
 		runtimeBinary string
 		timeout       time.Duration
 		skipDoctor    bool
+		execProbe     bool
+		execPrompt    string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -35,7 +41,8 @@ func newRuntimeProbeCmd() *cobra.Command {
 		Short: "Probe runtime, daemon, and Codex environment health.",
 		Long: "Probe the selected runtime and repo daemon health. For the Codex runtime, " +
 			"the probe also runs `codex doctor --json` so provider reachability, auth, " +
-			"and sandbox issues are captured before dispatching work.",
+			"and sandbox issues are captured before dispatching work. Pass --exec to also " +
+			"run a minimal real Codex `exec -` one-shot and verify last-message capture.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := collectRuntimeProbe(cmd, runtimeProbeOptions{
@@ -44,6 +51,8 @@ func newRuntimeProbeCmd() *cobra.Command {
 				RuntimeBinary: runtimeBinary,
 				Timeout:       timeout,
 				SkipDoctor:    skipDoctor,
+				Exec:          execProbe,
+				ExecPrompt:    execPrompt,
 			})
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime probe: %v\n", err)
@@ -68,6 +77,8 @@ func newRuntimeProbeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to probe for this invocation. Overrides env and repo config.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "Maximum time for external runtime diagnostics such as codex doctor --json.")
 	cmd.Flags().BoolVar(&skipDoctor, "skip-doctor", false, "Skip runtime-native diagnostics such as codex doctor --json.")
+	cmd.Flags().BoolVar(&execProbe, "exec", false, "Run a minimal runtime-native execution probe. Currently supports Codex one-shot execution.")
+	cmd.Flags().StringVar(&execPrompt, "exec-prompt", defaultRuntimeProbeExecPrompt, "Prompt sent to the runtime when --exec is set.")
 	return cmd
 }
 
@@ -77,6 +88,8 @@ type runtimeProbeOptions struct {
 	RuntimeBinary string
 	Timeout       time.Duration
 	SkipDoctor    bool
+	Exec          bool
+	ExecPrompt    string
 }
 
 type runtimeProbeResult struct {
@@ -86,6 +99,7 @@ type runtimeProbeResult struct {
 	Runtime     runtimeInfo         `json:"runtime"`
 	Daemon      *daemonStatusJSON   `json:"daemon,omitempty"`
 	CodexDoctor *codexDoctorProbe   `json:"codex_doctor,omitempty"`
+	ExecProbe   *runtimeExecProbe   `json:"exec_probe,omitempty"`
 	Issues      []runtimeProbeIssue `json:"issues,omitempty"`
 	Actions     []string            `json:"actions,omitempty"`
 }
@@ -118,6 +132,21 @@ type codexDoctorCheckSummary struct {
 	Remediation string            `json:"remediation,omitempty"`
 }
 
+type runtimeExecProbe struct {
+	Ran                bool     `json:"ran"`
+	Runtime            string   `json:"runtime"`
+	Command            []string `json:"command,omitempty"`
+	Workdir            string   `json:"workdir,omitempty"`
+	DurationMillis     int64    `json:"duration_ms,omitempty"`
+	ExitCode           int      `json:"exit_code,omitempty"`
+	TimedOut           bool     `json:"timed_out,omitempty"`
+	LastMessagePresent bool     `json:"last_message_present"`
+	LastMessage        string   `json:"last_message,omitempty"`
+	Stdout             string   `json:"stdout,omitempty"`
+	Stderr             string   `json:"stderr,omitempty"`
+	Error              string   `json:"error,omitempty"`
+}
+
 type codexDoctorReport struct {
 	OverallStatus string                      `json:"overallStatus"`
 	CodexVersion  string                      `json:"codexVersion"`
@@ -134,6 +163,12 @@ type codexDoctorCheck struct {
 }
 
 type runtimeProbeCommandResult struct {
+	Stdout []byte
+	Stderr []byte
+	Err    error
+}
+
+type runtimeProbeExecCommandResult struct {
 	Stdout []byte
 	Stderr []byte
 	Err    error
@@ -165,7 +200,9 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 	}
 
 	teamDir := filepath.Join(repo, loader.TeamDirName)
+	teamResolved := false
 	if resolved, err := resolveTeamDir(cmd, repo); err == nil {
+		teamResolved = true
 		teamDir = resolved
 		status := collectDaemonStatus(teamDir)
 		result.Daemon = &status
@@ -194,6 +231,22 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 		}
 		if probe.Error != "" {
 			result.addIssue("fail", "codex_doctor", "doctor_failed", probe.Error, "Run `codex doctor --json` directly for the full diagnostic output.")
+		}
+	}
+	if opts.Exec {
+		switch {
+		case info.Runtime != string(runtimebin.KindCodex):
+			result.addIssue("fail", "exec_probe", "unsupported_runtime", "runtime exec probe currently supports Codex only", "Run `agent-team runtime probe --runtime codex --exec`.")
+		case !info.Available:
+			// binary_missing already records the actionable failure.
+		case !teamResolved:
+			// team_missing already records the actionable failure.
+		default:
+			probe := runCodexExecProbe(cmd.Context(), repo, teamDir, result.Daemon, info.Binary, opts.Timeout, opts.ExecPrompt)
+			result.ExecProbe = probe
+			if probe.Error != "" {
+				result.addIssue("fail", "exec_probe", runtimeExecProbeIssueID(probe), probe.Error, "Run `agent-team run manager --runtime codex --prompt \"probe\" --last-message` and inspect raw Codex output if it still fails.")
+			}
 		}
 	}
 	result.Actions = runtimeProbeActions(result)
@@ -280,6 +333,143 @@ func defaultRuntimeProbeRunCommand(ctx context.Context, binary string, args ...s
 	}
 }
 
+func defaultRuntimeProbeRunExecCommand(ctx context.Context, binary string, args []string, env []string, cwd, stdin string) runtimeProbeExecCommandResult {
+	c := exec.CommandContext(ctx, binary, args...)
+	c.Env = append(os.Environ(), env...)
+	c.Dir = cwd
+	var cleanupStdin func()
+	if stdin != "" {
+		stdinFile, cleanup, err := openRuntimeStdin(stdin)
+		if err != nil {
+			return runtimeProbeExecCommandResult{Err: err}
+		}
+		c.Stdin = stdinFile
+		cleanupStdin = cleanup
+	}
+	if cleanupStdin != nil {
+		defer cleanupStdin()
+	}
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	err := c.Run()
+	return runtimeProbeExecCommandResult{
+		Stdout: stdout.Bytes(),
+		Stderr: stderr.Bytes(),
+		Err:    err,
+	}
+}
+
+func runCodexExecProbe(parent context.Context, repo, teamDir string, status *daemonStatusJSON, binary string, timeout time.Duration, prompt string) *runtimeExecProbe {
+	if timeout <= 0 {
+		timeout = 20 * time.Second
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		prompt = defaultRuntimeProbeExecPrompt
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	start := time.Now()
+	probe := &runtimeExecProbe{
+		Ran:     true,
+		Runtime: string(runtimebin.KindCodex),
+		Workdir: filepath.ToSlash(repo),
+	}
+	stateDir, err := os.MkdirTemp("", "agent-team-runtime-probe-")
+	if err != nil {
+		probe.Error = "create exec probe state dir: " + err.Error()
+		return probe
+	}
+	defer os.RemoveAll(stateDir)
+
+	socket := ""
+	if status != nil {
+		socket = status.Socket
+	}
+	teamEnv := []string{
+		"AGENT_TEAM_ROOT=" + teamDir,
+		"AGENT_TEAM_INSTANCE=runtime-probe",
+		"AGENT_TEAM_STATE_DIR=" + stateDir,
+		"AGENT_TEAM_DAEMON_SOCKET=" + socket,
+	}
+	lastMessagePath := filepath.Join(stateDir, runtimebin.CodexLastMessageFile)
+	args := []string{"exec"}
+	args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(teamEnv)...)
+	args = append(args, "-C", repo, "--output-last-message", lastMessagePath, "-")
+	probe.Command = append([]string{binary}, args...)
+
+	res := runtimeProbeRunExecCommand(ctx, binary, args, teamEnv, repo, prompt)
+	probe.DurationMillis = time.Since(start).Milliseconds()
+	probe.Stdout = runtimeProbeExcerpt(res.Stdout)
+	probe.Stderr = runtimeProbeExcerpt(res.Stderr)
+	if ctx.Err() != nil {
+		probe.TimedOut = true
+		probe.Error = ctx.Err().Error()
+		return probe
+	}
+	if res.Err != nil {
+		probe.ExitCode = runtimeProbeExitCode(res.Err)
+		probe.Error = res.Err.Error()
+		return probe
+	}
+	lastMessage, err := os.ReadFile(lastMessagePath)
+	if err != nil {
+		probe.Error = "Codex exec exited successfully but did not write the expected last-message sidecar"
+		return probe
+	}
+	probe.LastMessagePresent = true
+	probe.LastMessage = runtimeProbeExcerpt(bytes.TrimSpace(lastMessage))
+	if strings.TrimSpace(probe.LastMessage) == "" {
+		probe.Error = "Codex exec wrote an empty last-message sidecar"
+	}
+	return probe
+}
+
+func runtimeExecProbeIssueID(probe *runtimeExecProbe) string {
+	if probe == nil {
+		return "exec_failed"
+	}
+	if probe.TimedOut {
+		return "exec_timeout"
+	}
+	if probe.LastMessagePresent && strings.TrimSpace(probe.LastMessage) == "" {
+		return "last_message_empty"
+	}
+	if !probe.LastMessagePresent && probe.ExitCode == 0 {
+		return "last_message_missing"
+	}
+	return "exec_failed"
+}
+
+func runtimeProbeExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var code ExitCode
+	if errors.As(err, &code) {
+		return int(code)
+	}
+	var exitErrTyped *exec.ExitError
+	if errors.As(err, &exitErrTyped) {
+		return exitErrTyped.ExitCode()
+	}
+	return -1
+}
+
+func runtimeProbeExcerpt(body []byte) string {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return ""
+	}
+	const max = 2000
+	text := string(body)
+	if len(text) <= max {
+		return text
+	}
+	return text[:max] + "...(truncated)"
+}
+
 func (r *runtimeProbeResult) addIssue(severity, source, id, summary, remediation string) {
 	if r == nil {
 		return
@@ -326,6 +516,9 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 	}
 	if result.Runtime.Runtime == string(runtimebin.KindCodex) {
 		add("codex doctor --summary")
+		if result.ExecProbe == nil {
+			add("agent-team runtime probe --runtime codex --exec --timeout 2m")
+		}
 		add("agent-team run manager --runtime codex --prompt \"probe\" --last-message")
 	}
 	actions := make([]string, 0, len(added))
@@ -382,6 +575,33 @@ func renderRuntimeProbe(w io.Writer, result *runtimeProbeResult) {
 		)
 		if result.CodexDoctor.Error != "" {
 			fmt.Fprintf(w, "codex_doctor_error: %s\n", result.CodexDoctor.Error)
+		}
+	}
+	if result.ExecProbe != nil {
+		state := "ok"
+		if result.ExecProbe.TimedOut {
+			state = "timed_out"
+		} else if result.ExecProbe.Error != "" {
+			state = "failed"
+		}
+		fmt.Fprintf(w, "exec_probe: status=%s runtime=%s exit=%d last_message=%s duration=%dms\n",
+			state,
+			result.ExecProbe.Runtime,
+			result.ExecProbe.ExitCode,
+			yesNo(result.ExecProbe.LastMessagePresent),
+			result.ExecProbe.DurationMillis,
+		)
+		if result.ExecProbe.Error != "" {
+			fmt.Fprintf(w, "exec_probe_error: %s\n", result.ExecProbe.Error)
+		}
+		if result.ExecProbe.LastMessage != "" {
+			fmt.Fprintf(w, "exec_probe_last_message: %s\n", result.ExecProbe.LastMessage)
+		}
+		if result.ExecProbe.Stdout != "" {
+			fmt.Fprintf(w, "exec_probe_stdout: %s\n", result.ExecProbe.Stdout)
+		}
+		if result.ExecProbe.Stderr != "" {
+			fmt.Fprintf(w, "exec_probe_stderr: %s\n", result.ExecProbe.Stderr)
 		}
 	}
 	if len(result.Issues) > 0 {

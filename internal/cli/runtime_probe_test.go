@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,6 +19,13 @@ func withRuntimeProbeRunCommand(t *testing.T, fn func(context.Context, string, .
 	old := runtimeProbeRunCommand
 	runtimeProbeRunCommand = fn
 	t.Cleanup(func() { runtimeProbeRunCommand = old })
+}
+
+func withRuntimeProbeRunExecCommand(t *testing.T, fn func(context.Context, string, []string, []string, string, string) runtimeProbeExecCommandResult) {
+	t.Helper()
+	old := runtimeProbeRunExecCommand
+	runtimeProbeRunExecCommand = fn
+	t.Cleanup(func() { runtimeProbeRunExecCommand = old })
 }
 
 func TestRuntimeProbeCodexDoctorFailureJSON(t *testing.T) {
@@ -139,6 +148,123 @@ func TestRuntimeProbeSkipDoctorWarningsDoNotFail(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("probe output missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestRuntimeProbeCodexExecProbeSuccess(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	appendRuntimeConfigForRuntimeTest(t, tmp, "codex", "codex-dev")
+	resolvedTmp, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex-dev" {
+			t.Fatalf("look path bin = %q, want codex-dev", bin)
+		}
+		return "/usr/local/bin/codex-dev", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+	withRuntimeProbeRunExecCommand(t, func(ctx context.Context, binary string, args []string, env []string, cwd, stdin string) runtimeProbeExecCommandResult {
+		if binary != "codex-dev" {
+			t.Fatalf("exec binary = %q, want codex-dev", binary)
+		}
+		if cwd != resolvedTmp {
+			t.Fatalf("exec cwd = %q, want %q", cwd, resolvedTmp)
+		}
+		if !strings.Contains(stdin, "agent-team runtime probe ok") {
+			t.Fatalf("exec stdin = %q, want probe prompt", stdin)
+		}
+		if len(args) == 0 || args[0] != "exec" || args[len(args)-1] != "-" {
+			t.Fatalf("exec args = %#v, want codex exec ... -", args)
+		}
+		if !containsString(args, "-C") || !containsString(args, "--output-last-message") {
+			t.Fatalf("exec args = %#v, want repo and last-message flags", args)
+		}
+		if !containsString(env, "AGENT_TEAM_INSTANCE=runtime-probe") {
+			t.Fatalf("exec env = %#v, want runtime-probe instance", env)
+		}
+		lastMessage := ""
+		for i := range args {
+			if args[i] == "--output-last-message" && i+1 < len(args) {
+				lastMessage = args[i+1]
+				break
+			}
+		}
+		if lastMessage == "" {
+			t.Fatalf("exec args = %#v, missing last-message path", args)
+		}
+		if err := os.WriteFile(lastMessage, []byte("agent-team runtime probe ok\n"), 0o644); err != nil {
+			t.Fatalf("write last-message: %v", err)
+		}
+		return runtimeProbeExecCommandResult{
+			Stdout: []byte("raw runtime output\n"),
+			Stderr: []byte("diagnostic warning\n"),
+		}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--exec", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime probe exec failed: %v\nstderr=%s", err, stderr.String())
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || result.ExecProbe == nil || !result.ExecProbe.LastMessagePresent {
+		t.Fatalf("result = %+v, want successful exec probe", result)
+	}
+	if got := result.ExecProbe.LastMessage; got != "agent-team runtime probe ok" {
+		t.Fatalf("last message = %q", got)
+	}
+	if !containsString(result.Actions, "codex doctor --summary") {
+		t.Fatalf("actions = %+v, want codex doctor hint", result.Actions)
+	}
+}
+
+func TestRuntimeProbeCodexExecProbeFailure(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeRunExecCommand(t, func(ctx context.Context, binary string, args []string, env []string, cwd, stdin string) runtimeProbeExecCommandResult {
+		return runtimeProbeExecCommandResult{Stderr: []byte("provider unavailable"), Err: ExitCode(42)}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--exec", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("runtime probe exec succeeded, want exit 1")
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || result.ExecProbe == nil || result.ExecProbe.ExitCode != 42 {
+		t.Fatalf("result = %+v, want failed exec probe exit 42", result)
+	}
+	if !containsRuntimeProbeIssue(result.Issues, "fail", "exec_probe", "exec_failed") {
+		t.Fatalf("issues = %+v, want exec failure", result.Issues)
 	}
 }
 

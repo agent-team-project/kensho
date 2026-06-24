@@ -3548,7 +3548,7 @@ Inherited Flags:
 
 Probe runtime, daemon, and Codex environment health.
 
-Probe the selected runtime and repo daemon health. For the Codex runtime, the probe also runs `codex doctor --json` so provider reachability, auth, and sandbox issues are captured before dispatching work.
+Probe the selected runtime and repo daemon health. For the Codex runtime, the probe also runs `codex doctor --json` so provider reachability, auth, and sandbox issues are captured before dispatching work. Pass --exec to also run a minimal real Codex `exec -` one-shot and verify last-message capture.
 
 ```text
 agent-team runtime probe [flags]
@@ -3557,6 +3557,8 @@ agent-team runtime probe [flags]
 Flags:
 
 ```text
+      --exec                 Run a minimal runtime-native execution probe. Currently supports Codex one-shot execution.
+      --exec-prompt string   Prompt sent to the runtime when --exec is set. (default "Reply exactly with: agent-team runtime probe ok")
       --json                 Emit machine-readable JSON.
       --runtime string       Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary to probe for this invocation. Overrides env and repo config.
