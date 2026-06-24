@@ -6579,6 +6579,20 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestScopeTeamHealthIssueActions(t *testing.T) {
+	result := &healthResult{Issues: []healthIssue{
+		{Code: "declared_missing", Actions: []string{"agent-team sync --dry-run", "agent-team daemon start"}},
+		{Code: "queue_dead_letter", Actions: []string{"agent-team queue retry --all --dry-run"}},
+	}}
+	scopeTeamHealthIssueActions(result, "delivery")
+	if got := result.Issues[0].Actions; !containsString(got, "agent-team team sync delivery --dry-run") || containsString(got, "agent-team sync --dry-run") || !containsString(got, "agent-team daemon start") {
+		t.Fatalf("declared actions = %+v", got)
+	}
+	if got := result.Issues[1].Actions; !containsString(got, "agent-team queue retry --all --dry-run") {
+		t.Fatalf("queue actions changed unexpectedly: %+v", got)
+	}
+}
+
 func TestTeamHealthFiltersByRuntime(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

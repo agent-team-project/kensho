@@ -4809,6 +4809,7 @@ func collectTeamHealthWithOptions(teamDir, name string, now time.Time, includeJo
 	healthRows := teamRuntimeRows(top, team, rows)
 	scoped := teamScopedTopology(top, team)
 	result := buildHealthWithDaemonStatus(collectDaemonStatus(teamDir), healthRows, scoped, now, opts)
+	scopeTeamHealthIssueActions(result, team.Name)
 	jobs, err := job.List(teamDir)
 	if err != nil {
 		return nil, err
@@ -4823,6 +4824,20 @@ func collectTeamHealthWithOptions(teamDir, name string, now time.Time, includeJo
 		}
 	}
 	return &teamHealthSnapshot{Team: teamInfoFromTopology(team), Health: result}, nil
+}
+
+func scopeTeamHealthIssueActions(result *healthResult, teamName string) {
+	if result == nil || strings.TrimSpace(teamName) == "" {
+		return
+	}
+	scopedSync := fmt.Sprintf("agent-team team sync %s --dry-run", strings.TrimSpace(teamName))
+	for i := range result.Issues {
+		for j, action := range result.Issues[i].Actions {
+			if strings.TrimSpace(action) == "agent-team sync --dry-run" {
+				result.Issues[i].Actions[j] = scopedSync
+			}
+		}
+	}
 }
 
 func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, error) {
