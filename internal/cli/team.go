@@ -1551,6 +1551,8 @@ func newTeamQueueCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
+		limit       int
 		watch       bool
 		noClear     bool
 		summary     bool
@@ -1572,8 +1574,21 @@ func newTeamQueueCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue: --format cannot be combined with --summary.")
 				return exitErr(2)
 			}
+			if summary && (cmd.Flags().Changed("sort") || cmd.Flags().Changed("limit")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue: --sort and --limit cannot be combined with --summary.")
+				return exitErr(2)
+			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team queue: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseQueueListSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team queue: %v\n", err)
 				return exitErr(2)
 			}
 			tmpl, err := parseQueueFormat(format)
@@ -1596,12 +1611,12 @@ func newTeamQueueCmd() *cobra.Command {
 				if summary {
 					return runTeamQueueSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut, interval, !noClear && !jsonOut)
 				}
-				return runTeamQueueListWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut, tmpl, interval, !noClear && !jsonOut)
+				return runTeamQueueListWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], filters, queueListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
 			if summary {
 				return runTeamQueueSummary(cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut)
 			}
-			return runTeamQueueList(cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut, tmpl)
+			return runTeamQueueList(cmd.OutOrStdout(), teamDir, args[0], filters, queueListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -1610,6 +1625,8 @@ func newTeamQueueCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the team queue table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
@@ -5987,18 +6004,20 @@ func teamQueueRetryResults(teamDir, name string, filters queueListFilters, limit
 	return results, nil
 }
 
-func runTeamQueueList(w io.Writer, teamDir, name string, filters queueListFilters, jsonOut bool, tmpl *template.Template) error {
+func runTeamQueueList(w io.Writer, teamDir, name string, filters queueListFilters, opts queueListOptions, jsonOut bool, tmpl *template.Template) error {
 	items, err := collectTeamQueueItems(teamDir, name, filters, time.Now().UTC())
 	if err != nil {
 		return err
 	}
+	runtimeByInstance := queueRuntimeMap(teamDir)
+	items = prepareQueueListItems(items, opts, runtimeByInstance)
 	if jsonOut {
 		return json.NewEncoder(w).Encode(items)
 	}
 	if tmpl != nil {
 		return renderQueueItemsFormat(w, items, tmpl)
 	}
-	renderQueueTableWithActions(w, items, queueRuntimeMap(teamDir), teamQueueActionResolver(name))
+	renderQueueTableWithActions(w, items, runtimeByInstance, teamQueueActionResolver(name))
 	return nil
 }
 
@@ -6075,7 +6094,7 @@ func collectTeamQueueSummary(teamDir, name string, filters queueListFilters, now
 	return summary, nil
 }
 
-func runTeamQueueListWatch(ctx context.Context, w io.Writer, teamDir, name string, filters queueListFilters, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+func runTeamQueueListWatch(ctx context.Context, w io.Writer, teamDir, name string, filters queueListFilters, opts queueListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -6087,7 +6106,7 @@ func runTeamQueueListWatch(ctx context.Context, w io.Writer, teamDir, name strin
 				return err
 			}
 		}
-		if err := runTeamQueueList(w, teamDir, name, filters, jsonOut, tmpl); err != nil {
+		if err := runTeamQueueList(w, teamDir, name, filters, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
 		select {

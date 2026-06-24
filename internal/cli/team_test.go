@@ -4455,6 +4455,18 @@ instances = ["other"]
 		t.Fatalf("team queue ids = %v", got)
 	}
 
+	sorted := NewRootCmd()
+	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sorted.SetOut(sortedOut)
+	sorted.SetErr(sortedErr)
+	sorted.SetArgs([]string{"team", "queue", "delivery", "--repo", root, "--sort", "runtime", "--limit", "1", "--format", "{{.ID}}"})
+	if err := sorted.Execute(); err != nil {
+		t.Fatalf("team queue sort/limit: %v\nstderr=%s", err, sortedErr.String())
+	}
+	if got := strings.TrimSpace(sortedOut.String()); got != "q-team-claude" {
+		t.Fatalf("team queue sort/limit output = %q", sortedOut.String())
+	}
+
 	textList := NewRootCmd()
 	textListOut, textListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textList.SetOut(textListOut)

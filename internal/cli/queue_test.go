@@ -1102,7 +1102,7 @@ func TestQueueListWatchRendersSnapshot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var out bytes.Buffer
-	if err := runQueueListWatch(ctx, &out, teamDir, queueListFilters{state: daemon.QueueStatePending}, false, nil, time.Millisecond, false); err != nil {
+	if err := runQueueListWatch(ctx, &out, teamDir, queueListFilters{state: daemon.QueueStatePending}, queueListOptions{}, false, nil, time.Millisecond, false); err != nil {
 		t.Fatalf("runQueueListWatch: %v", err)
 	}
 	if !strings.Contains(out.String(), "q-watch") || strings.Contains(out.String(), watchClearSequence) {
@@ -1211,6 +1211,42 @@ func TestQueueListFilters(t *testing.T) {
 	}
 	if len(listed) != 1 || listed[0].ID != "q-ready" {
 		t.Fatalf("listed = %+v", listed)
+	}
+
+	sorted := NewRootCmd()
+	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sorted.SetOut(sortedOut)
+	sorted.SetErr(sortedErr)
+	sorted.SetArgs([]string{"queue", "ls", "--target", tmp, "--sort", "attempts", "--limit", "1", "--format", "{{.ID}}"})
+	if err := sorted.Execute(); err != nil {
+		t.Fatalf("queue ls sort/limit: %v\nstderr=%s", err, sortedErr.String())
+	}
+	if got := strings.TrimSpace(sortedOut.String()); got != "q-dead-worker" {
+		t.Fatalf("queue ls sort/limit output = %q", sortedOut.String())
+	}
+
+	invalidSort := NewRootCmd()
+	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSort.SetOut(invalidSortOut)
+	invalidSort.SetErr(invalidSortErr)
+	invalidSort.SetArgs([]string{"queue", "ls", "--target", tmp, "--sort", "priority"})
+	if err := invalidSort.Execute(); err == nil {
+		t.Fatalf("queue ls invalid sort succeeded")
+	}
+	if !strings.Contains(invalidSortErr.String(), "--sort must be state") {
+		t.Fatalf("invalid sort stderr = %q", invalidSortErr.String())
+	}
+
+	invalidSummary := NewRootCmd()
+	invalidSummaryOut, invalidSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSummary.SetOut(invalidSummaryOut)
+	invalidSummary.SetErr(invalidSummaryErr)
+	invalidSummary.SetArgs([]string{"queue", "ls", "--target", tmp, "--summary", "--limit", "1"})
+	if err := invalidSummary.Execute(); err == nil {
+		t.Fatalf("queue ls summary limit succeeded")
+	}
+	if !strings.Contains(invalidSummaryErr.String(), "--sort and --limit cannot be combined with --summary") {
+		t.Fatalf("summary limit stderr = %q", invalidSummaryErr.String())
 	}
 
 	textList := NewRootCmd()

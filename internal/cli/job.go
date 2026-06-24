@@ -78,6 +78,8 @@ func newJobQueueCmd() *cobra.Command {
 		eventTypes  []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
+		limit       int
 		summary     bool
 		jsonOut     bool
 		format      string
@@ -97,6 +99,19 @@ func newJobQueueCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue: --format cannot be combined with --summary.")
 				return exitErr(2)
 			}
+			if summary && (cmd.Flags().Changed("sort") || cmd.Flags().Changed("limit")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue: --sort and --limit cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job queue: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseQueueListSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue: %v\n", err)
+				return exitErr(2)
+			}
 			tmpl, err := parseQueueFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job queue: %v\n", err)
@@ -111,7 +126,7 @@ func newJobQueueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runJobQueueList(cmd.OutOrStdout(), teamDir, j, filters, summary, jsonOut, tmpl)
+			return runJobQueueList(cmd.OutOrStdout(), teamDir, j, filters, queueListOptions{Sort: sortMode, Limit: limit}, summary, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -119,6 +134,8 @@ func newJobQueueCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -6257,7 +6274,7 @@ func queueItemsForJob(teamDir string, j *job.Job) ([]*daemon.QueueItem, error) {
 	return matches, nil
 }
 
-func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListFilters, summary, jsonOut bool, tmpl *template.Template) error {
+func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListFilters, opts queueListOptions, summary, jsonOut bool, tmpl *template.Template) error {
 	items, err := queueItemsForJob(teamDir, j)
 	if err != nil {
 		return err
@@ -6273,6 +6290,7 @@ func runJobQueueList(w io.Writer, teamDir string, j *job.Job, filters queueListF
 		renderQueueSummary(w, queueSummary)
 		return nil
 	}
+	filtered = prepareQueueListItems(filtered, opts, runtimeByInstance)
 	if jsonOut {
 		return json.NewEncoder(w).Encode(filtered)
 	}

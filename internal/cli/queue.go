@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -46,6 +47,8 @@ func newQueueLsCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
+		limit       int
 		watch       bool
 		noClear     bool
 		summary     bool
@@ -67,8 +70,21 @@ func newQueueLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --format cannot be combined with --summary.")
 				return exitErr(2)
 			}
+			if summary && (cmd.Flags().Changed("sort") || cmd.Flags().Changed("limit")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --sort and --limit cannot be combined with --summary.")
+				return exitErr(2)
+			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseQueueListSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue ls: %v\n", err)
 				return exitErr(2)
 			}
 			tmpl, err := parseQueueFormat(format)
@@ -91,12 +107,12 @@ func newQueueLsCmd() *cobra.Command {
 				if summary {
 					return runQueueSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, interval, !noClear && !jsonOut)
 				}
-				return runQueueListWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl, interval, !noClear && !jsonOut)
+				return runQueueListWatch(ctx, cmd.OutOrStdout(), teamDir, filters, queueListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
 			if summary {
 				return runQueueSummary(cmd.OutOrStdout(), teamDir, filters, jsonOut)
 			}
-			return runQueueList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
+			return runQueueList(cmd.OutOrStdout(), teamDir, filters, queueListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -106,6 +122,8 @@ func newQueueLsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the queue table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate queue counts instead of queue rows.")
@@ -606,6 +624,11 @@ type queueListFilters struct {
 	now               time.Time
 }
 
+type queueListOptions struct {
+	Sort  string
+	Limit int
+}
+
 func parseQueueListFilters(stateRaw string, instancesRaw, eventTypesRaw, jobsRaw []string, readyOnly bool, now time.Time) (queueListFilters, error) {
 	state, err := parseQueueStateFilter(stateRaw)
 	if err != nil {
@@ -739,6 +762,105 @@ func filterQueueItems(items []*daemon.QueueItem, filters queueListFilters) []*da
 		}
 	}
 	return out
+}
+
+func prepareQueueListItems(items []*daemon.QueueItem, opts queueListOptions, runtimeByInstance map[string]string) []*daemon.QueueItem {
+	sortQueueItems(items, opts.Sort, runtimeByInstance)
+	return limitQueueItems(items, opts.Limit)
+}
+
+func parseQueueListSort(raw string) (string, error) {
+	sortMode := strings.ToLower(strings.TrimSpace(raw))
+	switch sortMode {
+	case "", "state", "id", "event", "instance", "job", "runtime", "queued", "updated", "next-retry", "attempts":
+		if sortMode == "" {
+			return "state", nil
+		}
+		return sortMode, nil
+	default:
+		return "", fmt.Errorf("--sort must be state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts")
+	}
+}
+
+func sortQueueItems(items []*daemon.QueueItem, sortMode string, runtimeByInstance map[string]string) {
+	sortMode = strings.ToLower(strings.TrimSpace(sortMode))
+	if sortMode == "" {
+		sortMode = "state"
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		left, right := items[i], items[j]
+		switch sortMode {
+		case "id":
+			if left.ID != right.ID {
+				return left.ID < right.ID
+			}
+		case "event":
+			if left.EventType != right.EventType {
+				return left.EventType < right.EventType
+			}
+		case "instance":
+			if left.Instance != right.Instance {
+				return left.Instance < right.Instance
+			}
+		case "job":
+			if leftJob, rightJob := queueItemSortJobID(left), queueItemSortJobID(right); leftJob != rightJob {
+				return leftJob < rightJob
+			}
+		case "runtime":
+			if leftRuntime, rightRuntime := queueItemRuntimeKey(left, runtimeByInstance), queueItemRuntimeKey(right, runtimeByInstance); leftRuntime != rightRuntime {
+				return leftRuntime < rightRuntime
+			}
+		case "queued":
+			if !left.QueuedAt.Equal(right.QueuedAt) {
+				return left.QueuedAt.After(right.QueuedAt)
+			}
+		case "updated":
+			if !left.UpdatedAt.Equal(right.UpdatedAt) {
+				return left.UpdatedAt.After(right.UpdatedAt)
+			}
+		case "next-retry":
+			if !left.NextRetry.Equal(right.NextRetry) {
+				if left.NextRetry.IsZero() {
+					return false
+				}
+				if right.NextRetry.IsZero() {
+					return true
+				}
+				return left.NextRetry.Before(right.NextRetry)
+			}
+		case "attempts":
+			if left.Attempts != right.Attempts {
+				return left.Attempts > right.Attempts
+			}
+		case "state":
+			if left.State != right.State {
+				return left.State < right.State
+			}
+			if !left.QueuedAt.Equal(right.QueuedAt) {
+				return left.QueuedAt.Before(right.QueuedAt)
+			}
+		}
+		return left.ID < right.ID
+	})
+}
+
+func limitQueueItems(items []*daemon.QueueItem, limit int) []*daemon.QueueItem {
+	if limit <= 0 || limit >= len(items) {
+		return items
+	}
+	return items[:limit]
+}
+
+func queueItemSortJobID(item *daemon.QueueItem) string {
+	if item == nil {
+		return ""
+	}
+	for _, key := range []string{"job_id", "job", "ticket"} {
+		if id := job.NormalizeID(queuePayloadString(item.Payload, key)); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func previewQueueDrainLocal(teamDir string) (*daemon.QueueDrainResult, error) {
@@ -1340,13 +1462,14 @@ func renderQueuePruneTable(w io.Writer, results []queuePruneResult) {
 	_ = tw.Flush()
 }
 
-func runQueueList(w io.Writer, teamDir string, filters queueListFilters, jsonOut bool, tmpl *template.Template) error {
+func runQueueList(w io.Writer, teamDir string, filters queueListFilters, opts queueListOptions, jsonOut bool, tmpl *template.Template) error {
 	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return err
 	}
 	runtimeByInstance := queueRuntimeMap(teamDir)
 	filtered := filterQueueItems(items, filters.withNow(time.Now().UTC()).withRuntimeByInstance(runtimeByInstance))
+	filtered = prepareQueueListItems(filtered, opts, runtimeByInstance)
 	if jsonOut {
 		if filtered == nil {
 			filtered = []*daemon.QueueItem{}
@@ -1360,7 +1483,7 @@ func runQueueList(w io.Writer, teamDir string, filters queueListFilters, jsonOut
 	return nil
 }
 
-func runQueueListWatch(ctx context.Context, w io.Writer, teamDir string, filters queueListFilters, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+func runQueueListWatch(ctx context.Context, w io.Writer, teamDir string, filters queueListFilters, opts queueListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -1372,7 +1495,7 @@ func runQueueListWatch(ctx context.Context, w io.Writer, teamDir string, filters
 				return err
 			}
 		}
-		if err := runQueueList(w, teamDir, filters, jsonOut, tmpl); err != nil {
+		if err := runQueueList(w, teamDir, filters, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
 		select {

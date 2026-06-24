@@ -1104,6 +1104,18 @@ func TestJobQueueListsOwnedItems(t *testing.T) {
 		t.Fatalf("job queue ids = %s", got)
 	}
 
+	sorted := NewRootCmd()
+	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sorted.SetOut(sortedOut)
+	sorted.SetErr(sortedErr)
+	sorted.SetArgs([]string{"job", "queue", "SQU-120", "--repo", tmp, "--sort", "attempts", "--limit", "1", "--format", "{{.ID}}"})
+	if err := sorted.Execute(); err != nil {
+		t.Fatalf("job queue sort/limit: %v\nstderr=%s", err, sortedErr.String())
+	}
+	if got := strings.TrimSpace(sortedOut.String()); got != "q-job-dead" {
+		t.Fatalf("job queue sort/limit output = %q", sortedOut.String())
+	}
+
 	textList := NewRootCmd()
 	textListOut, textListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textList.SetOut(textListOut)

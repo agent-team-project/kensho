@@ -110,7 +110,7 @@ Shortcuts:
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team job queue <job-id>` | List active queue entries owned by a job; filter queued dispatches with `--runtime` |
+| `agent-team job queue <job-id>` | List active queue entries owned by a job; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team job queue show <job-id> <id>` | Inspect one active queue item owned by a job |
 | `agent-team job queue retry <job-id> <id>` | Retry one job-owned queue item |
 | `agent-team job queue retry <job-id> --all` | Retry matching job-owned queue items; filter batch actions with `--runtime` |
@@ -128,7 +128,7 @@ Shortcuts:
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team queue ls` | List active queue entries; filter queued dispatches with `--runtime` |
+| `agent-team queue ls` | List active queue entries; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team queue show <id>` | Inspect one active queue item, including resolved runtime metadata |
 | `agent-team queue drain` | Dispatch ready pending entries |
 | `agent-team queue retry <id>` | Retry one entry |
@@ -180,7 +180,7 @@ Shortcuts:
 | `agent-team team jobs <team>` | Scoped job list or summary; filter held state and mixed-runtime ownership |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
 | `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; add `--retry-force` to override retry caps during scoped failed-step retry |
-| `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime` |
+| `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team |
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |
 | `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter batch actions with `--runtime` |
