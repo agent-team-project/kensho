@@ -4341,6 +4341,9 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		UpdatedAt:  j.UpdatedAt,
 		Message:    next.Message,
 	}
+	if steps := advanceableJobSteps(j); len(steps) > 1 {
+		row.ParallelReadySteps = len(steps)
+	}
 	if next.Step != nil {
 		row.StepID = next.Step.ID
 		row.Target = next.Step.Target
@@ -4355,10 +4358,10 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 func actionsForJobReadyRow(row jobReadyRow) []string {
 	switch row.State {
 	case "ready":
-		return []string{fmt.Sprintf("agent-team job advance %s", row.JobID)}
+		return appendParallelReadyAction([]string{fmt.Sprintf("agent-team job advance %s", row.JobID)}, row)
 	case "queued":
 		if len(row.WaitingFor) == 0 && strings.TrimSpace(row.Instance) == "" {
-			return []string{fmt.Sprintf("agent-team job advance %s", row.JobID)}
+			return appendParallelReadyAction([]string{fmt.Sprintf("agent-team job advance %s", row.JobID)}, row)
 		}
 		return []string{"agent-team tick"}
 	case "failed":
@@ -4377,6 +4380,13 @@ func actionsForJobReadyRow(row jobReadyRow) []string {
 	default:
 		return nil
 	}
+}
+
+func appendParallelReadyAction(actions []string, row jobReadyRow) []string {
+	if row.ParallelReadySteps <= 1 || strings.TrimSpace(row.Pipeline) == "" {
+		return actions
+	}
+	return append(actions, fmt.Sprintf("agent-team pipeline advance %s --all-ready-steps --dry-run --preview-routes", row.Pipeline))
 }
 
 func renderJobReadyTable(w io.Writer, rows []jobReadyRow) {
@@ -5824,20 +5834,21 @@ type jobNextResult struct {
 }
 
 type jobReadyRow struct {
-	JobID      string     `json:"job_id"`
-	Ticket     string     `json:"ticket"`
-	Pipeline   string     `json:"pipeline,omitempty"`
-	JobStatus  job.Status `json:"job_status"`
-	State      string     `json:"state"`
-	Actions    []string   `json:"actions,omitempty"`
-	StepID     string     `json:"step_id,omitempty"`
-	Target     string     `json:"target,omitempty"`
-	StepStatus job.Status `json:"step_status,omitempty"`
-	Instance   string     `json:"instance,omitempty"`
-	Gate       string     `json:"gate,omitempty"`
-	WaitingFor []string   `json:"waiting_for,omitempty"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	Message    string     `json:"message"`
+	JobID              string     `json:"job_id"`
+	Ticket             string     `json:"ticket"`
+	Pipeline           string     `json:"pipeline,omitempty"`
+	JobStatus          job.Status `json:"job_status"`
+	State              string     `json:"state"`
+	Actions            []string   `json:"actions,omitempty"`
+	StepID             string     `json:"step_id,omitempty"`
+	Target             string     `json:"target,omitempty"`
+	StepStatus         job.Status `json:"step_status,omitempty"`
+	Instance           string     `json:"instance,omitempty"`
+	Gate               string     `json:"gate,omitempty"`
+	WaitingFor         []string   `json:"waiting_for,omitempty"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	Message            string     `json:"message"`
+	ParallelReadySteps int        `json:"parallel_ready_steps,omitempty"`
 }
 
 func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepUpdate) error {
