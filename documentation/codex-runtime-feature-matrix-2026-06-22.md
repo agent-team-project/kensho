@@ -154,6 +154,11 @@ and `tick` do not advance them.
     `monitor --json` emitted `queue.instances:null` and `queue.events:null` in
     one nested health object, while other health/queue paths emitted `{}`.
 
+    Status after follow-up: fixed. `queueSummary.MarshalJSON` now normalizes
+    empty `instances`, `events`, and `runtimes` maps to `{}`; queue list paths
+    also return empty arrays. `TestQueueSummaryEncodesEmptyMapsAsObjects`,
+    `TestQueueListJSONEmptyArray`, and monitor JSON coverage pin the behavior.
+
 11. **The bundled template still copies Python bytecode cache files.**
     `template run` output included
     `.agent_team/skills/status/scripts/__pycache__/_status_write.cpython-313.pyc`.
