@@ -282,8 +282,12 @@ func TestHealthStatusAndPhaseFiltersScopeInstanceAndDeclaredIssues(t *testing.T)
 		t.Fatalf("declared = %+v, want only crashed ticket-manager declaration", got.Declared)
 	}
 	codes := map[string]bool{}
+	declaredAction := false
 	for _, issue := range got.Issues {
 		codes[issue.Code] = true
+		if issue.Code == "declared_not_running" && containsString(issue.Actions, "agent-team sync --dry-run") {
+			declaredAction = true
+		}
 		if issue.Instance == "manager" {
 			t.Fatalf("manager issue should be filtered out: %+v", got.Issues)
 		}
@@ -292,6 +296,9 @@ func TestHealthStatusAndPhaseFiltersScopeInstanceAndDeclaredIssues(t *testing.T)
 		if !codes[want] {
 			t.Fatalf("issues = %+v, missing %s", got.Issues, want)
 		}
+	}
+	if !declaredAction {
+		t.Fatalf("declared_not_running issue missing sync action: %+v", got.Issues)
 	}
 }
 
@@ -313,6 +320,9 @@ func TestHealthUnknownStatusFilterIncludesMissingDeclared(t *testing.T) {
 	}
 	if len(got.Issues) != 1 || got.Issues[0].Code != "declared_missing" {
 		t.Fatalf("issues = %+v, want declared_missing", got.Issues)
+	}
+	if !containsString(got.Issues[0].Actions, "agent-team sync --dry-run") {
+		t.Fatalf("declared_missing actions = %+v", got.Issues[0].Actions)
 	}
 }
 

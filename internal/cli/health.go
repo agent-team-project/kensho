@@ -476,7 +476,7 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 			result.Declared.Persistent++
 			if !ok {
 				result.Declared.Missing++
-				result.addIssue("declared_missing", inst.Name, "unknown", "unknown", fmt.Sprintf("declared persistent instance %q has not been started", inst.Name))
+				result.addIssueWithSeverityAndActions("declared_missing", "error", inst.Name, "", "unknown", "unknown", fmt.Sprintf("declared persistent instance %q has not been started", inst.Name), []string{"agent-team sync --dry-run"})
 				continue
 			}
 			if row.Lifecycle == string(daemon.StatusRunning) {
@@ -484,7 +484,7 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 				continue
 			}
 			status := psStatusKey(row)
-			result.addIssue("declared_not_running", inst.Name, status, psPhaseKey(row), fmt.Sprintf("declared persistent instance %q is %s", inst.Name, status))
+			result.addIssueWithSeverityAndActions("declared_not_running", "error", inst.Name, "", status, psPhaseKey(row), fmt.Sprintf("declared persistent instance %q is %s", inst.Name, status), []string{"agent-team sync --dry-run"})
 		}
 		if opts.strictTopology {
 			for _, row := range rows {
