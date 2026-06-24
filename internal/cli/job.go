@@ -43,6 +43,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobNoteCmd())
+	cmd.AddCommand(newJobBlockCmd())
 	cmd.AddCommand(newJobUnblockCmd())
 	cmd.AddCommand(newJobLogsCmd())
 	cmd.AddCommand(newJobSnapshotCmd())
@@ -1477,6 +1478,70 @@ func newJobNoteCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or dry-run preview as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.")
 	return cmd
+}
+
+func newJobBlockCmd() *cobra.Command {
+	var (
+		repo        string
+		message     string
+		messageFile string
+		dryRun      bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "block <job-id> [reason...]",
+		Short: "Mark a job blocked with an operator reason.",
+		Long: "Mark a durable job blocked and record an operator reason in the job audit history. " +
+			"Use `job hold` instead when work should keep its lifecycle status but automation should stop advancing it.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job block: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job block: %v\n", err)
+				return exitErr(2)
+			}
+			reason, err := jobBlockMessage(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job block: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			j.Status = job.StatusBlocked
+			j.LastEvent = "blocked"
+			j.LastStatus = reason
+			j.UpdatedAt = time.Now().UTC()
+			if dryRun {
+				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			}
+			if err := writeJobWithAudit(teamDir, j, "blocked", "cli", reason, map[string]string{"status": string(job.StatusBlocked)}); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&message, "message", "", "Blocked reason recorded on the job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read blocked reason from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the blocked job without changing job state or writing an audit event.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or dry-run preview as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	return cmd
+}
+
+func jobBlockMessage(message, messageFile string, positional []string) (string, error) {
+	if strings.TrimSpace(message) == "" && strings.TrimSpace(messageFile) == "" && len(positional) == 0 {
+		return "blocked by operator", nil
+	}
+	return sendMessageBody(message, messageFile, positional)
 }
 
 func newJobUnblockCmd() *cobra.Command {

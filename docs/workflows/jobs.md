@@ -158,17 +158,29 @@ worktree, and branch/PR metadata to the existing job fields. Use
 `daemon adopt --job <id>` for the same recovery path when you are starting from
 an instance PID instead of a job.
 
+## Blocking And Unblocking Jobs
+
+```sh
+agent-team job block squ-42 "Waiting on staging credentials"
+agent-team job block squ-42 --message-file blocker.md --dry-run --json
+agent-team job unblock squ-42 "Credentials are configured; continue"
+```
+
+`job block` changes the lifecycle status to `blocked` and records an audit
+event. Use `job hold` instead when work should keep its lifecycle status but
+automation should stop advancing it.
+
+`job unblock` sends the supplied message to the owning instance and changes job
+state from blocked back to running when appropriate.
+
 ## Sending Messages
 
 ```sh
 agent-team job send squ-42 "Please continue with the new API constraint"
 agent-team job send squ-42 --message-file notes.md
-agent-team job unblock squ-42 "Credentials are configured; continue"
 ```
 
 `job send` targets the current instance.
-
-`job unblock` also changes job state from blocked back to running when appropriate.
 
 ## Recording Notes
 

@@ -1477,6 +1477,7 @@ Subcommands:
 - `agent-team job adopt` - Adopt a live external process as a job&#39;s owning instance.
 - `agent-team job advance` - Dispatch the next ready step in a pipeline job.
 - `agent-team job attach` - Attach to a job&#39;s owning instance.
+- `agent-team job block` - Mark a job blocked with an operator reason.
 - `agent-team job cancel` - Cancel a job as failed.
 - `agent-team job cleanup` - Remove a job-owned worker worktree and branch after merge.
 - `agent-team job close` - Close a job as done or failed.
@@ -1579,6 +1580,27 @@ Flags:
       --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --tail string    Log mode: show only the last N lines before following (0 or all = all). (default "50")
+```
+
+## `agent-team job block`
+
+Mark a job blocked with an operator reason.
+
+Mark a durable job blocked and record an operator reason in the job audit history. Use `job hold` instead when work should keep its lifecycle status but automation should stop advancing it.
+
+```text
+agent-team job block <job-id> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run               Preview the blocked job without changing job state or writing an audit event.
+      --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json                  Emit the updated job or dry-run preview as JSON.
+      --message string        Blocked reason recorded on the job.
+      --message-file string   Read blocked reason from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job cancel`
