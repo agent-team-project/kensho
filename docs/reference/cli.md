@@ -34,6 +34,7 @@ as the output directory instead.
 | `agent-team daemon restart` | Restart daemon |
 | `agent-team daemon reconcile` | Refresh metadata from process table |
 | `agent-team runtime` | Show selected LLM runtime profile; use `--runtime` / `--runtime-bin` to preview one-off overrides |
+| `agent-team runtime profile` | Explicit profile view, with `show` as a shorter alias |
 | `agent-team runtime ls` | List supported runtime profiles, availability, and capabilities |
 | `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, and write diagnostics with `--output` |
 | `agent-team runtime resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--action` or summarize with `--summary` |

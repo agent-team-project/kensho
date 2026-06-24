@@ -132,6 +132,55 @@ func TestRuntimeCommand_FormatRejectsJSON(t *testing.T) {
 	}
 }
 
+func TestRuntimeProfileCommand_CodexJSON(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "profile", "--target", t.TempDir(), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime profile --json failed: %v\nstderr: %s", err, errOut.String())
+	}
+	var info runtimeInfo
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if info.Runtime != "codex" || info.Binary != "codex" || info.Path != "/opt/homebrew/bin/codex" {
+		t.Fatalf("info = %+v, want codex path", info)
+	}
+	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || info.ManagedResume || info.Resume || info.Subagents {
+		t.Fatalf("codex capabilities = %+v, want direct plus daemon one-shot", info)
+	}
+}
+
+func TestRuntimeProfileCommand_FormatRejectsJSON(t *testing.T) {
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "profile", "--target", t.TempDir(), "--json", "--format", "{{.Runtime}}"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime profile --json --format succeeded")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(errOut.String(), "agent-team runtime profile: --format cannot be combined with --json") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
 func TestRuntimeLsJSONListsSupportedRuntimes(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")

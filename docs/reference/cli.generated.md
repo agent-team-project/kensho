@@ -3938,6 +3938,7 @@ Subcommands:
 
 - `agent-team runtime ls` - List supported runtime profiles.
 - `agent-team runtime probe` - Probe runtime, daemon, and Codex environment health.
+- `agent-team runtime profile` - Show the selected runtime profile.
 - `agent-team runtime resume-plan` - Show runtime resume and fallback commands for daemon metadata.
 
 ## `agent-team runtime ls`
@@ -3993,6 +3994,34 @@ Flags:
       --target string              Repo root or any path under a repo. (default "<repo>")
       --timeout duration           Maximum time for daemon wait and external runtime diagnostics such as codex doctor --json. (default 20s)
       --wait-daemon                Wait for the repo daemon to become ready before reporting daemon health.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team runtime profile`
+
+Show the selected runtime profile.
+
+Show the selected LLM runtime profile, binary resolution, and whether the runtime supports direct runs, daemon dispatch, direct resume, managed resume, and native subagents.
+
+```text
+agent-team runtime profile [flags]
+```
+
+Aliases: `show`
+
+Flags:
+
+```text
+      --format string        Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
+      --json                 Emit machine-readable JSON.
+      --runtime string       Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary to inspect for this invocation. Overrides env and repo config.
+      --target string        Repo root or any path under a repo. (default "<repo>")
 ```
 
 Inherited Flags:
