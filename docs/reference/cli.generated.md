@@ -1482,6 +1482,7 @@ Subcommands:
 - `agent-team job dispatch` - Dispatch a job to its target agent.
 - `agent-team job events` - Show a job&#39;s durable event history.
 - `agent-team job explain` - Explain pipeline step readiness for one job.
+- `agent-team job hold` - Hold a job so pipeline automation will not advance it.
 - `agent-team job kill` - Force-stop a job&#39;s owning instance.
 - `agent-team job logs` - Show a job&#39;s owning instance log.
 - `agent-team job ls` - List durable jobs.
@@ -1490,6 +1491,7 @@ Subcommands:
 - `agent-team job queue` - List queue items owned by one job.
 - `agent-team job ready` - List pipeline jobs with ready or selected next-step states.
 - `agent-team job reconcile` - Reconcile external runtime state back into jobs.
+- `agent-team job release` - Release a held job so pipeline automation can advance it.
 - `agent-team job reopen` - Reopen a durable job for another attempt.
 - `agent-team job rm` - Remove job files and their event logs.
 - `agent-team job send` - Send a mailbox message to a job&#39;s owning instance.
@@ -1670,6 +1672,26 @@ Flags:
       --format string   Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.
       --json            Emit the pipeline explanation as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job hold`
+
+Hold a job so pipeline automation will not advance it.
+
+Hold a durable job without changing its lifecycle status. Held jobs remain visible in status views, but next-step readiness reports held and automatic advance loops skip them until release.
+
+```text
+agent-team job hold <job-id> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run          Preview the hold without writing job state.
+      --format string    Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.HoldReason}}'.
+      --json             Emit the updated job as JSON.
+      --message string   Hold reason recorded on the job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job kill`
@@ -2005,7 +2027,7 @@ Flags:
       --json              Emit ready rows as JSON.
       --pipeline string   Filter by pipeline name.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --state strings     Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
+      --state strings     Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
 ```
 
 ## `agent-team job reconcile`
@@ -2100,6 +2122,26 @@ Flags:
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job release`
+
+Release a held job so pipeline automation can advance it.
+
+Release a held durable job without changing its lifecycle status. After release, ready and advance commands evaluate the job&#39;s pipeline steps normally.
+
+```text
+agent-team job release <job-id> [message...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run          Preview the release without writing job state.
+      --format string    Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.LastStatus}}'.
+      --json             Emit the updated job as JSON.
+      --message string   Release message recorded on the job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job reopen`
@@ -2701,7 +2743,7 @@ Flags:
       --json            Emit pipeline explanations as JSON.
       --limit int       Limit job explanations per pipeline; 0 means no limit.
       --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
+      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
 ```
 
 ## `agent-team pipeline graph`
@@ -2794,7 +2836,7 @@ Flags:
       --format string   Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --json            Emit ready rows as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
+      --state strings   Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
 ```
 
 ## `agent-team pipeline retry`
@@ -4313,7 +4355,7 @@ Flags:
       --json            Emit team pipeline explanations as JSON.
       --limit int       Limit job explanations per team-owned pipeline; 0 means no limit.
       --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
+      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
 ```
 
 ## `agent-team team graph`
@@ -4823,7 +4865,7 @@ Flags:
       --format string   Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --json            Emit team ready rows as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
+      --state strings   Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
 ```
 
 ## `agent-team team repair`

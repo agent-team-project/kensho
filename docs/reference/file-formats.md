@@ -121,6 +121,8 @@ ticket = "SQU-42"
 target = "worker"
 instance = "worker-squ-42"
 status = "running"
+held = true
+hold_reason = "waiting for product signoff"
 branch = "worker-squ-42"
 worktree = "/repo/.agent_team/worktrees/worker-squ-42"
 pr = "https://github.com/acme/app/pull/42"
@@ -160,6 +162,8 @@ Supported step gates are:
 - `pr`: waits until the job has PR metadata, usually from `agent-team job update <job-id> --pr <url> --advance --dry-run` followed by the non-dry-run update, or status reconciliation.
 
 Set `optional = true` on a step when its failure should remain visible but should not block downstream `after` dependencies. A job with only optional failures and completed required steps closes as done with `last_status = "all required steps done"`.
+
+Set `held = true` with an optional `hold_reason` when an operator has intentionally paused a job. This is not a lifecycle status; the job can remain `queued`, `running`, or `blocked` while `job next`, ready lists, pipeline status, and team views report the next-step state as `held` until `agent-team job release <job-id>`.
 
 Exact encoding is owned by `internal/job`.
 

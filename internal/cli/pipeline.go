@@ -407,7 +407,7 @@ func newPipelineExplainCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Explain all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit job explanations per pipeline; 0 means no limit.")
-	cmd.Flags().StringSliceVar(&states, "state", nil, "Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline explanations as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
@@ -540,7 +540,7 @@ func newPipelineReadyCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&all, "all", false, "List ready jobs across all pipelines.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
@@ -1005,6 +1005,7 @@ type pipelineStatusRow struct {
 	BlockedSteps       int      `json:"blocked_steps"`
 	ManualGates        int      `json:"manual_gates"`
 	FailedSteps        int      `json:"failed_steps"`
+	HeldSteps          int      `json:"held_steps,omitempty"`
 	DoneSteps          int      `json:"done_steps"`
 	NoStep             int      `json:"no_step"`
 	Actions            []string `json:"actions,omitempty"`
@@ -1622,6 +1623,8 @@ func applyPipelineStatusJob(row *pipelineStatusRow, j *job.Job) {
 		}
 	case "failed":
 		row.FailedSteps++
+	case "held":
+		row.HeldSteps++
 	case "done":
 		row.DoneSteps++
 	case "none":
@@ -1645,6 +1648,10 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 		actions = append(actions, "agent-team repair --retry-pipelines --dry-run --preview-routes")
 		actions = append(actions, fmt.Sprintf("agent-team pipeline explain %s --state failed", row.Pipeline))
 		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state failed", row.Pipeline))
+	}
+	if row.HeldSteps > 0 {
+		actions = append(actions, fmt.Sprintf("agent-team pipeline explain %s --state held", row.Pipeline))
+		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state held", row.Pipeline))
 	}
 	if row.ManualGates > 0 {
 		actions = append(actions, fmt.Sprintf("agent-team pipeline approve %s --dry-run --dispatch --preview-routes", row.Pipeline))
@@ -1715,6 +1722,8 @@ func pipelineNextActionReason(row pipelineStatusRow, action string) string {
 		return fmt.Sprintf("manual_gates=%d", row.ManualGates)
 	case strings.Contains(action, " --state blocked"):
 		return fmt.Sprintf("blocked_steps=%d", row.BlockedSteps)
+	case strings.Contains(action, " --state held"):
+		return fmt.Sprintf("held_steps=%d", row.HeldSteps)
 	case action == "agent-team tick", strings.Contains(action, " tick "):
 		return fmt.Sprintf("queued_steps=%d", row.QueuedSteps)
 	default:
@@ -2627,9 +2636,9 @@ func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PIPELINE\tDECLARED\tSTEPS\tJOBS\tJOB_STATUS\tREADY\tQUEUED\tRUNNING\tBLOCKED\tMANUAL_GATES\tFAILED\tDONE\tNONE\tACTION")
+	fmt.Fprintln(tw, "PIPELINE\tDECLARED\tSTEPS\tJOBS\tJOB_STATUS\tREADY\tQUEUED\tRUNNING\tBLOCKED\tMANUAL_GATES\tFAILED\tHELD\tDONE\tNONE\tACTION")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
 			row.Pipeline,
 			yesNo(row.Declared),
 			row.Steps,
@@ -2641,6 +2650,7 @@ func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {
 			row.BlockedSteps,
 			row.ManualGates,
 			row.FailedSteps,
+			row.HeldSteps,
 			row.DoneSteps,
 			row.NoStep,
 			emptyDash(strings.Join(row.Actions, "; ")),
@@ -2684,7 +2694,7 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 	if statusSummary == "-" {
 		statusSummary = "none"
 	}
-	fmt.Fprintf(w, "Status: jobs=%s ready=%d queued=%d running=%d blocked=%d manual_gates=%d failed=%d done=%d none=%d\n",
+	fmt.Fprintf(w, "Status: jobs=%s ready=%d queued=%d running=%d blocked=%d manual_gates=%d failed=%d held=%d done=%d none=%d\n",
 		statusSummary,
 		row.Status.ReadySteps,
 		row.Status.QueuedSteps,
@@ -2692,6 +2702,7 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 		row.Status.BlockedSteps,
 		row.Status.ManualGates,
 		row.Status.FailedSteps,
+		row.Status.HeldSteps,
 		row.Status.DoneSteps,
 		row.Status.NoStep)
 	if len(row.Actions) > 0 {

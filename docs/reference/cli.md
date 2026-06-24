@@ -91,6 +91,8 @@ Shortcuts:
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job |
 | `agent-team job update <job-id>` | Update job metadata; use `--advance --dry-run` to preview unblocked pipeline steps |
+| `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status |
+| `agent-team job release <job-id>` | Resume readiness/advance automation for a held job |
 | `agent-team job close <job-id>` | Mark done or failed |
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention |

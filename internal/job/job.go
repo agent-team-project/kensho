@@ -43,6 +43,8 @@ type Job struct {
 	Instance   string    `toml:"instance,omitempty"`
 	Pipeline   string    `toml:"pipeline,omitempty"`
 	Status     Status    `toml:"status"`
+	Held       bool      `toml:"held,omitempty"`
+	HoldReason string    `toml:"hold_reason,omitempty"`
 	Branch     string    `toml:"branch,omitempty"`
 	Worktree   string    `toml:"worktree,omitempty"`
 	PR         string    `toml:"pr,omitempty"`

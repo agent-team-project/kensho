@@ -5638,6 +5638,193 @@ func TestJobOptionalFailedStepUnblocksDependents(t *testing.T) {
 	}
 }
 
+func TestJobHoldReleaseStopsReadiness(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-240",
+		Ticket:    "SQU-240",
+		Target:    "manager",
+		Kickoff:   "SQU-240: held pipeline",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now, FinishedAt: now},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	hold := NewRootCmd()
+	holdOut, holdErr := &bytes.Buffer{}, &bytes.Buffer{}
+	hold.SetOut(holdOut)
+	hold.SetErr(holdErr)
+	hold.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--message", "waiting for user", "--json"})
+	if err := hold.Execute(); err != nil {
+		t.Fatalf("job hold: %v\nstderr=%s", err, holdErr.String())
+	}
+	var held job.Job
+	if err := json.Unmarshal(holdOut.Bytes(), &held); err != nil {
+		t.Fatalf("decode hold json: %v\nbody=%s", err, holdOut.String())
+	}
+	if !held.Held || held.HoldReason != "waiting for user" || held.LastEvent != "held" || held.Status != job.StatusRunning {
+		t.Fatalf("held job = %+v", held)
+	}
+
+	nextCmd := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextCmd.SetOut(nextOut)
+	nextCmd.SetErr(nextErr)
+	nextCmd.SetArgs([]string{"job", "next", "squ-240", "--repo", tmp, "--json"})
+	if err := nextCmd.Execute(); err != nil {
+		t.Fatalf("job next held: %v\nstderr=%s", err, nextErr.String())
+	}
+	var next jobNextResult
+	if err := json.Unmarshal(nextOut.Bytes(), &next); err != nil {
+		t.Fatalf("decode next json: %v\nbody=%s", err, nextOut.String())
+	}
+	if next.State != "held" || next.Step != nil || !strings.Contains(next.Message, "waiting for user") || !containsString(next.Actions, "agent-team job release squ-240") {
+		t.Fatalf("held next = %+v", next)
+	}
+
+	readyDefault := NewRootCmd()
+	readyDefaultOut, readyDefaultErr := &bytes.Buffer{}, &bytes.Buffer{}
+	readyDefault.SetOut(readyDefaultOut)
+	readyDefault.SetErr(readyDefaultErr)
+	readyDefault.SetArgs([]string{"job", "ready", "--repo", tmp, "--json"})
+	if err := readyDefault.Execute(); err != nil {
+		t.Fatalf("job ready default: %v\nstderr=%s", err, readyDefaultErr.String())
+	}
+	var defaultRows []jobReadyRow
+	if err := json.Unmarshal(readyDefaultOut.Bytes(), &defaultRows); err != nil {
+		t.Fatalf("decode default ready json: %v\nbody=%s", err, readyDefaultOut.String())
+	}
+	for _, row := range defaultRows {
+		if row.JobID == "squ-240" {
+			t.Fatalf("held job appeared in default ready rows: %+v", defaultRows)
+		}
+	}
+
+	readyHeld := NewRootCmd()
+	readyHeldOut, readyHeldErr := &bytes.Buffer{}, &bytes.Buffer{}
+	readyHeld.SetOut(readyHeldOut)
+	readyHeld.SetErr(readyHeldErr)
+	readyHeld.SetArgs([]string{"job", "ready", "--repo", tmp, "--state", "held", "--json"})
+	if err := readyHeld.Execute(); err != nil {
+		t.Fatalf("job ready held: %v\nstderr=%s", err, readyHeldErr.String())
+	}
+	var heldRows []jobReadyRow
+	if err := json.Unmarshal(readyHeldOut.Bytes(), &heldRows); err != nil {
+		t.Fatalf("decode held ready json: %v\nbody=%s", err, readyHeldOut.String())
+	}
+	if len(heldRows) != 1 || heldRows[0].JobID != "squ-240" || heldRows[0].State != "held" || !containsString(heldRows[0].Actions, "agent-team job release squ-240") {
+		t.Fatalf("held ready rows = %+v", heldRows)
+	}
+
+	advance := NewRootCmd()
+	advanceOut, advanceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	advance.SetOut(advanceOut)
+	advance.SetErr(advanceErr)
+	advance.SetArgs([]string{"job", "advance", "squ-240", "--repo", tmp, "--dry-run", "--json"})
+	if err := advance.Execute(); err != nil {
+		t.Fatalf("job advance held dry-run: %v\nstderr=%s", err, advanceErr.String())
+	}
+	var advancePreview jobAdvancePreview
+	if err := json.Unmarshal(advanceOut.Bytes(), &advancePreview); err != nil {
+		t.Fatalf("decode advance preview: %v\nbody=%s", err, advanceOut.String())
+	}
+	if !strings.Contains(advancePreview.Message, "waiting for user") || advancePreview.Step != nil || advancePreview.Dispatch != nil {
+		t.Fatalf("advance preview = %+v", advancePreview)
+	}
+
+	status := NewRootCmd()
+	statusOut, statusErr := &bytes.Buffer{}, &bytes.Buffer{}
+	status.SetOut(statusOut)
+	status.SetErr(statusErr)
+	status.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--repo", tmp, "--json"})
+	if err := status.Execute(); err != nil {
+		t.Fatalf("pipeline status held: %v\nstderr=%s", err, statusErr.String())
+	}
+	var statusRows []pipelineStatusRow
+	if err := json.Unmarshal(statusOut.Bytes(), &statusRows); err != nil {
+		t.Fatalf("decode pipeline status: %v\nbody=%s", err, statusOut.String())
+	}
+	if len(statusRows) != 1 || statusRows[0].HeldSteps != 1 ||
+		!containsString(statusRows[0].Actions, "agent-team pipeline explain ticket_to_pr --state held") ||
+		!containsString(statusRows[0].Actions, "agent-team pipeline ready ticket_to_pr --state held") {
+		t.Fatalf("pipeline status rows = %+v", statusRows)
+	}
+
+	explain := NewRootCmd()
+	explainOut, explainErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explain.SetOut(explainOut)
+	explain.SetErr(explainErr)
+	explain.SetArgs([]string{"pipeline", "explain", "ticket_to_pr", "--repo", tmp, "--state", "held", "--json"})
+	if err := explain.Execute(); err != nil {
+		t.Fatalf("pipeline explain held: %v\nstderr=%s", err, explainErr.String())
+	}
+	var explainRows []pipelineExplainRow
+	if err := json.Unmarshal(explainOut.Bytes(), &explainRows); err != nil {
+		t.Fatalf("decode pipeline explain: %v\nbody=%s", err, explainOut.String())
+	}
+	if len(explainRows) != 1 || explainRows[0].ExplainedJobs != 1 || len(explainRows[0].Jobs) != 1 || explainRows[0].Jobs[0].State != "held" {
+		t.Fatalf("pipeline explain rows = %+v", explainRows)
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"job", "show", "squ-240", "--repo", tmp})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("job show held: %v\nstderr=%s", err, showErr.String())
+	}
+	if !strings.Contains(showOut.String(), "Held:        yes") ||
+		!strings.Contains(showOut.String(), "Hold Reason: waiting for user") ||
+		!strings.Contains(showOut.String(), "agent-team job release squ-240") ||
+		strings.Contains(showOut.String(), "agent-team job advance squ-240") {
+		t.Fatalf("job show held output:\n%s", showOut.String())
+	}
+
+	release := NewRootCmd()
+	releaseOut, releaseErr := &bytes.Buffer{}, &bytes.Buffer{}
+	release.SetOut(releaseOut)
+	release.SetErr(releaseErr)
+	release.SetArgs([]string{"job", "release", "squ-240", "--repo", tmp, "--message", "resume", "--json"})
+	if err := release.Execute(); err != nil {
+		t.Fatalf("job release: %v\nstderr=%s", err, releaseErr.String())
+	}
+	var released job.Job
+	if err := json.Unmarshal(releaseOut.Bytes(), &released); err != nil {
+		t.Fatalf("decode release json: %v\nbody=%s", err, releaseOut.String())
+	}
+	if released.Held || released.HoldReason != "" || released.LastEvent != "released" || released.LastStatus != "resume" {
+		t.Fatalf("released job = %+v", released)
+	}
+
+	nextAfter := NewRootCmd()
+	nextAfterOut, nextAfterErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextAfter.SetOut(nextAfterOut)
+	nextAfter.SetErr(nextAfterErr)
+	nextAfter.SetArgs([]string{"job", "next", "squ-240", "--repo", tmp, "--json"})
+	if err := nextAfter.Execute(); err != nil {
+		t.Fatalf("job next released: %v\nstderr=%s", err, nextAfterErr.String())
+	}
+	var releasedNext jobNextResult
+	if err := json.Unmarshal(nextAfterOut.Bytes(), &releasedNext); err != nil {
+		t.Fatalf("decode released next: %v\nbody=%s", err, nextAfterOut.String())
+	}
+	if releasedNext.State != "ready" || releasedNext.Step == nil || releasedNext.Step.ID != "review" {
+		t.Fatalf("released next = %+v", releasedNext)
+	}
+}
+
 func TestJobReadyListsAdvanceablePipelineJobs(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

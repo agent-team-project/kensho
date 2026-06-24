@@ -48,6 +48,8 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobKillCmd())
 	cmd.AddCommand(newJobCloseCmd())
 	cmd.AddCommand(newJobUpdateCmd())
+	cmd.AddCommand(newJobHoldCmd())
+	cmd.AddCommand(newJobReleaseCmd())
 	cmd.AddCommand(newJobReopenCmd())
 	cmd.AddCommand(newJobCleanupCmd())
 	cmd.AddCommand(newJobRmCmd())
@@ -2011,6 +2013,110 @@ func newJobUpdateCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobHoldCmd() *cobra.Command {
+	var (
+		repo    string
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "hold <job-id> [reason...]",
+		Short: "Hold a job so pipeline automation will not advance it.",
+		Long: "Hold a durable job without changing its lifecycle status. " +
+			"Held jobs remain visible in status views, but next-step readiness reports held and automatic advance loops skip them until release.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job hold: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job hold: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			reason := jobActionMessage(message, args[1:], "held")
+			j.Held = true
+			j.HoldReason = reason
+			j.LastEvent = "held"
+			j.LastStatus = reason
+			j.UpdatedAt = time.Now().UTC()
+			if dryRun {
+				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			}
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "true"}); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&message, "message", "", "Hold reason recorded on the job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the hold without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.HoldReason}}'.")
+	return cmd
+}
+
+func newJobReleaseCmd() *cobra.Command {
+	var (
+		repo    string
+		message string
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "release <job-id> [message...]",
+		Short: "Release a held job so pipeline automation can advance it.",
+		Long: "Release a held durable job without changing its lifecycle status. " +
+			"After release, ready and advance commands evaluate the job's pipeline steps normally.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job release: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job release: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			statusMessage := jobActionMessage(message, args[1:], "released")
+			j.Held = false
+			j.HoldReason = ""
+			j.LastEvent = "released"
+			j.LastStatus = statusMessage
+			j.UpdatedAt = time.Now().UTC()
+			if dryRun {
+				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			}
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "false"}); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&message, "message", "", "Release message recorded on the job.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the release without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.LastStatus}}'.")
+	return cmd
+}
+
 func newJobReopenCmd() *cobra.Command {
 	var (
 		repo        string
@@ -2499,7 +2605,7 @@ func newJobReadyCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Filter by pipeline name.")
-	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
 	return cmd
@@ -3310,6 +3416,7 @@ type jobSummary struct {
 	Blocked      int            `json:"blocked"`
 	Done         int            `json:"done"`
 	Failed       int            `json:"failed"`
+	Held         int            `json:"held,omitempty"`
 	Targets      map[string]int `json:"targets"`
 	Pipelines    map[string]int `json:"pipelines"`
 	Runtimes     map[string]int `json:"runtimes,omitempty"`
@@ -3592,6 +3699,9 @@ func summarizeJobs(jobs []*job.Job) jobSummary {
 			summary.Done++
 		case job.StatusFailed:
 			summary.Failed++
+		}
+		if j.Held {
+			summary.Held++
 		}
 		if target := strings.TrimSpace(j.Target); target != "" {
 			summary.Targets[target]++
@@ -3891,6 +4001,8 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, n
 		addTriageReason("failed_step", "critical")
 	case "blocked":
 		addTriageReason("blocked_step", "warning")
+	case "held":
+		addTriageReason("held", "info")
 	}
 	if len(item.Reasons) == 0 {
 		return jobTriageItem{}, false
@@ -4056,6 +4168,9 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 	if stringSliceContains(item.Reasons, "cleanup_ready") {
 		add(fmt.Sprintf("agent-team job cleanup %s --dry-run", item.JobID))
 	}
+	if stringSliceContains(item.Reasons, "held") {
+		add(fmt.Sprintf("agent-team job release %s", item.JobID))
+	}
 	if strings.TrimSpace(item.Pipeline) != "" {
 		add(fmt.Sprintf("agent-team job explain %s", item.JobID))
 	}
@@ -4165,8 +4280,8 @@ func appendStringOnce(items []string, value string) []string {
 }
 
 func renderJobSummary(w io.Writer, summary jobSummary) {
-	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d\n",
-		summary.Total, summary.Queued, summary.Running, summary.Blocked, summary.Done, summary.Failed)
+	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d held=%d\n",
+		summary.Total, summary.Queued, summary.Running, summary.Blocked, summary.Done, summary.Failed, summary.Held)
 	if len(summary.Targets) > 0 {
 		fmt.Fprint(w, "targets:")
 		for _, key := range sortedCountKeys(summary.Targets) {
@@ -4232,10 +4347,10 @@ func parseJobNextStateFilter(raw []string, useDefault bool) (map[string]bool, er
 		switch state {
 		case "all":
 			return nil, nil
-		case "ready", "queued", "running", "blocked", "failed", "done", "none":
+		case "ready", "queued", "running", "blocked", "failed", "held", "done", "none":
 			states[state] = true
 		default:
-			return nil, fmt.Errorf("--state must be ready, queued, running, blocked, failed, done, none, or all")
+			return nil, fmt.Errorf("--state must be ready, queued, running, blocked, failed, held, done, none, or all")
 		}
 	}
 	if len(states) == 0 {
@@ -4476,6 +4591,8 @@ func actionsForJobReadyRow(row jobReadyRow) []string {
 			return []string{fmt.Sprintf("agent-team job update %s --pr <url> --advance --dry-run", row.JobID)}
 		}
 		return []string{fmt.Sprintf("agent-team job unblock %s <answer...>", row.JobID)}
+	case "held":
+		return []string{fmt.Sprintf("agent-team job release %s", row.JobID)}
 	default:
 		return nil
 	}
@@ -6073,6 +6190,9 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 }
 
 func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string, selection runtimeSelection) (*jobAdvanceResult, error) {
+	if j != nil && j.Held {
+		return &jobAdvanceResult{Job: j, Message: heldJobMessage(j)}, nil
+	}
 	step := nextReadyJobStep(j)
 	if step == nil {
 		now := time.Now().UTC()
@@ -6215,6 +6335,11 @@ func inspectNextJobStep(j *job.Job) (res jobNextResult) {
 	defer func() {
 		res.Actions = actionsForJobNextResult(j, res)
 	}()
+	if j.Held {
+		res.State = "held"
+		res.Message = heldJobMessage(j)
+		return res
+	}
 	if len(j.Steps) == 0 {
 		res.State = "none"
 		res.Message = "job has no pipeline steps"
@@ -6516,6 +6641,9 @@ func jobStepWaitingFor(j *job.Job, step *job.Step) []string {
 }
 
 func nextReadyJobStep(j *job.Job) *job.Step {
+	if j == nil || j.Held {
+		return nil
+	}
 	done := map[string]bool{}
 	for _, step := range j.Steps {
 		if jobStepSatisfiesDependency(&step) {
@@ -6564,6 +6692,9 @@ func nextReadyJobStep(j *job.Job) *job.Step {
 }
 
 func advanceableJobSteps(j *job.Job) []*job.Step {
+	if j == nil || j.Held {
+		return nil
+	}
 	done := map[string]bool{}
 	for _, step := range j.Steps {
 		if jobStepSatisfiesDependency(&step) {
@@ -6633,6 +6764,13 @@ func jobStepsCompleteMessage(j *job.Job) string {
 		return "all required steps done"
 	}
 	return "all steps done"
+}
+
+func heldJobMessage(j *job.Job) string {
+	if j != nil && strings.TrimSpace(j.HoldReason) != "" {
+		return "job is held: " + strings.TrimSpace(j.HoldReason)
+	}
+	return "job is held"
 }
 
 func resetFailedPipelineStepForRetry(j *job.Job) string {
@@ -7356,6 +7494,9 @@ type jobAdvancePreview struct {
 }
 
 func previewJobAdvanceDispatch(teamDir string, j *job.Job, workspace string, selection runtimeSelection) (*jobAdvancePreview, error) {
+	if j != nil && j.Held {
+		return &jobAdvancePreview{Job: j, Message: heldJobMessage(j), DryRun: true}, nil
+	}
 	step := nextReadyJobStep(j)
 	if step == nil {
 		message := "no ready steps"
@@ -7434,6 +7575,33 @@ func renderJobAdvancePreview(w io.Writer, preview *jobAdvancePreview, jsonOut bo
 type jobReopenPreview struct {
 	Job    *job.Job `json:"job"`
 	DryRun bool     `json:"dry_run"`
+}
+
+func jobActionMessage(flag string, args []string, fallback string) string {
+	if msg := strings.TrimSpace(flag); msg != "" {
+		return msg
+	}
+	if msg := strings.TrimSpace(strings.Join(args, " ")); msg != "" {
+		return msg
+	}
+	return fallback
+}
+
+type jobActionPreview struct {
+	Job    *job.Job `json:"job"`
+	DryRun bool     `json:"dry_run"`
+}
+
+func renderJobActionPreview(w io.Writer, j *job.Job, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(jobActionPreview{Job: j, DryRun: true})
+	}
+	if tmpl != nil {
+		return renderJobTemplate(w, j, tmpl)
+	}
+	fmt.Fprintln(w, "Dry run: true")
+	renderJobDetail(w, j)
+	return nil
 }
 
 func renderJobReopenPreview(w io.Writer, j *job.Job, jsonOut bool, tmpl *template.Template) error {
@@ -7550,10 +7718,10 @@ func renderJobTable(w io.Writer, jobs []*job.Job) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tTARGET\tINSTANCE\tPIPELINE\tTICKET\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tTARGET\tINSTANCE\tPIPELINE\tTICKET\tUPDATED")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			j.ID, j.Status, j.Target, emptyDash(j.Instance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			j.ID, j.Status, yesNo(j.Held), j.Target, emptyDash(j.Instance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
 	}
 	_ = tw.Flush()
 }
@@ -7564,10 +7732,10 @@ func renderJobTableWithRuntime(w io.Writer, jobs []*job.Job, runtimeByInstance m
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tTARGET\tINSTANCE\tRUNTIME\tPIPELINE\tTICKET\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tTARGET\tINSTANCE\tRUNTIME\tPIPELINE\tTICKET\tUPDATED")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			j.ID, j.Status, j.Target, emptyDash(j.Instance), jobRuntimeLabel(j, runtimeByInstance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			j.ID, j.Status, yesNo(j.Held), j.Target, emptyDash(j.Instance), jobRuntimeLabel(j, runtimeByInstance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
 	}
 	_ = tw.Flush()
 }
@@ -7726,6 +7894,12 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	runtimeMeta := jobRuntimeMetadataForDetail(teamDir, j)
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
+	if j.Held {
+		fmt.Fprintln(w, "Held:        yes")
+		if strings.TrimSpace(j.HoldReason) != "" {
+			fmt.Fprintf(w, "Hold Reason: %s\n", j.HoldReason)
+		}
+	}
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
 	if j.TicketURL != "" {
 		fmt.Fprintf(w, "Ticket URL:  %s\n", j.TicketURL)
@@ -7920,7 +8094,9 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 			add(fmt.Sprintf("agent-team job unblock %s <answer...>", j.ID))
 		}
 	}
-	if len(j.Steps) > 0 {
+	if j.Held {
+		add(fmt.Sprintf("agent-team job release %s", j.ID))
+	} else if len(j.Steps) > 0 {
 		add(fmt.Sprintf("agent-team job explain %s", j.ID))
 		for _, action := range actionsForJobReadyRow(jobReadyRowFromJob(j, inspectNextJobStep(j))) {
 			add(action)
