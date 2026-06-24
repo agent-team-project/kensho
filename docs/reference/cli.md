@@ -82,7 +82,7 @@ Shortcuts:
 | Command | Purpose |
 | --- | --- |
 | `agent-team job create <ticket>` | Create a durable job |
-| `agent-team job ls` | List jobs; filter held state with `--held` / `--unheld` and mixed-runtime ownership with `--runtime` |
+| `agent-team job ls` | List jobs; filter held state with `--held` / `--unheld`, hold deadlines with `--expired-hold` / `--active-hold`, and mixed-runtime ownership with `--runtime` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, status previews, and actions |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, queue ownership, state files, and optional log tails |
 | `agent-team job explain <job-id>` | Explain every pipeline step's readiness, blockers, gates, and next actions |
@@ -91,7 +91,7 @@ Shortcuts:
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job |
 | `agent-team job update <job-id>` | Update job metadata; use `--advance --dry-run` to preview unblocked pipeline steps |
-| `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status |
+| `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; add `--for` or `--until` for a deadline |
 | `agent-team job release <job-id>` | Resume readiness/advance automation for a held job |
 | `agent-team job close <job-id>` | Mark done or failed |
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
@@ -149,10 +149,10 @@ Shortcuts:
 | `agent-team pipeline explain <pipeline>` | Expand pipeline jobs into per-step readiness, blockers, gates, and actions |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print recommended pipeline actions |
-| `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state and mixed-runtime ownership |
+| `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state, hold deadlines, and mixed-runtime ownership |
 | `agent-team pipeline ready` | List ready steps |
-| `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status |
-| `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline |
+| `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline |
+| `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline; add `--expired` to release only elapsed deadlines |
 | `agent-team pipeline advance <pipeline>` | Advance ready work; use `--runtime` for dispatched steps |
 | `agent-team pipeline approve <pipeline>` | Approve blocked manual gates |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps |
@@ -180,8 +180,8 @@ Shortcuts:
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
 | `agent-team team explain <team>` | Expand team-owned pipeline jobs into per-step diagnostics |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
-| `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team |
-| `agent-team team release <team>` | Release held pipeline jobs owned by a team |
+| `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team; add `--for` or `--until` for a deadline |
+| `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |
 | `agent-team team retry <team>` | Scoped failed-step retry |

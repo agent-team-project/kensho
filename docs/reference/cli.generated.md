@@ -1688,10 +1688,12 @@ Flags:
 
 ```text
       --dry-run          Preview the hold without writing job state.
+      --for duration     Hold for this duration, for example 30m or 2h.
       --format string    Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.HoldReason}}'.
       --json             Emit the updated job as JSON.
       --message string   Hold reason recorded on the job.
       --repo string      Repo root containing .agent_team. (default "<repo>")
+      --until string     Hold until this RFC3339 timestamp.
 ```
 
 ## `agent-team job kill`
@@ -1747,7 +1749,9 @@ agent-team job ls [flags]
 Flags:
 
 ```text
+      --active-hold           Only show held jobs whose hold is still active or has no deadline.
       --branch string         Filter by branch.
+      --expired-hold          Only show held jobs whose hold_until has passed.
       --format string         Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --held                  Only show held jobs.
       --instance string       Filter by owning instance.
@@ -2784,12 +2788,14 @@ Flags:
 ```text
       --all              Hold jobs across all pipelines.
       --dry-run          Preview holds without writing job state.
+      --for duration     Hold for this duration, for example 30m or 2h.
       --format string    Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
       --json             Emit hold results as JSON.
       --limit int        Hold at most this many matching jobs; 0 means no limit.
       --message string   Hold reason recorded on each job.
       --repo string      Repo root containing .agent_team. (default "<repo>")
       --state strings    Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
+      --until string     Hold until this RFC3339 timestamp.
 ```
 
 ## `agent-team pipeline jobs`
@@ -2803,6 +2809,8 @@ agent-team pipeline jobs <pipeline> [flags]
 Flags:
 
 ```text
+      --active-hold       Only show held jobs whose hold is still active or has no deadline.
+      --expired-hold      Only show held jobs whose hold_until has passed.
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --held              Only show held jobs.
       --json              Emit jobs as JSON.
@@ -2883,6 +2891,7 @@ Flags:
 ```text
       --all              Release held jobs across all pipelines.
       --dry-run          Preview releases without writing job state.
+      --expired          Only release held jobs whose hold_until has passed.
       --format string    Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
       --json             Emit release results as JSON.
       --limit int        Release at most this many held jobs; 0 means no limit.
@@ -4463,12 +4472,14 @@ Flags:
 
 ```text
       --dry-run          Preview holds without writing job state.
+      --for duration     Hold for this duration, for example 30m or 2h.
       --format string    Render each hold result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
       --json             Emit hold results as JSON.
       --limit int        Hold at most this many matching team jobs; 0 means no limit.
       --message string   Hold reason recorded on each team job.
       --repo string      Repo root containing .agent_team. (default "<repo>")
       --state strings    Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
+      --until string     Hold until this RFC3339 timestamp.
 ```
 
 ## `agent-team team jobs`
@@ -4482,6 +4493,8 @@ agent-team team jobs <team> [flags]
 Flags:
 
 ```text
+      --active-hold       Only show held jobs whose hold is still active or has no deadline.
+      --expired-hold      Only show held jobs whose hold_until has passed.
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --held              Only show held jobs.
       --json              Emit team jobs as JSON.
@@ -4959,6 +4972,7 @@ Flags:
 
 ```text
       --dry-run          Preview releases without writing job state.
+      --expired          Only release held jobs whose hold_until has passed.
       --format string    Render each release result with a Go template, e.g. '{{.JobID}} {{.Action}}'.
       --json             Emit release results as JSON.
       --limit int        Release at most this many held team jobs; 0 means no limit.

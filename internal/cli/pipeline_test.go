@@ -979,7 +979,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "release freeze", "--repo", root, "--dry-run", "--json"})
+	dry.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "release freeze", "--repo", root, "--for", "30m", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("pipeline hold dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -989,6 +989,9 @@ pipelines = ["ticket_to_pr", "nightly"]
 	}
 	if len(dryRows) != 2 || dryRows[0].Action != "would_hold" || dryRows[1].Action != "would_hold" {
 		t.Fatalf("dry hold rows = %+v", dryRows)
+	}
+	if dryRows[0].HoldUntil == "" || dryRows[1].HoldUntil == "" {
+		t.Fatalf("dry hold rows missing hold_until = %+v", dryRows)
 	}
 	unchanged, err := job.Read(teamDir, "squ-703")
 	if err != nil {
@@ -1157,6 +1160,95 @@ pipelines = ["ticket_to_pr", "nightly"]
 	}
 	if len(teamReleased) != 1 || teamReleased[0].Action != "released" || teamReleased[0].HeldAfter {
 		t.Fatalf("team release rows = %+v", teamReleased)
+	}
+}
+
+func TestPipelineReleaseExpiredHolds(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	jobs := []*job.Job{
+		{
+			ID:         "squ-750",
+			Ticket:     "SQU-750",
+			Target:     "worker",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusRunning,
+			Held:       true,
+			HoldReason: "expired freeze",
+			HoldUntil:  now.Add(-time.Minute),
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps:      []job.Step{{ID: "implement", Target: "worker", Status: job.StatusBlocked}},
+		},
+		{
+			ID:         "squ-751",
+			Ticket:     "SQU-751",
+			Target:     "worker",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusRunning,
+			Held:       true,
+			HoldReason: "active freeze",
+			HoldUntil:  now.Add(time.Hour),
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps:      []job.Step{{ID: "implement", Target: "worker", Status: job.StatusBlocked}},
+		},
+		{
+			ID:         "squ-752",
+			Ticket:     "SQU-752",
+			Target:     "worker",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusRunning,
+			Held:       true,
+			HoldReason: "indefinite freeze",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps:      []job.Step{{ID: "implement", Target: "worker", Status: job.StatusBlocked}},
+		},
+	}
+	for _, j := range jobs {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	release := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	release.SetOut(out)
+	release.SetErr(errOut)
+	release.SetArgs([]string{"pipeline", "release", "ticket_to_pr", "--repo", root, "--expired", "--json"})
+	if err := release.Execute(); err != nil {
+		t.Fatalf("pipeline release expired: %v\nstderr=%s", err, errOut.String())
+	}
+	var rows []pipelineHoldResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode release expired json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].JobID != "squ-750" || rows[0].Action != "released" || rows[0].HoldUntil == "" {
+		t.Fatalf("release expired rows = %+v", rows)
+	}
+	expired, err := job.Read(teamDir, "squ-750")
+	if err != nil {
+		t.Fatalf("read expired job: %v", err)
+	}
+	if expired.Held || !expired.HoldUntil.IsZero() {
+		t.Fatalf("expired job after release = %+v", expired)
+	}
+	active, err := job.Read(teamDir, "squ-751")
+	if err != nil {
+		t.Fatalf("read active job: %v", err)
+	}
+	if !active.Held || active.HoldUntil.IsZero() {
+		t.Fatalf("active job after expired release = %+v", active)
+	}
+	indefinite, err := job.Read(teamDir, "squ-752")
+	if err != nil {
+		t.Fatalf("read indefinite job: %v", err)
+	}
+	if !indefinite.Held || !indefinite.HoldUntil.IsZero() {
+		t.Fatalf("indefinite job after expired release = %+v", indefinite)
 	}
 }
 

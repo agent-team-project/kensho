@@ -45,6 +45,7 @@ type Job struct {
 	Status     Status    `toml:"status"`
 	Held       bool      `toml:"held,omitempty"`
 	HoldReason string    `toml:"hold_reason,omitempty"`
+	HoldUntil  time.Time `toml:"hold_until,omitempty"`
 	Branch     string    `toml:"branch,omitempty"`
 	Worktree   string    `toml:"worktree,omitempty"`
 	PR         string    `toml:"pr,omitempty"`

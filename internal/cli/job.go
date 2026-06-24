@@ -960,6 +960,8 @@ func newJobLsCmd() *cobra.Command {
 		runtimeFilters []string
 		held           bool
 		unheld         bool
+		expiredHold    bool
+		activeHold     bool
 		watch          bool
 		noClear        bool
 		summary        bool
@@ -1000,12 +1002,17 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --held and --unheld cannot be combined.")
 				return exitErr(2)
 			}
+			if expiredHold && activeHold {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --expired-hold and --active-hold cannot be combined.")
+				return exitErr(2)
+			}
 			filters, err := newJobListFilters(statusFilter, targetFilter, instance, pipeline, ticket, branch, pr, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
 			}
 			filters.Held = jobHeldFilter(held, unheld)
+			filters.HoldExpired = jobHoldExpiredFilter(expiredHold, activeHold)
 			filters.Sort = sortMode
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -1036,6 +1043,8 @@ func newJobLsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Filter by owning instance runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
 	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
+	cmd.Flags().BoolVar(&expiredHold, "expired-hold", false, "Only show held jobs whose hold_until has passed.")
+	cmd.Flags().BoolVar(&activeHold, "active-hold", false, "Only show held jobs whose hold is still active or has no deadline.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the job table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate job counts instead of job rows.")
@@ -2024,11 +2033,13 @@ func newJobUpdateCmd() *cobra.Command {
 
 func newJobHoldCmd() *cobra.Command {
 	var (
-		repo    string
-		message string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo     string
+		message  string
+		holdFor  time.Duration
+		untilRaw string
+		dryRun   bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2051,16 +2062,26 @@ func newJobHoldCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			holdUntil, err := parseJobHoldUntil(holdFor, cmd.Flags().Changed("for"), untilRaw, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job hold: %v\n", err)
+				return exitErr(2)
+			}
 			reason := jobActionMessage(message, args[1:], "held")
 			j.Held = true
 			j.HoldReason = reason
+			j.HoldUntil = holdUntil
 			j.LastEvent = "held"
 			j.LastStatus = reason
 			j.UpdatedAt = time.Now().UTC()
 			if dryRun {
 				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "true"}); err != nil {
+			changes := map[string]string{"held": "true"}
+			if !j.HoldUntil.IsZero() {
+				changes["hold_until"] = jobHoldUntilText(j)
+			}
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", changes); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
@@ -2068,6 +2089,8 @@ func newJobHoldCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&message, "message", "", "Hold reason recorded on the job.")
+	cmd.Flags().DurationVar(&holdFor, "for", 0, "Hold for this duration, for example 30m or 2h.")
+	cmd.Flags().StringVar(&untilRaw, "until", "", "Hold until this RFC3339 timestamp.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the hold without writing job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Held}} {{.HoldReason}}'.")
@@ -2106,13 +2129,14 @@ func newJobReleaseCmd() *cobra.Command {
 			statusMessage := jobActionMessage(message, args[1:], "released")
 			j.Held = false
 			j.HoldReason = ""
+			j.HoldUntil = time.Time{}
 			j.LastEvent = "released"
 			j.LastStatus = statusMessage
 			j.UpdatedAt = time.Now().UTC()
 			if dryRun {
 				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "false"}); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"held": "false", "hold_until": ""}); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
@@ -3339,16 +3363,18 @@ func renderJobEventTable(w io.Writer, events []job.Event, header bool) {
 }
 
 type jobListFilters struct {
-	Status   job.Status
-	Target   string
-	Instance string
-	Pipeline string
-	Ticket   string
-	Branch   string
-	PR       string
-	Sort     string
-	Runtimes map[string]bool
-	Held     *bool
+	Status      job.Status
+	Target      string
+	Instance    string
+	Pipeline    string
+	Ticket      string
+	Branch      string
+	PR          string
+	Sort        string
+	Runtimes    map[string]bool
+	Held        *bool
+	HoldExpired *bool
+	Now         time.Time
 }
 
 type jobRemoveOptions struct {
@@ -3427,6 +3453,7 @@ type jobSummary struct {
 	Done         int            `json:"done"`
 	Failed       int            `json:"failed"`
 	Held         int            `json:"held,omitempty"`
+	ExpiredHeld  int            `json:"expired_held,omitempty"`
 	Targets      map[string]int `json:"targets"`
 	Pipelines    map[string]int `json:"pipelines"`
 	Runtimes     map[string]int `json:"runtimes,omitempty"`
@@ -3562,6 +3589,7 @@ func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr st
 		Ticket:   strings.TrimSpace(ticket),
 		Branch:   strings.TrimSpace(branch),
 		PR:       strings.TrimSpace(pr),
+		Now:      time.Now().UTC(),
 	}
 	if strings.TrimSpace(status) != "" {
 		parsed, err := job.ParseStatus(status)
@@ -3589,6 +3617,69 @@ func jobHeldFilter(held, unheld bool) *bool {
 	default:
 		return nil
 	}
+}
+
+func jobHoldExpiredFilter(expiredHold, activeHold bool) *bool {
+	switch {
+	case expiredHold:
+		value := true
+		return &value
+	case activeHold:
+		value := false
+		return &value
+	default:
+		return nil
+	}
+}
+
+func parseJobHoldUntil(holdFor time.Duration, holdForSet bool, untilRaw string, now time.Time) (time.Time, error) {
+	untilRaw = strings.TrimSpace(untilRaw)
+	if holdForSet && untilRaw != "" {
+		return time.Time{}, fmt.Errorf("--for cannot be combined with --until")
+	}
+	if holdForSet {
+		if holdFor < 0 {
+			return time.Time{}, fmt.Errorf("--for must be >= 0")
+		}
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		return now.UTC().Add(holdFor).UTC(), nil
+	}
+	if untilRaw == "" {
+		return time.Time{}, nil
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, untilRaw); err == nil {
+		return ts.UTC(), nil
+	}
+	if ts, err := time.Parse(time.RFC3339, untilRaw); err == nil {
+		return ts.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("--until must be an RFC3339 timestamp")
+}
+
+func jobHoldExpired(j *job.Job, now time.Time) bool {
+	if j == nil || !j.Held || j.HoldUntil.IsZero() {
+		return false
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return !j.HoldUntil.After(now.UTC())
+}
+
+func jobHoldExpirationMatches(j *job.Job, expired bool, now time.Time) bool {
+	if expired {
+		return jobHoldExpired(j, now)
+	}
+	return j != nil && j.Held && !jobHoldExpired(j, now)
+}
+
+func jobHoldUntilText(j *job.Job) string {
+	if j == nil || j.HoldUntil.IsZero() {
+		return ""
+	}
+	return j.HoldUntil.UTC().Format(time.RFC3339)
 }
 
 func parseJobSort(raw string) (string, error) {
@@ -3709,6 +3800,7 @@ func summarizeJobs(jobs []*job.Job) jobSummary {
 		Targets:   map[string]int{},
 		Pipelines: map[string]int{},
 	}
+	now := time.Now().UTC()
 	for _, j := range jobs {
 		summary.Total++
 		switch j.Status {
@@ -3725,6 +3817,9 @@ func summarizeJobs(jobs []*job.Job) jobSummary {
 		}
 		if j.Held {
 			summary.Held++
+			if jobHoldExpired(j, now) {
+				summary.ExpiredHeld++
+			}
 		}
 		if target := strings.TrimSpace(j.Target); target != "" {
 			summary.Targets[target]++
@@ -4303,8 +4398,8 @@ func appendStringOnce(items []string, value string) []string {
 }
 
 func renderJobSummary(w io.Writer, summary jobSummary) {
-	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d held=%d\n",
-		summary.Total, summary.Queued, summary.Running, summary.Blocked, summary.Done, summary.Failed, summary.Held)
+	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d held=%d expired_held=%d\n",
+		summary.Total, summary.Queued, summary.Running, summary.Blocked, summary.Done, summary.Failed, summary.Held, summary.ExpiredHeld)
 	if len(summary.Targets) > 0 {
 		fmt.Fprint(w, "targets:")
 		for _, key := range sortedCountKeys(summary.Targets) {
@@ -4912,6 +5007,9 @@ func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
 		return false
 	}
 	if filters.Held != nil && j.Held != *filters.Held {
+		return false
+	}
+	if filters.HoldExpired != nil && !jobHoldExpirationMatches(j, *filters.HoldExpired, filters.Now) {
 		return false
 	}
 	if filters.Target != "" && j.Target != filters.Target {
@@ -6796,10 +6894,21 @@ func jobStepsCompleteMessage(j *job.Job) string {
 }
 
 func heldJobMessage(j *job.Job) string {
-	if j != nil && strings.TrimSpace(j.HoldReason) != "" {
-		return "job is held: " + strings.TrimSpace(j.HoldReason)
+	if j == nil {
+		return "job is held"
 	}
-	return "job is held"
+	msg := "job is held"
+	if until := jobHoldUntilText(j); until != "" {
+		if jobHoldExpired(j, time.Now().UTC()) {
+			msg = "job hold expired at " + until
+		} else {
+			msg += " until " + until
+		}
+	}
+	if strings.TrimSpace(j.HoldReason) != "" {
+		return msg + ": " + strings.TrimSpace(j.HoldReason)
+	}
+	return msg
 }
 
 func resetFailedPipelineStepForRetry(j *job.Job) string {
@@ -7747,10 +7856,10 @@ func renderJobTable(w io.Writer, jobs []*job.Job) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tTARGET\tINSTANCE\tPIPELINE\tTICKET\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tHOLD_UNTIL\tTARGET\tINSTANCE\tPIPELINE\tTICKET\tUPDATED")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			j.ID, j.Status, yesNo(j.Held), j.Target, emptyDash(j.Instance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			j.ID, j.Status, yesNo(j.Held), emptyDash(jobHoldUntilText(j)), j.Target, emptyDash(j.Instance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
 	}
 	_ = tw.Flush()
 }
@@ -7761,10 +7870,10 @@ func renderJobTableWithRuntime(w io.Writer, jobs []*job.Job, runtimeByInstance m
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tTARGET\tINSTANCE\tRUNTIME\tPIPELINE\tTICKET\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSTATUS\tHELD\tHOLD_UNTIL\tTARGET\tINSTANCE\tRUNTIME\tPIPELINE\tTICKET\tUPDATED")
 	for _, j := range jobs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			j.ID, j.Status, yesNo(j.Held), j.Target, emptyDash(j.Instance), jobRuntimeLabel(j, runtimeByInstance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			j.ID, j.Status, yesNo(j.Held), emptyDash(jobHoldUntilText(j)), j.Target, emptyDash(j.Instance), jobRuntimeLabel(j, runtimeByInstance), emptyDash(j.Pipeline), j.Ticket, j.UpdatedAt.Format(time.RFC3339))
 	}
 	_ = tw.Flush()
 }
@@ -7927,6 +8036,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 		fmt.Fprintln(w, "Held:        yes")
 		if strings.TrimSpace(j.HoldReason) != "" {
 			fmt.Fprintf(w, "Hold Reason: %s\n", j.HoldReason)
+		}
+		if until := jobHoldUntilText(j); until != "" {
+			fmt.Fprintf(w, "Hold Until:  %s\n", until)
 		}
 	}
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)

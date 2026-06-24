@@ -5660,12 +5660,13 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	holdUntil := now.Truncate(time.Second).Add(time.Hour)
 
 	hold := NewRootCmd()
 	holdOut, holdErr := &bytes.Buffer{}, &bytes.Buffer{}
 	hold.SetOut(holdOut)
 	hold.SetErr(holdErr)
-	hold.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--message", "waiting for user", "--json"})
+	hold.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--message", "waiting for user", "--until", holdUntil.Format(time.RFC3339), "--json"})
 	if err := hold.Execute(); err != nil {
 		t.Fatalf("job hold: %v\nstderr=%s", err, holdErr.String())
 	}
@@ -5673,7 +5674,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if err := json.Unmarshal(holdOut.Bytes(), &held); err != nil {
 		t.Fatalf("decode hold json: %v\nbody=%s", err, holdOut.String())
 	}
-	if !held.Held || held.HoldReason != "waiting for user" || held.LastEvent != "held" || held.Status != job.StatusRunning {
+	if !held.Held || held.HoldReason != "waiting for user" || !held.HoldUntil.Equal(holdUntil) || held.LastEvent != "held" || held.Status != job.StatusRunning {
 		t.Fatalf("held job = %+v", held)
 	}
 
@@ -5787,9 +5788,76 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	}
 	if !strings.Contains(showOut.String(), "Held:        yes") ||
 		!strings.Contains(showOut.String(), "Hold Reason: waiting for user") ||
+		!strings.Contains(showOut.String(), "Hold Until:  "+holdUntil.Format(time.RFC3339)) ||
 		!strings.Contains(showOut.String(), "agent-team job release squ-240") ||
 		strings.Contains(showOut.String(), "agent-team job advance squ-240") {
 		t.Fatalf("job show held output:\n%s", showOut.String())
+	}
+
+	expired := &job.Job{
+		ID:         "squ-241",
+		Ticket:     "SQU-241",
+		Target:     "manager",
+		Kickoff:    "SQU-241: expired hold",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusRunning,
+		Held:       true,
+		HoldReason: "past deadline",
+		HoldUntil:  now.Truncate(time.Second).Add(-time.Hour),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps:      []job.Step{{ID: "review", Target: "manager", Status: job.StatusBlocked}},
+	}
+	if err := job.Write(teamDir, expired); err != nil {
+		t.Fatalf("write expired job: %v", err)
+	}
+
+	activeList := NewRootCmd()
+	activeListOut, activeListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	activeList.SetOut(activeListOut)
+	activeList.SetErr(activeListErr)
+	activeList.SetArgs([]string{"job", "ls", "--repo", tmp, "--active-hold", "--json"})
+	if err := activeList.Execute(); err != nil {
+		t.Fatalf("job ls active hold: %v\nstderr=%s", err, activeListErr.String())
+	}
+	var activeJobs []job.Job
+	if err := json.Unmarshal(activeListOut.Bytes(), &activeJobs); err != nil {
+		t.Fatalf("decode active holds: %v\nbody=%s", err, activeListOut.String())
+	}
+	if len(activeJobs) != 1 || activeJobs[0].ID != "squ-240" {
+		t.Fatalf("active holds = %+v", activeJobs)
+	}
+
+	expiredList := NewRootCmd()
+	expiredListOut, expiredListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	expiredList.SetOut(expiredListOut)
+	expiredList.SetErr(expiredListErr)
+	expiredList.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", tmp, "--expired-hold", "--json"})
+	if err := expiredList.Execute(); err != nil {
+		t.Fatalf("pipeline jobs expired hold: %v\nstderr=%s", err, expiredListErr.String())
+	}
+	var expiredJobs []job.Job
+	if err := json.Unmarshal(expiredListOut.Bytes(), &expiredJobs); err != nil {
+		t.Fatalf("decode expired holds: %v\nbody=%s", err, expiredListOut.String())
+	}
+	if len(expiredJobs) != 1 || expiredJobs[0].ID != "squ-241" {
+		t.Fatalf("expired holds = %+v", expiredJobs)
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"job", "ls", "--repo", tmp, "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("job summary held deadlines: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode held summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Held != 2 || summary.ExpiredHeld != 1 {
+		t.Fatalf("held summary = %+v", summary)
 	}
 
 	release := NewRootCmd()
@@ -5804,7 +5872,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if err := json.Unmarshal(releaseOut.Bytes(), &released); err != nil {
 		t.Fatalf("decode release json: %v\nbody=%s", err, releaseOut.String())
 	}
-	if released.Held || released.HoldReason != "" || released.LastEvent != "released" || released.LastStatus != "resume" {
+	if released.Held || released.HoldReason != "" || !released.HoldUntil.IsZero() || released.LastEvent != "released" || released.LastStatus != "resume" {
 		t.Fatalf("released job = %+v", released)
 	}
 

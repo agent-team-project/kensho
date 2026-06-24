@@ -163,7 +163,7 @@ Supported step gates are:
 
 Set `optional = true` on a step when its failure should remain visible but should not block downstream `after` dependencies. A job with only optional failures and completed required steps closes as done with `last_status = "all required steps done"`.
 
-Set `held = true` with an optional `hold_reason` when an operator has intentionally paused a job. This is not a lifecycle status; the job can remain `queued`, `running`, or `blocked` while `job next`, ready lists, pipeline status, and team views report the next-step state as `held` until `agent-team job release <job-id>`.
+Set `held = true` with an optional `hold_reason` when an operator has intentionally paused a job. Add `hold_until = 2026-06-24T18:00:00Z` for a time-boxed hold. This is not a lifecycle status; the job can remain `queued`, `running`, or `blocked` while `job next`, ready lists, pipeline status, and team views report the next-step state as `held` until `agent-team job release <job-id>`. Expired holds stay held until released, but `job ls --expired-hold`, `pipeline jobs <pipeline> --expired-hold`, `team jobs <team> --expired-hold`, `pipeline release <pipeline> --expired`, and `team release <team> --expired` can target them directly.
 
 Exact encoding is owned by `internal/job`.
 
