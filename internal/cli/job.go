@@ -6102,7 +6102,7 @@ func actionsForJobReadyRow(row jobReadyRow) []string {
 	case "blocked":
 		if row.Gate == job.StepGateManual {
 			if len(row.WaitingFor) == 0 && strings.TrimSpace(row.StepID) != "" {
-				return []string{fmt.Sprintf("agent-team job approve %s --step %s", row.JobID, row.StepID)}
+				return manualGateDecisionActions(row.JobID, row.StepID)
 			}
 			return nil
 		}
@@ -8225,13 +8225,20 @@ func actionsForJobExplainStep(j *job.Job, step *job.Step, state string) []string
 	case state == "ready":
 		return []string{fmt.Sprintf("agent-team job advance %s", j.ID)}
 	case state == "waiting" && step.Gate == job.StepGateManual:
-		return []string{fmt.Sprintf("agent-team job approve %s --step %s", j.ID, step.ID)}
+		return manualGateDecisionActions(j.ID, step.ID)
 	case state == "waiting" && step.Gate == job.StepGatePR:
 		return prGateRecoveryActions(j.ID)
 	case state == "failed":
 		return []string{fmt.Sprintf("agent-team job retry %s --dry-run --dispatch", j.ID)}
 	default:
 		return nil
+	}
+}
+
+func manualGateDecisionActions(jobID, stepID string) []string {
+	return []string{
+		fmt.Sprintf("agent-team job approve %s --step %s", jobID, stepID),
+		fmt.Sprintf("agent-team job reject %s --step %s", jobID, stepID),
 	}
 }
 

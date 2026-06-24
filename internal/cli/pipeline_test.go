@@ -964,7 +964,9 @@ target = "manager"
 			case explainedJob.JobID == "squ-610" && step.ID == "review":
 				readyReview = step.State == "ready" && containsString(step.Actions, "agent-team job advance squ-610")
 			case explainedJob.JobID == "squ-614" && step.ID == "review":
-				manualGate = step.State == "waiting" && step.Gate == job.StepGateManual && containsString(step.Actions, "agent-team job approve squ-614 --step review")
+				manualGate = step.State == "waiting" && step.Gate == job.StepGateManual &&
+					containsString(step.Actions, "agent-team job approve squ-614 --step review") &&
+					containsString(step.Actions, "agent-team job reject squ-614 --step review")
 			case explainedJob.JobID == "squ-611" && step.ID == "implement":
 				failedImplement = step.State == "failed" && containsString(step.Actions, "agent-team job retry squ-611 --dry-run --dispatch")
 			}
@@ -982,7 +984,7 @@ target = "manager"
 	if err := explainText.Execute(); err != nil {
 		t.Fatalf("pipeline explain text: %v\nstderr=%s", err, explainTextErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Jobs:", "Steps:", "squ-610", "review", "agent-team job advance squ-610", "agent-team job approve squ-614 --step review"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Jobs:", "Steps:", "squ-610", "review", "agent-team job advance squ-610", "agent-team job approve squ-614 --step review", "agent-team job reject squ-614 --step review"} {
 		if !strings.Contains(explainTextOut.String(), want) {
 			t.Fatalf("pipeline explain text missing %q:\n%s", want, explainTextOut.String())
 		}
@@ -2315,7 +2317,9 @@ gate = "manual"
 	if blocked.State != "blocked" || blocked.Step == nil || blocked.Step.ID != "review" || blocked.Step.Gate != job.StepGateManual || !strings.Contains(blocked.Message, "manual approval") {
 		t.Fatalf("blocked next = %+v", blocked)
 	}
-	if len(blocked.Actions) != 1 || blocked.Actions[0] != "agent-team job approve squ-901 --step review" {
+	if len(blocked.Actions) != 2 ||
+		!containsString(blocked.Actions, "agent-team job approve squ-901 --step review") ||
+		!containsString(blocked.Actions, "agent-team job reject squ-901 --step review") {
 		t.Fatalf("blocked manual actions = %+v", blocked.Actions)
 	}
 
@@ -2331,7 +2335,9 @@ gate = "manual"
 	if err := json.Unmarshal(readyOut.Bytes(), &rows); err != nil {
 		t.Fatalf("decode ready rows: %v\nbody=%s", err, readyOut.String())
 	}
-	if len(rows) != 1 || rows[0].Gate != job.StepGateManual || len(rows[0].Actions) != 1 || rows[0].Actions[0] != "agent-team job approve squ-901 --step review" {
+	if len(rows) != 1 || rows[0].Gate != job.StepGateManual || len(rows[0].Actions) != 2 ||
+		!containsString(rows[0].Actions, "agent-team job approve squ-901 --step review") ||
+		!containsString(rows[0].Actions, "agent-team job reject squ-901 --step review") {
 		t.Fatalf("blocked ready rows = %+v", rows)
 	}
 
