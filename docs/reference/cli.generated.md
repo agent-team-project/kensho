@@ -3733,7 +3733,7 @@ Flags:
       --target string                 Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout-jobs                  Mark stale running durable job work failed before retrying failed pipeline steps.
       --timeout-message string        Audit message to record when timeout repair marks stale work failed.
-      --timeout-pipeline string       With --timeout-jobs, mark only stale work owned by this pipeline.
+      --timeout-pipeline string       With --timeout-jobs or --timeout-pipelines, mark only stale work owned by this pipeline.
       --timeout-pipelines             Mark stale running pipeline steps failed before retrying failed pipeline steps.
       --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
       --timeout-target-agent string   With --timeout-jobs, mark only stale work targeting this agent.
@@ -5258,7 +5258,7 @@ Flags:
       --skip-tick                     Do not run a scoped team tick after queue retry.
       --timeout-jobs                  Mark stale running team job work failed before retrying failed pipeline steps.
       --timeout-message string        Audit message to record when team timeout repair marks stale work failed.
-      --timeout-pipeline string       With --timeout-jobs, mark only stale team work owned by this pipeline.
+      --timeout-pipeline string       With --timeout-jobs or --timeout-pipelines, mark only stale team work owned by this pipeline.
       --timeout-pipelines             Mark stale running team pipeline steps failed before retrying failed pipeline steps.
       --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.
       --timeout-target-agent string   With --timeout-jobs, mark only stale team work targeting this agent.

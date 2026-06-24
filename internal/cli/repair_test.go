@@ -613,6 +613,21 @@ timeout = "1h"
 	if err := job.Write(teamDir, stale); err != nil {
 		t.Fatalf("write stale job: %v", err)
 	}
+	other := &job.Job{
+		ID:        "oth-820",
+		Ticket:    "OTH-820",
+		Target:    "worker",
+		Pipeline:  "other",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-90 * time.Minute),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-oth-820", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+		},
+	}
+	if err := job.Write(teamDir, other); err != nil {
+		t.Fatalf("write other job: %v", err)
+	}
 
 	dry := NewRootCmd()
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -623,6 +638,7 @@ timeout = "1h"
 		"--target", root,
 		"--dry-run",
 		"--timeout-pipelines",
+		"--timeout-pipeline", "ticket_to_pr",
 		"--skip-daemon",
 		"--skip-queue",
 		"--skip-tick",
@@ -654,6 +670,7 @@ timeout = "1h"
 		"repair",
 		"--target", root,
 		"--timeout-pipelines",
+		"--timeout-pipeline", "ticket_to_pr",
 		"--timeout-message", "repair timeout approved",
 		"--skip-daemon",
 		"--skip-queue",
@@ -676,6 +693,13 @@ timeout = "1h"
 	}
 	if updated.Status != job.StatusFailed || updated.Steps[0].Status != job.StatusFailed || updated.Steps[0].Instance != "" || updated.LastStatus != "repair timeout approved" {
 		t.Fatalf("updated job = %+v", updated)
+	}
+	otherUpdated, err := job.Read(teamDir, "oth-820")
+	if err != nil {
+		t.Fatalf("read other job: %v", err)
+	}
+	if otherUpdated.Status != job.StatusRunning || otherUpdated.Steps[0].Status != job.StatusRunning || otherUpdated.Steps[0].Instance != "worker-oth-820" {
+		t.Fatalf("other job changed = %+v", otherUpdated)
 	}
 }
 
@@ -1111,9 +1135,9 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			want: "--timeout-jobs cannot be combined with --timeout-pipelines",
 		},
 		{
-			name: "timeout pipeline without timeout jobs",
+			name: "timeout pipeline without timeout mode",
 			args: []string{"repair", "--timeout-pipeline", "ticket_to_pr"},
-			want: "--timeout-pipeline requires --timeout-jobs",
+			want: "--timeout-pipeline requires --timeout-pipelines or --timeout-jobs",
 		},
 		{
 			name: "timeout target without timeout jobs",

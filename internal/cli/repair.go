@@ -99,8 +99,8 @@ func newRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-step requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
 			}
-			if strings.TrimSpace(timeoutPipeline) != "" && !timeoutJobs {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-pipeline requires --timeout-jobs.")
+			if strings.TrimSpace(timeoutPipeline) != "" && !timeoutPipelines && !timeoutJobs {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-pipeline requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
 			}
 			if strings.TrimSpace(timeoutTarget) != "" && !timeoutJobs {
@@ -177,7 +177,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step during the repair tick.")
 	cmd.Flags().StringVar(&timeoutStep, "timeout-step", "", "With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.")
 	cmd.Flags().StringVar(&timeoutMessage, "timeout-message", "", "Audit message to record when timeout repair marks stale work failed.")
-	cmd.Flags().StringVar(&timeoutPipeline, "timeout-pipeline", "", "With --timeout-jobs, mark only stale work owned by this pipeline.")
+	cmd.Flags().StringVar(&timeoutPipeline, "timeout-pipeline", "", "With --timeout-jobs or --timeout-pipelines, mark only stale work owned by this pipeline.")
 	cmd.Flags().StringVar(&timeoutTarget, "timeout-target-agent", "", "With --timeout-jobs, mark only stale work targeting this agent.")
 	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed steps.")
@@ -452,7 +452,7 @@ func runRepairPipelineTimeoutStep(teamDir string, opts repairOptions) (repairPip
 	if message == "" {
 		message = "repair timed out stale pipeline step"
 	}
-	results, err := timeoutPipelineJobs(teamDir, "", opts.TimeoutStep, message, opts.Limit, opts.DryRun)
+	results, err := timeoutPipelineJobs(teamDir, opts.TimeoutPipeline, opts.TimeoutStep, message, opts.Limit, opts.DryRun)
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}
