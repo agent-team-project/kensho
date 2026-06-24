@@ -229,6 +229,48 @@ func TestTeamNextCommandFiltersBySource(t *testing.T) {
 	}
 }
 
+func TestNextCommandFiltersRuntimeSource(t *testing.T) {
+	root := writeOverviewRuntimeFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next runtime filtered json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode runtime next json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team runtime resume-plan --status crashed" {
+		t.Fatalf("runtime filtered result = %+v", result)
+	}
+	if len(result.ActionDetails) != 1 || result.ActionDetails[0].Source != "runtime" || result.ActionDetails[0].Reason != "crashed=3" {
+		t.Fatalf("runtime filtered details = %+v", result.ActionDetails)
+	}
+
+	team := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	team.SetOut(teamOut)
+	team.SetErr(teamErr)
+	team.SetArgs([]string{"team", "next", "delivery", "--repo", root, "--source", "runtime", "--json"})
+	if err := team.Execute(); err != nil {
+		t.Fatalf("team next runtime filtered json: %v\nstderr=%s", err, teamErr.String())
+	}
+	var teamResult nextActionResult
+	if err := json.Unmarshal(teamOut.Bytes(), &teamResult); err != nil {
+		t.Fatalf("decode team runtime next json: %v\nbody=%s", err, teamOut.String())
+	}
+	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team runtime resume-plan manager worker-squ-900 --status crashed" {
+		t.Fatalf("team runtime filtered result = %+v", teamResult)
+	}
+	if len(teamResult.ActionDetails) != 1 || teamResult.ActionDetails[0].Team != "delivery" || teamResult.ActionDetails[0].Source != "runtime" || teamResult.ActionDetails[0].Reason != "crashed=2" {
+		t.Fatalf("team runtime filtered details = %+v", teamResult.ActionDetails)
+	}
+}
+
 func TestNextCommandFormatValidation(t *testing.T) {
 	cases := []struct {
 		name string

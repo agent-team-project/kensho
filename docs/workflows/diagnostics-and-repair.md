@@ -62,7 +62,7 @@ scripts can group recommendations by source and reason without parsing command
 strings.
 
 Use `--source` to narrow recommendations to one subsystem such as `queue`,
-`jobs`, or `pipelines`. Use `--reason` when an automation only wants a
+`jobs`, `runtime`, or `pipelines`. Use `--reason` when an automation only wants a
 specific trigger; values match exactly, or as prefixes before `=`, so
 `--reason dead` matches a detail reason like `dead=2`.
 
