@@ -91,6 +91,8 @@ Human output includes:
 
 If a Codex one-shot captured `.agent_team/state/<instance>/last-message.txt`,
 `job show` includes an action hint for `agent-team job logs <job-id> --last-message`.
+If daemon metadata says a job-owned instance crashed, it also suggests
+`agent-team runtime resume-plan --job <job-id> --status crashed`.
 
 ## Waiting For Jobs
 

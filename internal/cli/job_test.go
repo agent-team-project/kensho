@@ -521,6 +521,44 @@ func TestJobShowDisplaysRuntimeMetadata(t *testing.T) {
 	}
 }
 
+func TestJobShowSuggestsRuntimeResumePlanForCrashedMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	j := mustNewJob(t, "SQU-46", "worker")
+	j.Status = job.StatusRunning
+	j.UpdatedAt = now
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	meta := &daemon.Metadata{
+		Instance:  "worker-squ-46",
+		Agent:     "worker",
+		Job:       "squ-46",
+		Runtime:   string(runtimebin.KindCodex),
+		Status:    daemon.StatusCrashed,
+		Workspace: tmp,
+		StartedAt: now.Add(-time.Hour),
+		ExitedAt:  now,
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "show", "squ-46", "--repo", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job show crashed runtime: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "agent-team runtime resume-plan --job squ-46 --status crashed") {
+		t.Fatalf("job show missing runtime resume action:\n%s", out.String())
+	}
+}
+
 func TestJobShowIncludesStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

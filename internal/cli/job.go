@@ -8958,19 +8958,24 @@ func jobRuntimeMetadataForDetail(teamDir string, j *job.Job) map[string]*daemon.
 			names[step.Instance] = true
 		}
 	}
-	if len(names) == 0 {
-		return nil
-	}
+	jobID := job.NormalizeID(j.ID)
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil
 	}
-	out := make(map[string]*daemon.Metadata, len(names))
+	out := map[string]*daemon.Metadata{}
 	for _, meta := range metas {
-		if meta == nil || !names[meta.Instance] {
+		if meta == nil {
 			continue
 		}
-		out[meta.Instance] = meta
+		matchesInstance := names[meta.Instance]
+		matchesJob := jobID != "" && job.NormalizeID(meta.Job) == jobID
+		if matchesInstance || matchesJob {
+			out[meta.Instance] = meta
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -9019,6 +9024,9 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 			add(fmt.Sprintf("agent-team job logs %s --last-message", j.ID))
 		}
 	}
+	if jobHasCrashedRuntimeMetadata(teamDir, j) {
+		add(fmt.Sprintf("agent-team runtime resume-plan --job %s --status crashed", j.ID))
+	}
 	for _, preview := range statusPreviews {
 		if preview.Changed && preview.After == job.StatusBlocked {
 			add(fmt.Sprintf("agent-team job unblock %s <answer...>", j.ID))
@@ -9035,6 +9043,15 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 		add(fmt.Sprintf("agent-team job dispatch %s", j.ID))
 	}
 	return actions
+}
+
+func jobHasCrashedRuntimeMetadata(teamDir string, j *job.Job) bool {
+	for _, meta := range jobRuntimeMetadataForDetail(teamDir, j) {
+		if meta != nil && meta.Status == daemon.StatusCrashed {
+			return true
+		}
+	}
+	return false
 }
 
 func emptyDash(value string) string {
