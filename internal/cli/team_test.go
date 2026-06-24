@@ -1541,6 +1541,111 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestTeamTimeoutFiltersByTargetAgent(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+timeout = "1h"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+timeout = "1h"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-803",
+			Ticket:    "SQU-803",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-803", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-804",
+			Ticket:    "SQU-804",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-804", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-805",
+			Ticket:    "SQU-805",
+			Target:    "manager",
+			Instance:  "manager-squ-805",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-48 * time.Hour),
+			UpdatedAt: now.Add(-48 * time.Hour),
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "timeout", "delivery", "--repo", root, "--jobs", "--target-agent", "manager", "--message", "manager team timeout", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team timeout --target-agent: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineTimeoutResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team timeout target rows: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 2 || rows[0].JobID != "squ-804" || rows[1].JobID != "squ-805" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	worker, err := job.Read(teamDir, "squ-803")
+	if err != nil {
+		t.Fatalf("read worker job: %v", err)
+	}
+	if worker.Status != job.StatusRunning || worker.Steps[0].Status != job.StatusRunning || worker.Steps[0].Instance != "worker-squ-803" {
+		t.Fatalf("worker job changed = %+v", worker)
+	}
+	managerStep, err := job.Read(teamDir, "squ-804")
+	if err != nil {
+		t.Fatalf("read manager step job: %v", err)
+	}
+	if managerStep.Status != job.StatusFailed || managerStep.Steps[0].Status != job.StatusFailed || managerStep.Steps[0].Instance != "" || managerStep.LastStatus != "manager team timeout" {
+		t.Fatalf("manager step job = %+v", managerStep)
+	}
+	managerLifecycle, err := job.Read(teamDir, "squ-805")
+	if err != nil {
+		t.Fatalf("read manager lifecycle job: %v", err)
+	}
+	if managerLifecycle.Status != job.StatusFailed || managerLifecycle.LastEvent != "job_timeout" || managerLifecycle.LastStatus != "manager team timeout" {
+		t.Fatalf("manager lifecycle job = %+v", managerLifecycle)
+	}
+}
+
 func TestTeamRepairTimeoutPipelinesScopesToTeam(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

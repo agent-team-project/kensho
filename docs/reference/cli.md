@@ -190,7 +190,7 @@ Shortcuts:
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
 | `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team; add `--for` or `--until` for a deadline |
 | `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines |
-| `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs |
+| `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs and `--target-agent` to scope by role |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |
 | `agent-team team retry <team>` | Scoped failed-step retry |

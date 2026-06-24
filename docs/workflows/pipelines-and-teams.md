@@ -167,6 +167,7 @@ agent-team team retry delivery --dispatch --dry-run --preview-routes
 agent-team team retry delivery --step review --dry-run
 agent-team team timeout delivery --dry-run
 agent-team team timeout delivery --jobs --dry-run
+agent-team team timeout delivery --jobs --target-agent worker --dry-run
 agent-team team tick delivery --dry-run
 agent-team team tick delivery --all-ready-steps --dry-run
 agent-team team repair delivery --dry-run --jobs
@@ -184,7 +185,7 @@ agent-team team snapshot delivery --output delivery.json
 ```
 
 `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
-Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop; add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode to keep repair inside one team-owned workflow or agent role.
+Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team, and add `--target-agent` to expire only one team role's stale work. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop; add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode to keep repair inside one team-owned workflow or agent role.
 `tick --all-ready-steps`, `repair --all-ready-steps`, `team tick <team> --all-ready-steps`, `team repair <team> --all-ready-steps`, and `team drain <team> --all-ready-steps` apply that fan-out during maintenance and recovery cycles, including watch and until-idle loops.
 Use `pipeline hold <pipeline>` or `team hold <team>` for scoped maintenance windows and incident freezes. Use `job hold --all --dry-run` when the freeze should span multiple pipelines or include non-pipeline jobs. These commands hold matching jobs in bulk without changing lifecycle status; add `--state failed`, `--state ready`, `--limit N`, `--for 2h`, or `--until 2026-06-24T18:00:00Z` to narrow or time-box the batch, and run with `--dry-run` first. `pipeline release` and `team release` resume held jobs in the same scope; add `--expired` to release only jobs whose `hold_until` has passed. Use `job ls --expired-hold`, `pipeline jobs <pipeline> --expired-hold`, or `team jobs <team> --expired-hold` to audit elapsed holds before release; `overview`, `next --reason expired_holds`, and team-scoped overview/next views also recommend the matching expired-release dry-run. Use `job release --all --expired --dry-run` when elapsed holds may span multiple pipelines or include non-pipeline jobs.
 

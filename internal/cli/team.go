@@ -1443,6 +1443,7 @@ func newTeamTimeoutCmd() *cobra.Command {
 		repo        string
 		limit       int
 		step        string
+		targetAgent string
 		message     string
 		includeJobs bool
 		dryRun      bool
@@ -1480,7 +1481,7 @@ func newTeamTimeoutCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeout: %v\n", err)
 				return exitErr(1)
 			}
-			results, err := timeoutTeamWork(teamDir, team, step, message, limit, includeJobs, dryRun)
+			results, err := timeoutTeamWork(teamDir, team, step, targetAgent, message, limit, includeJobs, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeout: %v\n", err)
 				return exitErr(1)
@@ -1491,6 +1492,7 @@ func newTeamTimeoutCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Mark at most this many stale running team jobs or steps failed; 0 means no limit.")
 	cmd.Flags().StringVar(&step, "step", "", "Mark only stale running team steps with this id.")
+	cmd.Flags().StringVar(&targetAgent, "target-agent", "", "Mark only stale running team work targeting this agent.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each timed-out team job.")
 	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include stale step-less jobs whose target instance belongs to the team.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview stale-work failures without writing job state.")
@@ -6863,9 +6865,9 @@ func timeoutTeamPipelineJobs(teamDir string, team *topology.Team, pipelineFilter
 	return results, nil
 }
 
-func timeoutTeamWork(teamDir string, team *topology.Team, stepFilter string, message string, limit int, includeJobs bool, dryRun bool) ([]pipelineTimeoutResult, error) {
+func timeoutTeamWork(teamDir string, team *topology.Team, stepFilter string, targetFilter string, message string, limit int, includeJobs bool, dryRun bool) ([]pipelineTimeoutResult, error) {
 	if !includeJobs {
-		return timeoutTeamPipelineJobs(teamDir, team, "", stepFilter, "", message, limit, dryRun)
+		return timeoutTeamPipelineJobs(teamDir, team, "", stepFilter, targetFilter, message, limit, dryRun)
 	}
 	jobs, err := job.List(teamDir)
 	if err != nil {
@@ -6875,7 +6877,8 @@ func timeoutTeamWork(teamDir string, team *topology.Team, stepFilter string, mes
 	if err != nil {
 		return nil, err
 	}
-	return timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), stepFilter, "", message, limit, dryRun, time.Now().UTC(), staleAfter)
+	candidates := filterJobTimeoutCandidates(teamTimeoutJobCandidates(team, jobs), jobTimeoutFilters{TargetAgent: targetFilter})
+	return timeoutStaleJobWork(teamDir, candidates, stepFilter, targetFilter, message, limit, dryRun, time.Now().UTC(), staleAfter)
 }
 
 func renderTeamTickResult(w io.Writer, result *teamTickResult, jsonOut bool, tmpl *template.Template) error {

@@ -5593,14 +5593,15 @@ agent-team team timeout <team> [flags]
 Flags:
 
 ```text
-      --dry-run          Preview stale-work failures without writing job state.
-      --format string    Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --jobs             Include stale step-less jobs whose target instance belongs to the team.
-      --json             Emit timeout results as JSON.
-      --limit int        Mark at most this many stale running team jobs or steps failed; 0 means no limit.
-      --message string   Status message recorded on each timed-out team job.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --step string      Mark only stale running team steps with this id.
+      --dry-run               Preview stale-work failures without writing job state.
+      --format string         Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --jobs                  Include stale step-less jobs whose target instance belongs to the team.
+      --json                  Emit timeout results as JSON.
+      --limit int             Mark at most this many stale running team jobs or steps failed; 0 means no limit.
+      --message string        Status message recorded on each timed-out team job.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --step string           Mark only stale running team steps with this id.
+      --target-agent string   Mark only stale running team work targeting this agent.
 ```
 
 ## `agent-team team triage`
