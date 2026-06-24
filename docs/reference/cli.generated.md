@@ -1633,16 +1633,18 @@ Flags:
 Close a job as done or failed.
 
 ```text
-agent-team job close <job-id> [flags]
+agent-team job close <job-id> [message...] [flags]
 ```
 
 Flags:
 
 ```text
-      --format string   Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --json            Emit the updated job as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --status string   Close status: done or failed. (default "done")
+      --format string         Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json                  Emit the updated job as JSON.
+      --message string        Close message recorded on the job.
+      --message-file string   Read close message from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --status string         Close status: done or failed. (default "done")
 ```
 
 ## `agent-team job create`

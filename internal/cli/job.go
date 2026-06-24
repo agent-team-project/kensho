@@ -1828,16 +1828,18 @@ func newJobKillCmd() *cobra.Command {
 
 func newJobCloseCmd() *cobra.Command {
 	var (
-		repo    string
-		status  string
-		jsonOut bool
-		format  string
+		repo        string
+		status      string
+		message     string
+		messageFile string
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "close <job-id>",
+		Use:   "close <job-id> [message...]",
 		Short: "Close a job as done or failed.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job close: --format cannot be combined with --json.")
@@ -1852,15 +1854,20 @@ func newJobCloseCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job close: %v\n", err)
 				return exitErr(2)
 			}
+			closeMessage, err := jobCloseMessage(status, message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job close: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
 				return err
 			}
 			j.Status = job.Status(status)
 			j.LastEvent = "closed"
-			j.LastStatus = status
+			j.LastStatus = closeMessage
 			j.UpdatedAt = time.Now().UTC()
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "closed", "cli", closeMessage, map[string]string{"status": status}); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
@@ -1868,9 +1875,18 @@ func newJobCloseCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Close status: done or failed.")
+	cmd.Flags().StringVar(&message, "message", "", "Close message recorded on the job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read close message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
+}
+
+func jobCloseMessage(status, message, messageFile string, positional []string) (string, error) {
+	if strings.TrimSpace(message) == "" && strings.TrimSpace(messageFile) == "" && len(positional) == 0 {
+		return strings.TrimSpace(status), nil
+	}
+	return sendMessageBody(message, messageFile, positional)
 }
 
 func newJobCancelCmd() *cobra.Command {

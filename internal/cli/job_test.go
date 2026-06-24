@@ -184,6 +184,46 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobCloseRecordsMessage(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-70",
+		Ticket:    "SQU-70",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "close", "squ-70", "--repo", tmp, "--status", "failed", "--message", "superseded by SQU-71", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job close message: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var closed job.Job
+	if err := json.Unmarshal(out.Bytes(), &closed); err != nil {
+		t.Fatalf("decode close json: %v\nbody=%s", err, out.String())
+	}
+	if closed.Status != job.StatusFailed || closed.LastEvent != "closed" || closed.LastStatus != "superseded by SQU-71" {
+		t.Fatalf("closed = %+v", closed)
+	}
+	events, err := job.ListEvents(teamDir, "squ-70")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "closed" || events[0].Message != "superseded by SQU-71" || events[0].Data["status"] != "failed" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobCancelDryRunDoesNotMutateJob(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
