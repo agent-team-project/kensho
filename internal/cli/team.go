@@ -243,6 +243,7 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 		repo          string
 		statusFilters []string
 		runtimeFilter []string
+		actionFilters []string
 		jsonOut       bool
 		format        string
 	)
@@ -267,7 +268,7 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := collectTeamRuntimeResumePlans(teamDir, args[0], statusFilters, runtimeFilter)
+			plans, err := collectTeamRuntimeResumePlans(teamDir, args[0], statusFilters, runtimeFilter, actionFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime resume-plan: %v\n", err)
 				return exitErr(1)
@@ -285,12 +286,13 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
-	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedCommand}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd
 }
 
-func collectTeamRuntimeResumePlans(teamDir, name string, statusFilters []string, runtimeFilters []string) ([]runtimeResumePlan, error) {
+func collectTeamRuntimeResumePlans(teamDir, name string, statusFilters []string, runtimeFilters []string, actionFilters []string) ([]runtimeResumePlan, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
 		return nil, err
@@ -307,6 +309,10 @@ func collectTeamRuntimeResumePlans(teamDir, name string, statusFilters []string,
 	if err != nil {
 		return nil, err
 	}
+	actionSet, err := parseRuntimeResumeActionFilter(actionFilters)
+	if err != nil {
+		return nil, err
+	}
 	selected := teamMetadata(top, team, metas)
 	plans := make([]runtimeResumePlan, 0, len(selected))
 	for _, meta := range selected {
@@ -320,7 +326,11 @@ func collectTeamRuntimeResumePlans(teamDir, name string, statusFilters []string,
 		if len(runtimeSet) > 0 && !runtimeSet[string(runtimeKind)] {
 			continue
 		}
-		plans = append(plans, runtimeResumePlanFromMetadata(meta))
+		plan := runtimeResumePlanFromMetadata(meta)
+		if len(actionSet) > 0 && !actionSet[plan.RecommendedAction] {
+			continue
+		}
+		plans = append(plans, plan)
 	}
 	sort.SliceStable(plans, func(i, j int) bool {
 		return plans[i].Instance < plans[j].Instance

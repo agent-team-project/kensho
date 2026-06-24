@@ -26,6 +26,7 @@ type runtimeResumePlan struct {
 	ManagedResume         bool   `json:"managed_resume"`
 	CanManagedResume      bool   `json:"can_managed_resume"`
 	DirectResume          bool   `json:"direct_resume"`
+	RecommendedAction     string `json:"recommended_action,omitempty"`
 	RecommendedCommand    string `json:"recommended_command,omitempty"`
 	ResumeCommand         string `json:"resume_command,omitempty"`
 	StartCommand          string `json:"start_command,omitempty"`
@@ -44,6 +45,7 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 		jobID         string
 		statusFilters []string
 		runtimeFilter []string
+		actionFilters []string
 		jsonOut       bool
 		format        string
 	)
@@ -72,7 +74,7 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := collectRuntimeResumePlans(teamDir, args, jobID, statusFilters, runtimeFilter)
+			plans, err := collectRuntimeResumePlans(teamDir, args, jobID, statusFilters, runtimeFilter, actionFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime resume-plan: %v\n", err)
 				return exitErr(1)
@@ -91,12 +93,13 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&jobID, "job", "", "Select the instance recorded on or associated with this job id.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
-	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedCommand}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd
 }
 
-func collectRuntimeResumePlans(teamDir string, instances []string, jobID string, statusFilters []string, runtimeFilters []string) ([]runtimeResumePlan, error) {
+func collectRuntimeResumePlans(teamDir string, instances []string, jobID string, statusFilters []string, runtimeFilters []string, actionFilters []string) ([]runtimeResumePlan, error) {
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
@@ -145,6 +148,10 @@ func collectRuntimeResumePlans(teamDir string, instances []string, jobID string,
 	if err != nil {
 		return nil, err
 	}
+	actionSet, err := parseRuntimeResumeActionFilter(actionFilters)
+	if err != nil {
+		return nil, err
+	}
 
 	plans := make([]runtimeResumePlan, 0, len(selected))
 	for _, meta := range selected {
@@ -161,6 +168,9 @@ func collectRuntimeResumePlans(teamDir string, instances []string, jobID string,
 		plan := runtimeResumePlanFromMetadata(meta)
 		if selectedJobID != "" && strings.TrimSpace(plan.Job) == "" {
 			plan = runtimeResumePlanWithJobCommands(plan, selectedJobID)
+		}
+		if len(actionSet) > 0 && !actionSet[plan.RecommendedAction] {
+			continue
 		}
 		plans = append(plans, plan)
 	}
@@ -231,7 +241,7 @@ func runtimeResumePlanFromMetadata(meta *daemon.Metadata) runtimeResumePlan {
 	if plan.Job != "" {
 		plan = runtimeResumePlanWithJobCommands(plan, plan.Job)
 	}
-	plan.RecommendedCommand = runtimeResumeRecommendedCommand(meta, plan)
+	plan.RecommendedCommand, plan.RecommendedAction = runtimeResumeRecommendation(meta, plan)
 	plan.Detail = runtimeResumePlanDetail(meta, plan)
 	return plan
 }
@@ -250,25 +260,28 @@ func runtimeResumePlanWithJobCommands(plan runtimeResumePlan, jobID string) runt
 	return plan
 }
 
-func runtimeResumeRecommendedCommand(meta *daemon.Metadata, plan runtimeResumePlan) string {
+func runtimeResumeRecommendation(meta *daemon.Metadata, plan runtimeResumePlan) (string, string) {
 	if !plan.DirectResume {
-		return plan.LogsCommand
+		return plan.LogsCommand, "logs"
 	}
 	if plan.CanManagedResume {
 		if strings.TrimSpace(plan.StartCommand) != "" {
-			return plan.StartCommand
+			return plan.StartCommand, "start"
 		}
 		if strings.TrimSpace(plan.AttachCommand) != "" {
-			return plan.AttachCommand
+			return plan.AttachCommand, "attach"
 		}
 	}
 	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex && strings.TrimSpace(plan.ResumeCommand) != "" {
-		return plan.ResumeCommand
+		return plan.ResumeCommand, "resume"
 	}
 	if strings.TrimSpace(plan.LogsCommand) != "" {
-		return plan.LogsCommand
+		return plan.LogsCommand, "logs"
 	}
-	return plan.ResumeCommand
+	if strings.TrimSpace(plan.ResumeCommand) != "" {
+		return plan.ResumeCommand, "resume"
+	}
+	return "", ""
 }
 
 func runtimeResumePlanDetail(meta *daemon.Metadata, plan runtimeResumePlan) string {
@@ -318,6 +331,30 @@ func parseRuntimeResumeRuntimeFilter(raw []string) (map[string]bool, error) {
 	return out, nil
 }
 
+func parseRuntimeResumeActionFilter(raw []string) (map[string]bool, error) {
+	values := splitRuntimeResumeCSVValues(raw)
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, value := range values {
+		key := strings.ToLower(strings.TrimSpace(value))
+		switch key {
+		case "all":
+			return nil, nil
+		case "log":
+			key = "logs"
+		}
+		switch key {
+		case "start", "attach", "resume", "logs":
+			out[key] = true
+		default:
+			return nil, fmt.Errorf("--action accepts start, attach, resume, logs, or all, got %q", value)
+		}
+	}
+	return out, nil
+}
+
 func splitRuntimeResumeCSVValues(raw []string) []string {
 	var out []string
 	for _, chunk := range raw {
@@ -359,6 +396,9 @@ func renderRuntimeResumePlans(w fmtWriter, plans []runtimeResumePlan) {
 		fmt.Fprintf(w, "managed_resume:           %s\n", runtimeYesNo(plan.ManagedResume))
 		fmt.Fprintf(w, "can_managed_resume:       %s\n", runtimeYesNo(plan.CanManagedResume))
 		fmt.Fprintf(w, "direct_resume:            %s\n", runtimeYesNo(plan.DirectResume))
+		if plan.RecommendedAction != "" {
+			fmt.Fprintf(w, "recommended_action:       %s\n", plan.RecommendedAction)
+		}
 		if plan.RecommendedCommand != "" {
 			fmt.Fprintf(w, "recommended_command:      %s\n", plan.RecommendedCommand)
 		}

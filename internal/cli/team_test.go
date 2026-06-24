@@ -3509,11 +3509,11 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"team", "runtime", "resume-plan", "delivery", "--repo", root, "--status", "crashed", "--runtime", "codex", "--format", "{{.Instance}} {{.Runtime}}"})
+	format.SetArgs([]string{"team", "runtime", "resume-plan", "delivery", "--repo", root, "--status", "crashed", "--runtime", "codex", "--action", "logs", "--format", "{{.Instance}} {{.Runtime}} {{.RecommendedAction}}"})
 	if err := format.Execute(); err != nil {
 		t.Fatalf("team runtime resume-plan format: %v\nstderr=%s", err, formatErr.String())
 	}
-	if got, want := strings.TrimSpace(formatOut.String()), "worker-squ-900 codex"; got != want {
+	if got, want := strings.TrimSpace(formatOut.String()), "worker-squ-900 codex logs"; got != want {
 		t.Fatalf("formatted team runtime resume-plan = %q, want %q", got, want)
 	}
 }

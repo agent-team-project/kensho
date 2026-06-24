@@ -374,6 +374,7 @@ func TestRuntimeResumePlanClaudeText(t *testing.T) {
 		"runtime:                  claude",
 		"managed_resume:           yes",
 		"can_managed_resume:       yes",
+		"recommended_action:       start",
 		"recommended_command:      agent-team start manager",
 		"resume_command:           claude-dev --resume sid-manager",
 		"start_command:            agent-team start manager",
@@ -433,7 +434,7 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	if plan.Instance != "worker-squ-42" || plan.Job != "squ-42" || plan.Runtime != "codex" || plan.ManagedResume || plan.CanManagedResume || !plan.DirectResume {
 		t.Fatalf("plan = %+v", plan)
 	}
-	if plan.RecommendedCommand != "codex resume codex-session" || plan.JobLogsCommand != "agent-team job logs squ-42 --follow" || plan.JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
+	if plan.RecommendedAction != "resume" || plan.RecommendedCommand != "codex resume codex-session" || plan.JobLogsCommand != "agent-team job logs squ-42 --follow" || plan.JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
 		t.Fatalf("commands = %+v", plan)
 	}
 	if !strings.Contains(plan.Detail, `runtime "codex" does not support managed resume`) {
@@ -487,6 +488,75 @@ func TestRuntimeResumePlanFormatAndFilters(t *testing.T) {
 	}
 }
 
+func TestRuntimeResumePlanActionFilter(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{
+			Instance:      "attach-claude",
+			Agent:         "manager",
+			Runtime:       string(runtimebin.KindClaude),
+			RuntimeBinary: "claude",
+			Workspace:     tmp,
+			SessionID:     "sid-attach",
+			StartedAt:     now,
+			Status:        daemon.StatusRunning,
+		},
+		{
+			Instance:      "logs-codex",
+			Agent:         "worker",
+			Runtime:       string(runtimebin.KindCodex),
+			RuntimeBinary: "codex",
+			Workspace:     tmp,
+			StartedAt:     now,
+			Status:        daemon.StatusCrashed,
+		},
+		{
+			Instance:      "resume-codex",
+			Agent:         "worker",
+			Runtime:       string(runtimebin.KindCodex),
+			RuntimeBinary: "codex",
+			Workspace:     tmp,
+			SessionID:     "sid-resume",
+			StartedAt:     now,
+			Status:        daemon.StatusExited,
+		},
+		{
+			Instance:      "start-claude",
+			Agent:         "manager",
+			Runtime:       string(runtimebin.KindClaude),
+			RuntimeBinary: "claude",
+			Workspace:     tmp,
+			SessionID:     "sid-start",
+			StartedAt:     now,
+			Status:        daemon.StatusStopped,
+		},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata: %v", err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "resume,logs", "--format", "{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime resume-plan --action: %v\nstderr=%s", err, errOut.String())
+	}
+	got := strings.TrimSpace(out.String())
+	want := strings.Join([]string{
+		"logs-codex logs agent-team logs logs-codex --follow",
+		"resume-codex resume codex resume sid-resume",
+	}, "\n")
+	if got != want {
+		t.Fatalf("runtime resume-plan --action = %q, want %q", got, want)
+	}
+}
+
 func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
@@ -502,6 +572,27 @@ func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
 		t.Fatalf("error = %v, want exit 2", err)
 	}
 	if !strings.Contains(errOut.String(), "--format cannot be combined with --json") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRuntimeResumePlanRejectsInvalidAction(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "restart"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime resume-plan --action restart succeeded")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("error = %v, want exit 1", err)
+	}
+	if !strings.Contains(errOut.String(), "--action accepts start, attach, resume, logs, or all") {
 		t.Fatalf("stderr = %q", errOut.String())
 	}
 }

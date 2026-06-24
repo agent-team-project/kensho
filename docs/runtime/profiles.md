@@ -214,8 +214,10 @@ agent-team runtime resume-plan
 agent-team runtime resume-plan worker-squ-42
 agent-team runtime resume-plan --job squ-42
 agent-team runtime resume-plan --runtime codex --status exited
+agent-team runtime resume-plan --action resume --format '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'
 agent-team runtime resume-plan --json
 agent-team team runtime resume-plan delivery --status crashed
+agent-team team runtime resume-plan delivery --action logs
 ```
 
 `agent-team overview` also summarizes runtime metadata and links crashed
@@ -224,10 +226,11 @@ instances to `runtime resume-plan`; `agent-team team overview <team>` and
 `agent-team team runtime resume-plan <team>` for team-scoped recovery.
 
 The command reads `.agent_team/daemon/*/meta.json` directly and prints the
-recommended managed start, attach dry-run, unmanaged runtime resume, log
-follow, and Codex last-message commands. Job-linked metadata also includes
+recommended action plus managed start, attach dry-run, unmanaged runtime resume,
+log follow, and Codex last-message commands. Job-linked metadata also includes
 `job attach` and `job logs` variants so recovery can stay scoped to the durable
-work unit.
+work unit. Use `--action start|attach|resume|logs` when scripts or operators
+only need one recovery class.
 
 The Codex adapter sets `AGENT_TEAM_*` variables through Codex shell-environment policy options, so status, inbox, and channel scripts can find the repo team root and state directory without broadly inheriting the parent process environment.
 

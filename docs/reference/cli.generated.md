@@ -3974,7 +3974,8 @@ agent-team runtime resume-plan [<instance>...] [flags]
 Flags:
 
 ```text
-      --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedCommand}}'.
+      --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
@@ -5387,7 +5388,8 @@ agent-team team runtime resume-plan <team> [flags]
 Flags:
 
 ```text
-      --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedCommand}}'.
+      --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.

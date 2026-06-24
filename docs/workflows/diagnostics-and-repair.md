@@ -38,7 +38,8 @@ where applicable.
 
 When daemon metadata contains crashed instances, overview includes runtime
 counts and suggests `agent-team runtime resume-plan --status crashed` or a
-team-scoped `agent-team team runtime resume-plan <team> --status crashed`.
+team-scoped `agent-team team runtime resume-plan <team> --status crashed`. Add
+`--action start|attach|resume|logs` when you only want one recovery class.
 
 Team scoped:
 
