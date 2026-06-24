@@ -4111,6 +4111,243 @@ target = "worker"
 	}
 }
 
+func TestPipelineQueueQuarantineScopesOwnedFiles(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "audit"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-902",
+			Ticket:    "SQU-902",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Instance:  "worker-squ-902",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-902",
+			Ticket:    "OPS-902",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Instance:  "worker-ops-902",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+
+	stamp := "20260619T020000.000000000Z"
+	writeQuarantinedQueueItem(t, teamDir, stamp, daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-pipeline-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-902",
+		Payload:    map[string]any{"job_id": "squ-902", "ticket": "SQU-902", "target": "worker"},
+		QueuedAt:   now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-time.Hour),
+	})
+	writeQuarantinedQueueItem(t, teamDir, stamp, daemon.QueueStateDead, &daemon.QueueItem{
+		ID:        "q-pipeline-unrestorable",
+		EventType: "agent.dispatch",
+		Instance:  "worker",
+		Payload:   map[string]any{"job_id": "squ-902", "ticket": "SQU-902", "target": "worker"},
+		QueuedAt:  now.Add(-3 * time.Hour),
+		UpdatedAt: now.Add(-2 * time.Hour),
+	})
+	writeQuarantinedQueueItem(t, teamDir, stamp, daemon.QueueStateDead, &daemon.QueueItem{
+		ID:             "q-foreign-quarantined",
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-ops-902",
+		Payload:        map[string]any{"job_id": "ops-902", "ticket": "OPS-902", "target": "worker"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "foreign",
+		QueuedAt:       now.Add(-4 * time.Hour),
+		UpdatedAt:      now.Add(-3 * time.Hour),
+		DeadLetteredAt: now.Add(-3 * time.Hour),
+	})
+	restorePath := filepath.Join("quarantine", stamp, daemon.QueueStatePending, "q-pipeline-quarantined.json")
+	unrestorablePath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-pipeline-unrestorable.json")
+	foreignPath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-foreign-quarantined.json")
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine list: %v\nstderr=%s", err, listErr.String())
+	}
+	var listed []queueQuarantineItem
+	if err := json.Unmarshal(listOut.Bytes(), &listed); err != nil {
+		t.Fatalf("decode pipeline quarantine list: %v\nbody=%s", err, listOut.String())
+	}
+	if got := queueQuarantineItemIDs(listed); got != "q-pipeline-quarantined,q-pipeline-unrestorable" {
+		t.Fatalf("listed pipeline quarantined items = %s\nbody=%s", got, listOut.String())
+	}
+
+	restorable := NewRootCmd()
+	restorableOut, restorableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restorable.SetOut(restorableOut)
+	restorable.SetErr(restorableErr)
+	restorable.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--restorable", "--json"})
+	if err := restorable.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine restorable list: %v\nstderr=%s", err, restorableErr.String())
+	}
+	var restorableRows []queueQuarantineItem
+	if err := json.Unmarshal(restorableOut.Bytes(), &restorableRows); err != nil {
+		t.Fatalf("decode restorable rows: %v\nbody=%s", err, restorableOut.String())
+	}
+	if got := queueQuarantineItemIDs(restorableRows); got != "q-pipeline-quarantined" {
+		t.Fatalf("restorable rows = %s\nbody=%s", got, restorableOut.String())
+	}
+
+	unrestorable := NewRootCmd()
+	unrestorableOut, unrestorableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unrestorable.SetOut(unrestorableOut)
+	unrestorable.SetErr(unrestorableErr)
+	unrestorable.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--unrestorable", "--json"})
+	if err := unrestorable.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine unrestorable list: %v\nstderr=%s", err, unrestorableErr.String())
+	}
+	var unrestorableRows []queueQuarantineItem
+	if err := json.Unmarshal(unrestorableOut.Bytes(), &unrestorableRows); err != nil {
+		t.Fatalf("decode unrestorable rows: %v\nbody=%s", err, unrestorableOut.String())
+	}
+	if got := queueQuarantineItemIDs(unrestorableRows); got != "q-pipeline-unrestorable" {
+		t.Fatalf("unrestorable rows = %s\nbody=%s", got, unrestorableOut.String())
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"pipeline", "queue", "quarantine", "show", "ticket_to_pr", restorePath, "--repo", root, "--format", "{{.Pipeline}} {{.ID}} {{.QueueItem.Instance}}"})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine show: %v\nstderr=%s", err, showErr.String())
+	}
+	if got, want := showOut.String(), "ticket_to_pr q-pipeline-quarantined worker\n"; got != want {
+		t.Fatalf("show format = %q, want %q", got, want)
+	}
+
+	showForeign := NewRootCmd()
+	showForeignOut, showForeignErr := &bytes.Buffer{}, &bytes.Buffer{}
+	showForeign.SetOut(showForeignOut)
+	showForeign.SetErr(showForeignErr)
+	showForeign.SetArgs([]string{"pipeline", "queue", "quarantine", "show", "ticket_to_pr", foreignPath, "--repo", root})
+	if err := showForeign.Execute(); err == nil {
+		t.Fatalf("pipeline queue quarantine foreign show succeeded: stdout=%s", showForeignOut.String())
+	}
+	if !strings.Contains(showForeignErr.String(), `not owned by pipeline "ticket_to_pr"`) {
+		t.Fatalf("foreign show stderr = %q", showForeignErr.String())
+	}
+
+	restoreAll := NewRootCmd()
+	restoreAllOut, restoreAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restoreAll.SetOut(restoreAllOut)
+	restoreAll.SetErr(restoreAllErr)
+	restoreAll.SetArgs([]string{"pipeline", "queue", "quarantine", "restore", "ticket_to_pr", "--repo", root, "--all", "--job", "SQU-902", "--dry-run", "--json"})
+	if err := restoreAll.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine restore --all dry-run: %v\nstderr=%s", err, restoreAllErr.String())
+	}
+	var restoreRows []queueQuarantineRestoreResult
+	if err := json.Unmarshal(restoreAllOut.Bytes(), &restoreRows); err != nil {
+		t.Fatalf("decode restore rows: %v\nbody=%s", err, restoreAllOut.String())
+	}
+	if len(restoreRows) != 1 || restoreRows[0].ID != "q-pipeline-quarantined" || restoreRows[0].Action != "would_restore" {
+		t.Fatalf("restore rows = %+v", restoreRows)
+	}
+
+	restoreOne := NewRootCmd()
+	restoreOneOut, restoreOneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restoreOne.SetOut(restoreOneOut)
+	restoreOne.SetErr(restoreOneErr)
+	restoreOne.SetArgs([]string{"pipeline", "queue", "quarantine", "restore", "ticket_to_pr", restorePath, "--repo", root, "--dry-run", "--json"})
+	if err := restoreOne.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine restore one dry-run: %v\nstderr=%s", err, restoreOneErr.String())
+	}
+	var restoreOneRow queueQuarantineRestoreResult
+	if err := json.Unmarshal(restoreOneOut.Bytes(), &restoreOneRow); err != nil {
+		t.Fatalf("decode restore one row: %v\nbody=%s", err, restoreOneOut.String())
+	}
+	if restoreOneRow.ID != "q-pipeline-quarantined" || restoreOneRow.Action != "would_restore" {
+		t.Fatalf("restore one row = %+v", restoreOneRow)
+	}
+
+	dropOne := NewRootCmd()
+	dropOneOut, dropOneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dropOne.SetOut(dropOneOut)
+	dropOne.SetErr(dropOneErr)
+	dropOne.SetArgs([]string{"pipeline", "queue", "quarantine", "drop", "ticket_to_pr", restorePath, "--repo", root, "--dry-run", "--json"})
+	if err := dropOne.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine drop one dry-run: %v\nstderr=%s", err, dropOneErr.String())
+	}
+	var dropRows []queueQuarantineDropResult
+	if err := json.Unmarshal(dropOneOut.Bytes(), &dropRows); err != nil {
+		t.Fatalf("decode drop one rows: %v\nbody=%s", err, dropOneOut.String())
+	}
+	if len(dropRows) != 1 || dropRows[0].ID != "q-pipeline-quarantined" || dropRows[0].Action != "would_drop" {
+		t.Fatalf("drop one rows = %+v", dropRows)
+	}
+
+	dropUnrestorable := NewRootCmd()
+	dropUnrestorableOut, dropUnrestorableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dropUnrestorable.SetOut(dropUnrestorableOut)
+	dropUnrestorable.SetErr(dropUnrestorableErr)
+	dropUnrestorable.SetArgs([]string{"pipeline", "queue", "quarantine", "drop", "ticket_to_pr", "--repo", root, "--all", "--unrestorable", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.Restorable}}"})
+	if err := dropUnrestorable.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine drop unrestorable dry-run: %v\nstderr=%s", err, dropUnrestorableErr.String())
+	}
+	if got, want := dropUnrestorableOut.String(), "q-pipeline-unrestorable would_drop false\n"; got != want {
+		t.Fatalf("drop unrestorable format = %q, want %q", got, want)
+	}
+
+	dropForeign := NewRootCmd()
+	dropForeignOut, dropForeignErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dropForeign.SetOut(dropForeignOut)
+	dropForeign.SetErr(dropForeignErr)
+	dropForeign.SetArgs([]string{"pipeline", "queue", "quarantine", "drop", "ticket_to_pr", foreignPath, "--repo", root, "--dry-run"})
+	if err := dropForeign.Execute(); err == nil {
+		t.Fatalf("pipeline queue quarantine foreign drop succeeded: stdout=%s", dropForeignOut.String())
+	}
+	if !strings.Contains(dropForeignErr.String(), `not owned by pipeline "ticket_to_pr"`) {
+		t.Fatalf("foreign drop stderr = %q", dropForeignErr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), unrestorablePath)); err != nil {
+		t.Fatalf("dry-run changed unrestorable file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), foreignPath)); err != nil {
+		t.Fatalf("dry-run changed foreign file: %v", err)
+	}
+}
+
 func queueItemIDsForTest(items []daemon.QueueItem) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {

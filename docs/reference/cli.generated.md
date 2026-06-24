@@ -3285,6 +3285,7 @@ Subcommands:
 
 - `agent-team pipeline queue drop` - Drop pipeline-owned queue items.
 - `agent-team pipeline queue prune` - Prune pipeline-owned queue items.
+- `agent-team pipeline queue quarantine` - List quarantined queue files scoped to one pipeline.
 - `agent-team pipeline queue retry` - Retry pipeline-owned queue items.
 - `agent-team pipeline queue show` - Show one queue item owned by one pipeline.
 
@@ -3334,6 +3335,99 @@ Flags:
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
+```
+
+## `agent-team pipeline queue quarantine`
+
+List quarantined queue files scoped to one pipeline.
+
+```text
+agent-team pipeline queue quarantine <pipeline> [flags]
+```
+
+Flags:
+
+```text
+      --event-type strings   Filter by event type; repeat or comma-separate values.
+      --format string        Render each pipeline-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
+      --job strings          Filter by job id or ticket; repeat or comma-separate values.
+      --json                 Emit pipeline-owned quarantined queue files as JSON.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --restorable           Only show quarantined files that can be restored.
+      --state string         Filter by queue state: pending or dead.
+      --unrestorable         Only show quarantined files that cannot be restored.
+```
+
+Subcommands:
+
+- `agent-team pipeline queue quarantine drop` - Drop pipeline-owned quarantined queue files after inspection.
+- `agent-team pipeline queue quarantine restore` - Restore pipeline-owned quarantined queue files.
+- `agent-team pipeline queue quarantine show` - Show one pipeline-owned quarantined queue file.
+
+## `agent-team pipeline queue quarantine drop`
+
+Drop pipeline-owned quarantined queue files after inspection.
+
+Drop one pipeline-owned quarantined queue file by path, or drop a filtered pipeline-owned batch with --all.
+
+```text
+agent-team pipeline queue quarantine drop <pipeline> [quarantine-path] [flags]
+```
+
+Flags:
+
+```text
+      --all                   Drop all matching pipeline-owned quarantined files instead of one path.
+      --dry-run               Preview quarantined files that would be dropped.
+      --event-type strings    With --all, filter by event type; repeat or comma-separate values.
+      --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings           With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json                  Emit drop results as JSON.
+      --older-than duration   With --all, only drop files older than this duration based on file mtime.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --restorable            With --all, only drop quarantined files that can be restored.
+      --state string          With --all, filter by queue state: pending or dead.
+      --unrestorable          With --all, only drop quarantined files that cannot be restored.
+```
+
+## `agent-team pipeline queue quarantine restore`
+
+Restore pipeline-owned quarantined queue files.
+
+Restore one pipeline-owned quarantined queue file by path, or restore a filtered pipeline-owned batch of restorable files with --all.
+
+```text
+agent-team pipeline queue quarantine restore <pipeline> <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --all                  Restore all matching pipeline-owned restorable quarantined files instead of one path.
+      --dry-run              Preview the restore without moving files.
+      --event-type strings   With --all, filter by event type; repeat or comma-separate values.
+      --force                Overwrite an existing active queue file with the same restore path.
+      --format string        Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings          With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json                 Emit restore result as JSON.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --state string         With --all, filter by queue state: pending or dead.
+```
+
+## `agent-team pipeline queue quarantine show`
+
+Show one pipeline-owned quarantined queue file.
+
+```text
+agent-team pipeline queue quarantine show <pipeline> <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the pipeline-owned quarantined queue file with a Go template, e.g. '{{.Pipeline}} {{.ID}}'.
+      --json            Emit the pipeline-owned quarantined queue file as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline queue retry`

@@ -832,6 +832,7 @@ func newPipelineQueueCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.AddCommand(newPipelineQueueShowCmd())
+	cmd.AddCommand(newPipelineQueueQuarantineCmd())
 	cmd.AddCommand(newPipelineQueueRetryCmd())
 	cmd.AddCommand(newPipelineQueueDropCmd())
 	cmd.AddCommand(newPipelineQueuePruneCmd())
@@ -873,6 +874,280 @@ func newPipelineQueueShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the queue item as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	return cmd
+}
+
+func newPipelineQueueQuarantineCmd() *cobra.Command {
+	var (
+		repo         string
+		stateFilter  string
+		eventTypes   []string
+		jobs         []string
+		restorable   bool
+		unrestorable bool
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "quarantine <pipeline>",
+		Short: "List quarantined queue files scoped to one pipeline.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team pipeline queue quarantine", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, jobs, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			items, err := collectPipelineQueueQuarantineItems(teamDir, args[0], filters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: %v\n", err)
+				return exitErr(1)
+			}
+			items = filterQueueQuarantineRestorable(items, restorable, unrestorable)
+			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "Only show quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "Only show quarantined files that cannot be restored.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned quarantined queue files as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
+	cmd.AddCommand(newPipelineQueueQuarantineShowCmd())
+	cmd.AddCommand(newPipelineQueueQuarantineRestoreCmd())
+	cmd.AddCommand(newPipelineQueueQuarantineDropCmd())
+	return cmd
+}
+
+func newPipelineQueueQuarantineShowCmd() *cobra.Command {
+	var (
+		repo    string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "show <pipeline> <quarantine-path>",
+		Short: "Show one pipeline-owned quarantined queue file.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team pipeline queue quarantine show", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			item, err := readPipelineQueueQuarantineItem(teamDir, args[0], args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := showQueueQuarantine(teamDir, item.Path)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			result.Pipeline = args[0]
+			return renderQueueQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline-owned quarantined queue file as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline-owned quarantined queue file with a Go template, e.g. '{{.Pipeline}} {{.ID}}'.")
+	return cmd
+}
+
+func newPipelineQueueQuarantineRestoreCmd() *cobra.Command {
+	var (
+		repo        string
+		restoreAll  bool
+		dryRun      bool
+		force       bool
+		stateFilter string
+		eventTypes  []string
+		jobs        []string
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "restore <pipeline> <quarantine-path>",
+		Short: "Restore pipeline-owned quarantined queue files.",
+		Long:  "Restore one pipeline-owned quarantined queue file by path, or restore a filtered pipeline-owned batch of restorable files with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team pipeline queue quarantine restore", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, jobs, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if restoreAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: --all requires exactly one pipeline and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				items, err := collectPipelineQueueQuarantineItems(teamDir, args[0], filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterQueueQuarantineRestorable(items, true, false)
+				results, err := restoreQueueQuarantineItems(teamDir, items, dryRun, force)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueQuarantineRestoreMany(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: requires <pipeline> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if !filters.empty() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: filters require --all.")
+				return exitErr(2)
+			}
+			if _, err := readPipelineQueueQuarantineItem(teamDir, args[0], args[1]); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := restoreQueueQuarantine(teamDir, args[1], dryRun, force)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching pipeline-owned restorable quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active queue file with the same restore path.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	return cmd
+}
+
+func newPipelineQueueQuarantineDropCmd() *cobra.Command {
+	var (
+		repo         string
+		dropAll      bool
+		dryRun       bool
+		stateFilter  string
+		eventTypes   []string
+		jobs         []string
+		restorable   bool
+		unrestorable bool
+		olderThan    time.Duration
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drop <pipeline> [quarantine-path]",
+		Short: "Drop pipeline-owned quarantined queue files after inspection.",
+		Long:  "Drop one pipeline-owned quarantined queue file by path, or drop a filtered pipeline-owned batch with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team pipeline queue quarantine drop", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseQueueListFilters(stateFilter, nil, eventTypes, jobs, false, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if dropAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: --all requires exactly one pipeline and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				items, err := collectPipelineQueueQuarantineItems(teamDir, args[0], filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterQueueQuarantineRestorable(items, restorable, unrestorable)
+				results, err := dropQueueQuarantineItems(teamDir, items, dryRun, olderThan, unrestorable, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueQuarantineDrop(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: requires <pipeline> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if olderThan > 0 || restorable || unrestorable || !filters.empty() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: filters require --all.")
+				return exitErr(2)
+			}
+			item, err := readPipelineQueueQuarantineItem(teamDir, args[0], args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := dropQueueQuarantineItem(daemon.QueueRoot(daemon.DaemonRoot(teamDir)), item, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching pipeline-owned quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
+	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "With --all, only drop quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "With --all, only drop quarantined files that cannot be restored.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "With --all, only drop files older than this duration based on file mtime.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
 
@@ -3871,6 +4146,39 @@ func collectPipelineQueueItems(teamDir, pipeline string, filters queueListFilter
 	}
 	owned := queueItemsForJobs(items, jobs)
 	return filterQueueItems(owned, filters.withNow(now).withRuntimeByInstance(queueRuntimeMap(teamDir))), nil
+}
+
+func collectPipelineQueueQuarantineItems(teamDir, pipeline string, filters queueListFilters) ([]queueQuarantineItem, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	items, err := listQueueQuarantine(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	items = queueQuarantineItemsForJobs(items, jobs)
+	return filterQueueQuarantineItems(items, filters), nil
+}
+
+func readPipelineQueueQuarantineItem(teamDir, pipeline, rawPath string) (queueQuarantineItem, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return queueQuarantineItem{}, err
+	}
+	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	rel, err := normalizeQueueQuarantinePath(rawPath)
+	if err != nil {
+		return queueQuarantineItem{}, err
+	}
+	item, err := inspectQueueQuarantineFile(queueRoot, rel)
+	if err != nil {
+		return queueQuarantineItem{}, err
+	}
+	if !queueQuarantineMatchesAnyJob(item, jobs) {
+		return queueQuarantineItem{}, fmt.Errorf("quarantined queue file %q is not owned by pipeline %q", item.Path, pipeline)
+	}
+	return item, nil
 }
 
 func readPipelineQueueItem(cmd *cobra.Command, teamDir, pipeline, id, verb string) (*daemon.QueueItem, error) {
