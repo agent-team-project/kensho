@@ -58,6 +58,7 @@ Built or substantially implemented:
 - manual pipeline gates and approval hints
 - PR metadata pipeline gates
 - skipped pipeline step metadata
+- pipeline step retry caps
 - pipeline failed-step batch retry
 - team-scoped pipeline failed-step retry
 - systemd, launchd, and compose intake service generators

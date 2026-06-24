@@ -94,12 +94,13 @@ type Pipeline struct {
 
 // PipelineStep is one target dispatch in a pipeline.
 type PipelineStep struct {
-	ID       string
-	Target   string
-	After    []string
-	Gate     string
-	Optional bool
-	Timeout  time.Duration
+	ID          string
+	Target      string
+	After       []string
+	Gate        string
+	Optional    bool
+	Timeout     time.Duration
+	MaxAttempts int
 }
 
 // Schedule is a periodic source of `schedule` events.
@@ -668,7 +669,11 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate, Optional: optional, Timeout: timeout})
+		maxAttempts, err := parseStepMaxAttempts(body["max_attempts"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -678,6 +683,28 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		}
 	}
 	return steps, nil
+}
+
+func parseStepMaxAttempts(raw any) (int, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	var value int
+	switch v := raw.(type) {
+	case int:
+		value = v
+	case int64:
+		value = int(v)
+		if int64(value) != v {
+			return 0, fmt.Errorf("max_attempts is too large")
+		}
+	default:
+		return 0, fmt.Errorf("max_attempts must be an integer")
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("max_attempts must be greater than zero")
+	}
+	return value, nil
 }
 
 func parseStepOptional(raw any) (bool, error) {

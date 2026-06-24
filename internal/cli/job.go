@@ -944,13 +944,14 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			status = job.StatusBlocked
 		}
 		steps = append(steps, job.Step{
-			ID:       step.ID,
-			Target:   step.Target,
-			Status:   status,
-			After:    append([]string(nil), step.After...),
-			Gate:     step.Gate,
-			Optional: step.Optional,
-			Timeout:  formatPipelineStepTimeout(step.Timeout),
+			ID:          step.ID,
+			Target:      step.Target,
+			Status:      status,
+			After:       append([]string(nil), step.After...),
+			Gate:        step.Gate,
+			Optional:    step.Optional,
+			Timeout:     formatPipelineStepTimeout(step.Timeout),
+			MaxAttempts: step.MaxAttempts,
 		})
 	}
 	return steps
@@ -5658,6 +5659,8 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.Instance = next.Step.Instance
 		row.Gate = next.Step.Gate
 		row.Optional = next.Step.Optional
+		row.Attempts = next.Step.Attempts
+		row.MaxAttempts = next.Step.MaxAttempts
 	}
 	row.Actions = actionsForJobReadyRow(row)
 	return row
@@ -7111,12 +7114,13 @@ func applyDispatchResponseToJob(j *job.Job, requestedName string, res *eventResp
 }
 
 type jobStepUpdate struct {
-	Message  string
-	Instance string
-	PR       string
-	Branch   string
-	Worktree string
-	Skip     bool
+	Message      string
+	Instance     string
+	PR           string
+	Branch       string
+	Worktree     string
+	Skip         bool
+	CountAttempt bool
 }
 
 type jobAdvanceResult struct {
@@ -7210,23 +7214,25 @@ type jobExplainNext struct {
 }
 
 type jobExplainStep struct {
-	ID         string     `json:"id"`
-	Target     string     `json:"target"`
-	Status     job.Status `json:"status"`
-	State      string     `json:"state"`
-	Ready      bool       `json:"ready,omitempty"`
-	Instance   string     `json:"instance,omitempty"`
-	After      []string   `json:"after,omitempty"`
-	Gate       string     `json:"gate,omitempty"`
-	Optional   bool       `json:"optional,omitempty"`
-	Timeout    string     `json:"timeout,omitempty"`
-	WaitingFor []string   `json:"waiting_for,omitempty"`
-	Actions    []string   `json:"actions,omitempty"`
-	Skipped    bool       `json:"skipped,omitempty"`
-	SkipReason string     `json:"skip_reason,omitempty"`
-	StartedAt  string     `json:"started_at,omitempty"`
-	FinishedAt string     `json:"finished_at,omitempty"`
-	Message    string     `json:"message"`
+	ID          string     `json:"id"`
+	Target      string     `json:"target"`
+	Status      job.Status `json:"status"`
+	State       string     `json:"state"`
+	Ready       bool       `json:"ready,omitempty"`
+	Instance    string     `json:"instance,omitempty"`
+	After       []string   `json:"after,omitempty"`
+	Gate        string     `json:"gate,omitempty"`
+	Optional    bool       `json:"optional,omitempty"`
+	Timeout     string     `json:"timeout,omitempty"`
+	Attempts    int        `json:"attempts,omitempty"`
+	MaxAttempts int        `json:"max_attempts,omitempty"`
+	WaitingFor  []string   `json:"waiting_for,omitempty"`
+	Actions     []string   `json:"actions,omitempty"`
+	Skipped     bool       `json:"skipped,omitempty"`
+	SkipReason  string     `json:"skip_reason,omitempty"`
+	StartedAt   string     `json:"started_at,omitempty"`
+	FinishedAt  string     `json:"finished_at,omitempty"`
+	Message     string     `json:"message"`
 }
 
 type jobReadyRow struct {
@@ -7242,6 +7248,8 @@ type jobReadyRow struct {
 	Instance           string     `json:"instance,omitempty"`
 	Gate               string     `json:"gate,omitempty"`
 	Optional           bool       `json:"optional,omitempty"`
+	Attempts           int        `json:"attempts,omitempty"`
+	MaxAttempts        int        `json:"max_attempts,omitempty"`
 	WaitingFor         []string   `json:"waiting_for,omitempty"`
 	UpdatedAt          time.Time  `json:"updated_at"`
 	Message            string     `json:"message"`
@@ -7258,6 +7266,9 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	step.Status = status
 	if strings.TrimSpace(update.Instance) != "" {
 		step.Instance = strings.TrimSpace(update.Instance)
+	}
+	if update.CountAttempt && (status == job.StatusRunning || status == job.StatusQueued) {
+		step.Attempts++
 	}
 	if (status == job.StatusRunning || status == job.StatusQueued) && step.StartedAt.IsZero() {
 		step.StartedAt = now
@@ -7458,9 +7469,18 @@ func applyAdvanceResponseToJobStep(j *job.Job, stepID, requestedName string, res
 		lastStatus = "no triggers matched"
 	}
 done:
-	_ = updateJobStep(j, stepID, status, jobStepUpdate{Instance: instance, Message: lastStatus})
+	_ = updateJobStep(j, stepID, status, jobStepUpdate{Instance: instance, Message: lastStatus, CountAttempt: pipelineStepAttemptCounted(lastEvent)})
 	j.LastEvent = lastEvent
 	j.LastStatus = lastStatus
+}
+
+func pipelineStepAttemptCounted(event string) bool {
+	switch event {
+	case "advance_dispatched", "advance_queued", "advance_messaged":
+		return true
+	default:
+		return false
+	}
 }
 
 func inspectNextJobStep(j *job.Job) (res jobNextResult) {
@@ -7579,20 +7599,22 @@ func explainJobPipeline(j *job.Job) jobExplainResult {
 		step := &j.Steps[i]
 		waiting := jobStepWaitingFor(j, step)
 		row := jobExplainStep{
-			ID:         step.ID,
-			Target:     step.Target,
-			Status:     step.Status,
-			Ready:      ready[step.ID],
-			Instance:   step.Instance,
-			After:      append([]string(nil), step.After...),
-			Gate:       step.Gate,
-			Optional:   step.Optional,
-			Timeout:    step.Timeout,
-			WaitingFor: waiting,
-			Skipped:    step.Skipped,
-			SkipReason: step.SkipReason,
-			StartedAt:  jobExplainTime(step.StartedAt),
-			FinishedAt: jobExplainTime(step.FinishedAt),
+			ID:          step.ID,
+			Target:      step.Target,
+			Status:      step.Status,
+			Ready:       ready[step.ID],
+			Instance:    step.Instance,
+			After:       append([]string(nil), step.After...),
+			Gate:        step.Gate,
+			Optional:    step.Optional,
+			Timeout:     step.Timeout,
+			Attempts:    step.Attempts,
+			MaxAttempts: step.MaxAttempts,
+			WaitingFor:  waiting,
+			Skipped:     step.Skipped,
+			SkipReason:  step.SkipReason,
+			StartedAt:   jobExplainTime(step.StartedAt),
+			FinishedAt:  jobExplainTime(step.FinishedAt),
 		}
 		row.State = explainJobStepState(j, step, row.Ready, waiting)
 		row.Message = explainJobStepMessage(j, step, row.State, waiting)
@@ -7935,6 +7957,18 @@ func resetFailedPipelineStepForRetry(j *job.Job) string {
 }
 
 func resetFailedPipelineStepForRetryByID(j *job.Job, stepID string) string {
+	result := resetFailedPipelineStepForRetryByIDWithReason(j, stepID)
+	return result.StepID
+}
+
+type pipelineStepRetryReset struct {
+	StepID      string
+	Reason      string
+	Attempts    int
+	MaxAttempts int
+}
+
+func resetFailedPipelineStepForRetryByIDWithReason(j *job.Job, stepID string) pipelineStepRetryReset {
 	stepID = strings.TrimSpace(stepID)
 	for i := range j.Steps {
 		step := &j.Steps[i]
@@ -7947,13 +7981,45 @@ func resetFailedPipelineStepForRetryByID(j *job.Job, stepID string) string {
 		if len(unmetJobStepDependencies(j, step)) > 0 {
 			continue
 		}
+		if attempts, reason := jobStepRetryLimitReason(step); reason != "" {
+			return pipelineStepRetryReset{Reason: reason, Attempts: attempts, MaxAttempts: step.MaxAttempts}
+		}
 		step.Status = job.StatusBlocked
 		step.Instance = ""
 		step.StartedAt = time.Time{}
 		step.FinishedAt = time.Time{}
-		return step.ID
+		return pipelineStepRetryReset{StepID: step.ID}
 	}
-	return ""
+	return pipelineStepRetryReset{Reason: "no retryable failed step"}
+}
+
+func jobStepRetryLimitReason(step *job.Step) (int, string) {
+	if step == nil || step.MaxAttempts <= 0 {
+		return 0, ""
+	}
+	attempts := effectiveJobStepAttempts(step)
+	if attempts < step.MaxAttempts {
+		return attempts, ""
+	}
+	return attempts, fmt.Sprintf("max attempts reached (%d/%d)", attempts, step.MaxAttempts)
+}
+
+func effectiveJobStepAttempts(step *job.Step) int {
+	if step == nil {
+		return 0
+	}
+	if step.Attempts > 0 {
+		return step.Attempts
+	}
+	if !step.StartedAt.IsZero() || !step.FinishedAt.IsZero() || strings.TrimSpace(step.Instance) != "" {
+		return 1
+	}
+	switch step.Status {
+	case job.StatusRunning, job.StatusQueued, job.StatusDone, job.StatusFailed:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func allJobStepsDone(j *job.Job) bool {
@@ -8035,9 +8101,20 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	if len(res.Actions) > 0 {
 		actions = strings.Join(res.Actions, "; ")
 	}
-	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s%s waiting_for=%s actions=%s\n",
-		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, optional, waiting, actions)
+	attempts := formatJobStepAttempts(res.Step.Attempts, res.Step.MaxAttempts)
+	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s%s attempts=%s waiting_for=%s actions=%s\n",
+		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, optional, attempts, waiting, actions)
 	return nil
+}
+
+func formatJobStepAttempts(attempts, maxAttempts int) string {
+	if maxAttempts > 0 {
+		return fmt.Sprintf("%d/%d", attempts, maxAttempts)
+	}
+	if attempts > 0 {
+		return fmt.Sprintf("%d", attempts)
+	}
+	return "-"
 }
 
 func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmpl *template.Template) error {
@@ -8062,13 +8139,13 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	} else {
 		fmt.Fprintln(w, "Steps:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tWAITING_FOR\tACTION")
+		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tATTEMPTS\tWAITING_FOR\tACTION")
 		for _, step := range res.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				step.ID,
 				emptyDash(step.Target),
 				step.Status,
@@ -8078,6 +8155,7 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 				emptyDash(step.Gate),
 				yesNo(step.Optional),
 				emptyDash(step.Timeout),
+				formatJobStepAttempts(step.Attempts, step.MaxAttempts),
 				listDash(step.WaitingFor),
 				action)
 		}
@@ -9131,6 +9209,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 			}
 			if strings.TrimSpace(step.Timeout) != "" {
 				parts = append(parts, "timeout="+strings.TrimSpace(step.Timeout))
+			}
+			if attempts := formatJobStepAttempts(step.Attempts, step.MaxAttempts); attempts != "-" {
+				parts = append(parts, "attempts="+attempts)
 			}
 			if step.Skipped {
 				parts = append(parts, "skipped=true")

@@ -1215,12 +1215,13 @@ type pipelineInfo struct {
 }
 
 type pipelineStepInfo struct {
-	ID       string   `json:"id"`
-	Target   string   `json:"target"`
-	After    []string `json:"after,omitempty"`
-	Gate     string   `json:"gate,omitempty"`
-	Optional bool     `json:"optional,omitempty"`
-	Timeout  string   `json:"timeout,omitempty"`
+	ID          string   `json:"id"`
+	Target      string   `json:"target"`
+	After       []string `json:"after,omitempty"`
+	Gate        string   `json:"gate,omitempty"`
+	Optional    bool     `json:"optional,omitempty"`
+	Timeout     string   `json:"timeout,omitempty"`
+	MaxAttempts int      `json:"max_attempts,omitempty"`
 }
 
 type pipelineGraph struct {
@@ -1232,14 +1233,15 @@ type pipelineGraph struct {
 }
 
 type pipelineGraphNode struct {
-	ID       string   `json:"id"`
-	Target   string   `json:"target,omitempty"`
-	After    []string `json:"after,omitempty"`
-	Gate     string   `json:"gate,omitempty"`
-	Optional bool     `json:"optional,omitempty"`
-	Timeout  string   `json:"timeout,omitempty"`
-	Routes   []string `json:"routes,omitempty"`
-	Missing  bool     `json:"missing,omitempty"`
+	ID          string   `json:"id"`
+	Target      string   `json:"target,omitempty"`
+	After       []string `json:"after,omitempty"`
+	Gate        string   `json:"gate,omitempty"`
+	Optional    bool     `json:"optional,omitempty"`
+	Timeout     string   `json:"timeout,omitempty"`
+	MaxAttempts int      `json:"max_attempts,omitempty"`
+	Routes      []string `json:"routes,omitempty"`
+	Missing     bool     `json:"missing,omitempty"`
 }
 
 type pipelineGraphEdge struct {
@@ -1325,20 +1327,22 @@ type pipelineApproveResult struct {
 }
 
 type pipelineRetryResult struct {
-	JobID      string             `json:"job_id"`
-	Ticket     string             `json:"ticket"`
-	Pipeline   string             `json:"pipeline"`
-	StepID     string             `json:"step_id,omitempty"`
-	Target     string             `json:"target,omitempty"`
-	StepStatus job.Status         `json:"step_status,omitempty"`
-	Instance   string             `json:"instance,omitempty"`
-	Action     string             `json:"action"`
-	DryRun     bool               `json:"dry_run,omitempty"`
-	Message    string             `json:"message,omitempty"`
-	Job        *job.Job           `json:"job,omitempty"`
-	Step       *job.Step          `json:"step,omitempty"`
-	Event      *eventResponse     `json:"event,omitempty"`
-	Preview    *jobAdvancePreview `json:"preview,omitempty"`
+	JobID       string             `json:"job_id"`
+	Ticket      string             `json:"ticket"`
+	Pipeline    string             `json:"pipeline"`
+	StepID      string             `json:"step_id,omitempty"`
+	Target      string             `json:"target,omitempty"`
+	StepStatus  job.Status         `json:"step_status,omitempty"`
+	Instance    string             `json:"instance,omitempty"`
+	Attempts    int                `json:"attempts,omitempty"`
+	MaxAttempts int                `json:"max_attempts,omitempty"`
+	Action      string             `json:"action"`
+	DryRun      bool               `json:"dry_run,omitempty"`
+	Message     string             `json:"message,omitempty"`
+	Job         *job.Job           `json:"job,omitempty"`
+	Step        *job.Step          `json:"step,omitempty"`
+	Event       *eventResponse     `json:"event,omitempty"`
+	Preview     *jobAdvancePreview `json:"preview,omitempty"`
 }
 
 type pipelineTimeoutResult struct {
@@ -1464,12 +1468,13 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			continue
 		}
 		node := pipelineGraphNode{
-			ID:       id,
-			Target:   strings.TrimSpace(step.Target),
-			After:    trimStringSlice(step.After),
-			Gate:     strings.TrimSpace(step.Gate),
-			Optional: step.Optional,
-			Timeout:  formatPipelineStepTimeout(step.Timeout),
+			ID:          id,
+			Target:      strings.TrimSpace(step.Target),
+			After:       trimStringSlice(step.After),
+			Gate:        strings.TrimSpace(step.Gate),
+			Optional:    step.Optional,
+			Timeout:     formatPipelineStepTimeout(step.Timeout),
+			MaxAttempts: step.MaxAttempts,
 		}
 		if includeRoutes && node.Target != "" {
 			node.Routes = pipelineDispatchRoutes(top, node.Target)
@@ -1754,12 +1759,13 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 	steps := make([]pipelineStepInfo, 0, len(p.Steps))
 	for _, step := range p.Steps {
 		steps = append(steps, pipelineStepInfo{
-			ID:       step.ID,
-			Target:   step.Target,
-			After:    append([]string(nil), step.After...),
-			Gate:     step.Gate,
-			Optional: step.Optional,
-			Timeout:  formatPipelineStepTimeout(step.Timeout),
+			ID:          step.ID,
+			Target:      step.Target,
+			After:       append([]string(nil), step.After...),
+			Gate:        step.Gate,
+			Optional:    step.Optional,
+			Timeout:     formatPipelineStepTimeout(step.Timeout),
+			MaxAttempts: step.MaxAttempts,
 		})
 	}
 	return pipelineInfo{
@@ -2569,24 +2575,31 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 			return nil, err
 		}
 		result := pipelineRetryResult{
-			JobID:      j.ID,
-			Ticket:     j.Ticket,
-			Pipeline:   j.Pipeline,
-			StepID:     row.StepID,
-			Target:     row.Target,
-			StepStatus: row.StepStatus,
-			Instance:   row.Instance,
-			Action:     "would_retry",
-			DryRun:     dryRun,
-			Message:    row.Message,
+			JobID:       j.ID,
+			Ticket:      j.Ticket,
+			Pipeline:    j.Pipeline,
+			StepID:      row.StepID,
+			Target:      row.Target,
+			StepStatus:  row.StepStatus,
+			Instance:    row.Instance,
+			Attempts:    row.Attempts,
+			MaxAttempts: row.MaxAttempts,
+			Action:      "would_retry",
+			DryRun:      dryRun,
+			Message:     row.Message,
 		}
-		stepID := resetFailedPipelineStepForRetryByID(j, row.StepID)
-		if stepID == "" {
+		reset := resetFailedPipelineStepForRetryByIDWithReason(j, row.StepID)
+		if reset.StepID == "" {
 			result.Action = "skipped"
-			result.Message = "no retryable failed step"
+			result.Message = reset.Reason
+			if reset.MaxAttempts > 0 {
+				result.Attempts = reset.Attempts
+				result.MaxAttempts = reset.MaxAttempts
+			}
 			results = append(results, result)
 			continue
 		}
+		stepID := reset.StepID
 		now := time.Now().UTC()
 		j.Status = job.StatusQueued
 		j.LastEvent = "reopened"
@@ -2601,6 +2614,8 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 			result.Target = j.Steps[idx].Target
 			result.StepStatus = j.Steps[idx].Status
 			result.Instance = j.Steps[idx].Instance
+			result.Attempts = j.Steps[idx].Attempts
+			result.MaxAttempts = j.Steps[idx].MaxAttempts
 		}
 		result.Job = j
 		result.Message = j.LastStatus
@@ -2620,6 +2635,8 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 					result.Target = preview.Step.Target
 					result.StepStatus = preview.Step.Status
 					result.Instance = preview.Step.Instance
+					result.Attempts = preview.Step.Attempts
+					result.MaxAttempts = preview.Step.MaxAttempts
 					result.Step = preview.Step
 				}
 			}
@@ -2650,6 +2667,8 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 				result.Target = advanced.Step.Target
 				result.StepStatus = advanced.Step.Status
 				result.Instance = advanced.Step.Instance
+				result.Attempts = advanced.Step.Attempts
+				result.MaxAttempts = advanced.Step.MaxAttempts
 			}
 		}
 		results = append(results, result)
@@ -2890,7 +2909,11 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		if step.Timeout != "" {
 			timeout = " timeout=" + step.Timeout
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s\n", step.ID, step.Target, after, gate, optional, timeout)
+		maxAttempts := ""
+		if step.MaxAttempts > 0 {
+			maxAttempts = fmt.Sprintf(" max_attempts=%d", step.MaxAttempts)
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s\n", step.ID, step.Target, after, gate, optional, timeout, maxAttempts)
 	}
 	return nil
 }
@@ -2960,11 +2983,15 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Timeout != "" {
 			timeout = " timeout=" + node.Timeout
 		}
+		maxAttempts := ""
+		if node.MaxAttempts > 0 {
+			maxAttempts = fmt.Sprintf(" max_attempts=%d", node.MaxAttempts)
+		}
 		missing := ""
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s\n", node.ID, node.Target, after, gate, optional, timeout, routes, missing)
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s\n", node.ID, node.Target, after, gate, optional, timeout, maxAttempts, routes, missing)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -3033,6 +3060,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.Timeout != "" {
 		parts = append(parts, "timeout: "+node.Timeout)
+	}
+	if node.MaxAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("max attempts: %d", node.MaxAttempts))
 	}
 	if node.Missing {
 		parts = append(parts, "missing dependency")
@@ -3175,10 +3205,14 @@ func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
 		if step.Timeout != "" {
 			timeout = " timeout=" + step.Timeout
 		}
+		maxAttempts := ""
+		if step.MaxAttempts > 0 {
+			maxAttempts = fmt.Sprintf(" max_attempts=%d", step.MaxAttempts)
+		}
 		if len(step.After) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate, optional, timeout))
+			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s%s%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate, optional, timeout, maxAttempts))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s", step.ID, step.Target, gate, optional, timeout))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s%s", step.ID, step.Target, gate, optional, timeout, maxAttempts))
 		}
 	}
 	return strings.Join(parts, " -> ")
@@ -3668,9 +3702,9 @@ func renderPipelineRetryTable(w io.Writer, results []pipelineRetryResult) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tPIPELINE\tSTEP\tTARGET\tACTION\tSTATUS\tINSTANCE\tMESSAGE")
+	fmt.Fprintln(tw, "JOB\tPIPELINE\tSTEP\tTARGET\tACTION\tSTATUS\tINSTANCE\tATTEMPTS\tMESSAGE")
 	for _, result := range results {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			result.JobID,
 			emptyDash(result.Pipeline),
 			emptyDash(result.StepID),
@@ -3678,6 +3712,7 @@ func renderPipelineRetryTable(w io.Writer, results []pipelineRetryResult) {
 			result.Action,
 			emptyDash(string(result.StepStatus)),
 			emptyDash(result.Instance),
+			formatJobStepAttempts(result.Attempts, result.MaxAttempts),
 			emptyDash(result.Message),
 		)
 	}

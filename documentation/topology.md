@@ -114,6 +114,7 @@ id     = "review"
 target = "manager"
 after  = ["implement"]
 gate   = "manual"
+max_attempts = 2
 
 [schedules.nightly]
 every = "24h"
@@ -149,6 +150,9 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].target` | yes | — | Dispatch target. The target should resolve through an `agent.dispatch` trigger. |
 | `steps[].after` | no | empty | Step dependency or list of dependencies. All referenced steps must be done before this step is ready. |
 | `steps[].gate` | no | empty | Set to `"manual"` to require operator approval before the step can dispatch, even after dependencies are done. Approve with `agent-team job step <job-id> <step-id> --status queued`. |
+| `steps[].optional` | no | `false` | If `true`, a failed step does not block downstream dependencies. |
+| `steps[].timeout` | no | empty | Duration string used by stale-step timeout commands before falling back to repo stale-job thresholds. |
+| `steps[].max_attempts` | no | unlimited | Positive integer cap for dispatch attempts. Retry commands skip failed steps once the stored attempt count reaches this value. |
 
 Operators can intentionally bypass a stored step with `agent-team job step <job-id> <step-id> --skip`. The job records `status = "done"` and `skipped = true` on that step, so later `after` dependencies treat it as terminal while `job show` still surfaces the bypass.
 

@@ -448,11 +448,19 @@ func renderTopologyGraphText(w io.Writer, graph topologyGraph) {
 				if node.Optional {
 					optional = " optional=true"
 				}
+				timeout := ""
+				if node.Timeout != "" {
+					timeout = " timeout=" + node.Timeout
+				}
+				maxAttempts := ""
+				if node.MaxAttempts > 0 {
+					maxAttempts = fmt.Sprintf(" max_attempts=%d", node.MaxAttempts)
+				}
 				missing := ""
 				if node.Missing {
 					missing = " missing=true"
 				}
-				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, routes, missing)
+				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, timeout, maxAttempts, routes, missing)
 			}
 		}
 	}
@@ -622,6 +630,9 @@ func pipelineStepsAsMaps(steps []*topology.PipelineStep) []map[string]any {
 		}
 		if step.Timeout > 0 {
 			row["timeout"] = step.Timeout.String()
+		}
+		if step.MaxAttempts > 0 {
+			row["max_attempts"] = step.MaxAttempts
 		}
 		out = append(out, row)
 	}
@@ -841,6 +852,9 @@ func summarisePipelineStepMaps(steps []map[string]interface{}) string {
 		if timeout, _ := step["timeout"].(string); timeout != "" {
 			suffix += " timeout=" + timeout
 		}
+		if maxAttempts, _ := step["max_attempts"].(int); maxAttempts > 0 {
+			suffix += fmt.Sprintf(" max_attempts=%d", maxAttempts)
+		}
 		parts = append(parts, id+"→"+target+suffix)
 	}
 	return strings.Join(parts, ", ")
@@ -861,6 +875,9 @@ func summariseLocalPipelineSteps(steps []*topology.PipelineStep) string {
 		}
 		if step.Timeout > 0 {
 			suffix += " timeout=" + step.Timeout.String()
+		}
+		if step.MaxAttempts > 0 {
+			suffix += fmt.Sprintf(" max_attempts=%d", step.MaxAttempts)
 		}
 		parts = append(parts, step.ID+"→"+step.Target+suffix)
 	}

@@ -7864,11 +7864,23 @@ func renderTeamGraphText(w io.Writer, graph teamGraph) {
 				if node.Gate != "" {
 					gate = " gate=" + node.Gate
 				}
+				optional := ""
+				if node.Optional {
+					optional = " optional=true"
+				}
+				timeout := ""
+				if node.Timeout != "" {
+					timeout = " timeout=" + node.Timeout
+				}
+				maxAttempts := ""
+				if node.MaxAttempts > 0 {
+					maxAttempts = fmt.Sprintf(" max_attempts=%d", node.MaxAttempts)
+				}
 				missing := ""
 				if node.Missing {
 					missing = " missing=true"
 				}
-				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, routes, missing)
+				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, timeout, maxAttempts, routes, missing)
 			}
 		}
 	}

@@ -179,6 +179,19 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err != nil {
 		t.Fatalf("Validate rejected valid step timeout: %v", err)
 	}
+	j.Steps[0].Attempts = -1
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted negative step attempts")
+	}
+	j.Steps[0].Attempts = 1
+	j.Steps[0].MaxAttempts = -1
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted negative step max_attempts")
+	}
+	j.Steps[0].MaxAttempts = 2
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected valid attempt metadata: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

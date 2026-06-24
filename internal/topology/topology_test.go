@@ -146,6 +146,7 @@ after = ["implement"]
 gate = "pr"
 optional = true
 timeout = "30m"
+max_attempts = 2
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -157,7 +158,7 @@ timeout = "30m"
 	if p.Trigger.Event != "ticket.created" || p.Trigger.Match["project"].Single != "Core" {
 		t.Fatalf("trigger = %+v", p.Trigger)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute {
+	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
@@ -184,6 +185,24 @@ optional = "yes"
 	}
 	if !strings.Contains(err.Error(), "optional must be a boolean") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParse_PipelineRejectsInvalidMaxAttempts(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+max_attempts = 0
+`))
+	if err == nil || !strings.Contains(err.Error(), "max_attempts must be greater than zero") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

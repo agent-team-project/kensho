@@ -314,13 +314,14 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			status = jobstore.StatusBlocked
 		}
 		steps = append(steps, jobstore.Step{
-			ID:       step.ID,
-			Target:   step.Target,
-			Status:   status,
-			After:    append([]string(nil), step.After...),
-			Gate:     step.Gate,
-			Optional: step.Optional,
-			Timeout:  pipelineStepTimeoutString(step.Timeout),
+			ID:          step.ID,
+			Target:      step.Target,
+			Status:      status,
+			After:       append([]string(nil), step.After...),
+			Gate:        step.Gate,
+			Optional:    step.Optional,
+			Timeout:     pipelineStepTimeoutString(step.Timeout),
+			MaxAttempts: step.MaxAttempts,
 		})
 	}
 	return steps
@@ -408,6 +409,9 @@ func markPipelineStep(j *jobstore.Job, stepID string, status jobstore.Status, in
 		j.Steps[i].Status = status
 		if instance != "" {
 			j.Steps[i].Instance = instance
+		}
+		if status == jobstore.StatusRunning || status == jobstore.StatusQueued {
+			j.Steps[i].Attempts++
 		}
 		if j.Steps[i].StartedAt.IsZero() {
 			j.Steps[i].StartedAt = now

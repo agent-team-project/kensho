@@ -164,13 +164,15 @@ type eventPipelineJobPreview struct {
 }
 
 type eventPipelineStepPreview struct {
-	ID       string     `json:"id"`
-	Target   string     `json:"target"`
-	Status   job.Status `json:"status,omitempty"`
-	After    []string   `json:"after,omitempty"`
-	Gate     string     `json:"gate,omitempty"`
-	Optional bool       `json:"optional,omitempty"`
-	Timeout  string     `json:"timeout,omitempty"`
+	ID          string     `json:"id"`
+	Target      string     `json:"target"`
+	Status      job.Status `json:"status,omitempty"`
+	After       []string   `json:"after,omitempty"`
+	Gate        string     `json:"gate,omitempty"`
+	Optional    bool       `json:"optional,omitempty"`
+	Timeout     string     `json:"timeout,omitempty"`
+	Attempts    int        `json:"attempts,omitempty"`
+	MaxAttempts int        `json:"max_attempts,omitempty"`
 }
 
 func previewEventPublish(teamDir, eventType string, payload map[string]any) (*eventPublishPreview, error) {
@@ -259,13 +261,15 @@ func previewPipelineSteps(steps []job.Step) []eventPipelineStepPreview {
 	out := make([]eventPipelineStepPreview, 0, len(steps))
 	for _, step := range steps {
 		out = append(out, eventPipelineStepPreview{
-			ID:       step.ID,
-			Target:   step.Target,
-			Status:   step.Status,
-			After:    append([]string(nil), step.After...),
-			Gate:     step.Gate,
-			Optional: step.Optional,
-			Timeout:  step.Timeout,
+			ID:          step.ID,
+			Target:      step.Target,
+			Status:      step.Status,
+			After:       append([]string(nil), step.After...),
+			Gate:        step.Gate,
+			Optional:    step.Optional,
+			Timeout:     step.Timeout,
+			Attempts:    step.Attempts,
+			MaxAttempts: step.MaxAttempts,
 		})
 	}
 	return out

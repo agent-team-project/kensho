@@ -35,6 +35,7 @@ target = "manager"
 after = ["implement"]
 optional = true
 timeout = "45m"
+max_attempts = 3
 	`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ timeout = "45m"
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("pipeline ls: %v\nstderr=%s", err, lsErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement optional=true timeout=45m0s"} {
+	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement optional=true timeout=45m0s max_attempts=3"} {
 		if !strings.Contains(lsOut.String(), want) {
 			t.Fatalf("pipeline ls missing %q:\n%s", want, lsOut.String())
 		}
@@ -61,7 +62,7 @@ timeout = "45m"
 	if err := show.Execute(); err != nil {
 		t.Fatalf("pipeline show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement optional=true timeout=45m0s"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement optional=true timeout=45m0s max_attempts=3"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, showOut.String())
 		}
@@ -79,7 +80,7 @@ timeout = "45m"
 	if err := json.Unmarshal(jsonOut.Bytes(), &rows); err != nil {
 		t.Fatalf("decode pipeline json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || !rows[0].Steps[1].Optional || rows[0].Steps[1].Timeout != "45m0s" {
+	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || !rows[0].Steps[1].Optional || rows[0].Steps[1].Timeout != "45m0s" || rows[0].Steps[1].MaxAttempts != 3 {
 		t.Fatalf("pipeline rows = %+v", rows)
 	}
 
@@ -128,6 +129,7 @@ target = "manager"
 after = ["implement"]
 optional = true
 timeout = "30m"
+max_attempts = 2
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +146,7 @@ timeout = "30m"
 	if err != nil {
 		t.Fatalf("read created job: %v", err)
 	}
-	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || !created.Steps[1].Optional || created.Steps[1].Timeout != "30m0s" {
+	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || !created.Steps[1].Optional || created.Steps[1].Timeout != "30m0s" || created.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("optional step metadata was not copied: %+v", created.Steps)
 	}
 }
@@ -3224,6 +3226,82 @@ func TestPipelineRetryStepFilter(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "reopened" || events[0].Data["step"] != "review" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestPipelineRetrySkipsStepsAtMaxAttempts(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:         "squ-616",
+			Ticket:     "SQU-616",
+			Target:     "worker",
+			Kickoff:    "retry cap reached",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "implement failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-squ-616", MaxAttempts: 1, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+		{
+			ID:         "squ-617",
+			Ticket:     "SQU-617",
+			Target:     "worker",
+			Kickoff:    "retry cap still allows one more",
+			Pipeline:   "ticket_to_pr",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "implement failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed, Instance: "worker-squ-617", Attempts: 1, MaxAttempts: 2, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"pipeline", "retry", "ticket_to_pr", "--repo", root, "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("pipeline retry max attempts dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var rows []pipelineRetryResult
+	if err := json.Unmarshal(dryOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode retry max attempts: %v\nbody=%s", err, dryOut.String())
+	}
+	byJob := map[string]pipelineRetryResult{}
+	for _, row := range rows {
+		byJob[row.JobID] = row
+	}
+	if byJob["squ-616"].Action != "skipped" || byJob["squ-616"].Message != "max attempts reached (1/1)" || byJob["squ-616"].Attempts != 1 || byJob["squ-616"].MaxAttempts != 1 {
+		t.Fatalf("capped row = %+v", byJob["squ-616"])
+	}
+	if byJob["squ-617"].Action != "would_retry" || byJob["squ-617"].StepStatus != job.StatusBlocked || byJob["squ-617"].Attempts != 1 || byJob["squ-617"].MaxAttempts != 2 {
+		t.Fatalf("eligible row = %+v", byJob["squ-617"])
+	}
+
+	capped, err := job.Read(teamDir, "squ-616")
+	if err != nil {
+		t.Fatalf("read capped: %v", err)
+	}
+	if capped.Status != job.StatusFailed || capped.Steps[0].Status != job.StatusFailed || capped.Steps[0].Instance != "worker-squ-616" {
+		t.Fatalf("dry-run mutated capped job = %+v", capped)
 	}
 }
 

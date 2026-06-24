@@ -162,7 +162,7 @@ Shortcuts:
 | `agent-team pipeline advance <pipeline>` | Advance ready work; use `--runtime` for dispatched steps |
 | `agent-team pipeline approve <pipeline>` | Approve blocked manual gates |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
-| `agent-team pipeline retry <pipeline>` | Retry failed steps |
+| `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps |
 
 ## Teams
 
@@ -193,7 +193,7 @@ Shortcuts:
 | `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs and `--target-agent` to scope by role |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |
-| `agent-team team retry <team>` | Scoped failed-step retry |
+| `agent-team team retry <team>` | Scoped failed-step retry, honoring step `max_attempts` caps |
 | `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
 | `agent-team team snapshot <team>` | Scoped diagnostic artifact |
 
