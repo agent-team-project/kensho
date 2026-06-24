@@ -501,6 +501,7 @@ Flags:
       --detach                   Background the restarted daemon (writes log to .agent_team/daemon/agent-teamd.log). (default true)
       --format string            Render daemon restart result with a Go template, e.g. '{{.Action}} {{.Changed}} {{.Status.Ready}}'. Requires detached mode.
       --json                     Emit machine-readable JSON. Requires detached mode.
+  -q, --quiet                    Suppress output and use only the exit code. Requires detached mode.
       --ready-timeout duration   Maximum time to wait for restarted detached daemon readiness (0 = no timeout). (default 3s)
       --target string            Repo root. (default "<repo>")
       --timeout duration         Grace period for stopping the old daemon before SIGKILL escalation (0 = force immediately). (default 5s)
@@ -578,6 +579,7 @@ Flags:
 ```text
       --format string      Render daemon stop result with a Go template, e.g. '{{.Action}} {{.Changed}}'.
       --json               Emit machine-readable JSON.
+  -q, --quiet              Suppress output and use only the exit code.
       --target string      Repo root. (default "<repo>")
       --timeout duration   Grace period before SIGKILL escalation (0 = force immediately). (default 5s)
 ```

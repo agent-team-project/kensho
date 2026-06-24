@@ -94,6 +94,7 @@ func newDaemonStopCmd() *cobra.Command {
 	var (
 		target  string
 		timeout time.Duration
+		quiet   bool
 		jsonOut bool
 		format  string
 	)
@@ -104,6 +105,14 @@ func newDaemonStopCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if timeout < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon stop: --timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if quiet && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon stop: choose one of --quiet or --json.")
+				return exitErr(2)
+			}
+			if format != "" && quiet {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon stop: --format cannot be combined with --quiet.")
 				return exitErr(2)
 			}
 			if format != "" && jsonOut {
@@ -118,11 +127,12 @@ func newDaemonStopCmd() *cobra.Command {
 			if formatTemplate != nil {
 				return runDaemonStopWithTimeoutFormat(cmd, target, timeout, formatTemplate)
 			}
-			return runDaemonStopWithTimeoutJSON(cmd, target, timeout, jsonOut)
+			return runDaemonStopWithTimeoutJSON(cmd, target, timeout, jsonOut, quiet)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Grace period before SIGKILL escalation (0 = force immediately).")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render daemon stop result with a Go template, e.g. '{{.Action}} {{.Changed}}'.")
 	return cmd
@@ -134,6 +144,7 @@ func newDaemonRestartCmd() *cobra.Command {
 		detach       bool
 		timeout      time.Duration
 		readyTimeout time.Duration
+		quiet        bool
 		jsonOut      bool
 		format       string
 	)
@@ -157,6 +168,18 @@ func newDaemonRestartCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --json cannot be combined with --detach=false.")
 				return exitErr(2)
 			}
+			if quiet && !detach {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --quiet cannot be combined with --detach=false.")
+				return exitErr(2)
+			}
+			if quiet && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: choose one of --quiet or --json.")
+				return exitErr(2)
+			}
+			if format != "" && quiet {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --format cannot be combined with --quiet.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -173,13 +196,14 @@ func newDaemonRestartCmd() *cobra.Command {
 			if formatTemplate != nil {
 				return runDaemonRestartWithFormat(cmd, target, detach, timeout, readyTimeout, formatTemplate)
 			}
-			return runDaemonRestartWithJSON(cmd, target, detach, timeout, readyTimeout, jsonOut)
+			return runDaemonRestartWithJSON(cmd, target, detach, timeout, readyTimeout, jsonOut, quiet)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&detach, "detach", true, "Background the restarted daemon (writes log to .agent_team/daemon/agent-teamd.log).")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Grace period for stopping the old daemon before SIGKILL escalation (0 = force immediately).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for restarted detached daemon readiness (0 = no timeout).")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code. Requires detached mode.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. Requires detached mode.")
 	cmd.Flags().StringVar(&format, "format", "", "Render daemon restart result with a Go template, e.g. '{{.Action}} {{.Changed}} {{.Status.Ready}}'. Requires detached mode.")
 	return cmd
@@ -558,10 +582,10 @@ func runDaemonStop(cmd *cobra.Command, target string) error {
 }
 
 func runDaemonStopWithTimeout(cmd *cobra.Command, target string, timeout time.Duration) error {
-	return runDaemonStopWithTimeoutJSON(cmd, target, timeout, false)
+	return runDaemonStopWithTimeoutJSON(cmd, target, timeout, false, false)
 }
 
-func runDaemonStopWithTimeoutJSON(cmd *cobra.Command, target string, timeout time.Duration, jsonOut bool) error {
+func runDaemonStopWithTimeoutJSON(cmd *cobra.Command, target string, timeout time.Duration, jsonOut bool, quiet bool) error {
 	if timeout < 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon stop: --timeout must be >= 0.")
 		return exitErr(2)
@@ -576,6 +600,9 @@ func runDaemonStopWithTimeoutJSON(cmd *cobra.Command, target string, timeout tim
 	}
 	if jsonOut {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+	}
+	if quiet {
+		return nil
 	}
 	renderDaemonStopResult(cmd.OutOrStdout(), result)
 	return nil
@@ -671,10 +698,10 @@ func renderDaemonStopResult(w fmtWriter, result daemonLifecycleJSON) {
 }
 
 func runDaemonRestart(cmd *cobra.Command, target string, detach bool, timeout time.Duration) error {
-	return runDaemonRestartWithJSON(cmd, target, detach, timeout, defaultDaemonReadyTimeout, false)
+	return runDaemonRestartWithJSON(cmd, target, detach, timeout, defaultDaemonReadyTimeout, false, false)
 }
 
-func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, jsonOut bool) error {
+func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, jsonOut bool, quiet bool) error {
 	if timeout < 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --timeout must be >= 0.")
 		return exitErr(2)
@@ -687,6 +714,10 @@ func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, ti
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --json cannot be combined with --detach=false.")
 		return exitErr(2)
 	}
+	if quiet && !detach {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --quiet cannot be combined with --detach=false.")
+		return exitErr(2)
+	}
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -696,6 +727,10 @@ func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, ti
 		return err
 	}
 	if !jsonOut {
+		if quiet {
+			_, err := daemonStartDetachedOperation(cmd, teamDir, readyTimeout)
+			return err
+		}
 		renderDaemonStopResult(cmd.OutOrStdout(), stopResult)
 		return runDaemonStartWithJSON(cmd, target, detach, readyTimeout, false)
 	}

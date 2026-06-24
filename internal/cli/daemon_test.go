@@ -557,8 +557,13 @@ func TestDaemonLifecycleFormatRejectsConflictingModes(t *testing.T) {
 		{[]string{"daemon", "start", "--format", "{{.Action}}", "--json"}, "--format cannot be combined with --json"},
 		{[]string{"daemon", "start", "--format", "{{.Action}}", "--detach=false"}, "--format cannot be combined with --detach=false"},
 		{[]string{"daemon", "start", "--format", "{{"}, "invalid --format template"},
+		{[]string{"daemon", "stop", "--quiet", "--json"}, "choose one of --quiet or --json"},
+		{[]string{"daemon", "stop", "--format", "{{.Action}}", "--quiet"}, "--format cannot be combined with --quiet"},
 		{[]string{"daemon", "stop", "--format", "{{.Action}}", "--json"}, "--format cannot be combined with --json"},
 		{[]string{"daemon", "stop", "--format", "{{"}, "invalid --format template"},
+		{[]string{"daemon", "restart", "--quiet", "--detach=false"}, "--quiet cannot be combined with --detach=false"},
+		{[]string{"daemon", "restart", "--quiet", "--json"}, "choose one of --quiet or --json"},
+		{[]string{"daemon", "restart", "--format", "{{.Action}}", "--quiet"}, "--format cannot be combined with --quiet"},
 		{[]string{"daemon", "restart", "--format", "{{.Action}}", "--json"}, "--format cannot be combined with --json"},
 		{[]string{"daemon", "restart", "--format", "{{.Action}}", "--detach=false"}, "--format cannot be combined with --detach=false"},
 		{[]string{"daemon", "restart", "--format", "{{"}, "invalid --format template"},
@@ -725,6 +730,22 @@ func TestDaemonStop_NotRunning(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "not running") {
 		t.Errorf("stop output: %q", out.String())
+	}
+}
+
+func TestDaemonStopQuietNotRunning(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "stop", "--quiet", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon stop --quiet: %v\nstderr=%s", err, stderr.String())
+	}
+	if out.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("quiet stop should not write output, stdout=%q stderr=%q", out.String(), stderr.String())
 	}
 }
 

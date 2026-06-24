@@ -45,6 +45,7 @@ agent-team daemon stop
 ```
 
 `daemon start` detaches by default. Use `--detach=false` for foreground debugging.
+Use `daemon stop --quiet` or `daemon restart --quiet` when scripts only need the exit code.
 
 Most high-level commands start or contact the daemon as needed:
 

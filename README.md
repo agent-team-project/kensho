@@ -198,9 +198,9 @@ agent-team daemon status [-q] [--wait [--down] --timeout 30s --interval 200ms] [
                                                 # show agent-teamd process, API readiness, pid/socket/log paths
 agent-team daemon logs [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
                                                 # show/follow the agent-teamd daemon log
-agent-team daemon stop [--timeout 5s] [--format '{{.Action}} {{.Changed}}'] [--json]
+agent-team daemon stop [-q] [--timeout 5s] [--format '{{.Action}} {{.Changed}}'] [--json]
                                                 # stop agent-teamd, escalating after the grace period
-agent-team daemon restart [--timeout 5s] [--ready-timeout 3s] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
+agent-team daemon restart [-q] [--timeout 5s] [--ready-timeout 3s] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
                                                 # bounce agent-teamd and reconcile existing daemon metadata
 agent-team daemon reconcile [--format '{{.Changed}} {{len .Instances}}'] [--json]
                                                 # refresh daemon metadata against the live process table without restarting
