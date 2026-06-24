@@ -3516,6 +3516,22 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	if got, want := strings.TrimSpace(formatOut.String()), "worker-squ-900 codex logs"; got != want {
 		t.Fatalf("formatted team runtime resume-plan = %q, want %q", got, want)
 	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"team", "runtime", "resume-plan", "delivery", "--repo", root, "--status", "crashed", "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("team runtime resume-plan summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var counts runtimeResumeSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
+		t.Fatalf("decode team runtime resume-plan summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if counts.Total != 2 || counts.Actions["logs"] != 2 || counts.Runtimes["claude"] != 1 || counts.Runtimes["codex"] != 1 || counts.Statuses["crashed"] != 2 || counts.ManagedResume != 1 || counts.CanManagedResume != 0 || counts.DirectResume != 0 {
+		t.Fatalf("team resume-plan summary = %+v", counts)
+	}
 }
 
 func TestTeamStatusFiltersByRuntime(t *testing.T) {

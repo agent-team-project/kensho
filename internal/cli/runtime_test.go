@@ -555,6 +555,22 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	if got != want {
 		t.Fatalf("runtime resume-plan --action = %q, want %q", got, want)
 	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("runtime resume-plan --summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var counts runtimeResumeSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
+		t.Fatalf("decode resume-plan summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if counts.Total != 4 || counts.Actions["attach"] != 1 || counts.Actions["logs"] != 1 || counts.Actions["resume"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 2 || counts.Runtimes["codex"] != 2 || counts.Statuses["running"] != 1 || counts.Statuses["crashed"] != 1 || counts.Statuses["exited"] != 1 || counts.Statuses["stopped"] != 1 || counts.ManagedResume != 2 || counts.CanManagedResume != 2 || counts.DirectResume != 3 {
+		t.Fatalf("resume-plan summary = %+v", counts)
+	}
 }
 
 func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
@@ -572,6 +588,25 @@ func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
 		t.Fatalf("error = %v, want exit 2", err)
 	}
 	if !strings.Contains(errOut.String(), "--format cannot be combined with --json") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRuntimeResumePlanRejectsSummaryFormat(t *testing.T) {
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", t.TempDir(), "--summary", "--format", "{{.Total}}"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime resume-plan --summary --format succeeded")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(errOut.String(), "--summary cannot be combined with --format") {
 		t.Fatalf("stderr = %q", errOut.String())
 	}
 }

@@ -244,6 +244,7 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 		statusFilters []string
 		runtimeFilter []string
 		actionFilters []string
+		summary       bool
 		jsonOut       bool
 		format        string
 	)
@@ -257,6 +258,10 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime resume-plan: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime resume-plan: --summary cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseRuntimeResumePlanFormat(format)
@@ -273,6 +278,14 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime resume-plan: %v\n", err)
 				return exitErr(1)
 			}
+			if summary {
+				out := summarizeRuntimeResumePlans(plans)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				renderRuntimeResumeSummary(cmd.OutOrStdout(), out)
+				return nil
+			}
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
@@ -287,6 +300,7 @@ func newTeamRuntimeResumePlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching team resume plans by recommended action, runtime, and status.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd

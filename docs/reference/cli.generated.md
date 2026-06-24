@@ -3980,6 +3980,7 @@ Flags:
       --json              Emit machine-readable JSON.
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --status strings    Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.
+      --summary           Summarize matching resume plans by recommended action, runtime, and status.
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
@@ -5394,6 +5395,7 @@ Flags:
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --status strings    Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.
+      --summary           Summarize matching team resume plans by recommended action, runtime, and status.
 ```
 
 ## `agent-team team schedules`

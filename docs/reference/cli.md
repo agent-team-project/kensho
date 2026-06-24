@@ -36,7 +36,7 @@ as the output directory instead.
 | `agent-team runtime` | Show selected LLM runtime profile; use `--runtime` / `--runtime-bin` to preview one-off overrides |
 | `agent-team runtime ls` | List supported runtime profiles, availability, and capabilities |
 | `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, and write diagnostics with `--output` |
-| `agent-team runtime resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--action` |
+| `agent-team runtime resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--action` or summarize with `--summary` |
 
 ## Instance Lifecycle
 
@@ -173,7 +173,7 @@ Shortcuts:
 | `agent-team team graph <team>` | Render team-owned instance, schedule, and pipeline wiring |
 | `agent-team team overview <team>` | Scoped operator overview |
 | `agent-team team health <team>` | Scoped health |
-| `agent-team team runtime resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--action` |
+| `agent-team team runtime resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--action` or summarize with `--summary` |
 | `agent-team team status <team>` | Scoped status |
 | `agent-team team monitor <team>` | Scoped dashboard |
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |

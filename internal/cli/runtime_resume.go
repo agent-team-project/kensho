@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	texttemplate "text/template"
 
@@ -39,6 +40,16 @@ type runtimeResumePlan struct {
 	Detail                string `json:"detail,omitempty"`
 }
 
+type runtimeResumeSummary struct {
+	Total            int            `json:"total"`
+	Actions          map[string]int `json:"actions,omitempty"`
+	Runtimes         map[string]int `json:"runtimes,omitempty"`
+	Statuses         map[string]int `json:"statuses,omitempty"`
+	ManagedResume    int            `json:"managed_resume"`
+	CanManagedResume int            `json:"can_managed_resume"`
+	DirectResume     int            `json:"direct_resume"`
+}
+
 func newRuntimeResumePlanCmd() *cobra.Command {
 	var (
 		target        string
@@ -46,6 +57,7 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 		statusFilters []string
 		runtimeFilter []string
 		actionFilters []string
+		summary       bool
 		jsonOut       bool
 		format        string
 	)
@@ -59,6 +71,10 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime resume-plan: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime resume-plan: --summary cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if strings.TrimSpace(jobID) != "" && len(args) > 0 {
@@ -79,6 +95,14 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime resume-plan: %v\n", err)
 				return exitErr(1)
 			}
+			if summary {
+				out := summarizeRuntimeResumePlans(plans)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				renderRuntimeResumeSummary(cmd.OutOrStdout(), out)
+				return nil
+			}
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
@@ -94,6 +118,7 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching resume plans by recommended action, runtime, and status.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd
@@ -430,6 +455,75 @@ func renderRuntimeResumePlans(w fmtWriter, plans []runtimeResumePlan) {
 			fmt.Fprintf(w, "detail:                   %s\n", plan.Detail)
 		}
 	}
+}
+
+func summarizeRuntimeResumePlans(plans []runtimeResumePlan) runtimeResumeSummary {
+	out := runtimeResumeSummary{
+		Total:    len(plans),
+		Actions:  map[string]int{},
+		Runtimes: map[string]int{},
+		Statuses: map[string]int{},
+	}
+	for _, plan := range plans {
+		if action := strings.TrimSpace(plan.RecommendedAction); action != "" {
+			out.Actions[action]++
+		}
+		if runtime := strings.TrimSpace(plan.Runtime); runtime != "" {
+			out.Runtimes[runtime]++
+		}
+		if status := strings.TrimSpace(plan.Status); status != "" {
+			out.Statuses[status]++
+		}
+		if plan.ManagedResume {
+			out.ManagedResume++
+		}
+		if plan.CanManagedResume {
+			out.CanManagedResume++
+		}
+		if plan.DirectResume {
+			out.DirectResume++
+		}
+	}
+	return out
+}
+
+func renderRuntimeResumeSummary(w fmtWriter, summary runtimeResumeSummary) {
+	fmt.Fprintf(w, "total:              %d\n", summary.Total)
+	fmt.Fprintf(w, "actions:            %s\n", runtimeResumeCountMapText(summary.Actions, []string{"start", "attach", "resume", "logs"}))
+	fmt.Fprintf(w, "runtimes:           %s\n", runtimeResumeCountMapText(summary.Runtimes, []string{string(runtimebin.KindClaude), string(runtimebin.KindCodex)}))
+	fmt.Fprintf(w, "statuses:           %s\n", runtimeResumeCountMapText(summary.Statuses, []string{string(daemon.StatusRunning), string(daemon.StatusStopped), string(daemon.StatusExited), string(daemon.StatusCrashed)}))
+	fmt.Fprintf(w, "managed_resume:     %d\n", summary.ManagedResume)
+	fmt.Fprintf(w, "can_managed_resume: %d\n", summary.CanManagedResume)
+	fmt.Fprintf(w, "direct_resume:      %d\n", summary.DirectResume)
+}
+
+func runtimeResumeCountMapText(counts map[string]int, preferred []string) string {
+	if len(counts) == 0 {
+		return "-"
+	}
+	seen := map[string]bool{}
+	parts := []string{}
+	for _, key := range preferred {
+		if count := counts[key]; count > 0 {
+			parts = append(parts, key+"="+strconv.Itoa(count))
+			seen[key] = true
+		}
+	}
+	extras := make([]string, 0, len(counts))
+	for key, count := range counts {
+		if count <= 0 || seen[key] {
+			continue
+		}
+		extras = append(extras, key)
+	}
+	sort.Strings(extras)
+	for _, key := range extras {
+		parts = append(parts, key+"="+strconv.Itoa(counts[key]))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " ")
 }
 
 func parseRuntimeResumePlanFormat(format string) (*texttemplate.Template, error) {
