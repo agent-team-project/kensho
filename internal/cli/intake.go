@@ -67,6 +67,10 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		reconcileJob  bool
 		cleanupMerged bool
 		verifyPR      bool
+		advanceJob    bool
+		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		jsonOut       bool
 		format        string
 	)
@@ -86,6 +90,10 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			}
 			if provider == "github" && verifyPR && !cleanupMerged {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --verify-pr requires --cleanup-merged.")
+				return exitErr(2)
+			}
+			if provider == "github" && advanceJob && !reconcileJob {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --advance requires --reconcile-job.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -109,6 +117,8 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			}
 			var reconcile *job.ReconcileResult
 			var cleanupPreview *jobCleanupPreview
+			var advancePreview *jobAdvancePreview
+			var advance *jobAdvanceResult
 			var triggerPreview *eventPublishPreview
 			cleanup := ""
 			if (provider == "github" && reconcileJob) || previewRoutes {
@@ -118,13 +128,13 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				}
 				if provider == "github" && reconcileJob {
 					if dryRun {
-						reconcile, cleanupPreview, err = previewGitHubIntakeJob(teamDir, ev, cleanupMerged, verifyPR)
+						reconcile, cleanupPreview, advancePreview, err = previewGitHubIntakeJob(teamDir, ev, cleanupMerged, verifyPR, advanceJob, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					} else {
 						if err := preflightIntakeDaemon(teamDir); err != nil {
 							fmt.Fprintln(cmd.ErrOrStderr(), err)
 							return exitErr(2)
 						}
-						reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, cleanupMerged, verifyPR)
+						reconcile, cleanup, advance, err = reconcileGitHubIntakeJob(cmd, teamDir, ev, cleanupMerged, verifyPR, advanceJob, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					}
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake github: %v\n", err)
@@ -140,9 +150,9 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				}
 			}
 			if dryRun {
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, reconcile, cleanupPreview, triggerPreview)
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, reconcile, cleanupPreview, advancePreview, triggerPreview)
 			}
-			return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, reconcile, cleanup)
+			return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, reconcile, cleanup, advance)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -154,6 +164,10 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		cmd.Flags().BoolVar(&reconcileJob, "reconcile-job", false, "Also reconcile the normalized PR event into the owning durable job.")
 		cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
 		cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.")
+		cmd.Flags().BoolVar(&advanceJob, "advance", false, "With --reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.")
+		cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance dispatch: auto, worktree, or repo.")
+		cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
+		cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit normalized event and daemon outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake result with a Go template, e.g. '{{.Event.Type}}'.")
@@ -217,7 +231,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 						return exitErr(1)
 					}
 				}
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, triggerPreview)
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil, triggerPreview)
 			}
 			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 		},
@@ -238,6 +252,7 @@ type intakeServeOptions struct {
 	GitHubReconcileJob      bool
 	GitHubCleanupMerged     bool
 	GitHubVerifyPR          bool
+	GitHubAdvanceJob        bool
 	LinearSecret            string
 	GitHubSecret            string
 	RequireLinearSecret     bool
@@ -272,6 +287,7 @@ type intakeServiceOptions struct {
 	GitHubReconcileJob      bool
 	GitHubCleanupMerged     bool
 	GitHubVerifyPR          bool
+	GitHubAdvanceJob        bool
 	LinearMaxAge            time.Duration
 	GitHubReplayWindow      time.Duration
 	MaxBodyBytes            int64
@@ -365,6 +381,7 @@ func newIntakeServiceCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.GitHubReconcileJob, "github-reconcile-job", false, "Include --github-reconcile-job in ExecStart.")
 	cmd.Flags().BoolVar(&opts.GitHubCleanupMerged, "github-cleanup-merged", false, "Include --github-cleanup-merged in ExecStart; requires --github-reconcile-job.")
 	cmd.Flags().BoolVar(&opts.GitHubVerifyPR, "github-verify-pr", false, "Include --github-verify-pr in ExecStart; requires --github-cleanup-merged.")
+	cmd.Flags().BoolVar(&opts.GitHubAdvanceJob, "github-advance-job", false, "Include --github-advance-job in ExecStart; requires --github-reconcile-job.")
 	cmd.Flags().DurationVar(&opts.LinearMaxAge, "linear-max-age", opts.LinearMaxAge, "Maximum accepted Linear webhook age after signature verification.")
 	cmd.Flags().DurationVar(&opts.GitHubReplayWindow, "github-replay-window", opts.GitHubReplayWindow, "Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable.")
 	cmd.Flags().Int64Var(&opts.MaxBodyBytes, "max-body-bytes", opts.MaxBodyBytes, "Maximum webhook request body size accepted by intake serve.")
@@ -429,6 +446,9 @@ func validateIntakeServiceOptions(kind string, opts intakeServiceOptions) error 
 	}
 	if opts.GitHubVerifyPR && !opts.GitHubCleanupMerged {
 		return fmt.Errorf("--github-verify-pr requires --github-cleanup-merged")
+	}
+	if opts.GitHubAdvanceJob && !opts.GitHubReconcileJob {
+		return fmt.Errorf("--github-advance-job requires --github-reconcile-job")
 	}
 	if opts.LinearMaxAge <= 0 {
 		return fmt.Errorf("--linear-max-age must be > 0")
@@ -772,6 +792,9 @@ func intakeServeArgs(opts intakeServiceOptions) []string {
 	if opts.GitHubVerifyPR {
 		args = append(args, "--github-verify-pr")
 	}
+	if opts.GitHubAdvanceJob {
+		args = append(args, "--github-advance-job")
+	}
 	if opts.RequireLinearSecret {
 		args = append(args, "--require-linear-secret")
 	}
@@ -807,6 +830,10 @@ func newIntakeServeCmd() *cobra.Command {
 			}
 			if opts.GitHubVerifyPR && !opts.GitHubCleanupMerged {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-verify-pr requires --github-cleanup-merged.")
+				return exitErr(2)
+			}
+			if opts.GitHubAdvanceJob && !opts.GitHubReconcileJob {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake serve: --github-advance-job requires --github-reconcile-job.")
 				return exitErr(2)
 			}
 			if opts.LinearMaxAge <= 0 {
@@ -881,6 +908,7 @@ func newIntakeServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.GitHubReconcileJob, "github-reconcile-job", false, "For GitHub PR events, also reconcile the owning durable job.")
 	cmd.Flags().BoolVar(&opts.GitHubCleanupMerged, "github-cleanup-merged", false, "With --github-reconcile-job, remove the job-owned worktree and branch after a merged PR event.")
 	cmd.Flags().BoolVar(&opts.GitHubVerifyPR, "github-verify-pr", false, "With --github-cleanup-merged, verify recorded GitHub PRs are merged with gh before cleanup.")
+	cmd.Flags().BoolVar(&opts.GitHubAdvanceJob, "github-advance-job", false, "With --github-reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.")
 	cmd.Flags().StringVar(&opts.LinearSecret, "linear-secret", "", "Linear webhook signing secret. Defaults to LINEAR_WEBHOOK_SECRET when set.")
 	cmd.Flags().StringVar(&opts.GitHubSecret, "github-secret", "", "GitHub webhook secret. Defaults to GITHUB_WEBHOOK_SECRET when set.")
 	cmd.Flags().BoolVar(&opts.RequireLinearSecret, "require-linear-secret", false, "Fail startup unless --linear-secret or LINEAR_WEBHOOK_SECRET is set.")
@@ -1135,12 +1163,13 @@ func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts in
 	if opts.DryRun {
 		result := &intakePublishResult{Event: ev, DryRun: true}
 		if provider == "github" && opts.GitHubReconcileJob {
-			reconcile, cleanupPreview, err := previewGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR)
+			reconcile, cleanupPreview, advancePreview, err := previewGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR, opts.GitHubAdvanceJob, "auto", runtimeSelection{})
 			if err != nil {
 				return nil, http.StatusInternalServerError, err
 			}
 			result.Reconcile = reconcile
 			result.CleanupPreview = cleanupPreview
+			result.AdvancePreview = advancePreview
 		}
 		if opts.PreviewTriggers {
 			preview, err := previewEventPublish(teamDir, ev.Type, ev.Payload)
@@ -1153,13 +1182,14 @@ func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts in
 	}
 
 	var reconcile *job.ReconcileResult
+	var advance *jobAdvanceResult
 	cleanup := ""
 	if provider == "github" && opts.GitHubReconcileJob {
 		if err := preflightIntakeDaemon(teamDir); err != nil {
 			return nil, http.StatusServiceUnavailable, err
 		}
 		var err error
-		reconcile, cleanup, err = reconcileGitHubIntakeJob(teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR)
+		reconcile, cleanup, advance, err = reconcileGitHubIntakeJob(nil, teamDir, ev, opts.GitHubCleanupMerged, opts.GitHubVerifyPR, opts.GitHubAdvanceJob, "auto", runtimeSelection{})
 		if err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
@@ -1175,7 +1205,7 @@ func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts in
 	if err != nil {
 		return nil, http.StatusBadGateway, err
 	}
-	return &intakePublishResult{Event: ev, Outcome: outcome, Reconcile: reconcile, Cleanup: cleanup}, http.StatusOK, nil
+	return &intakePublishResult{Event: ev, Outcome: outcome, Reconcile: reconcile, Cleanup: cleanup, Advance: advance}, http.StatusOK, nil
 }
 
 func writeIntakeServeJSON(w http.ResponseWriter, status int, v any) {
@@ -1240,6 +1270,8 @@ type intakePublishResult struct {
 	Reconcile      *job.ReconcileResult `json:"reconcile,omitempty"`
 	Cleanup        string               `json:"cleanup,omitempty"`
 	CleanupPreview *jobCleanupPreview   `json:"cleanup_preview,omitempty"`
+	Advance        *jobAdvanceResult    `json:"advance,omitempty"`
+	AdvancePreview *jobAdvancePreview   `json:"advance_preview,omitempty"`
 	Preview        *eventPublishPreview `json:"preview,omitempty"`
 	DryRun         bool                 `json:"dry_run,omitempty"`
 }
@@ -1255,8 +1287,8 @@ func parseIntakeFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *template.Template, reconcile *job.ReconcileResult, cleanupPreview *jobCleanupPreview, triggerPreview *eventPublishPreview) error {
-	result := intakePublishResult{Event: ev, Reconcile: reconcile, CleanupPreview: cleanupPreview, Preview: triggerPreview, DryRun: true}
+func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *template.Template, reconcile *job.ReconcileResult, cleanupPreview *jobCleanupPreview, advancePreview *jobAdvancePreview, triggerPreview *eventPublishPreview) error {
+	result := intakePublishResult{Event: ev, Reconcile: reconcile, CleanupPreview: cleanupPreview, AdvancePreview: advancePreview, Preview: triggerPreview, DryRun: true}
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
 	}
@@ -1284,6 +1316,13 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *templ
 	if cleanupPreview != nil {
 		fmt.Fprintf(w, "Cleanup: %s\n", cleanupPreview.Summary)
 	}
+	if advancePreview != nil {
+		if advancePreview.Message != "" {
+			fmt.Fprintf(w, "Advance: %s\n", advancePreview.Message)
+		} else if advancePreview.Step != nil {
+			fmt.Fprintf(w, "Advance: would dispatch step %s\n", advancePreview.Step.ID)
+		}
+	}
 	if triggerPreview != nil {
 		if !eventPublishPreviewHasRoutes(triggerPreview) {
 			fmt.Fprintln(w, "Triggers: none")
@@ -1305,10 +1344,10 @@ func preflightIntakeDaemon(teamDir string) error {
 }
 
 func publishIntakeEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {
-	return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, nil, "")
+	return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, nil, "", nil)
 }
 
-func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template, reconcile *job.ReconcileResult, cleanup string) error {
+func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template, reconcile *job.ReconcileResult, cleanup string, advance *jobAdvanceResult) error {
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -1324,7 +1363,7 @@ func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Eve
 		return exitErr(1)
 	}
 	out := cmd.OutOrStdout()
-	result := intakePublishResult{Event: ev, Outcome: res, Reconcile: reconcile, Cleanup: cleanup}
+	result := intakePublishResult{Event: ev, Outcome: res, Reconcile: reconcile, Cleanup: cleanup, Advance: advance}
 	if jsonOut {
 		return json.NewEncoder(out).Encode(result)
 	}
@@ -1341,46 +1380,73 @@ func publishIntakeEventWithJob(cmd *cobra.Command, target string, ev *intake.Eve
 	if cleanup != "" {
 		fmt.Fprintf(out, "Cleanup: %s\n", cleanup)
 	}
+	if advance != nil {
+		if advance.Message != "" {
+			fmt.Fprintf(out, "Advance: %s\n", advance.Message)
+		} else if advance.Step != nil {
+			fmt.Fprintf(out, "Advance: dispatched step %s status=%s\n", advance.Step.ID, advance.Step.Status)
+		}
+	}
 	return nil
 }
 
-func reconcileGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool) (*job.ReconcileResult, string, error) {
+func reconcileGitHubIntakeJob(cmd *cobra.Command, teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool, advance bool, workspace string, selection runtimeSelection) (*job.ReconcileResult, string, *jobAdvanceResult, error) {
+	if cmd == nil {
+		cmd = &cobra.Command{}
+	}
 	result, err := job.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	cleanup := ""
 	if cleanupMerged && result.Job.Status == job.StatusDone {
 		repoRoot := filepath.Dir(teamDir)
 		cleanup, err = cleanupJobOwnedWorktree(repoRoot, result.Job, false, verifyPR)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		result.Job.Worktree = ""
 		result.Job.Branch = ""
 		result.Job.LastStatus = strings.TrimSpace(result.Job.LastStatus + "; cleanup: " + cleanup)
 		result.Job.UpdatedAt = time.Now().UTC()
 		if err := writeJobWithAudit(teamDir, result.Job, "cleanup", "cli", cleanup, nil); err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 	}
-	return result, cleanup, nil
+	var advanceResult *jobAdvanceResult
+	if advance {
+		advanceResult, err = advanceJob(cmd, teamDir, result.Job, workspace, selection)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		if advanceResult != nil && advanceResult.Job != nil {
+			result.Job = advanceResult.Job
+		}
+	}
+	return result, cleanup, advanceResult, nil
 }
 
-func previewGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool) (*job.ReconcileResult, *jobCleanupPreview, error) {
+func previewGitHubIntakeJob(teamDir string, ev *intake.Event, cleanupMerged bool, verifyPR bool, advance bool, workspace string, selection runtimeSelection) (*job.ReconcileResult, *jobCleanupPreview, *jobAdvancePreview, error) {
 	result, err := job.PreviewReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var cleanupPreview *jobCleanupPreview
 	if cleanupMerged && result.Job.Status == job.StatusDone {
 		preview, err := previewJobCleanup(filepath.Dir(teamDir), result.Job, false, verifyPR)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		cleanupPreview = &preview
 	}
-	return result, cleanupPreview, nil
+	var advancePreview *jobAdvancePreview
+	if advance {
+		advancePreview, err = previewJobAdvanceDispatch(teamDir, result.Job, workspace, selection)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return result, cleanupPreview, advancePreview, nil
 }
 
 func renderIntakeTemplate(w io.Writer, result intakePublishResult, tmpl *template.Template) error {

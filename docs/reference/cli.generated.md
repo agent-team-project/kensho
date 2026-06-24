@@ -1221,6 +1221,7 @@ agent-team intake github [flags]
 Flags:
 
 ```text
+      --advance               With --reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.
       --cleanup-merged        With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.
       --dry-run               Normalize and print the event without publishing to the daemon.
       --format string         Render the intake result with a Go template, e.g. '{{.Event.Type}}'.
@@ -1229,8 +1230,11 @@ Flags:
       --payload-file string   Read webhook JSON from a file, or '-' for stdin.
       --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
       --reconcile-job         Also reconcile the normalized PR event into the owning durable job.
+      --runtime string        Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --advance dispatch. Overrides env and repo config.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
+      --workspace string      Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:
@@ -1360,6 +1364,7 @@ Flags:
 ```text
       --addr string                           Address for the webhook listener. (default "127.0.0.1:8787")
       --dry-run                               Normalize requests and return previews without publishing to the daemon.
+      --github-advance-job                    With --github-reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.
       --github-cleanup-merged                 With --github-reconcile-job, remove the job-owned worktree and branch after a merged PR event.
       --github-reconcile-job                  For GitHub PR events, also reconcile the owning durable job.
       --github-replay-window duration         Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable. (default 24h0m0s)
@@ -1400,6 +1405,7 @@ Flags:
       --container-workdir string              Container working directory used by compose service generation. (default "/workspace")
       --description string                    Service description. (default "agent-team intake server")
       --env-file string                       Secret environment file for systemd EnvironmentFile or compose env_file; launchd does not support this.
+      --github-advance-job                    Include --github-advance-job in ExecStart; requires --github-reconcile-job.
       --github-cleanup-merged                 Include --github-cleanup-merged in ExecStart; requires --github-reconcile-job.
       --github-reconcile-job                  Include --github-reconcile-job in ExecStart.
       --github-replay-window duration         Reject signed GitHub delivery IDs already seen within this duration. Use 0 to disable. (default 24h0m0s)
@@ -2199,6 +2205,7 @@ agent-team job reconcile github [flags]
 Flags:
 
 ```text
+      --advance               After reconciling PR metadata, dispatch the next ready pipeline step.
       --cleanup-merged        After a merged PR event, remove the job-owned worktree and branch.
       --dry-run               Preview the owning job update without writing it.
       --format string         Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.
@@ -2206,7 +2213,10 @@ Flags:
       --payload string        GitHub webhook JSON object.
       --payload-file string   Read GitHub webhook JSON from a file, or '-' for stdin.
       --repo string           Repo root containing .agent_team. (default "<repo>")
+      --runtime string        Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --advance dispatch. Overrides env and repo config.
       --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
+      --workspace string      Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job reconcile queue`

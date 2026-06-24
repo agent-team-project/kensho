@@ -5872,6 +5872,90 @@ func TestJobCleanupRejectsFormatCombinations(t *testing.T) {
 	}
 }
 
+func TestJobReconcileGitHubAdvancePreviewsPRGate(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+gate = "pr"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-49", "pr gate reconcile", "--repo", target, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, createErr.String())
+	}
+	step := NewRootCmd()
+	stepOut, stepErr := &bytes.Buffer{}, &bytes.Buffer{}
+	step.SetOut(stepOut)
+	step.SetErr(stepErr)
+	step.SetArgs([]string{"job", "step", "squ-49", "implement", "--status", "done", "--repo", target, "--json"})
+	if err := step.Execute(); err != nil {
+		t.Fatalf("mark implement done: %v\nstderr=%s", err, stepErr.String())
+	}
+	j, err := job.Read(teamDir, "squ-49")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	j.Branch = "worker-squ-49"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write branch: %v", err)
+	}
+
+	payload := `{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":49,"merged":false,"html_url":"https://github.com/acme/repo/pull/49","head":{"ref":"worker-squ-49"}}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "github", "--payload", payload, "--advance", "--dry-run", "--repo", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile github advance dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result struct {
+		Result struct {
+			Job job.Job `json:"job"`
+		} `json:"result"`
+		AdvancePreview *jobAdvancePreview `json:"advance_preview"`
+		DryRun         bool               `json:"dry_run"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile advance: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Result.Job.PR != "https://github.com/acme/repo/pull/49" {
+		t.Fatalf("reconcile result = %+v", result)
+	}
+	if result.AdvancePreview == nil || result.AdvancePreview.Step == nil || result.AdvancePreview.Step.ID != "review" || result.AdvancePreview.Dispatch == nil || result.AdvancePreview.Dispatch.RequestedName != "manager-squ-49-review" {
+		t.Fatalf("advance preview = %+v", result.AdvancePreview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-49")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.PR != "" {
+		t.Fatalf("dry-run wrote PR: %+v", unchanged)
+	}
+}
+
 func TestJobReconcileGitHubMergedCleansOwnedWorktree(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

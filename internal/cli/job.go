@@ -3731,6 +3731,10 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		dryRun        bool
 		cleanupMerged bool
 		verifyPR      bool
+		advance       bool
+		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		jsonOut       bool
 		format        string
 	)
@@ -3778,6 +3782,8 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 				return exitErr(1)
 			}
+			var advanceResult *jobAdvanceResult
+			var advancePreview *jobAdvancePreview
 			cleanupSummary := ""
 			var cleanupPreview *jobCleanupPreview
 			if cleanupMerged && result.Job.Status == job.StatusDone {
@@ -3804,14 +3810,34 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					}
 				}
 			}
+			if advance {
+				selection := runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}
+				if dryRun {
+					advancePreview, err = previewJobAdvanceDispatch(teamDir, result.Job, workspace, selection)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+						return exitErr(1)
+					}
+				} else {
+					advanceResult, err = advanceJob(cmd, teamDir, result.Job, workspace, selection)
+					if err != nil {
+						return err
+					}
+					if advanceResult != nil && advanceResult.Job != nil {
+						result.Job = advanceResult.Job
+					}
+				}
+			}
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
 					Event          *intake.Event        `json:"event"`
 					Result         *job.ReconcileResult `json:"result"`
 					Cleanup        string               `json:"cleanup,omitempty"`
 					CleanupPreview *jobCleanupPreview   `json:"cleanup_preview,omitempty"`
+					Advance        *jobAdvanceResult    `json:"advance,omitempty"`
+					AdvancePreview *jobAdvancePreview   `json:"advance_preview,omitempty"`
 					DryRun         bool                 `json:"dry_run,omitempty"`
-				}{Event: ev, Result: result, Cleanup: cleanupSummary, CleanupPreview: cleanupPreview, DryRun: dryRun})
+				}{Event: ev, Result: result, Cleanup: cleanupSummary, CleanupPreview: cleanupPreview, Advance: advanceResult, AdvancePreview: advancePreview, DryRun: dryRun})
 			}
 			if tmpl != nil {
 				return renderJobTemplate(cmd.OutOrStdout(), result.Job, tmpl)
@@ -3827,6 +3853,20 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			if cleanupPreview != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "Cleanup: %s\n", cleanupPreview.Summary)
 			}
+			if advancePreview != nil {
+				if advancePreview.Message != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Advance: %s\n", advancePreview.Message)
+				} else if advancePreview.Step != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Advance: would dispatch step %s\n", advancePreview.Step.ID)
+				}
+			}
+			if advanceResult != nil {
+				if advanceResult.Message != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Advance: %s\n", advanceResult.Message)
+				} else if advanceResult.Step != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Advance: dispatched step %s status=%s\n", advanceResult.Step.ID, advanceResult.Step.Status)
+				}
+			}
 			return nil
 		},
 	}
@@ -3836,6 +3876,10 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the owning job update without writing it.")
 	cmd.Flags().BoolVar(&cleanupMerged, "cleanup-merged", false, "After a merged PR event, remove the job-owned worktree and branch.")
 	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.")
+	cmd.Flags().BoolVar(&advance, "advance", false, "After reconciling PR metadata, dispatch the next ready pipeline step.")
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance dispatch: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the normalized event and reconciled job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd

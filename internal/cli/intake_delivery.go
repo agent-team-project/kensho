@@ -239,7 +239,7 @@ func newIntakeReplayCmd() *cobra.Command {
 						return exitErr(1)
 					}
 				}
-				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, triggerPreview)
+				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil, triggerPreview)
 			}
 			err = publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 			replayErr := ""

@@ -488,6 +488,25 @@ func TestIntakeServeGitHubVerifyPRRequiresCleanupMerged(t *testing.T) {
 	}
 }
 
+func TestIntakeServeGitHubAdvanceRequiresReconcileJob(t *testing.T) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "serve", "--github-advance-job"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("intake serve --github-advance-job succeeded without reconcile: stdout=%s", out.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--github-advance-job requires --github-reconcile-job") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestIntakeServiceSystemd(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
@@ -513,6 +532,7 @@ func TestIntakeServiceSystemd(t *testing.T) {
 		"--github-reconcile-job",
 		"--github-cleanup-merged",
 		"--github-verify-pr",
+		"--github-advance-job",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake service systemd: %v\nstderr=%s", err, stderr.String())
@@ -529,7 +549,7 @@ func TestIntakeServiceSystemd(t *testing.T) {
 		"Environment=LINEAR_SECRET=replace-me",
 		"Environment=GITHUB_SECRET=replace-me",
 		"ExecStartPre=/usr/local/bin/agent-team daemon start",
-		"ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --require-linear-secret --require-github-secret",
+		"ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:9999 --linear-max-age 2m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 24h0m0s --prune-recovered-older-than 48h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --github-advance-job --require-linear-secret --require-github-secret",
 		"Restart=on-failure",
 		"WantedBy=multi-user.target",
 	} {
@@ -810,6 +830,7 @@ func TestIntakeServiceValidation(t *testing.T) {
 		{[]string{"intake", "service", "kubernetes", "--ingress-host", "intake.example.com", "--tls-secret", "bad_name"}, "--tls-secret must be a Kubernetes DNS label"},
 		{[]string{"intake", "service", "systemd", "--github-verify-pr"}, "--github-verify-pr requires --github-cleanup-merged"},
 		{[]string{"intake", "service", "systemd", "--github-cleanup-merged"}, "--github-cleanup-merged requires --github-reconcile-job"},
+		{[]string{"intake", "service", "systemd", "--github-advance-job"}, "--github-advance-job requires --github-reconcile-job"},
 		{[]string{"intake", "service", "systemd", "--github-replay-window", "-1s"}, "--github-replay-window must be >= 0"},
 		{[]string{"intake", "service", "systemd", "--max-body-bytes", "0"}, "--max-body-bytes must be > 0"},
 		{[]string{"intake", "service", "systemd", "--linear-secret-env=", "--require-linear-secret"}, "--require-linear-secret requires --linear-secret-env"},
@@ -1995,6 +2016,84 @@ func TestIntakeGitHubDryRunReconcileJobDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestIntakeGitHubDryRunAdvancePreviewsPRGate(t *testing.T) {
+	target := t.TempDir()
+	initInto(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+gate = "pr"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-207", "pr gate intake", "--repo", target, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, createErr.String())
+	}
+	markDone := NewRootCmd()
+	markDoneOut, markDoneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	markDone.SetOut(markDoneOut)
+	markDone.SetErr(markDoneErr)
+	markDone.SetArgs([]string{"job", "step", "squ-207", "implement", "--status", "done", "--repo", target, "--json"})
+	if err := markDone.Execute(); err != nil {
+		t.Fatalf("mark implement done: %v\nstderr=%s", err, markDoneErr.String())
+	}
+	j, err := job.Read(teamDir, "squ-207")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	j.Branch = "worker-squ-207"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write branch: %v", err)
+	}
+
+	payload := `{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":207,"merged":false,"html_url":"https://github.com/acme/repo/pull/207","head":{"ref":"worker-squ-207"}}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--dry-run", "--reconcile-job", "--advance", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github dry-run advance: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode dry-run advance: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Reconcile == nil || result.Reconcile.Job.PR != "https://github.com/acme/repo/pull/207" {
+		t.Fatalf("reconcile preview = %+v", result)
+	}
+	if result.AdvancePreview == nil || result.AdvancePreview.Step == nil || result.AdvancePreview.Step.ID != "review" || result.AdvancePreview.Dispatch == nil || result.AdvancePreview.Dispatch.RequestedName != "manager-squ-207-review" {
+		t.Fatalf("advance preview = %+v", result.AdvancePreview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-207")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.PR != "" {
+		t.Fatalf("dry-run wrote PR: %+v", unchanged)
+	}
+}
+
 func TestIntakeGitHubReconcileDoesNotMutateWhenDaemonDown(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
@@ -2050,6 +2149,11 @@ func TestIntakeGitHubCleanupMergedRequiresReconcileJob(t *testing.T) {
 			name: "verify without cleanup",
 			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--verify-pr", "--dry-run"},
 			want: "--verify-pr requires --cleanup-merged",
+		},
+		{
+			name: "advance without reconcile",
+			args: []string{"intake", "github", "--payload", payload, "--advance", "--dry-run"},
+			want: "--advance requires --reconcile-job",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

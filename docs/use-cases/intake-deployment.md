@@ -25,6 +25,7 @@ agent-team intake serve \
   --require-linear-secret \
   --require-github-secret \
   --github-reconcile-job \
+  --github-advance-job \
   --github-cleanup-merged \
   --github-verify-pr
 ```
@@ -36,6 +37,10 @@ https://intake.example.com/linear
 https://intake.example.com/github
 https://intake.example.com/healthz
 ```
+
+`--github-advance-job` lets GitHub PR events unlock PR-gated pipeline steps
+after job PR metadata is reconciled. Keep `--github-cleanup-merged` and
+`--github-verify-pr` for post-merge branch/worktree cleanup.
 
 ## Before Exposing It
 
@@ -119,6 +124,7 @@ agent-team intake service systemd \
   --require-linear-secret \
   --require-github-secret \
   --github-reconcile-job \
+  --github-advance-job \
   --github-cleanup-merged \
   --github-verify-pr \
   > agent-team-intake-my-repo.service
@@ -139,7 +145,7 @@ WorkingDirectory=/srv/agent-team/my-repo
 Environment=LINEAR_WEBHOOK_SECRET=replace-me
 Environment=GITHUB_WEBHOOK_SECRET=replace-me
 ExecStartPre=/usr/local/bin/agent-team daemon start
-ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --require-linear-secret --require-github-secret
+ExecStart=/usr/local/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --github-advance-job --require-linear-secret --require-github-secret
 Restart=on-failure
 RestartSec=5s
 
@@ -159,6 +165,7 @@ agent-team intake service launchd \
   --bin /opt/homebrew/bin/agent-team \
   --name com.example.agent-team-intake-my-repo \
   --github-reconcile-job \
+  --github-advance-job \
   --github-cleanup-merged \
   --github-verify-pr \
   > com.example.agent-team-intake-my-repo.plist
@@ -187,7 +194,7 @@ The generated plist starts the repo daemon, then replaces the shell with the for
   <array>
     <string>/bin/sh</string>
     <string>-lc</string>
-    <string>/opt/homebrew/bin/agent-team daemon start &amp;&amp; exec /opt/homebrew/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr</string>
+    <string>/opt/homebrew/bin/agent-team daemon start &amp;&amp; exec /opt/homebrew/bin/agent-team intake serve --addr 127.0.0.1:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --github-advance-job</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -229,6 +236,7 @@ agent-team intake service compose \
   --name agent-team-intake-my-repo \
   --publish 127.0.0.1:8787:8787 \
   --github-reconcile-job \
+  --github-advance-job \
   --github-cleanup-merged \
   --github-verify-pr \
   > docker-compose.agent-team-intake-my-repo.yml
@@ -252,7 +260,7 @@ services:
     command:
       - "/bin/sh"
       - "-lc"
-      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr"
+      - "agent-team daemon start && exec agent-team intake serve --addr 0.0.0.0:8787 --linear-max-age 1m0s --github-replay-window 24h0m0s --max-body-bytes 1048576 --prune-ok-older-than 168h0m0s --prune-recovered-older-than 168h0m0s --github-reconcile-job --github-cleanup-merged --github-verify-pr --github-advance-job"
     restart: unless-stopped
 ```
 
@@ -274,6 +282,7 @@ agent-team intake service kubernetes \
   --ingress-class nginx \
   --tls-secret agent-team-intake-tls \
   --github-reconcile-job \
+  --github-advance-job \
   --github-cleanup-merged \
   --github-verify-pr \
   > kubernetes.agent-team-intake-my-repo.yaml
