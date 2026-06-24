@@ -93,7 +93,7 @@ agent-team intake deliveries --tail 20
 agent-team intake deliveries --unresolved
 agent-team intake doctor
 agent-team intake replay <delivery-id> --dry-run --preview-triggers
-agent-team intake replay --all --dry-run --preview-triggers
+agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers
 agent-team intake prune --older-than 168h --dry-run
 ```
 

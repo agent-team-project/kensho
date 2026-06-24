@@ -117,8 +117,8 @@ func TestRepairDryRunReportsIntakeRecoveryActions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"agent-team intake deliveries --unresolved",
-		"agent-team intake replay --all --dry-run --preview-triggers",
-		"agent-team intake replay --all",
+		"agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers",
+		"agent-team intake replay --all --dedupe-request-id",
 	} {
 		if !containsString(result.Intake.Actions, want) {
 			t.Fatalf("intake actions missing %q: %+v", want, result.Intake.Actions)

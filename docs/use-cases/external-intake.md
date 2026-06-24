@@ -61,7 +61,7 @@ The ledger distinguishes:
 Preview:
 
 ```sh
-agent-team intake replay --all --unresolved --dry-run --preview-triggers
+agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers
 ```
 
 Apply:

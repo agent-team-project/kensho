@@ -337,8 +337,8 @@ func collectRepairIntakeStep(teamDir string, opts repairOptions) repairIntakeSte
 	out.Actions = append(out.Actions, "agent-team intake deliveries --unresolved")
 	if out.Replayable > 0 {
 		out.Actions = append(out.Actions,
-			"agent-team intake replay --all --dry-run --preview-triggers",
-			"agent-team intake replay --all",
+			intakeReplayAllDryRunAction(),
+			intakeReplayAllAction(),
 		)
 	}
 	return out

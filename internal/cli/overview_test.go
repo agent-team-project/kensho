@@ -251,7 +251,7 @@ func TestOverviewReportsIntakeErrors(t *testing.T) {
 	for _, want := range []string{
 		"agent-team intake summary",
 		"agent-team intake deliveries --status error",
-		"agent-team intake replay --all --dry-run --preview-triggers",
+		"agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers",
 	} {
 		if !stringSliceContains(overview.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
@@ -502,7 +502,7 @@ func TestOverviewIgnoresRecoveredIntakeErrors(t *testing.T) {
 	for _, unwanted := range []string{
 		"agent-team intake summary",
 		"agent-team intake deliveries --status error",
-		"agent-team intake replay --all --dry-run --preview-triggers",
+		"agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers",
 	} {
 		if stringSliceContains(overview.Actions, unwanted) {
 			t.Fatalf("actions should not contain %q: %+v", unwanted, overview.Actions)

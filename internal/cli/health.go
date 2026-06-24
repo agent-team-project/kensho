@@ -696,7 +696,7 @@ func addIntakeHealth(result *healthResult, teamDir string) error {
 	}
 	actions := []string{"agent-team intake deliveries --unresolved"}
 	if result.Intake.Replayable > 0 {
-		actions = append(actions, "agent-team intake replay --all --dry-run --preview-triggers")
+		actions = append(actions, intakeReplayAllDryRunAction())
 	}
 	result.addIssueWithSeverityAndActions(
 		"intake_unresolved",

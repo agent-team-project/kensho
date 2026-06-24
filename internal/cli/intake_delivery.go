@@ -1067,14 +1067,22 @@ func intakeSummaryActions(summary intakeSummaryResult) []string {
 	}
 	if summary.Replayable > 0 {
 		actions = append(actions,
-			"agent-team intake replay --all --dry-run --preview-triggers",
-			"agent-team intake replay --all",
+			intakeReplayAllDryRunAction(),
+			intakeReplayAllAction(),
 		)
 	}
 	if summary.Recovered > 0 {
 		actions = append(actions, "agent-team intake prune --replay-status ok --dry-run")
 	}
 	return actions
+}
+
+func intakeReplayAllDryRunAction() string {
+	return "agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers"
+}
+
+func intakeReplayAllAction() string {
+	return "agent-team intake replay --all --dedupe-request-id"
 }
 
 func parseIntakeDeliveryFormat(format string) (*template.Template, error) {

@@ -1096,8 +1096,8 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	}
 	for _, want := range []string{
 		"agent-team intake deliveries --unresolved",
-		"agent-team intake replay --all --dry-run --preview-triggers",
-		"agent-team intake replay --all",
+		"agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers",
+		"agent-team intake replay --all --dedupe-request-id",
 		"agent-team intake prune --replay-status ok --dry-run",
 	} {
 		if !containsString(summary.Actions, want) {
@@ -1113,7 +1113,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("intake summary text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"intake: deliveries=4 ok=1 failed=3 unresolved=2 recovered=1 replayable=2 replay_failed=1 latest_error=github-replay-failed", "github", "linear", "agent-team intake replay --all"} {
+	for _, want := range []string{"intake: deliveries=4 ok=1 failed=3 unresolved=2 recovered=1 replayable=2 replay_failed=1 latest_error=github-replay-failed", "github", "linear", "agent-team intake replay --all --dedupe-request-id"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("summary text missing %q:\n%s", want, textOut.String())
 		}

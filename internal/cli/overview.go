@@ -687,7 +687,7 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 		add("agent-team intake summary", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
 		add("agent-team intake deliveries --status error", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
 		if out.Intake.Replayable > 0 {
-			add("agent-team intake replay --all --dry-run --preview-triggers", "intake", fmt.Sprintf("replayable=%d", out.Intake.Replayable))
+			add(intakeReplayAllDryRunAction(), "intake", fmt.Sprintf("replayable=%d", out.Intake.Replayable))
 		}
 	}
 	if len(out.SectionErrors) > 0 {

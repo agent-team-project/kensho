@@ -868,7 +868,7 @@ func TestHealthCommandReportsIntakeFailures(t *testing.T) {
 	var sawIntakeIssue bool
 	for _, issue := range body.Issues {
 		if issue.Code == "intake_unresolved" {
-			if !containsString(issue.Actions, "agent-team intake deliveries --unresolved") || !containsString(issue.Actions, "agent-team intake replay --all --dry-run --preview-triggers") {
+			if !containsString(issue.Actions, "agent-team intake deliveries --unresolved") || !containsString(issue.Actions, "agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers") {
 				t.Fatalf("intake issue actions = %+v", issue.Actions)
 			}
 			sawIntakeIssue = true
