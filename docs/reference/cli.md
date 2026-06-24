@@ -154,7 +154,7 @@ Shortcuts:
 | `agent-team pipeline status` | Summarize or watch pipeline jobs |
 | `agent-team pipeline explain <pipeline>` | Expand pipeline jobs into per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
-| `agent-team pipeline next` | Print recommended pipeline actions |
+| `agent-team pipeline next` | Print or watch recommended pipeline actions |
 | `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, and sort rows |
 | `agent-team pipeline ready` | List or watch ready steps; filter by `--step`, sort by `--sort`, and cap rows with `--limit` |
 | `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline |

@@ -466,6 +466,9 @@ func newPipelineNextCmd() *cobra.Command {
 		teamName string
 		all      bool
 		limit    int
+		watch    bool
+		noClear  bool
+		interval time.Duration
 		jsonOut  bool
 		format   string
 	)
@@ -492,6 +495,10 @@ func newPipelineNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --limit must be >= 0.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			tmpl, err := parsePipelineNextFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
@@ -509,27 +516,25 @@ func newPipelineNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: pipeline name is required.")
 				return exitErr(2)
 			}
-			var rows []pipelineStatusRow
-			if strings.TrimSpace(teamName) != "" {
-				rows, err = collectTeamPipelineStatus(teamDir, teamName)
-				if err == nil && pipelineName != "" {
-					rows, err = filterPipelineNextRowsForPipeline(rows, pipelineName, teamName)
-				}
-			} else {
-				rows, err = collectPipelineStatusRows(teamDir, pipelineName)
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runPipelineNextWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, teamName, limit, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err != nil {
+			if err := runPipelineNext(cmd.OutOrStdout(), teamDir, pipelineName, teamName, limit, jsonOut, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
 				return exitErr(1)
 			}
-			actions := pipelineNextActionsFromStatus(rows, limit)
-			return renderPipelineNextActions(cmd.OutOrStdout(), actions, jsonOut, tmpl)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.")
 	cmd.Flags().BoolVar(&all, "all", false, "Consider all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of actions to print (0 = no limit).")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended pipeline actions until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.")
 	return cmd
@@ -3661,6 +3666,51 @@ func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOu
 	}
 	renderPipelineNextActionTable(w, actions)
 	return nil
+}
+
+func runPipelineNext(w io.Writer, teamDir, pipeline, teamName string, limit int, jsonOut bool, tmpl *template.Template) error {
+	var (
+		rows []pipelineStatusRow
+		err  error
+	)
+	if strings.TrimSpace(teamName) != "" {
+		rows, err = collectTeamPipelineStatus(teamDir, teamName)
+		if err == nil && pipeline != "" {
+			rows, err = filterPipelineNextRowsForPipeline(rows, pipeline, teamName)
+		}
+	} else {
+		rows, err = collectPipelineStatusRows(teamDir, pipeline)
+	}
+	if err != nil {
+		return err
+	}
+	return renderPipelineNextActions(w, pipelineNextActionsFromStatus(rows, limit), jsonOut, tmpl)
+}
+
+func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, teamName string, limit int, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runPipelineNext(w, teamDir, pipeline, teamName, limit, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func renderPipelineNextActionTable(w io.Writer, actions []pipelineNextAction) {

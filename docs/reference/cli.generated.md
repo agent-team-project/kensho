@@ -3044,12 +3044,15 @@ agent-team pipeline next [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all             Consider all pipelines. This is the default when no pipeline is passed.
-      --format string   Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
-      --json            Emit recommended actions as JSON.
-      --limit int       Maximum number of actions to print (0 = no limit).
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --team string     Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.
+      --all                 Consider all pipelines. This is the default when no pipeline is passed.
+      --format string       Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit recommended actions as JSON.
+      --limit int           Maximum number of actions to print (0 = no limit).
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --team string         Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.
+  -w, --watch               Refresh recommended pipeline actions until interrupted.
 ```
 
 ## `agent-team pipeline ready`

@@ -1890,6 +1890,21 @@ pipelines = ["ticket_to_pr"]
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	watchCmd := NewRootCmd()
+	watchOut, watchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watchCmd.SetContext(ctx)
+	watchCmd.SetOut(watchOut)
+	watchCmd.SetErr(watchErr)
+	watchCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--limit", "1", "--watch", "--no-clear", "--interval", "1h", "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
+	if err := watchCmd.Execute(); err != nil {
+		t.Fatalf("pipeline next watch: %v\nstderr=%s", err, watchErr.String())
+	}
+	if got := strings.TrimSpace(watchOut.String()); got != "ticket_to_pr|ready_steps=1|agent-team pipeline advance ticket_to_pr --dry-run --preview-routes" || strings.Contains(watchOut.String(), watchClearSequence) {
+		t.Fatalf("pipeline next watch output = %q", watchOut.String())
+	}
+
 	teamCmd := NewRootCmd()
 	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
 	teamCmd.SetOut(teamOut)
@@ -1908,6 +1923,18 @@ pipelines = ["ticket_to_pr"]
 		if !strings.Contains(teamOut.String(), want) {
 			t.Fatalf("pipeline next team format missing %q:\n%s", want, teamOut.String())
 		}
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("pipeline next negative interval succeeded")
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("invalid interval stderr = %q", invalidIntervalErr.String())
 	}
 }
 
