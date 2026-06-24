@@ -35,6 +35,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 		execProbe     bool
 		execPrompt    string
 		output        string
+		requireDaemon bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -54,6 +55,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 				SkipDoctor:    skipDoctor,
 				Exec:          execProbe,
 				ExecPrompt:    execPrompt,
+				RequireDaemon: requireDaemon,
 			})
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime probe: %v\n", err)
@@ -89,6 +91,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&execProbe, "exec", false, "Run a minimal runtime-native execution probe. Currently supports Codex one-shot execution.")
 	cmd.Flags().StringVar(&execPrompt, "exec-prompt", defaultRuntimeProbeExecPrompt, "Prompt sent to the runtime when --exec is set.")
 	cmd.Flags().StringVar(&output, "output", "", "Write the full probe result as pretty JSON to this file.")
+	cmd.Flags().BoolVar(&requireDaemon, "require-daemon", false, "Fail when the repo daemon is not running and ready.")
 	return cmd
 }
 
@@ -100,6 +103,7 @@ type runtimeProbeOptions struct {
 	SkipDoctor    bool
 	Exec          bool
 	ExecPrompt    string
+	RequireDaemon bool
 }
 
 type runtimeProbeResult struct {
@@ -218,7 +222,11 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 		status := collectDaemonStatus(teamDir)
 		result.Daemon = &status
 		if !status.Running {
-			result.addIssue("warning", "daemon", "not_running", "agent-teamd is not running; daemon-backed dispatch, mailbox, and channel flows are unavailable", "Run `agent-team daemon start`.")
+			severity := "warning"
+			if opts.RequireDaemon {
+				severity = "fail"
+			}
+			result.addIssue(severity, "daemon", "not_running", "agent-teamd is not running; daemon-backed dispatch, mailbox, and channel flows are unavailable", "Run `agent-team daemon start`.")
 		} else if !status.Ready {
 			result.addIssue("fail", "daemon", "not_ready", "agent-teamd is running but not ready: "+emptyDash(status.Error), "Run `agent-team daemon status --wait` or inspect the daemon log.")
 		}

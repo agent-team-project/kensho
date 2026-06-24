@@ -3735,6 +3735,7 @@ Flags:
       --exec-prompt string   Prompt sent to the runtime when --exec is set. (default "Reply exactly with: agent-team runtime probe ok")
       --json                 Emit machine-readable JSON.
       --output string        Write the full probe result as pretty JSON to this file.
+      --require-daemon       Fail when the repo daemon is not running and ready.
       --runtime string       Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary to probe for this invocation. Overrides env and repo config.
       --skip-doctor          Skip runtime-native diagnostics such as codex doctor --json.

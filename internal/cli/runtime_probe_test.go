@@ -151,6 +151,44 @@ func TestRuntimeProbeSkipDoctorWarningsDoNotFail(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeRequireDaemonFailsWhenStopped(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--require-daemon", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("runtime probe succeeded, want daemon-required failure")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("error = %v, want exit 1", err)
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || !containsRuntimeProbeIssue(result.Issues, "fail", "daemon", "not_running") {
+		t.Fatalf("result = %+v, want failing daemon issue", result)
+	}
+}
+
 func TestRuntimeProbeOutputWritesDiagnosticFile(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	t.Setenv(runtimebin.EnvBinary, "")
