@@ -143,7 +143,11 @@ and `tick` do not advance them.
    channel, and assign-worker helpers use that resolved socket path, falling
    back to `.agent_team/daemon.sock` for older sessions. Remaining validation:
    confirm whether the selected Codex sandbox allows Unix socket connections to
-   that path during real worker execution.
+   that path during real worker execution. Follow-up tooling now includes
+   `agent-team runtime probe`, which combines agent-team runtime selection,
+   daemon readiness, daemon socket path, and `codex doctor --json` failures so
+   provider reachability or auth issues are separated from socket-policy
+   failures before dispatching Codex jobs.
 
 8. **`job cleanup --merged` can remove a worktree for a job still marked `running`.**
    In the sandbox, `job cleanup doc-701 --merged` removed the owned worktree and
@@ -230,8 +234,8 @@ and `tick` do not advance them.
 
 ## Suggested Next Fixes
 
-1. Confirm the selected Codex sandbox allows daemon Unix socket connections
-   from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
+1. Re-run `agent-team runtime probe --runtime codex --json` and then a real
+   Codex worker socket check after DNS/provider reachability is healthy.
 2. Reduce noisy raw Codex adapter logs in successful short runs, especially
    plugin/skill warnings that obscure the useful last message.
 3. Investigate why `agent-team`-supervised `codex exec -` stalls even though

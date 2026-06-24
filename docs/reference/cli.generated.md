@@ -3514,6 +3514,7 @@ Inherited Flags:
 Subcommands:
 
 - `agent-team runtime ls` - List supported runtime profiles.
+- `agent-team runtime probe` - Probe runtime, daemon, and Codex environment health.
 
 ## `agent-team runtime ls`
 
@@ -3533,6 +3534,33 @@ Flags:
       --format string   Render each runtime row with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
       --json            Emit machine-readable JSON.
       --target string   Repo root or any path under a repo. (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team runtime probe`
+
+Probe runtime, daemon, and Codex environment health.
+
+Probe the selected runtime and repo daemon health. For the Codex runtime, the probe also runs `codex doctor --json` so provider reachability, auth, and sandbox issues are captured before dispatching work.
+
+```text
+agent-team runtime probe [flags]
+```
+
+Flags:
+
+```text
+      --json                 Emit machine-readable JSON.
+      --runtime string       Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary to probe for this invocation. Overrides env and repo config.
+      --skip-doctor          Skip runtime-native diagnostics such as codex doctor --json.
+      --target string        Repo root or any path under a repo. (default "<repo>")
+      --timeout duration     Maximum time for external runtime diagnostics such as codex doctor --json. (default 20s)
 ```
 
 Inherited Flags:

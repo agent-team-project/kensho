@@ -22,6 +22,22 @@ The command reports:
 - direct-run, daemon-dispatch, direct-resume, managed-resume, and subagent capabilities
 - adapter notes and missing-binary warnings
 
+## Probe Runtime Health
+
+Use `runtime probe` when you need a dispatch preflight rather than a static profile:
+
+```sh
+agent-team runtime probe
+agent-team runtime probe --runtime codex
+agent-team runtime probe --runtime codex --json
+agent-team runtime probe --runtime codex --skip-doctor
+```
+
+The probe combines the selected runtime profile, daemon readiness, daemon socket
+path, and action hints. For Codex it also runs `codex doctor --json` with a
+timeout, so provider reachability, auth, MCP, and sandbox failures are visible
+before jobs or pipelines queue work against a runtime that cannot start.
+
 ## Selection Order
 
 Runtime selection is deterministic:
@@ -176,6 +192,7 @@ Use jobs, queue, and pipeline commands for orchestration around Codex runs inste
 | `codex daemon dispatch requires --prompt` | Codex daemon runs need an explicit one-shot task | Add `--prompt "..."` |
 | `runtime "codex" does not support managed resume` | Codex metadata cannot be started or restarted through managed daemon resume | Inspect logs or last message, then re-run with a fresh `--prompt` when more work is needed |
 | Tool scripts cannot find state | Missing `AGENT_TEAM_*` environment in runtime shell | Check `agent-team runtime` and inspect the daemon child log |
+| Codex exits before running any task | Codex auth, provider reachability, or sandbox setup is broken | `agent-team runtime probe --runtime codex --json`, then `codex doctor --summary` |
 
 ## Adapter Design Notes
 
