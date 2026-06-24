@@ -44,6 +44,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineSkipCmd())
 	cmd.AddCommand(newPipelineCancelCmd())
 	cmd.AddCommand(newPipelineResumePlanCmd())
+	cmd.AddCommand(newPipelineSendCmd())
 	cmd.AddCommand(newPipelineRetryCmd())
 	cmd.AddCommand(newPipelineTimeoutCmd())
 	cmd.AddCommand(newPipelineRunCmd())
@@ -1149,6 +1150,115 @@ func newPipelineResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching pipeline resume plans by recommended action, runtime, and status.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
+	return cmd
+}
+
+func newPipelineSendCmd() *cobra.Command {
+	var (
+		repo           string
+		from           string
+		message        string
+		messageFile    string
+		allStatuses    bool
+		latest         bool
+		last           int
+		statusFilters  []string
+		runtimeFilters []string
+		phaseFilters   []string
+		staleOnly      bool
+		unhealthyOnly  bool
+		dryRun         bool
+		jsonOut        bool
+		format         string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "send <pipeline> [message...]",
+		Short: "Send a mailbox message to pipeline-owned instances.",
+		Long: "Send a mailbox message to daemon-known instances owned by jobs in one declared pipeline. " +
+			"Use --all to include every lifecycle status, or combine selectors such as --status, --runtime, --phase, --latest, --last, --stale, and --unhealthy.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline send: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline send: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline send: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSendFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline send: %v\n", err)
+				return exitErr(2)
+			}
+			body, err := sendMessageBody(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline send: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := strings.TrimSpace(args[0])
+			if pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline send: pipeline name is required.")
+				return exitErr(2)
+			}
+			if _, err := loadPipelineInfo(teamDir, pipelineName); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline send: %v\n", err)
+				return exitErr(1)
+			}
+			baseClient, err := sendClientForTeamDir(teamDir)
+			if err != nil {
+				return err
+			}
+			effectiveStatuses := append([]string(nil), statusFilters...)
+			if !allStatuses && len(effectiveStatuses) == 0 && !staleOnly && !unhealthyOnly {
+				effectiveStatuses = []string{string(daemon.StatusRunning)}
+			}
+			opts := sendOptions{
+				From:            from,
+				All:             true,
+				Latest:          latest,
+				Limit:           last,
+				StatusFilters:   effectiveStatuses,
+				RuntimeFilters:  runtimeFilters,
+				PhaseFilters:    phaseFilters,
+				Stale:           staleOnly,
+				Unhealthy:       unhealthyOnly,
+				StaleByInstance: staleInstanceSet(teamDir, time.Now()),
+				DryRun:          dryRun,
+				JSON:            jsonOut,
+				Format:          formatTemplate,
+			}
+			if len(phaseFilters) > 0 {
+				opts.PhaseByInstance = sendPhaseByInstance(teamDir, time.Now())
+			}
+			client := pipelineSendClient{sendClient: baseClient, teamDir: teamDir, pipeline: pipelineName}
+			return runSendSelectionWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, body, opts)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
+	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&allStatuses, "all", false, "Send to every daemon-known pipeline instance regardless of lifecycle status.")
+	cmd.Flags().BoolVar(&latest, "latest", false, "Send to the most recently started pipeline-owned daemon-known instance after other filters.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Send to the N most recently started pipeline-owned daemon-known instances after other filters (0 = all).")
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Send to pipeline-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Send to pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to pipeline-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to pipeline-owned instances whose status.toml is stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to pipeline-owned instances that are crashed or stale.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.")
 	return cmd
 }
 
@@ -2797,28 +2907,16 @@ func selectedPipelineJobs(teamDir, pipeline string) ([]*job.Job, error) {
 	return out, nil
 }
 
-func collectPipelineRuntimeResumePlans(teamDir, pipeline string, statusFilters []string, runtimeFilters []string, actionFilters []string) ([]runtimeResumePlan, error) {
+type pipelineOwnedMetadata struct {
+	Metadata       []*daemon.Metadata
+	JobForInstance map[string]string
+}
+
+func collectPipelineOwnedMetadata(teamDir, pipeline string, metas []*daemon.Metadata) (pipelineOwnedMetadata, error) {
 	jobs, err := selectedPipelineJobs(teamDir, pipeline)
 	if err != nil {
-		return nil, err
+		return pipelineOwnedMetadata{}, err
 	}
-	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
-	if err != nil {
-		return nil, err
-	}
-	statusSet, err := parseRuntimeResumeStatusFilter(statusFilters)
-	if err != nil {
-		return nil, err
-	}
-	runtimeSet, err := parseRuntimeResumeRuntimeFilter(runtimeFilters)
-	if err != nil {
-		return nil, err
-	}
-	actionSet, err := parseRuntimeResumeActionFilter(actionFilters)
-	if err != nil {
-		return nil, err
-	}
-
 	byInstance := map[string]*daemon.Metadata{}
 	for _, meta := range metas {
 		if meta == nil {
@@ -2843,9 +2941,42 @@ func collectPipelineRuntimeResumePlans(teamDir, pipeline string, statusFilters [
 			}
 		}
 	}
+	names := make([]string, 0, len(selected))
+	for name := range selected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*daemon.Metadata, 0, len(names))
+	for _, name := range names {
+		out = append(out, selected[name])
+	}
+	return pipelineOwnedMetadata{Metadata: out, JobForInstance: jobForInstance}, nil
+}
 
-	plans := make([]runtimeResumePlan, 0, len(selected))
-	for _, meta := range selected {
+func collectPipelineRuntimeResumePlans(teamDir, pipeline string, statusFilters []string, runtimeFilters []string, actionFilters []string) ([]runtimeResumePlan, error) {
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	owned, err := collectPipelineOwnedMetadata(teamDir, pipeline, metas)
+	if err != nil {
+		return nil, err
+	}
+	statusSet, err := parseRuntimeResumeStatusFilter(statusFilters)
+	if err != nil {
+		return nil, err
+	}
+	runtimeSet, err := parseRuntimeResumeRuntimeFilter(runtimeFilters)
+	if err != nil {
+		return nil, err
+	}
+	actionSet, err := parseRuntimeResumeActionFilter(actionFilters)
+	if err != nil {
+		return nil, err
+	}
+
+	plans := make([]runtimeResumePlan, 0, len(owned.Metadata))
+	for _, meta := range owned.Metadata {
 		if len(statusSet) > 0 && !statusSet[strings.ToLower(strings.TrimSpace(string(meta.Status)))] {
 			continue
 		}
@@ -2855,7 +2986,7 @@ func collectPipelineRuntimeResumePlans(teamDir, pipeline string, statusFilters [
 		}
 		plan := runtimeResumePlanFromMetadata(meta)
 		if strings.TrimSpace(plan.Job) == "" {
-			if jobID := jobForInstance[meta.Instance]; jobID != "" {
+			if jobID := owned.JobForInstance[meta.Instance]; jobID != "" {
 				plan = runtimeResumePlanWithJobCommands(plan, jobID)
 			}
 		}
@@ -2868,6 +2999,24 @@ func collectPipelineRuntimeResumePlans(teamDir, pipeline string, statusFilters [
 		return plans[i].Instance < plans[j].Instance
 	})
 	return plans, nil
+}
+
+type pipelineSendClient struct {
+	sendClient
+	teamDir  string
+	pipeline string
+}
+
+func (c pipelineSendClient) Instances() ([]*daemon.Metadata, error) {
+	metas, err := c.sendClient.Instances()
+	if err != nil {
+		return nil, err
+	}
+	owned, err := collectPipelineOwnedMetadata(c.teamDir, c.pipeline, metas)
+	if err != nil {
+		return nil, err
+	}
+	return owned.Metadata, nil
 }
 
 func holdStateSelected(state string, stateFilter map[string]bool, stateDefault bool) bool {

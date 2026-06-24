@@ -3021,6 +3021,161 @@ target = "worker"
 	}
 }
 
+func TestPipelineSendScopesRecipients(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "audit"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-960",
+			Ticket:    "SQU-960",
+			Target:    "worker",
+			Kickoff:   "pipeline send",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-960",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "squ-961",
+			Ticket:    "SQU-961",
+			Target:    "worker",
+			Kickoff:   "stopped pipeline recipient",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-961",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "squ-962",
+			Ticket:    "SQU-962",
+			Target:    "worker",
+			Kickoff:   "foreign pipeline",
+			Pipeline:  "ops_review",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-962",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-960", Job: "squ-960", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(time.Minute), Workspace: root},
+		{Instance: "worker-squ-960", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(2 * time.Minute), Workspace: root},
+		{Instance: "worker-squ-961", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusStopped, PID: os.Getpid(), StartedAt: now.Add(3 * time.Minute), Workspace: root},
+		{Instance: "worker-squ-962", Job: "squ-962", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(4 * time.Minute), Workspace: root},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--dry-run", "--json", "hello", "pipeline"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("pipeline send dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryRows []sendJSON
+	if err := json.Unmarshal(dryOut.Bytes(), &dryRows); err != nil {
+		t.Fatalf("decode pipeline send dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if got := sendTargets(dryRows); strings.Join(got, ",") != "manager-squ-960,worker-squ-960" {
+		t.Fatalf("pipeline send dry-run targets = %v", got)
+	}
+
+	codex := NewRootCmd()
+	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codex.SetOut(codexOut)
+	codex.SetErr(codexErr)
+	codex.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--runtime", "codex", "--dry-run", "--json", "hello"})
+	if err := codex.Execute(); err != nil {
+		t.Fatalf("pipeline send --runtime dry-run: %v\nstderr=%s", err, codexErr.String())
+	}
+	var codexRows []sendJSON
+	if err := json.Unmarshal(codexOut.Bytes(), &codexRows); err != nil {
+		t.Fatalf("decode pipeline send --runtime: %v\nbody=%s", err, codexOut.String())
+	}
+	if got := sendTargets(codexRows); strings.Join(got, ",") != "worker-squ-960" {
+		t.Fatalf("pipeline send --runtime targets = %v", got)
+	}
+
+	allStatuses := NewRootCmd()
+	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allStatuses.SetOut(allOut)
+	allStatuses.SetErr(allErr)
+	allStatuses.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--all", "--dry-run", "--json", "hello"})
+	if err := allStatuses.Execute(); err != nil {
+		t.Fatalf("pipeline send --all dry-run: %v\nstderr=%s", err, allErr.String())
+	}
+	var allRows []sendJSON
+	if err := json.Unmarshal(allOut.Bytes(), &allRows); err != nil {
+		t.Fatalf("decode pipeline send --all: %v\nbody=%s", err, allOut.String())
+	}
+	if got := sendTargets(allRows); strings.Join(got, ",") != "manager-squ-960,worker-squ-960,worker-squ-961" {
+		t.Fatalf("pipeline send --all targets = %v", got)
+	}
+
+	send := NewRootCmd()
+	sendOut, sendErr := &bytes.Buffer{}, &bytes.Buffer{}
+	send.SetOut(sendOut)
+	send.SetErr(sendErr)
+	send.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--from", "operator", "please", "sync"})
+	if err := send.Execute(); err != nil {
+		t.Fatalf("pipeline send: %v\nstderr=%s", err, sendErr.String())
+	}
+	for _, instance := range []string{"manager-squ-960", "worker-squ-960"} {
+		messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), instance)
+		if err != nil {
+			t.Fatalf("read messages %s: %v", instance, err)
+		}
+		if len(messages) != 1 || messages[0].From != "operator" || messages[0].Body != "please sync" {
+			t.Fatalf("messages %s = %+v", instance, messages)
+		}
+	}
+	for _, instance := range []string{"worker-squ-961", "worker-squ-962"} {
+		messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), instance)
+		if err != nil {
+			t.Fatalf("read messages %s: %v", instance, err)
+		}
+		if len(messages) != 0 {
+			t.Fatalf("unexpected messages %s = %+v", instance, messages)
+		}
+	}
+}
+
 func TestPipelinePRGateWaitsForJobPR(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

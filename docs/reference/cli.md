@@ -174,6 +174,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team pipeline skip <pipeline> --step <id>` | Mark matching non-running steps intentionally skipped |
 | `agent-team pipeline cancel <pipeline>` | Cancel non-terminal pipeline jobs without stopping instances |
 | `agent-team pipeline resume-plan <pipeline>` | Pipeline-scoped runtime recovery commands; filter by `--action` or summarize with `--summary` |
+| `agent-team pipeline send <pipeline>` | Send a mailbox message to pipeline-owned daemon-known instances |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--force` for an explicit override |
 

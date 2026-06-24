@@ -2931,6 +2931,7 @@ Subcommands:
 - `agent-team pipeline resume-plan` - Show runtime resume and fallback commands for one pipeline.
 - `agent-team pipeline retry` - Reset failed pipeline steps for another attempt.
 - `agent-team pipeline run` - Create a durable job from a pipeline declaration.
+- `agent-team pipeline send` - Send a mailbox message to pipeline-owned instances.
 - `agent-team pipeline show` - Show one declared pipeline.
 - `agent-team pipeline skip` - Mark matching pipeline steps intentionally skipped.
 - `agent-team pipeline snapshot` - Capture a read-only diagnostic snapshot for one pipeline.
@@ -3314,6 +3315,36 @@ Flags:
       --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string     Canonical ticket URL to store on the job.
       --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team pipeline send`
+
+Send a mailbox message to pipeline-owned instances.
+
+Send a mailbox message to daemon-known instances owned by jobs in one declared pipeline. Use --all to include every lifecycle status, or combine selectors such as --status, --runtime, --phase, --latest, --last, --stale, and --unhealthy.
+
+```text
+agent-team pipeline send <pipeline> [message...] [flags]
+```
+
+Flags:
+
+```text
+      --all                   Send to every daemon-known pipeline instance regardless of lifecycle status.
+      --dry-run               Preview matching recipients without appending mailbox messages.
+      --format string         Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.
+      --from string           Sender label recorded with the message. (default "(cli)")
+      --json                  Emit machine-readable JSON.
+  -n, --last int              Send to the N most recently started pipeline-owned daemon-known instances after other filters (0 = all).
+      --latest                Send to the most recently started pipeline-owned daemon-known instance after other filters.
+      --message string        Message text to send.
+      --message-file string   Read message text from a file, or '-' for stdin.
+      --phase strings         Send to pipeline-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --runtime strings       Send to pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --stale                 Send to pipeline-owned instances whose status.toml is stale.
+      --status strings        Send to pipeline-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --unhealthy             Send to pipeline-owned instances that are crashed or stale.
 ```
 
 ## `agent-team pipeline show`
