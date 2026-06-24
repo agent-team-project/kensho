@@ -3824,7 +3824,7 @@ func newJobStepCmd() *cobra.Command {
 					}
 					return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 				}
-				return renderJobStepPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+				return renderJobStepPreview(cmd.OutOrStdout(), j, args[1], jsonOut, tmpl)
 			}
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": args[1]}); err != nil {
 				return err
@@ -3846,7 +3846,7 @@ func newJobStepCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
 			}
 			if tmpl != nil {
-				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
+				return renderJobStepTemplate(cmd.OutOrStdout(), j, args[1], false, tmpl)
 			}
 			renderJobDetail(cmd.OutOrStdout(), j)
 			return nil
@@ -3931,7 +3931,7 @@ func newJobApproveCmd() *cobra.Command {
 					}
 					return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 				}
-				return renderJobStepPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+				return renderJobStepPreview(cmd.OutOrStdout(), j, selectedStep, jsonOut, tmpl)
 			}
 			if err := writeJobWithAudit(teamDir, j, "manual_gate_approved", "cli", approvalMessage, map[string]string{"step": selectedStep}); err != nil {
 				return err
@@ -3953,7 +3953,7 @@ func newJobApproveCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
 			}
 			if tmpl != nil {
-				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
+				return renderJobStepTemplate(cmd.OutOrStdout(), j, selectedStep, false, tmpl)
 			}
 			renderJobDetail(cmd.OutOrStdout(), j)
 			return nil
@@ -4023,7 +4023,7 @@ func newJobRejectCmd() *cobra.Command {
 			}
 			j.LastEvent = "manual_gate_rejected"
 			if dryRun {
-				return renderJobStepPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+				return renderJobStepPreview(cmd.OutOrStdout(), j, selectedStep, jsonOut, tmpl)
 			}
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": selectedStep}); err != nil {
 				return err
@@ -4032,7 +4032,7 @@ func newJobRejectCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
 			}
 			if tmpl != nil {
-				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
+				return renderJobStepTemplate(cmd.OutOrStdout(), j, selectedStep, false, tmpl)
 			}
 			renderJobDetail(cmd.OutOrStdout(), j)
 			return nil
@@ -9453,12 +9453,45 @@ type jobStepPreview struct {
 	DryRun bool     `json:"dry_run"`
 }
 
-func renderJobStepPreview(w io.Writer, j *job.Job, jsonOut bool, tmpl *template.Template) error {
+type jobStepTemplateContext struct {
+	*job.Job
+	Step   *job.Step `json:"step,omitempty"`
+	DryRun bool      `json:"dry_run,omitempty"`
+}
+
+func renderJobStepTemplate(w io.Writer, j *job.Job, stepID string, dryRun bool, tmpl *template.Template) error {
+	if tmpl == nil {
+		return nil
+	}
+	ctx := jobStepTemplateContext{
+		Job:    j,
+		Step:   jobStepForTemplate(j, stepID),
+		DryRun: dryRun,
+	}
+	if err := tmpl.Execute(w, ctx); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
+}
+
+func jobStepForTemplate(j *job.Job, stepID string) *job.Step {
+	if j == nil {
+		return nil
+	}
+	idx := jobStepIndex(j, stepID)
+	if idx == -1 {
+		return nil
+	}
+	return &j.Steps[idx]
+}
+
+func renderJobStepPreview(w io.Writer, j *job.Job, stepID string, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(jobStepPreview{Job: j, DryRun: true})
 	}
 	if tmpl != nil {
-		return renderJobTemplate(w, j, tmpl)
+		return renderJobStepTemplate(w, j, stepID, true, tmpl)
 	}
 	fmt.Fprintln(w, "Dry run: true")
 	renderJobDetail(w, j)

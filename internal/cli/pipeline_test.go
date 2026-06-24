@@ -2355,9 +2355,12 @@ gate = "manual"
 	approveOut, approveErr := &bytes.Buffer{}, &bytes.Buffer{}
 	approve.SetOut(approveOut)
 	approve.SetErr(approveErr)
-	approve.SetArgs([]string{"job", "approve", "squ-901", "--repo", root, "--json"})
+	approve.SetArgs([]string{"job", "approve", "squ-901", "--repo", root, "--format", "{{.Job.ID}} {{.Step.ID}} {{.Step.Status}}"})
 	if err := approve.Execute(); err != nil {
 		t.Fatalf("approve gate: %v\nstderr=%s", err, approveErr.String())
+	}
+	if got := approveOut.String(); got != "squ-901 review queued\n" {
+		t.Fatalf("approve format = %q", got)
 	}
 
 	advanceReady := NewRootCmd()
