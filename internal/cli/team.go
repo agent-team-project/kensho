@@ -820,6 +820,9 @@ func newTeamJobsCmd() *cobra.Command {
 		status         string
 		sortBy         string
 		runtimeFilters []string
+		watch          bool
+		noClear        bool
+		interval       time.Duration
 		held           bool
 		unheld         bool
 		expiredHold    bool
@@ -840,6 +843,10 @@ func newTeamJobsCmd() *cobra.Command {
 			}
 			if format != "" && summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team jobs: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team jobs: --interval must be >= 0.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -877,26 +884,25 @@ func newTeamJobsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			jobs, err := collectTeamJobs(teamDir, args[0], statusFilter, sortMode, runtimes, jobHeldFilter(held, unheld), jobHoldExpiredFilter(expiredHold, activeHold))
-			if err != nil {
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runTeamJobsWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], statusFilter, sortMode, runtimes, jobHeldFilter(held, unheld), jobHoldExpiredFilter(expiredHold, activeHold), summary, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
+			if err := runTeamJobs(cmd.OutOrStdout(), teamDir, args[0], statusFilter, sortMode, runtimes, jobHeldFilter(held, unheld), jobHoldExpiredFilter(expiredHold, activeHold), summary, jsonOut, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
 				return exitErr(1)
 			}
-			if summary {
-				s := summarizeJobsWithRuntime(teamDir, jobs)
-				if jsonOut {
-					return json.NewEncoder(cmd.OutOrStdout()).Encode(s)
-				}
-				renderJobSummary(cmd.OutOrStdout(), s)
-				return nil
-			}
-			return renderTeamJobs(cmd.OutOrStdout(), teamDir, jobs, jsonOut, tmpl)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team jobs until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
 	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
 	cmd.Flags().BoolVar(&expiredHold, "expired-hold", false, "Only show held jobs whose hold_until has passed.")
@@ -5704,6 +5710,48 @@ func collectTeamJobs(teamDir, name string, status job.Status, sortMode string, r
 	}
 	sortJobs(owned, sortMode)
 	return owned, nil
+}
+
+func runTeamJobs(w io.Writer, teamDir, name string, status job.Status, sortMode string, runtimes map[string]bool, heldFilter *bool, holdExpiredFilter *bool, summary bool, jsonOut bool, tmpl *template.Template) error {
+	jobs, err := collectTeamJobs(teamDir, name, status, sortMode, runtimes, heldFilter, holdExpiredFilter)
+	if err != nil {
+		return err
+	}
+	if summary {
+		s := summarizeJobsWithRuntime(teamDir, jobs)
+		if jsonOut {
+			return json.NewEncoder(w).Encode(s)
+		}
+		renderJobSummary(w, s)
+		return nil
+	}
+	return renderTeamJobs(w, teamDir, jobs, jsonOut, tmpl)
+}
+
+func runTeamJobsWatch(ctx context.Context, w io.Writer, teamDir, name string, status job.Status, sortMode string, runtimes map[string]bool, heldFilter *bool, holdExpiredFilter *bool, summary bool, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runTeamJobs(w, teamDir, name, status, sortMode, runtimes, heldFilter, holdExpiredFilter, summary, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func collectTeamReadyRows(teamDir, name string, states map[string]bool) ([]jobReadyRow, error) {

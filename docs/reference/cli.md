@@ -155,7 +155,7 @@ Shortcuts:
 | `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print or watch recommended pipeline actions |
-| `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, and sort rows |
+| `agent-team pipeline jobs <pipeline>` | List, summarize, or watch pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, and sort rows |
 | `agent-team pipeline ready` | List or watch ready steps; filter by `--step`, sort by `--sort`, and cap rows with `--limit` |
 | `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline |
 | `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline; add `--expired` to release only elapsed deadlines |
@@ -177,7 +177,7 @@ Shortcuts:
 | `agent-team team status <team>` | Scoped status |
 | `agent-team team monitor <team>` | Scoped dashboard |
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
-| `agent-team team jobs <team>` | Scoped job list or summary; filter held state and mixed-runtime ownership |
+| `agent-team team jobs <team>` | Scoped job list, summary, or watch view; filter held state and mixed-runtime ownership |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
 | `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; add `--retry-force` to override retry caps during scoped failed-step retry |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |

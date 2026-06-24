@@ -228,6 +228,9 @@ func newPipelineJobsCmd() *cobra.Command {
 		repo           string
 		status         string
 		runtimeFilters []string
+		watch          bool
+		noClear        bool
+		interval       time.Duration
 		held           bool
 		unheld         bool
 		expiredHold    bool
@@ -249,6 +252,10 @@ func newPipelineJobsCmd() *cobra.Command {
 			}
 			if format != "" && summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --interval must be >= 0.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -281,6 +288,14 @@ func newPipelineJobsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if summary {
+					return runJobSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, interval, !noClear && !jsonOut)
+				}
+				return runJobListWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
 			if summary {
 				filtered, err := filteredJobs(teamDir, filters)
 				if err != nil {
@@ -300,6 +315,9 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh pipeline jobs until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
 	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
 	cmd.Flags().BoolVar(&expiredHold, "expired-hold", false, "Only show held jobs whose hold_until has passed.")

@@ -598,6 +598,21 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 		t.Fatalf("pipeline jobs format output = %q", formatOut.String())
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	watchCmd := NewRootCmd()
+	watchOut, watchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watchCmd.SetContext(ctx)
+	watchCmd.SetOut(watchOut)
+	watchCmd.SetErr(watchErr)
+	watchCmd.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", root, "--watch", "--no-clear", "--interval", "1h", "--format", "{{.ID}} {{.Status}}"})
+	if err := watchCmd.Execute(); err != nil {
+		t.Fatalf("pipeline jobs watch: %v\nstderr=%s", err, watchErr.String())
+	}
+	if got := strings.Split(strings.TrimSpace(watchOut.String()), "\n"); strings.Join(got, ",") != "squ-301 running,squ-303 done" || strings.Contains(watchOut.String(), watchClearSequence) {
+		t.Fatalf("pipeline jobs watch output = %q", watchOut.String())
+	}
+
 	sortCmd := NewRootCmd()
 	sortOut, sortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	sortCmd.SetOut(sortOut)
@@ -664,6 +679,18 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	if !strings.Contains(invalidSortErr.String(), "--sort must be id, status, target") {
 		t.Fatalf("invalid sort stderr = %q", invalidSortErr.String())
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("pipeline jobs negative interval succeeded")
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("negative interval stderr = %q", invalidIntervalErr.String())
 	}
 }
 

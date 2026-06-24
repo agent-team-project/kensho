@@ -952,6 +952,21 @@ instances = ["platform-worker"]
 		}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	watch := NewRootCmd()
+	watchOut, watchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watch.SetContext(ctx)
+	watch.SetOut(watchOut)
+	watch.SetErr(watchErr)
+	watch.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--runtime", "codex", "--summary", "--watch", "--no-clear", "--interval", "1h"})
+	if err := watch.Execute(); err != nil {
+		t.Fatalf("team jobs summary watch: %v\nstderr=%s", err, watchErr.String())
+	}
+	if !strings.Contains(watchOut.String(), "jobs: total=1") || strings.Contains(watchOut.String(), watchClearSequence) {
+		t.Fatalf("team jobs summary watch = %q", watchOut.String())
+	}
+
 	claude := NewRootCmd()
 	claudeOut, claudeErr := &bytes.Buffer{}, &bytes.Buffer{}
 	claude.SetOut(claudeOut)
@@ -990,6 +1005,18 @@ instances = ["platform-worker"]
 	}
 	if !strings.Contains(badFormatErr.String(), "--format cannot be combined with --summary") {
 		t.Fatalf("summary format stderr = %q", badFormatErr.String())
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("team jobs negative interval succeeded")
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("negative interval stderr = %q", invalidIntervalErr.String())
 	}
 }
 
