@@ -1146,6 +1146,7 @@ type pipelineStepInfo struct {
 	After    []string `json:"after,omitempty"`
 	Gate     string   `json:"gate,omitempty"`
 	Optional bool     `json:"optional,omitempty"`
+	Timeout  string   `json:"timeout,omitempty"`
 }
 
 type pipelineGraph struct {
@@ -1162,6 +1163,7 @@ type pipelineGraphNode struct {
 	After    []string `json:"after,omitempty"`
 	Gate     string   `json:"gate,omitempty"`
 	Optional bool     `json:"optional,omitempty"`
+	Timeout  string   `json:"timeout,omitempty"`
 	Routes   []string `json:"routes,omitempty"`
 	Missing  bool     `json:"missing,omitempty"`
 }
@@ -1376,6 +1378,7 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			After:    trimStringSlice(step.After),
 			Gate:     strings.TrimSpace(step.Gate),
 			Optional: step.Optional,
+			Timeout:  formatPipelineStepTimeout(step.Timeout),
 		}
 		if includeRoutes && node.Target != "" {
 			node.Routes = pipelineDispatchRoutes(top, node.Target)
@@ -1665,6 +1668,7 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 			After:    append([]string(nil), step.After...),
 			Gate:     step.Gate,
 			Optional: step.Optional,
+			Timeout:  formatPipelineStepTimeout(step.Timeout),
 		})
 	}
 	return pipelineInfo{
@@ -1949,13 +1953,32 @@ func pipelineNextActionReason(row pipelineStatusRow, action string) string {
 }
 
 func pipelineRunningStepIsStale(step *job.Step, now time.Time, staleAfter time.Duration) bool {
-	if step == nil || staleAfter <= 0 || step.StartedAt.IsZero() {
+	if step == nil || step.StartedAt.IsZero() {
+		return false
+	}
+	staleAfter = pipelineStepStaleAfter(step, staleAfter)
+	if staleAfter <= 0 {
 		return false
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	return now.Sub(step.StartedAt) > staleAfter
+}
+
+func pipelineStepStaleAfter(step *job.Step, fallback time.Duration) time.Duration {
+	if step == nil {
+		return fallback
+	}
+	timeout := strings.TrimSpace(step.Timeout)
+	if timeout == "" {
+		return fallback
+	}
+	duration, err := time.ParseDuration(timeout)
+	if err != nil || duration <= 0 {
+		return fallback
+	}
+	return duration
 }
 
 func holdPipelineJobs(teamDir, pipeline, reason string, holdUntil time.Time, stateFilter map[string]bool, stateDefault bool, limit int, dryRun bool) ([]pipelineHoldResult, error) {
@@ -2643,7 +2666,11 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		if step.Optional {
 			optional = " optional=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s\n", step.ID, step.Target, after, gate, optional)
+		timeout := ""
+		if step.Timeout != "" {
+			timeout = " timeout=" + step.Timeout
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s\n", step.ID, step.Target, after, gate, optional, timeout)
 	}
 	return nil
 }
@@ -2709,11 +2736,15 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Optional {
 			optional = " optional=true"
 		}
+		timeout := ""
+		if node.Timeout != "" {
+			timeout = " timeout=" + node.Timeout
+		}
 		missing := ""
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s\n", node.ID, node.Target, after, gate, optional, routes, missing)
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s\n", node.ID, node.Target, after, gate, optional, timeout, routes, missing)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -2779,6 +2810,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.Optional {
 		parts = append(parts, "optional")
+	}
+	if node.Timeout != "" {
+		parts = append(parts, "timeout: "+node.Timeout)
 	}
 	if node.Missing {
 		parts = append(parts, "missing dependency")
@@ -2917,13 +2951,24 @@ func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
 		if step.Optional {
 			optional = " optional=true"
 		}
+		timeout := ""
+		if step.Timeout != "" {
+			timeout = " timeout=" + step.Timeout
+		}
 		if len(step.After) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate, optional))
+			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate, optional, timeout))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s%s%s", step.ID, step.Target, gate, optional))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s", step.ID, step.Target, gate, optional, timeout))
 		}
 	}
 	return strings.Join(parts, " -> ")
+}
+
+func formatPipelineStepTimeout(timeout time.Duration) string {
+	if timeout <= 0 {
+		return ""
+	}
+	return timeout.String()
 }
 
 func parsePipelineAdvanceFormat(format string) (*template.Template, error) {

@@ -620,6 +620,9 @@ func pipelineStepsAsMaps(steps []*topology.PipelineStep) []map[string]any {
 		if step.Optional {
 			row["optional"] = true
 		}
+		if step.Timeout > 0 {
+			row["timeout"] = step.Timeout.String()
+		}
 		out = append(out, row)
 	}
 	return out
@@ -835,6 +838,9 @@ func summarisePipelineStepMaps(steps []map[string]interface{}) string {
 		if optional, _ := step["optional"].(bool); optional {
 			suffix += " optional=true"
 		}
+		if timeout, _ := step["timeout"].(string); timeout != "" {
+			suffix += " timeout=" + timeout
+		}
 		parts = append(parts, id+"→"+target+suffix)
 	}
 	return strings.Join(parts, ", ")
@@ -852,6 +858,9 @@ func summariseLocalPipelineSteps(steps []*topology.PipelineStep) string {
 		}
 		if step.Optional {
 			suffix += " optional=true"
+		}
+		if step.Timeout > 0 {
+			suffix += " timeout=" + step.Timeout.String()
 		}
 		parts = append(parts, step.ID+"→"+step.Target+suffix)
 	}

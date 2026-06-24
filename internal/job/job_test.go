@@ -167,6 +167,18 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err != nil {
 		t.Fatalf("Validate rejected skipped done step: %v", err)
 	}
+	j.Steps = []Step{{ID: "implement", Target: "worker", Status: StatusQueued, Timeout: "soon"}}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid step timeout")
+	}
+	j.Steps[0].Timeout = "0s"
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted zero step timeout")
+	}
+	j.Steps[0].Timeout = "15m"
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected valid step timeout: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

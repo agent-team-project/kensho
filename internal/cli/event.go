@@ -170,6 +170,7 @@ type eventPipelineStepPreview struct {
 	After    []string   `json:"after,omitempty"`
 	Gate     string     `json:"gate,omitempty"`
 	Optional bool       `json:"optional,omitempty"`
+	Timeout  string     `json:"timeout,omitempty"`
 }
 
 func previewEventPublish(teamDir, eventType string, payload map[string]any) (*eventPublishPreview, error) {
@@ -264,6 +265,7 @@ func previewPipelineSteps(steps []job.Step) []eventPipelineStepPreview {
 			After:    append([]string(nil), step.After...),
 			Gate:     step.Gate,
 			Optional: step.Optional,
+			Timeout:  step.Timeout,
 		})
 	}
 	return out

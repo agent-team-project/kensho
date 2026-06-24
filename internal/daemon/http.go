@@ -858,11 +858,21 @@ func marshalTrigger(t *topology.Trigger) map[string]any {
 func marshalPipelineSteps(steps []*topology.PipelineStep) []map[string]any {
 	out := make([]map[string]any, 0, len(steps))
 	for _, step := range steps {
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"id":     step.ID,
 			"target": step.Target,
 			"after":  step.After,
-		})
+		}
+		if step.Gate != "" {
+			row["gate"] = step.Gate
+		}
+		if step.Optional {
+			row["optional"] = true
+		}
+		if step.Timeout > 0 {
+			row["timeout"] = step.Timeout.String()
+		}
+		out = append(out, row)
 	}
 	return out
 }

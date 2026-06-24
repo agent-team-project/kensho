@@ -99,6 +99,7 @@ type PipelineStep struct {
 	After    []string
 	Gate     string
 	Optional bool
+	Timeout  time.Duration
 }
 
 // Schedule is a periodic source of `schedule` events.
@@ -663,7 +664,11 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate, Optional: optional})
+		timeout, err := parseStepTimeout(body["timeout"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate, Optional: optional, Timeout: timeout})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -684,6 +689,25 @@ func parseStepOptional(raw any) (bool, error) {
 		return false, fmt.Errorf("optional must be a boolean")
 	}
 	return value, nil
+}
+
+func parseStepTimeout(raw any) (time.Duration, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	value, ok := raw.(string)
+	value = strings.TrimSpace(value)
+	if !ok || value == "" {
+		return 0, fmt.Errorf("timeout must be a non-empty duration string")
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("timeout must be a valid duration: %w", err)
+	}
+	if timeout <= 0 {
+		return 0, fmt.Errorf("timeout must be greater than zero")
+	}
+	return timeout, nil
 }
 
 func parseStepGate(raw any) (string, error) {

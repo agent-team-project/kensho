@@ -949,6 +949,7 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			After:    append([]string(nil), step.After...),
 			Gate:     step.Gate,
 			Optional: step.Optional,
+			Timeout:  formatPipelineStepTimeout(step.Timeout),
 		})
 	}
 	return steps
@@ -6981,6 +6982,7 @@ type jobExplainStep struct {
 	After      []string   `json:"after,omitempty"`
 	Gate       string     `json:"gate,omitempty"`
 	Optional   bool       `json:"optional,omitempty"`
+	Timeout    string     `json:"timeout,omitempty"`
 	WaitingFor []string   `json:"waiting_for,omitempty"`
 	Actions    []string   `json:"actions,omitempty"`
 	Skipped    bool       `json:"skipped,omitempty"`
@@ -7348,6 +7350,7 @@ func explainJobPipeline(j *job.Job) jobExplainResult {
 			After:      append([]string(nil), step.After...),
 			Gate:       step.Gate,
 			Optional:   step.Optional,
+			Timeout:    step.Timeout,
 			WaitingFor: waiting,
 			Skipped:    step.Skipped,
 			SkipReason: step.SkipReason,
@@ -7822,13 +7825,13 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	} else {
 		fmt.Fprintln(w, "Steps:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tWAITING_FOR\tACTION")
+		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tWAITING_FOR\tACTION")
 		for _, step := range res.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				step.ID,
 				emptyDash(step.Target),
 				step.Status,
@@ -7837,6 +7840,7 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 				listDash(step.After),
 				emptyDash(step.Gate),
 				yesNo(step.Optional),
+				emptyDash(step.Timeout),
 				listDash(step.WaitingFor),
 				action)
 		}
@@ -8887,6 +8891,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 			}
 			if step.Gate != "" {
 				parts = append(parts, "gate="+step.Gate)
+			}
+			if strings.TrimSpace(step.Timeout) != "" {
+				parts = append(parts, "timeout="+strings.TrimSpace(step.Timeout))
 			}
 			if step.Skipped {
 				parts = append(parts, "skipped=true")

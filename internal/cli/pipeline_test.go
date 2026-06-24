@@ -34,6 +34,7 @@ id = "review"
 target = "manager"
 after = ["implement"]
 optional = true
+timeout = "45m"
 	`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ optional = true
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("pipeline ls: %v\nstderr=%s", err, lsErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement optional=true"} {
+	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement optional=true timeout=45m0s"} {
 		if !strings.Contains(lsOut.String(), want) {
 			t.Fatalf("pipeline ls missing %q:\n%s", want, lsOut.String())
 		}
@@ -60,7 +61,7 @@ optional = true
 	if err := show.Execute(); err != nil {
 		t.Fatalf("pipeline show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement optional=true"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement optional=true timeout=45m0s"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, showOut.String())
 		}
@@ -78,7 +79,7 @@ optional = true
 	if err := json.Unmarshal(jsonOut.Bytes(), &rows); err != nil {
 		t.Fatalf("decode pipeline json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || !rows[0].Steps[1].Optional {
+	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || !rows[0].Steps[1].Optional || rows[0].Steps[1].Timeout != "45m0s" {
 		t.Fatalf("pipeline rows = %+v", rows)
 	}
 
@@ -126,6 +127,7 @@ id = "verify"
 target = "manager"
 after = ["implement"]
 optional = true
+timeout = "30m"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +144,7 @@ optional = true
 	if err != nil {
 		t.Fatalf("read created job: %v", err)
 	}
-	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || !created.Steps[1].Optional {
+	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || !created.Steps[1].Optional || created.Steps[1].Timeout != "30m0s" {
 		t.Fatalf("optional step metadata was not copied: %+v", created.Steps)
 	}
 }
@@ -704,10 +706,10 @@ target = "manager"
 			Target:    "worker",
 			Pipeline:  "ticket_to_pr",
 			Status:    job.StatusRunning,
-			CreatedAt: now.Add(-25 * time.Hour),
-			UpdatedAt: now.Add(-25 * time.Hour),
+			CreatedAt: now.Add(-90 * time.Minute),
+			UpdatedAt: now.Add(-90 * time.Minute),
 			Steps: []job.Step{
-				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-615", StartedAt: now.Add(-25 * time.Hour)},
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-615", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
 			},
 		},
 		{

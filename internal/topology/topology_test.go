@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 const sampleTOML = `
@@ -144,6 +145,7 @@ target = "manager"
 after = ["implement"]
 gate = "pr"
 optional = true
+timeout = "30m"
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -155,7 +157,7 @@ optional = true
 	if p.Trigger.Event != "ticket.created" || p.Trigger.Match["project"].Single != "Core" {
 		t.Fatalf("trigger = %+v", p.Trigger)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional {
+	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
@@ -203,6 +205,40 @@ gate = "robot"
 	}
 	if !strings.Contains(err.Error(), "gate must be manual or pr") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParse_PipelineRejectsInvalidTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "non-string", line: "timeout = 10", want: "timeout must be a non-empty duration string"},
+		{name: "invalid", line: `timeout = "soon"`, want: "timeout must be a valid duration"},
+		{name: "zero", line: `timeout = "0s"`, want: "timeout must be greater than zero"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+` + tt.line + `
+`))
+			if err == nil {
+				t.Fatal("expected timeout error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

@@ -320,9 +320,17 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			After:    append([]string(nil), step.After...),
 			Gate:     step.Gate,
 			Optional: step.Optional,
+			Timeout:  pipelineStepTimeoutString(step.Timeout),
 		})
 	}
 	return steps
+}
+
+func pipelineStepTimeoutString(timeout time.Duration) string {
+	if timeout <= 0 {
+		return ""
+	}
+	return timeout.String()
 }
 
 func firstRunnablePipelineStep(pipeline *topology.Pipeline) *topology.PipelineStep {
