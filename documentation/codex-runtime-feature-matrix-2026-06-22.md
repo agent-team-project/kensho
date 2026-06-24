@@ -230,6 +230,15 @@ and `tick` do not advance them.
     `exec_probe` failure JSON for the current DNS/provider reachability issue,
     rather than hanging.
 
+    Status after follow-up on June 24, 2026: `runtime probe` can now write the
+    full diagnostic result with `--output <file>`, require daemon readiness with
+    `--require-daemon`, wait for readiness with `--wait-daemon`, and classify
+    Codex exec failures into actionable IDs. A live
+    `agent-team runtime probe --runtime codex --exec --timeout 2m --output ...`
+    run in this repo still failed because provider/GitHub DNS was unavailable,
+    but the exec issue is now reported as `provider_unreachable` with DNS/proxy
+    remediation instead of generic `exec_failed`.
+
 ## Feature Notes
 
 - Channels are valid with leading `#`. The earlier report's concern that
@@ -247,10 +256,10 @@ and `tick` do not advance them.
 
 ## Suggested Next Fixes
 
-1. Re-run `agent-team runtime probe --runtime codex --json` and
-   `agent-team runtime probe --runtime codex --exec --timeout 2m` after
-   DNS/provider reachability is healthy, then run a real Codex worker socket
-   check.
+1. Re-run `agent-team runtime probe --runtime codex --json --output runtime-probe.json`
+   and `agent-team runtime probe --runtime codex --exec --timeout 2m --output runtime-probe-exec.json`
+   after DNS/provider reachability is healthy, then run a real Codex worker
+   socket check.
 2. Investigate why `agent-team`-supervised `codex exec -` stalls if it
    reproduces again, even though
    raw replay with the same stdin/add-dir succeeds.
