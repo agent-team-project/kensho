@@ -834,6 +834,21 @@ target = "manager"
 		t.Fatalf("formatted pipeline status = %q", got)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	watch := NewRootCmd()
+	watchOut, watchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watch.SetContext(ctx)
+	watch.SetOut(watchOut)
+	watch.SetErr(watchErr)
+	watch.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--repo", root, "--watch", "--no-clear", "--interval", "1ms", "--format", "{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}"})
+	if err := watch.Execute(); err != nil {
+		t.Fatalf("pipeline status watch: %v\nstderr=%s", err, watchErr.String())
+	}
+	if got := strings.TrimSpace(watchOut.String()); got != "ticket_to_pr 4 1" || strings.Contains(watchOut.String(), watchClearSequence) {
+		t.Fatalf("pipeline status watch output = %q", watchOut.String())
+	}
+
 	text := NewRootCmd()
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
@@ -985,6 +1000,18 @@ target = "manager"
 	}
 	if !strings.Contains(invalidErr.String(), "--all cannot be combined") {
 		t.Fatalf("invalid all stderr = %q", invalidErr.String())
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("pipeline status negative interval succeeded")
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("invalid interval stderr = %q", invalidIntervalErr.String())
 	}
 
 	missing := NewRootCmd()

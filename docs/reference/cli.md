@@ -151,7 +151,7 @@ Shortcuts:
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
 | `agent-team pipeline doctor --all` | Validate workflows |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts runtime overrides |
-| `agent-team pipeline status` | Summarize pipeline jobs |
+| `agent-team pipeline status` | Summarize or watch pipeline jobs |
 | `agent-team pipeline explain <pipeline>` | Expand pipeline jobs into per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print recommended pipeline actions |

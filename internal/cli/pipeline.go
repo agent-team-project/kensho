@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -312,10 +313,13 @@ func newPipelineJobsCmd() *cobra.Command {
 
 func newPipelineStatusCmd() *cobra.Command {
 	var (
-		repo    string
-		all     bool
-		jsonOut bool
-		format  string
+		repo     string
+		all      bool
+		watch    bool
+		noClear  bool
+		interval time.Duration
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -335,6 +339,10 @@ func newPipelineStatusCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: pass at most one pipeline name.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			tmpl, err := parsePipelineStatusFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline status: %v\n", err)
@@ -352,16 +360,23 @@ func newPipelineStatusCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: pipeline name is required.")
 				return exitErr(2)
 			}
-			rows, err := collectPipelineStatusRows(teamDir, pipelineName)
-			if err != nil {
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runPipelineStatusWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
+			if err := runPipelineStatus(cmd.OutOrStdout(), teamDir, pipelineName, jsonOut, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline status: %v\n", err)
 				return exitErr(1)
 			}
-			return renderPipelineStatusRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Summarize all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the pipeline status table until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline status rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.")
 	return cmd
@@ -3455,6 +3470,40 @@ func renderPipelineStatusRows(w io.Writer, rows []pipelineStatusRow, jsonOut boo
 	}
 	renderPipelineStatusTable(w, rows)
 	return nil
+}
+
+func runPipelineStatus(w io.Writer, teamDir, pipeline string, jsonOut bool, tmpl *template.Template) error {
+	rows, err := collectPipelineStatusRows(teamDir, pipeline)
+	if err != nil {
+		return err
+	}
+	return renderPipelineStatusRows(w, rows, jsonOut, tmpl)
+}
+
+func runPipelineStatusWatch(ctx context.Context, w io.Writer, teamDir, pipeline string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runPipelineStatus(w, teamDir, pipeline, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func renderPipelineStatusTable(w io.Writer, rows []pipelineStatusRow) {

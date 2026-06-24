@@ -3199,10 +3199,13 @@ agent-team pipeline status [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all             Summarize all pipelines. This is the default when no pipeline is passed.
-      --format string   Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.
-      --json            Emit pipeline status rows as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --all                 Summarize all pipelines. This is the default when no pipeline is passed.
+      --format string       Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit pipeline status rows as JSON.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+  -w, --watch               Refresh the pipeline status table until interrupted.
 ```
 
 ## `agent-team pipeline timeout`
