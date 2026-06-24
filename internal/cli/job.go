@@ -1420,6 +1420,7 @@ func newJobSendCmd() *cobra.Command {
 func newJobNoteCmd() *cobra.Command {
 	var (
 		repo        string
+		actor       string
 		message     string
 		messageFile string
 		dryRun      bool
@@ -1458,13 +1459,18 @@ func newJobNoteCmd() *cobra.Command {
 			if dryRun {
 				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "note", "cli", body, nil); err != nil {
+			noteActor := strings.TrimSpace(actor)
+			if noteActor == "" {
+				noteActor = "cli"
+			}
+			if err := writeJobWithAudit(teamDir, j, "note", noteActor, body, nil); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the note audit event.")
 	cmd.Flags().StringVar(&message, "message", "", "Note text recorded on the job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read note text from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the note without changing job state or writing an audit event.")

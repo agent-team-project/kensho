@@ -4747,7 +4747,7 @@ func TestJobNoteRecordsAuditEvent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "note", "SQU-73", "blocked on staging credentials", "--repo", tmp, "--json"})
+	cmd.SetArgs([]string{"job", "note", "SQU-73", "blocked on staging credentials", "--repo", tmp, "--actor", "ops", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job note: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -4762,7 +4762,7 @@ func TestJobNoteRecordsAuditEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "note" || events[0].Actor != "cli" || events[0].Message != "blocked on staging credentials" || events[0].Status != job.StatusRunning {
+	if len(events) != 1 || events[0].Type != "note" || events[0].Actor != "ops" || events[0].Message != "blocked on staging credentials" || events[0].Status != job.StatusRunning {
 		t.Fatalf("events = %+v", events)
 	}
 }

@@ -1867,6 +1867,7 @@ agent-team job note <job-id> [message...] [flags]
 Flags:
 
 ```text
+      --actor string          Actor label recorded in the note audit event. (default "cli")
       --dry-run               Preview the note without changing job state or writing an audit event.
       --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.
       --json                  Emit the updated job or dry-run preview as JSON.
