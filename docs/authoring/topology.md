@@ -116,6 +116,8 @@ Use `gate = "pr"` when a later step should wait for PR metadata. The step remain
 
 Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionally bypassed. The job stores that step as `status = "done"` plus `skipped = true`, allowing dependent steps to continue while preserving the operator decision.
 
+Use `optional = true` when a stage is useful but should not block the workflow if it fails. Optional failures still appear in `job explain`, `pipeline explain`, and retry views, but downstream `after` dependencies are treated as satisfied.
+
 ## Teams
 
 Teams scope operations:

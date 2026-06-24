@@ -444,11 +444,15 @@ func renderTopologyGraphText(w io.Writer, graph topologyGraph) {
 				if node.Gate != "" {
 					gate = " gate=" + node.Gate
 				}
+				optional := ""
+				if node.Optional {
+					optional = " optional=true"
+				}
 				missing := ""
 				if node.Missing {
 					missing = " missing=true"
 				}
-				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, routes, missing)
+				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, routes, missing)
 			}
 		}
 	}
@@ -609,7 +613,14 @@ func triggerAsMap(t *topology.Trigger) map[string]any {
 func pipelineStepsAsMaps(steps []*topology.PipelineStep) []map[string]any {
 	out := make([]map[string]any, 0, len(steps))
 	for _, step := range steps {
-		out = append(out, map[string]any{"id": step.ID, "target": step.Target, "after": step.After})
+		row := map[string]any{"id": step.ID, "target": step.Target, "after": step.After}
+		if step.Gate != "" {
+			row["gate"] = step.Gate
+		}
+		if step.Optional {
+			row["optional"] = true
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -817,7 +828,14 @@ func summarisePipelineStepMaps(steps []map[string]interface{}) string {
 	for _, step := range steps {
 		id, _ := step["id"].(string)
 		target, _ := step["target"].(string)
-		parts = append(parts, id+"→"+target)
+		suffix := ""
+		if gate, _ := step["gate"].(string); gate != "" {
+			suffix += " gate=" + gate
+		}
+		if optional, _ := step["optional"].(bool); optional {
+			suffix += " optional=true"
+		}
+		parts = append(parts, id+"→"+target+suffix)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -828,7 +846,14 @@ func summariseLocalPipelineSteps(steps []*topology.PipelineStep) string {
 	}
 	parts := make([]string, 0, len(steps))
 	for _, step := range steps {
-		parts = append(parts, step.ID+"→"+step.Target)
+		suffix := ""
+		if step.Gate != "" {
+			suffix += " gate=" + step.Gate
+		}
+		if step.Optional {
+			suffix += " optional=true"
+		}
+		parts = append(parts, step.ID+"→"+step.Target+suffix)
 	}
 	return strings.Join(parts, ", ")
 }

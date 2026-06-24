@@ -61,6 +61,7 @@ type Step struct {
 	Instance   string    `toml:"instance,omitempty"`
 	After      []string  `toml:"after,omitempty"`
 	Gate       string    `toml:"gate,omitempty"`
+	Optional   bool      `toml:"optional,omitempty"`
 	Skipped    bool      `toml:"skipped,omitempty"`
 	SkipReason string    `toml:"skip_reason,omitempty"`
 	StartedAt  time.Time `toml:"started_at,omitempty"`

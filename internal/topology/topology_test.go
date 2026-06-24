@@ -143,6 +143,7 @@ id = "review"
 target = "manager"
 after = ["implement"]
 gate = "pr"
+optional = true
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -154,12 +155,33 @@ gate = "pr"
 	if p.Trigger.Event != "ticket.created" || p.Trigger.Match["project"].Single != "Core" {
 		t.Fatalf("trigger = %+v", p.Trigger)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" {
+	if len(p.Steps) != 2 || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
 		t.Fatalf("matched = %+v", matched)
+	}
+}
+
+func TestParse_PipelineRejectsNonBooleanOptional(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+optional = "yes"
+`))
+	if err == nil {
+		t.Fatal("expected optional type error")
+	}
+	if !strings.Contains(err.Error(), "optional must be a boolean") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

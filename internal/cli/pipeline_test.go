@@ -33,7 +33,8 @@ target = "worker"
 id = "review"
 target = "manager"
 after = ["implement"]
-`), 0o644); err != nil {
+optional = true
+	`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +46,7 @@ after = ["implement"]
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("pipeline ls: %v\nstderr=%s", err, lsErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement"} {
+	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", "review:manager after=implement optional=true"} {
 		if !strings.Contains(lsOut.String(), want) {
 			t.Fatalf("pipeline ls missing %q:\n%s", want, lsOut.String())
 		}
@@ -59,7 +60,7 @@ after = ["implement"]
 	if err := show.Execute(); err != nil {
 		t.Fatalf("pipeline show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", "review target=manager after=implement optional=true"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, showOut.String())
 		}
@@ -77,7 +78,7 @@ after = ["implement"]
 	if err := json.Unmarshal(jsonOut.Bytes(), &rows); err != nil {
 		t.Fatalf("decode pipeline json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 {
+	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || !rows[0].Steps[1].Optional {
 		t.Fatalf("pipeline rows = %+v", rows)
 	}
 
@@ -128,6 +129,7 @@ target = "worker"
 id = "review"
 target = "manager"
 after = ["implement"]
+optional = true
 
 [[pipelines.ticket_to_pr.steps]]
 id = "announce"
@@ -149,7 +151,7 @@ after = ["review"]
 		"Pipeline: ticket_to_pr",
 		"Trigger:  ticket.created",
 		"implement target=worker after=- routes=worker",
-		"review target=manager after=implement routes=manager",
+		"review target=manager after=implement optional=true routes=manager",
 		"<trigger> -> implement",
 		"implement -> review",
 		"review -> announce",
@@ -167,7 +169,7 @@ after = ["review"]
 	if err := mermaid.Execute(); err != nil {
 		t.Fatalf("pipeline graph mermaid: %v\nstderr=%s", err, mermaidErr.String())
 	}
-	for _, want := range []string{"flowchart TD", "trigger[\"trigger: ticket.created\"]", "step_1_implement", "--> step_2_review"} {
+	for _, want := range []string{"flowchart TD", "trigger[\"trigger: ticket.created\"]", "step_1_implement", "optional", "--> step_2_review"} {
 		if !strings.Contains(mermaidOut.String(), want) {
 			t.Fatalf("pipeline graph mermaid missing %q:\n%s", want, mermaidOut.String())
 		}
@@ -181,7 +183,7 @@ after = ["review"]
 	if err := dot.Execute(); err != nil {
 		t.Fatalf("pipeline graph dot: %v\nstderr=%s", err, dotErr.String())
 	}
-	for _, want := range []string{`digraph "ticket_to_pr"`, `"trigger" -> "implement";`, `"implement" -> "review";`} {
+	for _, want := range []string{`digraph "ticket_to_pr"`, `"trigger" -> "implement";`, `"implement" -> "review";`, "optional"} {
 		if !strings.Contains(dotOut.String(), want) {
 			t.Fatalf("pipeline graph dot missing %q:\n%s", want, dotOut.String())
 		}
@@ -199,7 +201,7 @@ after = ["review"]
 	if err := json.Unmarshal(jsonOut.Bytes(), &graph); err != nil {
 		t.Fatalf("decode graph json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if graph.Name != "ticket_to_pr" || len(graph.Nodes) != 3 || len(graph.Edges) != 3 || len(graph.Nodes[0].Routes) != 1 {
+	if graph.Name != "ticket_to_pr" || len(graph.Nodes) != 3 || len(graph.Edges) != 3 || len(graph.Nodes[0].Routes) != 1 || !graph.Nodes[1].Optional {
 		t.Fatalf("graph json = %+v", graph)
 	}
 }

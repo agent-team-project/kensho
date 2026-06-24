@@ -4448,6 +4448,7 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.StepStatus = next.Step.Status
 		row.Instance = next.Step.Instance
 		row.Gate = next.Step.Gate
+		row.Optional = next.Step.Optional
 	}
 	row.Actions = actionsForJobReadyRow(row)
 	return row
@@ -4493,14 +4494,14 @@ func renderJobReadyTable(w io.Writer, rows []jobReadyRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tTARGET\tPIPELINE\tWAITING_FOR\tUPDATED\tACTION")
+	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tTARGET\tPIPELINE\tOPTIONAL\tWAITING_FOR\tUPDATED\tACTION")
 	for _, row := range rows {
 		waiting := "-"
 		if len(row.WaitingFor) > 0 {
 			waiting = strings.Join(row.WaitingFor, ",")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Target), emptyDash(row.Pipeline), waiting, row.UpdatedAt.Format(time.RFC3339), emptyDash(strings.Join(row.Actions, "; ")))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Target), emptyDash(row.Pipeline), yesNo(row.Optional), waiting, row.UpdatedAt.Format(time.RFC3339), emptyDash(strings.Join(row.Actions, "; ")))
 	}
 	_ = tw.Flush()
 }
@@ -5963,6 +5964,7 @@ type jobExplainStep struct {
 	Instance   string     `json:"instance,omitempty"`
 	After      []string   `json:"after,omitempty"`
 	Gate       string     `json:"gate,omitempty"`
+	Optional   bool       `json:"optional,omitempty"`
 	WaitingFor []string   `json:"waiting_for,omitempty"`
 	Actions    []string   `json:"actions,omitempty"`
 	Skipped    bool       `json:"skipped,omitempty"`
@@ -5984,6 +5986,7 @@ type jobReadyRow struct {
 	StepStatus         job.Status `json:"step_status,omitempty"`
 	Instance           string     `json:"instance,omitempty"`
 	Gate               string     `json:"gate,omitempty"`
+	Optional           bool       `json:"optional,omitempty"`
 	WaitingFor         []string   `json:"waiting_for,omitempty"`
 	UpdatedAt          time.Time  `json:"updated_at"`
 	Message            string     `json:"message"`
@@ -6042,14 +6045,24 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	j.UpdatedAt = now
 	switch status {
 	case job.StatusFailed:
-		j.Status = job.StatusFailed
+		if step.Optional {
+			if allJobStepsDone(j) {
+				j.Status = job.StatusDone
+				j.LastEvent = "pipeline_done"
+				j.LastStatus = jobStepsCompleteMessage(j)
+			} else {
+				j.Status = job.StatusRunning
+			}
+		} else {
+			j.Status = job.StatusFailed
+		}
 	case job.StatusBlocked:
 		j.Status = job.StatusBlocked
 	case job.StatusDone:
 		if allJobStepsDone(j) {
 			j.Status = job.StatusDone
 			j.LastEvent = "pipeline_done"
-			j.LastStatus = "all steps done"
+			j.LastStatus = jobStepsCompleteMessage(j)
 		} else {
 			j.Status = job.StatusRunning
 		}
@@ -6066,12 +6079,12 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 		if allJobStepsDone(j) {
 			j.Status = job.StatusDone
 			j.LastEvent = "pipeline_done"
-			j.LastStatus = "all steps done"
+			j.LastStatus = jobStepsCompleteMessage(j)
 			j.UpdatedAt = now
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 				return nil, err
 			}
-			return &jobAdvanceResult{Job: j, Message: "all steps done"}, nil
+			return &jobAdvanceResult{Job: j, Message: jobStepsCompleteMessage(j)}, nil
 		}
 		j.Status = job.StatusBlocked
 		j.LastEvent = "advance_blocked"
@@ -6233,10 +6246,10 @@ func inspectNextJobStep(j *job.Job) (res jobNextResult) {
 	}
 	if allJobStepsDone(j) {
 		res.State = "done"
-		res.Message = "all steps done"
+		res.Message = jobStepsCompleteMessage(j)
 		return res
 	}
-	if step := firstJobStepWithStatus(j, job.StatusFailed); step != nil {
+	if step := firstRequiredJobStepWithStatus(j, job.StatusFailed); step != nil {
 		res.State = "failed"
 		res.Step = cloneJobStep(step)
 		res.Message = "step " + step.ID + " failed"
@@ -6310,6 +6323,7 @@ func explainJobPipeline(j *job.Job) jobExplainResult {
 			Instance:   step.Instance,
 			After:      append([]string(nil), step.After...),
 			Gate:       step.Gate,
+			Optional:   step.Optional,
 			WaitingFor: waiting,
 			Skipped:    step.Skipped,
 			SkipReason: step.SkipReason,
@@ -6392,6 +6406,9 @@ func explainJobStepMessage(j *job.Job, step *job.Step, state string, waiting []s
 	case "done":
 		return "done"
 	case "failed":
+		if step.Optional {
+			return "optional failed"
+		}
 		return "failed"
 	case "waiting":
 		switch {
@@ -6459,13 +6476,25 @@ func firstJobStepWithStatus(j *job.Job, status job.Status) *job.Step {
 	return nil
 }
 
+func firstRequiredJobStepWithStatus(j *job.Job, status job.Status) *job.Step {
+	for i := range j.Steps {
+		if j.Steps[i].Optional {
+			continue
+		}
+		if j.Steps[i].Status == status {
+			return &j.Steps[i]
+		}
+	}
+	return nil
+}
+
 func unmetJobStepDependencies(j *job.Job, step *job.Step) []string {
 	if step == nil || len(step.After) == 0 {
 		return nil
 	}
 	done := map[string]bool{}
 	for _, candidate := range j.Steps {
-		if candidate.Status == job.StatusDone {
+		if jobStepSatisfiesDependency(&candidate) {
 			done[candidate.ID] = true
 		}
 	}
@@ -6489,7 +6518,7 @@ func jobStepWaitingFor(j *job.Job, step *job.Step) []string {
 func nextReadyJobStep(j *job.Job) *job.Step {
 	done := map[string]bool{}
 	for _, step := range j.Steps {
-		if step.Status == job.StatusDone {
+		if jobStepSatisfiesDependency(&step) {
 			done[step.ID] = true
 		}
 	}
@@ -6537,7 +6566,7 @@ func nextReadyJobStep(j *job.Job) *job.Step {
 func advanceableJobSteps(j *job.Job) []*job.Step {
 	done := map[string]bool{}
 	for _, step := range j.Steps {
-		if step.Status == job.StatusDone {
+		if jobStepSatisfiesDependency(&step) {
 			done[step.ID] = true
 		}
 	}
@@ -6580,6 +6609,32 @@ func stepGatePending(j *job.Job, step *job.Step) bool {
 	return stepManualGatePending(step) || stepPRGatePending(j, step)
 }
 
+func jobStepSatisfiesDependency(step *job.Step) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == job.StatusDone || (step.Optional && step.Status == job.StatusFailed)
+}
+
+func jobHasOptionalFailedStep(j *job.Job) bool {
+	if j == nil {
+		return false
+	}
+	for i := range j.Steps {
+		if j.Steps[i].Optional && j.Steps[i].Status == job.StatusFailed {
+			return true
+		}
+	}
+	return false
+}
+
+func jobStepsCompleteMessage(j *job.Job) string {
+	if jobHasOptionalFailedStep(j) {
+		return "all required steps done"
+	}
+	return "all steps done"
+}
+
 func resetFailedPipelineStepForRetry(j *job.Job) string {
 	return resetFailedPipelineStepForRetryByID(j, "")
 }
@@ -6611,7 +6666,7 @@ func allJobStepsDone(j *job.Job) bool {
 		return false
 	}
 	for _, step := range j.Steps {
-		if step.Status != job.StatusDone {
+		if !jobStepSatisfiesDependency(&step) {
 			return false
 		}
 	}
@@ -6673,6 +6728,10 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	if res.Step.Gate != "" {
 		gate = res.Step.Gate
 	}
+	optional := ""
+	if res.Step.Optional {
+		optional = " optional=true"
+	}
 	waiting := "-"
 	if len(res.WaitingFor) > 0 {
 		waiting = strings.Join(res.WaitingFor, ",")
@@ -6681,8 +6740,8 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 	if len(res.Actions) > 0 {
 		actions = strings.Join(res.Actions, "; ")
 	}
-	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s waiting_for=%s actions=%s\n",
-		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, waiting, actions)
+	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s instance=%s after=%s gate=%s%s waiting_for=%s actions=%s\n",
+		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Instance), after, gate, optional, waiting, actions)
 	return nil
 }
 
@@ -6708,13 +6767,13 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	} else {
 		fmt.Fprintln(w, "Steps:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tWAITING_FOR\tACTION")
+		fmt.Fprintln(tw, "ID\tTARGET\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tWAITING_FOR\tACTION")
 		for _, step := range res.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				step.ID,
 				emptyDash(step.Target),
 				step.Status,
@@ -6722,6 +6781,7 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 				emptyDash(step.Instance),
 				listDash(step.After),
 				emptyDash(step.Gate),
+				yesNo(step.Optional),
 				listDash(step.WaitingFor),
 				action)
 		}
@@ -7300,7 +7360,7 @@ func previewJobAdvanceDispatch(teamDir string, j *job.Job, workspace string, sel
 	if step == nil {
 		message := "no ready steps"
 		if allJobStepsDone(j) {
-			message = "all steps done"
+			message = jobStepsCompleteMessage(j)
 		}
 		return &jobAdvancePreview{Job: j, Message: message, DryRun: true}, nil
 	}

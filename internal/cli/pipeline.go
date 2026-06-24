@@ -958,10 +958,11 @@ type pipelineInfo struct {
 }
 
 type pipelineStepInfo struct {
-	ID     string   `json:"id"`
-	Target string   `json:"target"`
-	After  []string `json:"after,omitempty"`
-	Gate   string   `json:"gate,omitempty"`
+	ID       string   `json:"id"`
+	Target   string   `json:"target"`
+	After    []string `json:"after,omitempty"`
+	Gate     string   `json:"gate,omitempty"`
+	Optional bool     `json:"optional,omitempty"`
 }
 
 type pipelineGraph struct {
@@ -973,12 +974,13 @@ type pipelineGraph struct {
 }
 
 type pipelineGraphNode struct {
-	ID      string   `json:"id"`
-	Target  string   `json:"target,omitempty"`
-	After   []string `json:"after,omitempty"`
-	Gate    string   `json:"gate,omitempty"`
-	Routes  []string `json:"routes,omitempty"`
-	Missing bool     `json:"missing,omitempty"`
+	ID       string   `json:"id"`
+	Target   string   `json:"target,omitempty"`
+	After    []string `json:"after,omitempty"`
+	Gate     string   `json:"gate,omitempty"`
+	Optional bool     `json:"optional,omitempty"`
+	Routes   []string `json:"routes,omitempty"`
+	Missing  bool     `json:"missing,omitempty"`
 }
 
 type pipelineGraphEdge struct {
@@ -1169,10 +1171,11 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			continue
 		}
 		node := pipelineGraphNode{
-			ID:     id,
-			Target: strings.TrimSpace(step.Target),
-			After:  trimStringSlice(step.After),
-			Gate:   strings.TrimSpace(step.Gate),
+			ID:       id,
+			Target:   strings.TrimSpace(step.Target),
+			After:    trimStringSlice(step.After),
+			Gate:     strings.TrimSpace(step.Gate),
+			Optional: step.Optional,
 		}
 		if includeRoutes && node.Target != "" {
 			node.Routes = pipelineDispatchRoutes(top, node.Target)
@@ -1457,10 +1460,11 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 	steps := make([]pipelineStepInfo, 0, len(p.Steps))
 	for _, step := range p.Steps {
 		steps = append(steps, pipelineStepInfo{
-			ID:     step.ID,
-			Target: step.Target,
-			After:  append([]string(nil), step.After...),
-			Gate:   step.Gate,
+			ID:       step.ID,
+			Target:   step.Target,
+			After:    append([]string(nil), step.After...),
+			Gate:     step.Gate,
+			Optional: step.Optional,
 		})
 	}
 	return pipelineInfo{
@@ -2245,7 +2249,11 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		if step.Gate != "" {
 			gate = " gate=" + step.Gate
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s\n", step.ID, step.Target, after, gate)
+		optional := ""
+		if step.Optional {
+			optional = " optional=true"
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s\n", step.ID, step.Target, after, gate, optional)
 	}
 	return nil
 }
@@ -2307,11 +2315,15 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Gate != "" {
 			gate = " gate=" + node.Gate
 		}
+		optional := ""
+		if node.Optional {
+			optional = " optional=true"
+		}
 		missing := ""
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s\n", node.ID, node.Target, after, gate, routes, missing)
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s\n", node.ID, node.Target, after, gate, optional, routes, missing)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -2374,6 +2386,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.Gate != "" {
 		parts = append(parts, "gate: "+node.Gate)
+	}
+	if node.Optional {
+		parts = append(parts, "optional")
 	}
 	if node.Missing {
 		parts = append(parts, "missing dependency")
@@ -2508,10 +2523,14 @@ func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
 		if step.Gate != "" {
 			gate = " gate=" + step.Gate
 		}
+		optional := ""
+		if step.Optional {
+			optional = " optional=true"
+		}
 		if len(step.After) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate))
+			parts = append(parts, fmt.Sprintf("%s:%s after=%s%s%s", step.ID, step.Target, strings.Join(step.After, ","), gate, optional))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s%s", step.ID, step.Target, gate))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s", step.ID, step.Target, gate, optional))
 		}
 	}
 	return strings.Join(parts, " -> ")
@@ -2714,14 +2733,14 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 	_ = tw.Flush()
 	fmt.Fprintln(w, "Steps:")
 	stepWriter := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(stepWriter, "JOB\tSTEP\tTARGET\tSTATUS\tSTATE\tAFTER\tGATE\tWAITING_FOR\tACTION")
+	fmt.Fprintln(stepWriter, "JOB\tSTEP\tTARGET\tSTATUS\tSTATE\tAFTER\tGATE\tOPTIONAL\tWAITING_FOR\tACTION")
 	for _, explained := range row.Jobs {
 		for _, step := range explained.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(stepWriter, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(stepWriter, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				explained.JobID,
 				step.ID,
 				emptyDash(step.Target),
@@ -2729,6 +2748,7 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 				emptyDash(step.State),
 				listDash(step.After),
 				emptyDash(step.Gate),
+				yesNo(step.Optional),
 				listDash(step.WaitingFor),
 				action)
 		}

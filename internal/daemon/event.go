@@ -307,10 +307,12 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			status = jobstore.StatusBlocked
 		}
 		steps = append(steps, jobstore.Step{
-			ID:     step.ID,
-			Target: step.Target,
-			Status: status,
-			After:  append([]string(nil), step.After...),
+			ID:       step.ID,
+			Target:   step.Target,
+			Status:   status,
+			After:    append([]string(nil), step.After...),
+			Gate:     step.Gate,
+			Optional: step.Optional,
 		})
 	}
 	return steps

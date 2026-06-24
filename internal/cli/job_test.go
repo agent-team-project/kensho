@@ -5517,6 +5517,127 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 	}
 }
 
+func TestJobOptionalFailedStepUnblocksDependents(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-231",
+		Ticket:    "SQU-231",
+		Target:    "manager",
+		Kickoff:   "SQU-231: optional validation",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "precheck", Target: "manager", Status: job.StatusRunning, Instance: "manager", Optional: true, StartedAt: now},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"precheck"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	stepCmd := NewRootCmd()
+	stepOut, stepErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepCmd.SetOut(stepOut)
+	stepCmd.SetErr(stepErr)
+	stepCmd.SetArgs([]string{"job", "step", "squ-231", "precheck", "--status", "failed", "--message", "lint service unavailable", "--repo", tmp, "--json"})
+	if err := stepCmd.Execute(); err != nil {
+		t.Fatalf("job step optional failed: %v\nstderr=%s", err, stepErr.String())
+	}
+	var stepResult job.Job
+	if err := json.Unmarshal(stepOut.Bytes(), &stepResult); err != nil {
+		t.Fatalf("decode step json: %v\nbody=%s", err, stepOut.String())
+	}
+	if stepResult.Status != job.StatusRunning || stepResult.Steps[0].Status != job.StatusFailed || !stepResult.Steps[0].Optional {
+		t.Fatalf("step result = %+v", stepResult)
+	}
+
+	nextCmd := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextCmd.SetOut(nextOut)
+	nextCmd.SetErr(nextErr)
+	nextCmd.SetArgs([]string{"job", "next", "squ-231", "--repo", tmp, "--json"})
+	if err := nextCmd.Execute(); err != nil {
+		t.Fatalf("job next optional failed: %v\nstderr=%s", err, nextErr.String())
+	}
+	var next jobNextResult
+	if err := json.Unmarshal(nextOut.Bytes(), &next); err != nil {
+		t.Fatalf("decode next json: %v\nbody=%s", err, nextOut.String())
+	}
+	if next.State != "ready" || next.Step == nil || next.Step.ID != "review" || len(next.WaitingFor) != 0 {
+		t.Fatalf("next = %+v", next)
+	}
+
+	explainCmd := NewRootCmd()
+	explainOut, explainErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainCmd.SetOut(explainOut)
+	explainCmd.SetErr(explainErr)
+	explainCmd.SetArgs([]string{"job", "explain", "squ-231", "--repo", tmp, "--json"})
+	if err := explainCmd.Execute(); err != nil {
+		t.Fatalf("job explain optional failed: %v\nstderr=%s", err, explainErr.String())
+	}
+	var explained jobExplainResult
+	if err := json.Unmarshal(explainOut.Bytes(), &explained); err != nil {
+		t.Fatalf("decode explain json: %v\nbody=%s", err, explainOut.String())
+	}
+	if len(explained.Steps) != 2 || !explained.Steps[0].Optional || explained.Steps[0].Message != "optional failed" || !explained.Steps[1].Ready {
+		t.Fatalf("explained = %+v", explained)
+	}
+
+	gated := &job.Job{
+		ID:        "squ-232",
+		Ticket:    "SQU-232",
+		Target:    "manager",
+		Kickoff:   "SQU-232: optional validation",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "precheck", Target: "manager", Status: job.StatusFailed, Optional: true, StartedAt: now, FinishedAt: now},
+			{ID: "approval", Target: "manager", Status: job.StatusBlocked, After: []string{"precheck"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, gated); err != nil {
+		t.Fatalf("write gated job: %v", err)
+	}
+	gatedCmd := NewRootCmd()
+	gatedOut, gatedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	gatedCmd.SetOut(gatedOut)
+	gatedCmd.SetErr(gatedErr)
+	gatedCmd.SetArgs([]string{"job", "next", "squ-232", "--repo", tmp, "--json"})
+	if err := gatedCmd.Execute(); err != nil {
+		t.Fatalf("job next gated optional failed: %v\nstderr=%s", err, gatedErr.String())
+	}
+	var gatedNext jobNextResult
+	if err := json.Unmarshal(gatedOut.Bytes(), &gatedNext); err != nil {
+		t.Fatalf("decode gated next json: %v\nbody=%s", err, gatedOut.String())
+	}
+	if gatedNext.State != "blocked" || gatedNext.Step == nil || gatedNext.Step.ID != "approval" {
+		t.Fatalf("gated next = %+v", gatedNext)
+	}
+
+	doneCmd := NewRootCmd()
+	doneOut, doneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	doneCmd.SetOut(doneOut)
+	doneCmd.SetErr(doneErr)
+	doneCmd.SetArgs([]string{"job", "step", "squ-231", "review", "--status", "done", "--repo", tmp, "--json"})
+	if err := doneCmd.Execute(); err != nil {
+		t.Fatalf("job step review done: %v\nstderr=%s", err, doneErr.String())
+	}
+	var doneJob job.Job
+	if err := json.Unmarshal(doneOut.Bytes(), &doneJob); err != nil {
+		t.Fatalf("decode done json: %v\nbody=%s", err, doneOut.String())
+	}
+	if doneJob.Status != job.StatusDone || doneJob.LastEvent != "pipeline_done" || doneJob.LastStatus != "all required steps done" {
+		t.Fatalf("done job = %+v", doneJob)
+	}
+}
+
 func TestJobReadyListsAdvanceablePipelineJobs(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

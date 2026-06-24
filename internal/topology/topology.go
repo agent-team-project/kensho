@@ -94,10 +94,11 @@ type Pipeline struct {
 
 // PipelineStep is one target dispatch in a pipeline.
 type PipelineStep struct {
-	ID     string
-	Target string
-	After  []string
-	Gate   string
+	ID       string
+	Target   string
+	After    []string
+	Gate     string
+	Optional bool
 }
 
 // Schedule is a periodic source of `schedule` events.
@@ -658,7 +659,11 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate})
+		optional, err := parseStepOptional(body["optional"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		steps = append(steps, &PipelineStep{ID: id, Target: target, After: after, Gate: gate, Optional: optional})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -668,6 +673,17 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		}
 	}
 	return steps, nil
+}
+
+func parseStepOptional(raw any) (bool, error) {
+	if raw == nil {
+		return false, nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("optional must be a boolean")
+	}
+	return value, nil
 }
 
 func parseStepGate(raw any) (string, error) {
