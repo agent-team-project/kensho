@@ -89,7 +89,7 @@ func newUpgradeCmd() *cobra.Command {
 		},
 	}
 	cfg.target = cwd
-	cmd.Flags().StringVar(&cfg.target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&cfg.target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&cfg.toRef, "to", "", "Template ref to compare against (defaults to the ref in .template.lock).")
 	cmd.Flags().BoolVar(&cfg.check, "check", false, "Compare current template lock against a resolved template ref without writing files.")
 	cmd.Flags().BoolVar(&cfg.apply, "apply", false, "Apply clean template changes and update .template.lock; refuses to run when local conflicts are detected.")

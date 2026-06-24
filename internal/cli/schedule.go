@@ -66,7 +66,7 @@ func newScheduleLsCmd() *cobra.Command {
 			return renderScheduleList(cmd.OutOrStdout(), schedules, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schedules as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.")
 	return cmd
@@ -105,7 +105,7 @@ func newScheduleShowCmd() *cobra.Command {
 			return renderScheduleDetail(cmd.OutOrStdout(), info, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the schedule as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.")
 	return cmd
@@ -145,7 +145,7 @@ func newScheduleDueCmd() *cobra.Command {
 			return renderScheduleDueRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit due schedules as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.")
 	return cmd
@@ -190,7 +190,7 @@ func newScheduleNextCmd() *cobra.Command {
 			return renderScheduleNextRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schedule forecast rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each forecast row with a Go template, e.g. '{{.Name}} {{.Due}} {{.NextRun}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many schedules after ordering; 0 means all.")
@@ -253,7 +253,7 @@ func newScheduleFireCmd() *cobra.Command {
 			return renderScheduleFireResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview due schedules without publishing events or writing schedule clocks.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit fire results as JSON.")
@@ -324,7 +324,7 @@ func newScheduleRunCmd() *cobra.Command {
 			return publishScheduleEvent(cmd, repo, ev, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the declared schedule payload.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the schedule event without publishing it.")

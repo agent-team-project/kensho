@@ -113,7 +113,7 @@ func newLogsCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail the log; print new bytes as they appear.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Show logs for every daemon-known instance, prefixed by instance name.")
 	cmd.Flags().BoolVar(&daemonLog, "daemon", false, "Show the agent-teamd daemon log instead of instance logs.")

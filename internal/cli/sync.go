@@ -98,7 +98,7 @@ func newSyncCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology convergence without starting the daemon or instances.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after syncing. With no filters, waits for the fleet.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Also stop running daemon-known instances not declared in instances.toml.")

@@ -145,7 +145,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			return publishIntakeEventWithJob(cmd, target, ev, jsonOut, tmpl, reconcile, cleanup)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "Webhook JSON object.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
@@ -222,7 +222,7 @@ func newIntakeScheduleCmd() *cobra.Command {
 			return publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the schedule payload.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
@@ -344,7 +344,7 @@ func newIntakeServiceCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opts.Target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&opts.Target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&opts.Addr, "addr", opts.Addr, "Address for the webhook listener.")
 	cmd.Flags().StringVar(&opts.Bin, "bin", opts.Bin, "agent-team binary path used in the service.")
 	cmd.Flags().StringVar(&opts.Name, "name", opts.Name, "Service unit name/comment stem.")
@@ -874,7 +874,7 @@ func newIntakeServeCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8787", "Address for the webhook listener.")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Normalize requests and return previews without publishing to the daemon.")
 	cmd.Flags().BoolVar(&opts.PreviewTriggers, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")

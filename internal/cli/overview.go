@@ -66,7 +66,7 @@ func newOverviewCmd() *cobra.Command {
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit overview as JSON.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
@@ -130,7 +130,7 @@ func newTeamOverviewCmd() *cobra.Command {
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team overview as JSON.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")

@@ -123,7 +123,7 @@ func newSendCmd() *cobra.Command {
 			return runSendWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, to, body, opts)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")

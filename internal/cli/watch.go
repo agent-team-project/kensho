@@ -152,7 +152,7 @@ func newWatchCmd() *cobra.Command {
 			return runMonitorWatch(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, readProcessStats, jsonOut, opts, clear)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, and crashed daemon-managed instances in the stats section.")
 	cmd.Flags().BoolVar(&plan, "plan", false, "Include desired-state actions from instances.toml and daemon metadata.")
 	cmd.Flags().BoolVar(&jobs, "jobs", false, "Include durable job summary, attention, and ready-step state.")

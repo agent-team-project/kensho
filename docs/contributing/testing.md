@@ -110,9 +110,9 @@ bin/agent-team init --target "$TMP" \
   --set linear.team_id=00000000-0000-0000-0000-000000000000 \
   --set linear.ticket_prefix=SMK
 
-bin/agent-team daemon start --target "$TMP"
-bin/agent-team overview --target "$TMP"
-bin/agent-team daemon stop --target "$TMP"
+bin/agent-team --repo "$TMP" daemon start
+bin/agent-team --repo "$TMP" overview
+bin/agent-team --repo "$TMP" daemon stop
 ```
 
 For job/queue behavior, inject representative queue files and assert CLI output.

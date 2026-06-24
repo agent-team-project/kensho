@@ -38,7 +38,7 @@ func newReloadCmd() *cobra.Command {
 			return runReload(cmd, target, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render reload result with a Go template, e.g. '{{len .Topology.Instances}} {{.Reconcile.Changed}}'.")
 	return cmd

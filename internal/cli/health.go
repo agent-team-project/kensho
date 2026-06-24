@@ -148,7 +148,7 @@ func newHealthCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh health until interrupted.")

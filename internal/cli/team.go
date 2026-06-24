@@ -89,7 +89,7 @@ func newTeamLsCmd() *cobra.Command {
 			return renderTeamList(cmd.OutOrStdout(), teams, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit teams as JSON.")
 	return cmd
 }
@@ -117,7 +117,7 @@ func newTeamShowCmd() *cobra.Command {
 			return renderTeamDetail(cmd.OutOrStdout(), info, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team as JSON.")
 	return cmd
 }
@@ -157,7 +157,7 @@ func newTeamGraphCmd() *cobra.Command {
 			return renderTeamGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate pipeline steps with matching agent.dispatch routes.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
@@ -216,7 +216,7 @@ func newTeamDoctorCmd() *cobra.Command {
 			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all declared teams.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
@@ -585,7 +585,7 @@ func newTeamRunCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Team pipeline to use when the team declares more than one.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
@@ -675,7 +675,7 @@ func newTeamPsCmd() *cobra.Command {
 			return renderTeamPs(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team instances until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -752,7 +752,7 @@ func newTeamJobsCmd() *cobra.Command {
 			return renderTeamJobs(cmd.OutOrStdout(), teamDir, jobs, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
@@ -801,7 +801,7 @@ func newTeamReadyCmd() *cobra.Command {
 			return renderTeamReadyRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
@@ -875,7 +875,7 @@ func newTeamTriageCmd() *cobra.Command {
 			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks).")
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
@@ -950,7 +950,7 @@ func newTeamCleanupCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the team's matching PRs have merged before removing worktrees and branches.")
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete job branches with git branch -D if they are not locally merged.")
 	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Verify recorded GitHub PRs are merged with gh before cleanup.")
@@ -1018,7 +1018,7 @@ func newTeamAdvanceCmd() *cobra.Command {
 			return renderPipelineAdvanceResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
@@ -1092,7 +1092,7 @@ func newTeamApproveCmd() *cobra.Command {
 			return renderPipelineApproveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for approved dispatches: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
@@ -1168,7 +1168,7 @@ func newTeamRetryCmd() *cobra.Command {
 			return renderPipelineRetryResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried dispatches: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
@@ -1244,7 +1244,7 @@ func newTeamQueueCmd() *cobra.Command {
 			return runTeamQueueList(cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
@@ -1296,7 +1296,7 @@ func newTeamQueueShowCmd() *cobra.Command {
 			return renderQueueItemResultWithActions(cmd.OutOrStdout(), item, jsonOut, tmpl, teamQueueActionResolver(args[0]), queueRuntimeMap(teamDir))
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the queue item as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
@@ -1345,7 +1345,7 @@ func newTeamQueueQuarantineCmd() *cobra.Command {
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
@@ -1393,7 +1393,7 @@ func newTeamQueueQuarantineShowCmd() *cobra.Command {
 			return renderQueueQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team-owned quarantined queue file as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the team-owned quarantined queue file with a Go template, e.g. '{{.Team}} {{.ID}}'.")
 	return cmd
@@ -1469,7 +1469,7 @@ func newTeamQueueQuarantineRestoreCmd() *cobra.Command {
 			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching team-owned restorable quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active queue file with the same restore path.")
@@ -1562,7 +1562,7 @@ func newTeamQueueQuarantineDropCmd() *cobra.Command {
 			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching team-owned quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
@@ -1699,7 +1699,7 @@ func newTeamQueueRetryCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching team-owned queue items instead of one id.")
@@ -1824,7 +1824,7 @@ func newTeamQueueDropCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching team-owned queue items instead of one id.")
@@ -1885,7 +1885,7 @@ func newTeamQueuePruneCmd() *cobra.Command {
 			return runTeamQueuePrune(cmd.OutOrStdout(), teamDir, args[0], state, olderThan, filters, time.Now().UTC(), dryRun, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune team-owned items older than this duration based on retry/dead-letter/update time.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
@@ -2034,7 +2034,7 @@ func newTeamLogsCmd() *cobra.Command {
 			return runTeamLogs(cmd, teamDir, args[0], opts, listOpts)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail selected team logs.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show the most recently started team instance log.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show logs for the N most recently started team instances (0 = all).")
@@ -2118,7 +2118,7 @@ func newTeamEventsCmd() *cobra.Command {
 			return runEvents(ctx, cmd.OutOrStdout(), client, eventsOptions{Follow: follow, Tail: tail, JSON: jsonOut, Summary: summary, Format: formatTemplate, Filters: filters})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming new lifecycle events.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N matching team events before returning or following (0 = all).")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit raw JSONL events.")
@@ -2218,7 +2218,7 @@ func newTeamSendCmd() *cobra.Command {
 			return runSendSelectionWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, body, opts)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
@@ -2473,7 +2473,7 @@ func newTeamWaitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&latest, "latest", false, "Wait for the most recently started team-owned instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Wait for the N most recently started team-owned instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
@@ -2569,7 +2569,7 @@ func newTeamPruneCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only remove finished team-owned instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only remove finished team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only remove finished team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
@@ -2730,7 +2730,7 @@ func newTeamStatsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, crashed, and missing persistent team-owned instances.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show stats for the most recently started team-owned instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show stats for the N most recently started team-owned instances after other filters (0 = all).")
@@ -2812,7 +2812,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
@@ -2854,7 +2854,7 @@ func newTeamPipelinesCmd() *cobra.Command {
 			return renderPipelineStatusRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team pipeline status as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline with a Go template, e.g. '{{.Pipeline}} {{.ReadySteps}}'.")
 	return cmd
@@ -2893,7 +2893,7 @@ func newTeamSchedulesCmd() *cobra.Command {
 			return renderTeamSchedules(cmd.OutOrStdout(), schedules, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team schedules as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.")
 	return cmd
@@ -3012,7 +3012,7 @@ func newTeamTickCmd() *cobra.Command {
 			return renderTeamTickResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip due schedule work.")
@@ -3095,7 +3095,7 @@ func newTeamDrainCmd() *cobra.Command {
 			return renderTeamTickUntilIdleResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip due schedule work.")
@@ -3221,7 +3221,7 @@ func newTeamRepairCmd() *cobra.Command {
 			return renderTeamRepairResult(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team repair actions without mutating state or starting the daemon.")
@@ -3317,7 +3317,7 @@ func newTeamUpCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after starting.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
@@ -3398,7 +3398,7 @@ func newTeamDownCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Escalate to SIGKILL if an instance does not stop within --timeout.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for stopped instances to reach a terminal state.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).")
@@ -3490,7 +3490,7 @@ func newTeamRestartCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt for instances started fresh.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait for each running instance to stop before resuming (0 = daemon default).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
@@ -3585,7 +3585,7 @@ func newTeamSyncCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team topology convergence without starting the daemon or instances.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected team instances to become healthy after syncing.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Also stop running daemon-known extras for this team's agents.")
@@ -3663,7 +3663,7 @@ func newTeamPlanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team plan as JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running team-agent topology extras as stop actions.")
@@ -3726,7 +3726,7 @@ func newTeamHealthCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include team-owned job and pipeline health.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team health as JSON.")
@@ -3787,7 +3787,7 @@ func newTeamStatusCmd() *cobra.Command {
 			return renderTeamStatus(cmd.OutOrStdout(), snapshot, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team status until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -3944,7 +3944,7 @@ func newTeamMonitorCmd() *cobra.Command {
 			return renderMonitor(cmd.OutOrStdout(), snapshot)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, crashed, and missing team-owned instances in the stats section.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the team monitor snapshot until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")

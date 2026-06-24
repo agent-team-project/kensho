@@ -70,7 +70,7 @@ func newPipelineLsCmd() *cobra.Command {
 			return renderPipelineList(cmd.OutOrStdout(), pipelines, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipelines as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline with a Go template, e.g. '{{.Name}} {{len .Steps}}'.")
 	return cmd
@@ -109,7 +109,7 @@ func newPipelineShowCmd() *cobra.Command {
 			return renderPipelineDetail(cmd.OutOrStdout(), info, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline with a Go template, e.g. '{{.Name}} {{len .Steps}}'.")
 	return cmd
@@ -150,7 +150,7 @@ func newPipelineGraphCmd() *cobra.Command {
 			return renderPipelineGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate step targets with matching agent.dispatch route instances.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
@@ -209,7 +209,7 @@ func newPipelineDoctorCmd() *cobra.Command {
 			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
@@ -269,7 +269,7 @@ func newPipelineJobsCmd() *cobra.Command {
 			return runJobList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline job counts instead of job rows.")
@@ -328,7 +328,7 @@ func newPipelineStatusCmd() *cobra.Command {
 			return renderPipelineStatusRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Summarize all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline status rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.")
@@ -401,7 +401,7 @@ func newPipelineNextCmd() *cobra.Command {
 			return renderPipelineNextActions(cmd.OutOrStdout(), actions, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.")
 	cmd.Flags().BoolVar(&all, "all", false, "Consider all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of actions to print (0 = no limit).")
@@ -461,7 +461,7 @@ func newPipelineReadyCmd() *cobra.Command {
 			return runJobReady(cmd.OutOrStdout(), teamDir, pipelineName, stateFilter, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&all, "all", false, "List ready jobs across all pipelines.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
@@ -534,7 +534,7 @@ func newPipelineAdvanceCmd() *cobra.Command {
 			return renderPipelineAdvanceResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
@@ -617,7 +617,7 @@ func newPipelineApproveCmd() *cobra.Command {
 			return renderPipelineApproveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Approve manual gates across all pipelines.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum manual gates to approve (0 = no limit).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each approved manual gate immediately.")
@@ -702,7 +702,7 @@ func newPipelineRetryCmd() *cobra.Command {
 			return renderPipelineRetryResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Retry failed steps across all pipelines.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum failed jobs to retry (0 = no limit).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each reset failed step immediately.")
@@ -758,7 +758,7 @@ func newPipelineRunCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")

@@ -47,7 +47,7 @@ func newTopologyShowCmd() *cobra.Command {
 			return runTopologyShow(cmd, teamDir, asJSON)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&asJSON, "json", false, "Emit raw JSON.")
 	return c
 }
@@ -87,7 +87,7 @@ func newTopologyGraphCmd() *cobra.Command {
 			return renderTopologyGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	c.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate pipeline steps with matching agent.dispatch routes.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
@@ -116,7 +116,7 @@ func newTopologySummaryCmd() *cobra.Command {
 			return renderTopologySummary(cmd.OutOrStdout(), summary, asJSON)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&asJSON, "json", false, "Emit topology summary as JSON.")
 	return c
 }
@@ -146,7 +146,7 @@ func newTopologyReloadCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return c
 }
 

@@ -101,7 +101,7 @@ func newAttachCmd() *cobra.Command {
 			return runAttach(cmd, target, args[0], noResume, dryRun)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the interactive handoff without stopping or resuming the daemon child.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Log compatibility mode: attach to every daemon-known instance, prefixed by instance name.")

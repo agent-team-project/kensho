@@ -64,7 +64,7 @@ func newRunCmd() *cobra.Command {
 			return runAgent(cmd, cfg, args[0], args[1:])
 		},
 	}
-	cmd.Flags().StringVar(&cfg.target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&cfg.target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVarP(&cfg.name, "name", "n", "", "Instance name (defaults to the agent name). State dir: .agent_team/state/<name>/.")
 	cmd.Flags().StringVarP(&cfg.prompt, "prompt", "p", "", "Kickoff message. With this, the runtime runs in one-shot mode when supported; without, interactive.")
 	cmd.Flags().StringArrayVar(&cfg.setStrings, "set", nil, "Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.")

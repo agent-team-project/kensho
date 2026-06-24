@@ -129,7 +129,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 			return renderIntakeDeliveries(cmd.OutOrStdout(), deliveries, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only show deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only show deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only show deliveries with replay status: ok, error, none, or any.")
@@ -257,7 +257,7 @@ func newIntakeReplayCmd() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Replay all matching recorded deliveries.")
 	cmd.Flags().StringVar(&provider, "provider", "", "With --all, only replay deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", intakeDeliveryStatusError, "With --all, delivery status to replay: ok, error, or all. error skips recovered replays.")
@@ -392,7 +392,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 			return renderIntakeSummary(cmd.OutOrStdout(), summary, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only summarize deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only summarize deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only summarize deliveries with replay status: ok, error, none, or any.")
@@ -461,7 +461,7 @@ func newIntakePruneCmd() *cobra.Command {
 			return renderIntakePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&status, "status", intakeDeliveryStatusOK, "Delivery status to prune: ok, error, or all.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only prune deliveries with replay status: ok, error, none, or any. Defaults --status to all when set.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune deliveries older than this duration.")

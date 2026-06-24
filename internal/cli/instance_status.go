@@ -221,7 +221,7 @@ func newInstancePsCmd() *cobra.Command {
 			return runInstancePs(cmd.OutOrStdout(), teamDir, time.Now())
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return c
 }
 

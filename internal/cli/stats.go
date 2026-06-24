@@ -145,7 +145,7 @@ func newStatsCmd() *cobra.Command {
 			return runStats(cmd.OutOrStdout(), lister, args, opts, time.Now(), readProcessStats)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, and crashed daemon-managed instances.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show stats for the most recently started instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show stats for the N most recently started instances after other filters (0 = all).")

@@ -75,7 +75,7 @@ func newInstanceLsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return c
 }
 
@@ -93,7 +93,7 @@ func newInstanceShowCmd() *cobra.Command {
 			return runInstanceShow(cmd, target, args[0], jsonOut)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	return c
 }
@@ -641,7 +641,7 @@ func newInstanceRmCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.")
 	c.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
@@ -1275,7 +1275,7 @@ func newInstanceUpCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt.")
 	c.Flags().BoolVarP(&all, "all", "a", false, "Start or resume every declared persistent and daemon-known instance.")
 	c.Flags().BoolVar(&latest, "latest", false, "Start or resume the most recently started instance after other filters.")
@@ -2486,7 +2486,7 @@ func newInstanceDownCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&latest, "latest", false, "Stop the most recently started running instance after other filters.")
 	c.Flags().IntVarP(&last, "last", "n", 0, "Stop the N most recently started running instances after other filters (0 = all).")
 	c.Flags().StringSliceVar(&agents, "agent", nil, "Stop every running instance for this agent. Can repeat or comma-separate.")

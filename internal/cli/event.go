@@ -126,7 +126,7 @@ func newEventPublishCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&payload, "payload", "", "JSON object passed as the event payload (e.g. '{\"target\":\"worker\"}').")
 	c.Flags().StringVar(&payloadFile, "payload-file", "", "Read event payload JSON from a file, or '-' for stdin.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching triggers without publishing to the daemon.")

@@ -99,7 +99,7 @@ func newQueueLsCmd() *cobra.Command {
 			return runQueueList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
@@ -143,7 +143,7 @@ func newQueueShowCmd() *cobra.Command {
 			return renderQueueItemResult(cmd.OutOrStdout(), item, jsonOut, tmpl, queueRuntimeMap(teamDir))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the queue item as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
@@ -269,7 +269,7 @@ func newQueueDropCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching queue items instead of one id.")
@@ -426,7 +426,7 @@ func newQueueRetryCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching queue items instead of one id.")
@@ -501,7 +501,7 @@ func newQueueDrainCmd() *cobra.Command {
 			return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready queue items without dispatching them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.Dispatched}} {{.Pending}}'.")
@@ -559,7 +559,7 @@ func newQueuePruneCmd() *cobra.Command {
 			return renderQueuePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune items older than this duration based on retry/dead-letter/update time.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")

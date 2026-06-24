@@ -195,7 +195,7 @@ func newStartCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Start or resume every declared persistent and daemon-known instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Start or resume the most recently started instance after other filters.")
@@ -291,7 +291,7 @@ func newStopCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Stop every daemon-managed running instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Stop the most recently started running instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Stop the N most recently started running instances after other filters (0 = all).")
@@ -385,7 +385,7 @@ func newKillCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Force-stop every daemon-managed running instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Force-stop the most recently started running instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Force-stop the N most recently started running instances after other filters (0 = all).")
@@ -590,7 +590,7 @@ func newRestartCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt for instances started fresh.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Restart or resume every declared persistent and daemon-known instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Restart or resume the most recently started instance after other filters.")
@@ -775,7 +775,7 @@ func newStatusCmd() *cobra.Command {
 			return runStatusWithOptions(out, teamDir, time.Now(), opts)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show a compact non-failing fleet health summary instead of the full instance table.")
 	cmd.Flags().BoolVar(&resources, "resources", false, "With --summary, include aggregate CPU, memory, and RSS totals.")
@@ -1154,7 +1154,7 @@ func newInspectCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Inspect every visible instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Inspect the most recently started visible instance after other filters.")
@@ -1351,7 +1351,7 @@ func newRmCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, or --unhealthy.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
@@ -1434,7 +1434,7 @@ func newPruneCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only remove finished instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only remove finished instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.")
@@ -1717,7 +1717,7 @@ func newWaitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Wait for every daemon-known instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Wait for the most recently started daemon-known instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Wait for the N most recently started daemon-known instances after other filters (0 = all).")

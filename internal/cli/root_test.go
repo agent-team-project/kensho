@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jamesaud/agent-team/internal/job"
@@ -68,5 +69,41 @@ func TestRootRepoFlagWorksAfterLegacyTargetCommand(t *testing.T) {
 	}
 	if len(plan.Instances) == 0 {
 		t.Fatalf("plan = %+v, want declared instances", plan)
+	}
+}
+
+func TestRepoHelpDistinguishesLegacyTargetFromAgentTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "legacy repo target",
+			args: []string{"dispatch", "--help"},
+			want: []string{"--repo string", "Repo root containing .agent_team for commands that read repo state", "--target string", legacyRepoTargetFlagHelp},
+		},
+		{
+			name: "job target agent",
+			args: []string{"job", "create", "--help"},
+			want: []string{"--repo string", repoFlagHelp, "--target string", "Target agent that should own this job."},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("%v: %v\nstderr=%s", tc.args, err, stderr.String())
+			}
+			body := out.String()
+			for _, want := range tc.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("help for %v missing %q\nbody:\n%s", tc.args, want, body)
+				}
+			}
+		})
 	}
 }

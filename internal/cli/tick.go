@@ -127,7 +127,7 @@ func newTickCmd() *cobra.Command {
 			return renderTickResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")

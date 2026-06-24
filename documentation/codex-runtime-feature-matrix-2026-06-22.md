@@ -76,6 +76,13 @@ and `tick` do not advance them.
    The remaining work is command-shape cleanup and help-text consistency, not a
    functional repo-selection blocker.
 
+   Status after help-text follow-up: fixed for the current CLI surface. Local
+   `--repo` flags now use one shared repo-root description, legacy repo-root
+   `--target` flags are explicitly labeled as legacy and point operators to
+   global `--repo`, and `job create --target` remains documented as the target
+   agent selector. Generated CLI docs and help-output regression coverage pin
+   the distinction.
+
 2. **Roadmap command shape is not exactly current CLI shape.**
    The roadmap example `agent-team job create <ticket> --target worker` is
    valid for target agent selection, but when combined with commands that use
@@ -221,12 +228,11 @@ and `tick` do not advance them.
 
 ## Suggested Next Fixes
 
-1. Finish standardizing help text and examples around global `--repo`; keep
-   command-local `--target` for destination, agent, or event target semantics.
-2. Preserve post-mortem metadata/logs for job-owned ephemeral workers. Job
+1. Preserve post-mortem metadata/logs for job-owned ephemeral workers. Job
    status can now be reconciled from job-scoped daemon lifecycle exit events.
-3. Confirm the selected Codex sandbox allows daemon Unix socket connections
+2. Confirm the selected Codex sandbox allows daemon Unix socket connections
    from worker sessions now that `AGENT_TEAM_DAEMON_SOCKET` is exported.
-4. Make empty JSON maps consistently encode as `{}`.
-5. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+3. Reduce noisy raw Codex adapter logs in successful short runs, especially
+   plugin/skill warnings that obscure the useful last message.
+4. Investigate why `agent-team`-supervised `codex exec -` stalls even though
    raw replay with the same stdin/add-dir succeeds.

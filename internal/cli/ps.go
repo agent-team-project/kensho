@@ -147,7 +147,7 @@ func newPsCmd() *cobra.Command {
 			return runPsWatchFiltered(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, jsonOut, opts, clear)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the process table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON. With --watch, writes one JSON array per refresh.")

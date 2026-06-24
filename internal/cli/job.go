@@ -103,7 +103,7 @@ func newJobQueueCmd() *cobra.Command {
 			return runJobQueueList(cmd.OutOrStdout(), teamDir, j, filters, summary, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
@@ -151,7 +151,7 @@ func newJobQueueShowCmd() *cobra.Command {
 			return renderQueueItemResultWithActions(cmd.OutOrStdout(), item, jsonOut, tmpl, jobQueueActionResolver(j.ID), queueRuntimeMap(teamDir))
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the queue item as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
@@ -200,7 +200,7 @@ func newJobQueueQuarantineCmd() *cobra.Command {
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().BoolVar(&restorable, "restorable", false, "Only show quarantined files that can be restored.")
@@ -247,7 +247,7 @@ func newJobQueueQuarantineShowCmd() *cobra.Command {
 			return renderQueueQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the quarantined queue file as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the quarantined queue file with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
@@ -326,7 +326,7 @@ func newJobQueueQuarantineRestoreCmd() *cobra.Command {
 			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching job-owned restorable quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active queue file with the same restore path.")
@@ -421,7 +421,7 @@ func newJobQueueQuarantineDropCmd() *cobra.Command {
 			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching job-owned quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")
@@ -505,7 +505,7 @@ func newJobQueueRetryCmd() *cobra.Command {
 			return runJobQueueRetryOne(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, j, args[1], dryRun, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching job-owned queue items instead of one id.")
@@ -589,7 +589,7 @@ func newJobQueueDropCmd() *cobra.Command {
 			return runJobQueueDropOne(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, j, args[1], dryRun, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching job-owned queue items instead of one id.")
@@ -649,7 +649,7 @@ func newJobQueuePruneCmd() *cobra.Command {
 			return runJobQueuePrune(cmd.OutOrStdout(), teamDir, j, state, olderThan, filters, time.Now().UTC(), dryRun, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune job-owned items older than this duration based on retry/dead-letter/update time.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
@@ -712,7 +712,7 @@ func newJobEventsCmd() *cobra.Command {
 			return runJobEvents(cmd.OutOrStdout(), teamDir, j.ID, tailEvents, filters, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Poll and print new job events until interrupted.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N events before returning or following (0 or all = all).")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
@@ -885,7 +885,7 @@ func newJobCreateCmd() *cobra.Command {
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&targetAgent, "target", "worker", "Target agent that should own this job.")
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Create this job from a declared pipeline in instances.toml.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
@@ -1014,7 +1014,7 @@ func newJobLsCmd() *cobra.Command {
 			return runJobList(cmd.OutOrStdout(), teamDir, filters, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&targetFilter, "target-agent", "", "Filter by target agent.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Filter by owning instance.")
@@ -1075,7 +1075,7 @@ func newJobShowCmd() *cobra.Command {
 			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&eventsTail, "events", "5", "Include the last N job events in the detail output, or all.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -1173,7 +1173,7 @@ func newJobWaitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&interval, "interval", 500*time.Millisecond, "Polling interval.")
@@ -1216,7 +1216,7 @@ func newJobStartCmd() *cobra.Command {
 			}, readyTimeout)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to become healthy after starting or resuming.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
@@ -1292,7 +1292,7 @@ func newJobDispatchCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&source, "source", "", "Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
@@ -1367,7 +1367,7 @@ func newJobSendCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
@@ -1493,7 +1493,7 @@ func newJobUnblockCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the unblock message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
@@ -1624,7 +1624,7 @@ func newJobLogsCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail the owning instance log; print new bytes as they appear.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.")
@@ -1683,7 +1683,7 @@ func newJobAttachCmd() *cobra.Command {
 			return runAttach(cmd, repoRoot, instance, noResume, dryRun)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the owning instance in stopped state when the runtime exits.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the owning instance handoff without stopping or resuming the daemon child.")
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Log mode: print the selected log tail and exit instead of following.")
@@ -1731,7 +1731,7 @@ func newJobStopCmd() *cobra.Command {
 			}, job.StatusBlocked)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Escalate to SIGKILL if the owning instance does not stop within --timeout.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline.")
@@ -1782,7 +1782,7 @@ func newJobKillCmd() *cobra.Command {
 			}, job.StatusFailed)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Second, "Grace before SIGKILL escalation.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
@@ -1834,7 +1834,7 @@ func newJobCloseCmd() *cobra.Command {
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Close status: done or failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -1937,7 +1937,7 @@ func newJobUpdateCmd() *cobra.Command {
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Set lifecycle status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&target, "target", "", "Set target agent.")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Set ticket URL.")
@@ -2079,7 +2079,7 @@ func newJobReopenCmd() *cobra.Command {
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", string(job.StatusQueued), "Reopened status: queued or blocked.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow reopening a job currently marked running.")
@@ -2205,7 +2205,7 @@ func newJobCleanupCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Clean all done jobs that still own a recorded worktree or branch.")
 	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm the job's PR has merged before removing its worktree and branch.")
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete the job branch with git branch -D if it is not locally merged.")
@@ -2266,7 +2266,7 @@ func newJobRmCmd() *cobra.Command {
 			return renderJobRemoveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow removing queued, running, or blocked jobs.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview removals without deleting files.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit removal results as JSON.")
@@ -2325,7 +2325,7 @@ func newJobPruneCmd() *cobra.Command {
 			return renderJobRemoveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Terminal status to prune: done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview removals without deleting files.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit removal results as JSON.")
@@ -2361,7 +2361,7 @@ func newJobNextCmd() *cobra.Command {
 			return renderJobNextResult(cmd.OutOrStdout(), inspectNextJobStep(j), jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the next-step state as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.")
 	return cmd
@@ -2402,7 +2402,7 @@ func newJobReadyCmd() *cobra.Command {
 			return runJobReady(cmd.OutOrStdout(), teamDir, strings.TrimSpace(pipeline), stateFilter, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Filter by pipeline name.")
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
@@ -2478,7 +2478,7 @@ func newJobTriageCmd() *cobra.Command {
 			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks).")
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
@@ -2587,7 +2587,7 @@ func newJobStepCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Step status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Instance that owns or completed this step.")
@@ -2655,7 +2655,7 @@ func newJobAdvanceCmd() *cobra.Command {
 			return renderJobAdvanceResult(cmd.OutOrStdout(), res)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for the advanced step: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the advanced step dispatch. Overrides env and repo config.")
@@ -2710,7 +2710,7 @@ func newJobReconcileEventsCmd() *cobra.Command {
 			return renderJobEventReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
@@ -2750,7 +2750,7 @@ func newJobReconcileStatusCmd() *cobra.Command {
 			return renderJobStatusReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
@@ -2796,7 +2796,7 @@ func newJobReconcileQueueCmd() *cobra.Command {
 			return renderJobQueueReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&state, "state", queuePruneStateAll, "Queue state to reconcile: pending, dead, or all.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -2911,7 +2911,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "GitHub webhook JSON object.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read GitHub webhook JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the owning job update without writing it.")

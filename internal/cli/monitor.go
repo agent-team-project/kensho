@@ -179,7 +179,7 @@ func newMonitorCmd() *cobra.Command {
 			return renderMonitor(cmd.OutOrStdout(), snapshot)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, and crashed daemon-managed instances in the stats section.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the monitor snapshot until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")

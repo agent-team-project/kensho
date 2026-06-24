@@ -90,7 +90,7 @@ func newPlanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running topology extras as stop actions, matching sync --stop-extras.")

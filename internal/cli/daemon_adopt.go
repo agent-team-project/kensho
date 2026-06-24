@@ -100,7 +100,7 @@ func newDaemonAdoptCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent name for the adopted instance. Inferred from instances.toml when omitted.")
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace path for the adopted process. Defaults to the repo root.")

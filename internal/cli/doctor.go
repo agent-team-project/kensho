@@ -51,7 +51,7 @@ func newDoctorCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail when the companion agent-teamd binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when the selected LLM runtime binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail when .template.lock no longer matches its resolved template ref.")

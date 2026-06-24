@@ -68,7 +68,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ledger doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd

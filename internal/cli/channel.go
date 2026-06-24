@@ -44,7 +44,7 @@ func newChannelsCmd() *cobra.Command {
 			return runChannelLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return cmd
 }
 
@@ -62,7 +62,7 @@ func newChannelLsCmd() *cobra.Command {
 			return runChannelLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return cmd
 }
 
@@ -81,7 +81,7 @@ func newChannelShowCmd() *cobra.Command {
 			return runChannelShow(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return cmd
 }
 
@@ -104,7 +104,7 @@ func newChannelPublishCmd() *cobra.Command {
 			return runChannelPublish(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], sender, body)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&sender, "sender", "(cli)", "Sender label recorded with the message.")
 	return cmd
 }
@@ -137,7 +137,7 @@ func newChannelRmCmd() *cobra.Command {
 			return runChannelRm(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation.")
 	return cmd
 }

@@ -89,7 +89,7 @@ func newNextCmd() *cobra.Command {
 			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFiltered(overview, limit, filters), jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Scope recommendations to this declared team.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
@@ -174,7 +174,7 @@ func newTeamNextCmd() *cobra.Command {
 			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFiltered(overview, limit, filters), jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")

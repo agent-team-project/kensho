@@ -133,7 +133,7 @@ func newQueueDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit queue doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.")
 	cmd.Flags().BoolVar(&quarantine, "quarantine", false, "Move queue files with doctor problems out of the active queue.")

@@ -21,7 +21,7 @@ agent-team [flags]
 Persistent Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -106,14 +106,14 @@ Flags:
       --stale             Log compatibility mode: only attach to instances whose status.toml is stale.
       --status strings    Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Log compatibility mode: show only the last N lines before following (0 or all = all). (default "50")
-      --target string     Repo root. (default "<repo>")
+      --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy         Log compatibility mode: only attach to crashed or stale instances.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team channel`
@@ -127,7 +127,7 @@ agent-team channel
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -148,13 +148,13 @@ agent-team channel ls [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team channel publish`
@@ -169,13 +169,13 @@ Flags:
 
 ```text
       --sender string   Sender label recorded with the message. (default "(cli)")
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team channel rm`
@@ -190,13 +190,13 @@ Flags:
 
 ```text
   -f, --force           Skip confirmation.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team channel show`
@@ -210,13 +210,13 @@ agent-team channel show <name> [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team channels`
@@ -230,13 +230,13 @@ agent-team channels [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team completion`
@@ -253,7 +253,7 @@ agent-team completion
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -301,7 +301,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team completion fish`
@@ -333,7 +333,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team completion powershell`
@@ -362,7 +362,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team completion zsh`
@@ -405,7 +405,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon`
@@ -423,7 +423,7 @@ agent-team daemon
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -463,7 +463,7 @@ Flags:
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.
 ```
@@ -471,7 +471,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon logs`
@@ -491,13 +491,13 @@ Flags:
       --grep string     Only print daemon log lines matching this regular expression. One-shot reads only.
       --since string    Only show the daemon log if it was modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --tail string     Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon reconcile`
@@ -515,13 +515,13 @@ Flags:
 ```text
       --format string   Render reconcile result with a Go template, e.g. '{{.Changed}} {{len .Instances}}'.
       --json            Emit machine-readable JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon restart`
@@ -542,14 +542,14 @@ Flags:
       --json                     Emit machine-readable JSON. Requires detached mode.
   -q, --quiet                    Suppress output and use only the exit code. Requires detached mode.
       --ready-timeout duration   Maximum time to wait for restarted detached daemon readiness (0 = no timeout). (default 3s)
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Grace period for stopping the old daemon before SIGKILL escalation (0 = force immediately). (default 5s)
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon start`
@@ -570,13 +570,13 @@ Flags:
       --json                     Emit machine-readable JSON. Requires detached mode.
   -q, --quiet                    Suppress output and use only the exit code. Requires detached mode.
       --ready-timeout duration   Maximum time to wait for detached daemon readiness (0 = no timeout). (default 3s)
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon status`
@@ -595,7 +595,7 @@ Flags:
       --interval duration   Polling interval for --wait. (default 200ms)
       --json                Emit machine-readable JSON.
   -q, --quiet               Suppress output and use the exit code as a readiness probe.
-      --target string       Repo root. (default "<repo>")
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration    Maximum time to wait with --wait (0 = no timeout). (default 30s)
       --wait                Wait until agent-teamd is running and ready.
 ```
@@ -603,7 +603,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team daemon stop`
@@ -620,14 +620,14 @@ Flags:
       --format string      Render daemon stop result with a Go template, e.g. '{{.Action}} {{.Changed}}'.
       --json               Emit machine-readable JSON.
   -q, --quiet              Suppress output and use only the exit code.
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration   Grace period before SIGKILL escalation (0 = force immediately). (default 5s)
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team dispatch`
@@ -652,14 +652,14 @@ Flags:
       --runtime string        Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for the dispatched instance. Overrides env and repo config.
       --source string         Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --workspace string      Workspace mode for spawned children: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team docs`
@@ -673,7 +673,7 @@ agent-team docs [flags]
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -702,7 +702,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team doctor`
@@ -725,13 +725,13 @@ Flags:
       --strict-daemon        Fail when the companion agent-teamd binary is not discoverable.
       --strict-runtime       Fail when the selected LLM runtime binary is not discoverable.
       --strict-template      Fail when .template.lock no longer matches its resolved template ref.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team event`
@@ -745,7 +745,7 @@ agent-team event
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -768,13 +768,13 @@ Flags:
       --json                  Emit the daemon event outcome as JSON.
       --payload string        JSON object passed as the event payload (e.g. '{"target":"worker"}').
       --payload-file string   Read event payload JSON from a file, or '-' for stdin.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team events`
@@ -805,14 +805,14 @@ Flags:
       --status strings     Only show events with this lifecycle status. Can repeat or comma-separate.
       --summary            Summarize matching events by action, status, agent, and instance.
       --tail int           Show only the last N events before returning or following (0 = all). With non-following filters, N applies after filtering.
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy          Only show events for instances that are currently crashed or stale.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team health`
@@ -843,7 +843,7 @@ Flags:
       --stale               Only check instances whose status.toml is stale.
       --status strings      Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --strict-topology     Treat running daemon-known instances not declared in instances.toml as unhealthy.
-      --target string       Repo root. (default "<repo>")
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration    Maximum time to wait with --wait (0 = no timeout).
       --unhealthy           Only check crashed or stale instances. Daemon health remains global.
       --wait                Poll until the fleet is healthy, then exit.
@@ -853,7 +853,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team help`
@@ -870,7 +870,7 @@ agent-team help [command]
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team init`
@@ -900,7 +900,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team inspect`
@@ -927,14 +927,14 @@ Flags:
       --runtime strings    Only inspect instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale              Only inspect instances whose status.toml is stale.
       --status strings     Only inspect instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy          Only inspect crashed or stale instances.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance`
@@ -948,7 +948,7 @@ agent-team instance
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -983,7 +983,7 @@ Flags:
       --stale                   Only stop instances whose status.toml is stale.
       --status strings          Stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary                 Show aggregate action counts instead of per-instance rows.
-      --target string           Repo root. (default "<repo>")
+      --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).
       --unhealthy               Only stop instances that are crashed or stale.
       --wait                    Wait for stopped instances to reach a terminal state.
@@ -993,7 +993,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance ls`
@@ -1007,13 +1007,13 @@ agent-team instance ls [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance ps`
@@ -1029,13 +1029,13 @@ agent-team instance ps [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance rm`
@@ -1063,14 +1063,14 @@ Flags:
       --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
       --summary           Show aggregate removal counts instead of per-instance rows.
-      --target string     Repo root. (default "<repo>")
+      --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy         Remove only daemon-known instances that are crashed or stale.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance show`
@@ -1085,13 +1085,13 @@ Flags:
 
 ```text
       --json            Emit machine-readable JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team instance up`
@@ -1119,7 +1119,7 @@ Flags:
       --status strings     Only start or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary            Show aggregate action counts instead of per-instance rows.
       --tail string        With --attach, show only the last N lines before following (0 or all = all). (default "50")
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration   Maximum time to wait with --wait (0 = no timeout).
       --unhealthy          Only start or resume instances that are crashed or stale.
       --wait               Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.
@@ -1128,7 +1128,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake`
@@ -1144,7 +1144,7 @@ agent-team intake
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -1178,14 +1178,14 @@ Flags:
       --request-id string      Only show deliveries with this provider request id, such as X-GitHub-Delivery.
       --status string          Only show deliveries with a status: ok or error.
       --tail string            Show only the last N deliveries (0 or all = all). (default "20")
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unresolved             Only show failed deliveries that still need replay.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake doctor`
@@ -1201,13 +1201,13 @@ Flags:
 ```text
       --format string   Render the intake doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json            Emit ledger doctor findings as JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake github`
@@ -1229,14 +1229,14 @@ Flags:
       --payload-file string   Read webhook JSON from a file, or '-' for stdin.
       --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
       --reconcile-job         Also reconcile the normalized PR event into the owning durable job.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake linear`
@@ -1256,13 +1256,13 @@ Flags:
       --payload string        Webhook JSON object.
       --payload-file string   Read webhook JSON from a file, or '-' for stdin.
       --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake prune`
@@ -1284,13 +1284,13 @@ Flags:
       --older-than duration    Only prune deliveries older than this duration.
       --replay-status string   Only prune deliveries with replay status: ok, error, none, or any. Defaults --status to all when set.
       --status string          Delivery status to prune: ok, error, or all. (default "ok")
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake replay`
@@ -1312,13 +1312,13 @@ Flags:
       --preview-triggers   With --dry-run, include local topology instance and pipeline matches.
       --provider string    With --all, only replay deliveries for a provider: linear or github.
       --status string      With --all, delivery status to replay: ok, error, or all. error skips recovered replays. (default "error")
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake schedule`
@@ -1338,13 +1338,13 @@ Flags:
       --payload string        Additional JSON object merged into the schedule payload.
       --payload-file string   Read additional schedule payload JSON from a file, or '-' for stdin.
       --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake serve`
@@ -1373,13 +1373,13 @@ Flags:
       --prune-recovered-older-than duration   Prune recovered failed delivery history older than this duration after each request. Use 0 to disable. (default 168h0m0s)
       --require-github-secret                 Fail startup unless --github-secret or GITHUB_WEBHOOK_SECRET is set.
       --require-linear-secret                 Fail startup unless --linear-secret or LINEAR_WEBHOOK_SECRET is set.
-      --target string                         Repo root. (default "<repo>")
+      --target string                         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake service`
@@ -1418,7 +1418,7 @@ Flags:
       --require-github-secret                 Include --require-github-secret in ExecStart.
       --require-linear-secret                 Include --require-linear-secret in ExecStart.
       --secret-name string                    Kubernetes Secret name used by kubernetes service generation; defaults to <name>-secrets.
-      --target string                         Repo root. (default "<repo>")
+      --target string                         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --tls-secret string                     Kubernetes TLS Secret name for --ingress-host; kubernetes output only.
       --workspace-claim string                Kubernetes PersistentVolumeClaim name mounted at --container-workdir; defaults to <name>-workspace.
 ```
@@ -1426,7 +1426,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team intake summary`
@@ -1446,14 +1446,14 @@ Flags:
       --replay-status string   Only summarize deliveries with replay status: ok, error, none, or any.
       --request-id string      Only summarize deliveries with this provider request id, such as X-GitHub-Delivery.
       --status string          Only summarize deliveries with a status: ok or error.
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unresolved             Only summarize failed deliveries that still need replay.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team job`
@@ -1469,7 +1469,7 @@ agent-team job
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -1515,7 +1515,7 @@ Flags:
       --dry-run              Preview the next ready step dispatch without changing daemon or job state.
       --format string        Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
       --json                 Emit the updated job and daemon event outcome as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for the advanced step dispatch. Overrides env and repo config.
       --workspace string     Workspace mode for the advanced step: auto, worktree, or repo. (default "auto")
@@ -1538,7 +1538,7 @@ Flags:
       --grep string    Log mode with --no-follow: only print log lines matching this regular expression.
       --no-follow      Log mode: print the selected log tail and exit instead of following.
       --no-resume      Leave the owning instance in stopped state when the runtime exits.
-      --repo string    Repo root. (default "<repo>")
+      --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --tail string    Log mode: show only the last N lines before following (0 or all = all). (default "50")
 ```
@@ -1560,7 +1560,7 @@ Flags:
       --format string   Render the cleanup result with a Go template, e.g. '{{.ID}} {{.LastStatus}}' or '{{.Total}} {{.Cleaned}}'.
       --json            Emit the updated job as JSON.
       --merged          Confirm the job's PR has merged before removing its worktree and branch.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --verify-pr       Verify the recorded GitHub PR is merged with gh before cleanup.
 ```
 
@@ -1577,7 +1577,7 @@ Flags:
 ```text
       --format string   Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json            Emit the updated job as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --status string   Close status: done or failed. (default "done")
 ```
 
@@ -1601,7 +1601,7 @@ Flags:
       --kickoff string        Kickoff text for the target agent.
       --kickoff-file string   Read kickoff text from a file.
       --pipeline string       Create this job from a declared pipeline in instances.toml.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --target string         Target agent that should own this job. (default "worker")
@@ -1623,7 +1623,7 @@ Flags:
       --dry-run              Preview topology matches without publishing to the daemon or updating the job.
       --format string        Render the updated job or dry-run preview with a Go template.
       --json                 Emit the updated job and daemon event outcome as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for the dispatched instance. Overrides env and repo config.
       --source string        Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
@@ -1646,7 +1646,7 @@ Flags:
       --format string       Render each event with a Go template, e.g. '{{.TS}} {{.Type}} {{.Message}}'.
       --interval duration   Polling interval for --follow. (default 1s)
       --json                Emit machine-readable JSON. With --follow, emit one JSON object per line.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --since string        Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --tail string         Show only the last N events before returning or following (0 or all = all). (default "0")
       --type strings        Only show job events with this type. Can repeat or comma-separate.
@@ -1667,7 +1667,7 @@ Flags:
       --format string           Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                    Emit machine-readable lifecycle action JSON.
   -q, --quiet                   Suppress non-error output and use only the exit code.
-      --repo string             Repo root. (default "<repo>")
+      --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after killing.
       --timeout duration        Grace before SIGKILL escalation. (default 2s)
       --wait                    Wait for the owning instance to reach a terminal state.
@@ -1688,7 +1688,7 @@ Flags:
   -f, --follow         Tail the owning instance log; print new bytes as they appear.
       --grep string    Only print log lines matching this regular expression. One-shot reads only.
       --last-message   Show the clean final Codex response sidecar for the owning instance.
-      --repo string    Repo root. (default "<repo>")
+      --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --tail string    Show only the last N lines before returning or following (0 or all = all). (default "0")
 ```
@@ -1712,7 +1712,7 @@ Flags:
       --no-clear              With --watch, append snapshots instead of redrawing the terminal.
       --pipeline string       Filter by pipeline name.
       --pr string             Filter by PR URL or number substring.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by owning instance runtime: claude or codex. Can repeat or comma-separate.
       --sort string           Sort rows by id, status, target, ticket, created, updated, instance, branch, or pr. (default "id")
       --status string         Filter by status: queued, running, blocked, done, or failed.
@@ -1735,7 +1735,7 @@ Flags:
 ```text
       --format string   Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.
       --json            Emit the next-step state as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job prune`
@@ -1754,7 +1754,7 @@ Flags:
       --dry-run          Preview removals without deleting files.
       --format string    Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json             Emit removal results as JSON.
-      --repo string      Repo root. (default "<repo>")
+      --repo string      Repo root containing .agent_team. (default "<repo>")
       --status strings   Terminal status to prune: done, failed, or terminal. Can repeat or comma-separate.
 ```
 
@@ -1775,7 +1775,7 @@ Flags:
       --format string        Render each queue item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json                 Emit machine-readable JSON.
       --ready                Only show pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -1809,7 +1809,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -1831,7 +1831,7 @@ Flags:
       --format string         Render each prune result with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json                  Emit prune results as JSON.
       --older-than duration   Only prune job-owned items older than this duration based on retry/dead-letter/update time.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
@@ -1852,7 +1852,7 @@ Flags:
       --event-type strings   Filter by event type; repeat or comma-separate values.
       --format string        Render each quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --json                 Emit quarantined queue files as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --restorable           Only show quarantined files that can be restored.
       --state string         Filter by queue state: pending or dead.
       --unrestorable         Only show quarantined files that cannot be restored.
@@ -1883,7 +1883,7 @@ Flags:
       --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json                  Emit drop results as JSON.
       --older-than duration   With --all, only drop files older than this duration based on file mtime.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --restorable            With --all, only drop quarantined files that can be restored.
       --state string          With --all, filter by queue state: pending or dead.
       --unrestorable          With --all, only drop quarantined files that cannot be restored.
@@ -1908,7 +1908,7 @@ Flags:
       --force                Overwrite an existing active queue file with the same restore path.
       --format string        Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json                 Emit restore result as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --state string         With --all, filter by queue state: pending or dead.
 ```
 
@@ -1925,7 +1925,7 @@ Flags:
 ```text
       --format string   Render the quarantined queue file with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the quarantined queue file as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job queue retry`
@@ -1948,7 +1948,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -1966,7 +1966,7 @@ Flags:
 ```text
       --format string   Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the queue item as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job ready`
@@ -1983,7 +1983,7 @@ Flags:
       --format string     Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --json              Emit ready rows as JSON.
       --pipeline string   Filter by pipeline name.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --state strings     Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
 ```
 
@@ -1998,7 +1998,7 @@ agent-team job reconcile
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -2022,7 +2022,7 @@ Flags:
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job reconcile github`
@@ -2042,7 +2042,7 @@ Flags:
       --json                  Emit the normalized event and reconciled job as JSON.
       --payload string        GitHub webhook JSON object.
       --payload-file string   Read GitHub webhook JSON from a file, or '-' for stdin.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
 ```
 
@@ -2060,7 +2060,7 @@ Flags:
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --state string    Queue state to reconcile: pending, dead, or all. (default "all")
 ```
 
@@ -2078,7 +2078,7 @@ Flags:
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job reopen`
@@ -2102,7 +2102,7 @@ Flags:
       --format string        Render the updated job or dry-run preview with a Go template.
       --json                 Emit the updated job or dry-run preview as JSON.
       --message string       Status message recorded on the job.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --source string        Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).
@@ -2129,7 +2129,7 @@ Flags:
   -f, --force           Allow removing queued, running, or blocked jobs.
       --format string   Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json            Emit removal results as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job send`
@@ -2149,7 +2149,7 @@ Flags:
       --json                  Emit the updated job as JSON.
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job show`
@@ -2166,7 +2166,7 @@ Flags:
       --events string   Include the last N job events in the detail output, or all. (default "5")
       --format string   Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json            Emit the job as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job start`
@@ -2185,7 +2185,7 @@ Flags:
       --json                     Emit machine-readable lifecycle action JSON.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root. (default "<repo>")
+      --repo string              Repo root containing .agent_team. (default "<repo>")
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
       --wait                     Wait for the owning instance to become healthy after starting or resuming.
 ```
@@ -2209,7 +2209,7 @@ Flags:
       --json                 Emit the updated job or advance result as JSON.
       --message string       Status message recorded on the job.
       --pr string            PR URL to record on the job.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --advance dispatch. Overrides env and repo config.
       --skip                 Mark this step as intentionally skipped; stored as done so dependent steps can continue.
@@ -2234,7 +2234,7 @@ Flags:
       --format string           Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                    Emit machine-readable lifecycle action JSON.
   -q, --quiet                   Suppress non-error output and use only the exit code.
-      --repo string             Repo root. (default "<repo>")
+      --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after stopping.
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline.
       --wait                    Wait for the owning instance to reach a terminal state.
@@ -2260,7 +2260,7 @@ Flags:
       --min-severity string    Only show attention rows at least this severe: critical, warning, or info.
       --no-clear               With --watch, append snapshots instead of redrawing the terminal.
       --reason strings         Only show attention rows with this reason. Can repeat or comma-separate.
-      --repo string            Repo root. (default "<repo>")
+      --repo string            Repo root containing .agent_team. (default "<repo>")
       --stale-after duration   Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks). (default 24h0m0s)
   -w, --watch                  Refresh the triage view until interrupted.
 ```
@@ -2286,7 +2286,7 @@ Flags:
       --json                  Emit the updated job as JSON.
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --status string         Status after unblocking: running or queued. (default "running")
 ```
 
@@ -2310,7 +2310,7 @@ Flags:
       --json                Emit the updated job as JSON.
       --message string      Status message recorded on the job.
       --pr string           Set PR URL or number.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --status string       Set lifecycle status: queued, running, blocked, done, or failed.
       --target string       Set target agent.
       --ticket-url string   Set ticket URL.
@@ -2335,7 +2335,7 @@ Flags:
       --interval duration   Polling interval. (default 500ms)
       --json                Emit the final job as JSON.
   -q, --quiet               Suppress output and use only the exit code.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --status strings      Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
       --timeout duration    Maximum time to wait (0 = no timeout).
 ```
@@ -2367,7 +2367,7 @@ Flags:
       --stale                   Only force-stop instances whose status.toml is stale.
       --status strings          Force-stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary                 Show aggregate action counts instead of per-instance rows.
-      --target string           Repo root. (default "<repo>")
+      --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before SIGKILL escalation. (default 2s)
       --unhealthy               Only force-stop instances that are crashed or stale.
       --wait                    Wait for killed instances to reach a terminal state.
@@ -2377,7 +2377,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team logs`
@@ -2409,14 +2409,14 @@ Flags:
       --stale             Only show logs for instances whose status.toml is stale.
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --target string     Repo root. (default "<repo>")
+      --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy         Only show logs for crashed or stale instances.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team monitor`
@@ -2458,7 +2458,7 @@ Flags:
       --stop-extras            With --plan, preview running topology extras as stop actions.
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Show compact non-failing fleet health and optional plan summaries instead of the full monitor.
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy              Only show crashed or stale instances.
   -w, --watch                  Refresh the monitor snapshot until interrupted.
 ```
@@ -2466,7 +2466,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team next`
@@ -2490,7 +2490,7 @@ Flags:
       --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
       --source strings       Only show actions from this source: health, topology, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string          Scope recommendations to this declared team.
   -w, --watch                Refresh recommended actions until interrupted.
 ```
@@ -2498,7 +2498,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team overview`
@@ -2519,14 +2519,14 @@ Flags:
       --json                 Emit overview as JSON.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --schedule-limit int   Upcoming schedules to inspect after ordering; 0 means all. (default 5)
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
   -w, --watch                Refresh overview until interrupted.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team pipeline`
@@ -2542,7 +2542,7 @@ agent-team pipeline
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -2580,7 +2580,7 @@ Flags:
       --json                 Emit advance results as JSON.
       --limit int            Advance at most this many ready jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes       With --dry-run, include local topology route and dispatch payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
       --workspace string     Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
@@ -2607,7 +2607,7 @@ Flags:
       --limit int            Maximum manual gates to approve (0 = no limit).
       --message string       Status message recorded on each approved job.
       --preview-routes       With --dry-run --dispatch, include route and payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Approve only manual gates whose next blocked step has this id.
@@ -2630,7 +2630,7 @@ Flags:
       --all             Validate all pipelines. This is the default when no pipeline is passed.
       --format string   Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json            Emit pipeline doctor findings as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline graph`
@@ -2648,7 +2648,7 @@ Flags:
 ```text
       --format string   Graph output format: text, mermaid, or dot. (default "text")
       --json            Emit graph nodes and edges as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --routes          Annotate step targets with matching agent.dispatch route instances.
 ```
 
@@ -2665,7 +2665,7 @@ Flags:
 ```text
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json              Emit jobs as JSON.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
       --status string     Filter by job status: queued, running, blocked, done, or failed.
       --summary           Show aggregate pipeline job counts instead of job rows.
@@ -2684,7 +2684,7 @@ Flags:
 ```text
       --format string   Render each pipeline with a Go template, e.g. '{{.Name}} {{len .Steps}}'.
       --json            Emit pipelines as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline next`
@@ -2704,7 +2704,7 @@ Flags:
       --format string   Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
       --json            Emit recommended actions as JSON.
       --limit int       Maximum number of actions to print (0 = no limit).
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --team string     Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.
 ```
 
@@ -2722,7 +2722,7 @@ Flags:
       --all             List ready jobs across all pipelines.
       --format string   Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --json            Emit ready rows as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --state strings   Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
 ```
 
@@ -2747,7 +2747,7 @@ Flags:
       --limit int            Maximum failed jobs to retry (0 = no limit).
       --message string       Status message recorded on each retried job.
       --preview-routes       With --dry-run --dispatch, include route and payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Retry only failed jobs whose next failed step has this id.
@@ -2772,7 +2772,7 @@ Flags:
       --json                  Emit the created job or advance result as JSON.
       --kickoff string        Kickoff text for the first pipeline step.
       --kickoff-file string   Read kickoff text from a file.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string     Canonical ticket URL to store on the job.
@@ -2792,7 +2792,7 @@ Flags:
 ```text
       --format string   Render the pipeline with a Go template, e.g. '{{.Name}} {{len .Steps}}'.
       --json            Emit the pipeline as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline status`
@@ -2809,7 +2809,7 @@ Flags:
       --all             Summarize all pipelines. This is the default when no pipeline is passed.
       --format string   Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.
       --json            Emit pipeline status rows as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team plan`
@@ -2835,13 +2835,13 @@ Flags:
       --status strings     Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras        Preview running topology extras as stop actions, matching sync --stop-extras.
       --summary            Show aggregate action counts instead of per-instance rows.
-      --target string      Repo root. (default "<repo>")
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team prune`
@@ -2868,14 +2868,14 @@ Flags:
       --stale                 Only remove finished instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
       --summary               Show aggregate removal counts instead of per-instance rows.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy             Only remove finished instances that are crashed or stale.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team ps`
@@ -2909,7 +2909,7 @@ Flags:
       --stale               Only show instances whose status.toml is stale.
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show lifecycle counts instead of instance rows.
-      --target string       Repo root. (default "<repo>")
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy           Only show crashed or stale instances.
   -w, --watch               Refresh the process table until interrupted.
 ```
@@ -2917,7 +2917,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue`
@@ -2933,7 +2933,7 @@ agent-team queue
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -2964,13 +2964,13 @@ Flags:
       --format string   Render the queue doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.
       --json            Emit queue doctor findings as JSON.
       --quarantine      Move queue files with doctor problems out of the active queue.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue drain`
@@ -2987,13 +2987,13 @@ Flags:
       --dry-run         Preview ready queue items without dispatching them.
       --format string   Render the drain result with a Go template, e.g. '{{.Dispatched}} {{.Pending}}'.
       --json            Emit machine-readable JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue drop`
@@ -3020,13 +3020,13 @@ Flags:
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue ls`
@@ -3051,14 +3051,14 @@ Flags:
       --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
   -w, --watch                Refresh the queue table until interrupted.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue prune`
@@ -3080,13 +3080,13 @@ Flags:
       --older-than duration   Only prune items older than this duration based on retry/dead-letter/update time.
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue quarantine`
@@ -3102,7 +3102,7 @@ agent-team queue quarantine
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -3135,14 +3135,14 @@ Flags:
       --older-than duration   With --all, only drop files older than this duration based on file mtime.
       --restorable            With --all, only drop quarantined files that can be restored.
       --state string          With --all, filter by queue state: pending or dead.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unrestorable          With --all, only drop quarantined files that cannot be restored.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue quarantine ls`
@@ -3163,14 +3163,14 @@ Flags:
       --json                 Emit quarantined queue files as JSON.
       --restorable           Only show quarantined files that can be restored.
       --state string         Filter by queue state: pending or dead.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unrestorable         Only show quarantined files that cannot be restored.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue quarantine restore`
@@ -3195,13 +3195,13 @@ Flags:
       --job strings          With --all, filter by job id or ticket; repeat or comma-separate values.
       --json                 Emit restore result as JSON.
       --state string         With --all, filter by queue state: pending or dead.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue quarantine show`
@@ -3217,13 +3217,13 @@ Flags:
 ```text
       --format string   Render the quarantined queue file with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the quarantined queue file as JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue retry`
@@ -3250,13 +3250,13 @@ Flags:
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
-      --target string        Repo root. (default "<repo>")
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team queue show`
@@ -3272,13 +3272,13 @@ Flags:
 ```text
       --format string   Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the queue item as JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team reload`
@@ -3296,13 +3296,13 @@ Flags:
 ```text
       --format string   Render reload result with a Go template, e.g. '{{len .Topology.Instances}} {{.Reconcile.Changed}}'.
       --json            Emit machine-readable JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team repair`
@@ -3334,7 +3334,7 @@ Flags:
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry dead-letter queue items.
       --skip-tick                Do not run a maintenance tick after queue retry.
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --until-idle               Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.
       --workspace string         Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
@@ -3342,7 +3342,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team restart`
@@ -3376,7 +3376,7 @@ Flags:
       --status strings           Only restart or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Maximum time to wait for each running instance to stop before resuming (0 = daemon default).
       --unhealthy                Only restart or resume instances that are crashed or stale.
       --wait                     Wait for selected instances to become healthy after restarting. With no scoped selection, waits for the fleet.
@@ -3386,7 +3386,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team rm`
@@ -3417,14 +3417,14 @@ Flags:
       --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
       --summary           Show aggregate removal counts instead of per-instance rows.
-      --target string     Repo root. (default "<repo>")
+      --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy         Remove only daemon-known instances that are crashed or stale.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team run`
@@ -3454,13 +3454,13 @@ Flags:
       --runtime-bin string       Runtime binary for this invocation. Overrides env and repo config.
       --set stringArray          Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team runtime`
@@ -3486,7 +3486,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -3516,7 +3516,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team schedule`
@@ -3532,7 +3532,7 @@ agent-team schedule
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -3557,7 +3557,7 @@ Flags:
 ```text
       --format string   Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.
       --json            Emit due schedules as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team schedule fire`
@@ -3575,7 +3575,7 @@ Flags:
       --format string      Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.
       --json               Emit fire results as JSON.
       --preview-triggers   With --dry-run, include local topology instance and pipeline matches.
-      --repo string        Repo root. (default "<repo>")
+      --repo string        Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team schedule ls`
@@ -3591,7 +3591,7 @@ Flags:
 ```text
       --format string   Render each schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.
       --json            Emit schedules as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team schedule next`
@@ -3608,7 +3608,7 @@ Flags:
       --format string   Render each forecast row with a Go template, e.g. '{{.Name}} {{.Due}} {{.NextRun}}'.
       --json            Emit schedule forecast rows as JSON.
       --limit int       Show at most this many schedules after ordering; 0 means all.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team schedule run`
@@ -3628,7 +3628,7 @@ Flags:
       --payload string        Additional JSON object merged into the declared schedule payload.
       --payload-file string   Read additional schedule payload JSON from a file, or '-' for stdin.
       --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team schedule show`
@@ -3644,7 +3644,7 @@ Flags:
 ```text
       --format string   Render the schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.
       --json            Emit the schedule as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team send`
@@ -3675,14 +3675,14 @@ Flags:
       --runtime strings       Send to daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to daemon-known instances whose status.toml is stale.
       --status strings        Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy             Send to daemon-known instances that are crashed or stale.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team snapshot`
@@ -3704,13 +3704,13 @@ Flags:
       --no-redact               Include raw payload values instead of redacting sensitive keys.
   -o, --output string           Write the full JSON snapshot to this file. Use '-' for stdout.
       --schedule-limit int      Upcoming schedules to include after ordering; 0 means all. (default 10)
-      --target string           Repo root. (default "<repo>")
+      --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team start`
@@ -3745,7 +3745,7 @@ Flags:
       --status strings           Only start or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
       --unhealthy                Only start or resume instances that are crashed or stale.
       --wait                     Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.
@@ -3754,7 +3754,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team stats`
@@ -3787,7 +3787,7 @@ Flags:
       --stale               Only show instances whose status.toml is stale.
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show aggregate CPU, memory, and RSS totals instead of instance rows.
-      --target string       Repo root. (default "<repo>")
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy           Only show crashed or stale instances.
   -w, --watch               Refresh stats until interrupted.
 ```
@@ -3795,7 +3795,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team status`
@@ -3830,7 +3830,7 @@ Flags:
       --stop-extras            With --plan, preview running topology extras as stop actions.
       --strict-topology        With --summary, treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Show a compact non-failing fleet health summary instead of the full instance table.
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy              Only show crashed or stale instances.
   -w, --watch                  Refresh daemon health and instance table until interrupted.
 ```
@@ -3838,7 +3838,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team stop`
@@ -3871,7 +3871,7 @@ Flags:
       --stale                   Only stop instances whose status.toml is stale.
       --status strings          Stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary                 Show aggregate action counts instead of per-instance rows.
-      --target string           Repo root. (default "<repo>")
+      --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).
       --unhealthy               Only stop instances that are crashed or stale.
       --wait                    Wait for stopped instances to reach a terminal state.
@@ -3881,7 +3881,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team sync`
@@ -3910,7 +3910,7 @@ Flags:
       --status strings           Only sync plan rows with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras              Also stop running daemon-known instances not declared in instances.toml.
       --summary                  Show aggregate action counts instead of per-instance rows.
-      --target string            Repo root. (default "<repo>")
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
       --wait                     Wait for selected instances to become healthy after syncing. With no filters, waits for the fleet.
 ```
@@ -3918,7 +3918,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team team`
@@ -3934,7 +3934,7 @@ agent-team team
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -3995,7 +3995,7 @@ Flags:
       --json                 Emit advance results as JSON.
       --limit int            Advance at most this many ready team jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes       With --dry-run, include local topology route and dispatch payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
       --workspace string     Workspace mode for advanced steps: auto, worktree, or repo. (default "auto")
@@ -4021,7 +4021,7 @@ Flags:
       --limit int            Approve at most this many manual gates; 0 means no limit.
       --message string       Status message recorded on each approved team job.
       --preview-routes       With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Approve only manual gates whose next blocked step has this id.
@@ -4046,7 +4046,7 @@ Flags:
       --format string   Render the cleanup batch with a Go template, e.g. '{{.Team}} {{.Cleaned}} {{.Failed}}'.
       --json            Emit the cleanup batch as JSON.
       --merged          Confirm the team's matching PRs have merged before removing worktrees and branches.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --verify-pr       Verify recorded GitHub PRs are merged with gh before cleanup.
 ```
 
@@ -4066,7 +4066,7 @@ Flags:
       --all             Validate all declared teams.
       --format string   Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json            Emit team doctor findings as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team down`
@@ -4087,7 +4087,7 @@ Flags:
       --format string           Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                    Emit machine-readable JSON.
   -q, --quiet                   Suppress non-error output and use only the exit code.
-      --repo string             Repo root. (default "<repo>")
+      --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after stopping.
       --runtime strings         Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --summary                 Show aggregate action counts instead of per-instance rows.
@@ -4115,7 +4115,7 @@ Flags:
       --json                Emit machine-readable JSON.
       --limit int           Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int      Stop after this many cycles if work keeps appearing. (default 20)
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --skip-advance        Skip pipeline advancement work.
       --skip-drain          Skip queue drain work.
       --skip-schedules      Skip due schedule work.
@@ -4139,7 +4139,7 @@ Flags:
   -f, --follow            Keep streaming new lifecycle events.
       --format string     Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
       --json              Emit raw JSONL events.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show team events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --since string      Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --status strings    Only show events with this lifecycle status. Can repeat or comma-separate.
@@ -4162,7 +4162,7 @@ Flags:
 ```text
       --format string   Graph output format: text, mermaid, or dot. (default "text")
       --json            Emit graph nodes and edges as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --routes          Annotate pipeline steps with matching agent.dispatch routes.
 ```
 
@@ -4181,7 +4181,7 @@ Flags:
       --jobs              Include team-owned job and pipeline health.
       --json              Emit team health as JSON.
   -q, --quiet             Suppress output and use only the exit code.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only check team-owned daemon-known instances for this runtime: claude or codex. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.
 ```
 
@@ -4198,7 +4198,7 @@ Flags:
 ```text
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json              Emit team jobs as JSON.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
       --sort string       Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr. (default "id")
       --status string     Filter by job status: queued, running, blocked, done, or failed.
@@ -4226,7 +4226,7 @@ Flags:
       --list              List team log streams instead of printing log content.
       --no-prefix         Do not prefix lines when streaming multiple team logs.
       --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for team instances whose status.toml is stale.
@@ -4247,7 +4247,7 @@ Flags:
 
 ```text
       --json          Emit teams as JSON.
-      --repo string   Repo root. (default "<repo>")
+      --repo string   Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team monitor`
@@ -4278,7 +4278,7 @@ Flags:
       --no-clear               With --watch, append snapshots instead of redrawing the terminal.
       --phase strings          Only show team-owned instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   Include team-scoped desired-state actions from instances.toml and daemon metadata.
-      --repo string            Repo root. (default "<repo>")
+      --repo string            Repo root containing .agent_team. (default "<repo>")
       --runtime strings        Only show team-owned instances for this runtime in instance, stats, and plan sections: claude or codex. Can repeat or comma-separate.
       --schedules              Include due and upcoming team schedules.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
@@ -4310,7 +4310,7 @@ Flags:
       --limit int            Show at most this many actions; 0 means all.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
       --source strings       Only show actions from this source: health, topology, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
   -w, --watch                Refresh recommended actions until interrupted.
@@ -4333,7 +4333,7 @@ Flags:
       --interval duration    Refresh interval for --watch. (default 2s)
       --json                 Emit team overview as JSON.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --schedule-limit int   Upcoming team schedules to inspect after ordering; 0 means all. (default 5)
   -w, --watch                Refresh team overview until interrupted.
 ```
@@ -4351,7 +4351,7 @@ Flags:
 ```text
       --format string   Render each pipeline with a Go template, e.g. '{{.Pipeline}} {{.ReadySteps}}'.
       --json            Emit team pipeline status as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team plan`
@@ -4368,7 +4368,7 @@ Flags:
       --action strings    Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --format string     Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json              Emit team plan as JSON.
-      --repo string       Repo root. (default "<repo>")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show team-owned daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
       --stop-extras       Preview running team-agent topology extras as stop actions.
       --summary           Show aggregate action counts instead of per-instance rows.
@@ -4393,7 +4393,7 @@ Flags:
       --older-than duration   Only prune finished team-owned instances whose terminal timestamp is older than this duration (for example 24h).
       --phase strings         Only remove finished team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress non-error output and use only the exit code.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Only remove finished team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Only remove finished team-owned instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished team-owned instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
@@ -4418,7 +4418,7 @@ Flags:
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team instances as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
   -w, --watch               Refresh team instances until interrupted.
 ```
@@ -4441,7 +4441,7 @@ Flags:
       --json                 Emit team queue rows as JSON.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -4477,7 +4477,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -4499,7 +4499,7 @@ Flags:
       --format string         Render each prune result with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json                  Emit prune results as JSON.
       --older-than duration   Only prune team-owned items older than this duration based on retry/dead-letter/update time.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
@@ -4519,7 +4519,7 @@ Flags:
       --format string        Render each team-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --job strings          Filter by job id or ticket; repeat or comma-separate values.
       --json                 Emit team-owned quarantined queue files as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --restorable           Only show quarantined files that can be restored.
       --state string         Filter by queue state: pending or dead.
       --unrestorable         Only show quarantined files that cannot be restored.
@@ -4551,7 +4551,7 @@ Flags:
       --job strings           With --all, filter by job id or ticket; repeat or comma-separate values.
       --json                  Emit drop results as JSON.
       --older-than duration   With --all, only drop files older than this duration based on file mtime.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --restorable            With --all, only drop quarantined files that can be restored.
       --state string          With --all, filter by queue state: pending or dead.
       --unrestorable          With --all, only drop quarantined files that cannot be restored.
@@ -4577,7 +4577,7 @@ Flags:
       --format string        Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --job strings          With --all, filter by job id or ticket; repeat or comma-separate values.
       --json                 Emit restore result as JSON.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --state string         With --all, filter by queue state: pending or dead.
 ```
 
@@ -4594,7 +4594,7 @@ Flags:
 ```text
       --format string   Render the team-owned quarantined queue file with a Go template, e.g. '{{.Team}} {{.ID}}'.
       --json            Emit the team-owned quarantined queue file as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team queue retry`
@@ -4618,7 +4618,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -4636,7 +4636,7 @@ Flags:
 ```text
       --format string   Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the queue item as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team ready`
@@ -4652,7 +4652,7 @@ Flags:
 ```text
       --format string   Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --json            Emit team ready rows as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
       --state strings   Next-step state to include: ready, queued, running, blocked, failed, done, none, or all. Can repeat or comma-separate.
 ```
 
@@ -4679,7 +4679,7 @@ Flags:
       --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes           With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root. (default "<repo>")
+      --repo string              Repo root containing .agent_team. (default "<repo>")
       --retry-message string     Audit message to record when --retry-pipelines resets failed team steps.
       --retry-pipelines          Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --retry-step string        With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
@@ -4709,7 +4709,7 @@ Flags:
       --prompt string            Override the default kickoff prompt for instances started fresh.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root. (default "<repo>")
+      --repo string              Repo root containing .agent_team. (default "<repo>")
       --runtime strings          Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
@@ -4738,7 +4738,7 @@ Flags:
       --limit int            Retry at most this many failed team jobs; 0 means no limit.
       --message string       Status message recorded on each retried team job.
       --preview-routes       With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Retry only failed team jobs whose next failed step has this id.
@@ -4766,7 +4766,7 @@ Flags:
       --kickoff string        Kickoff text for the first pipeline step.
       --kickoff-file string   Read kickoff text from a file.
       --pipeline string       Team pipeline to use when the team declares more than one.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string     Canonical ticket URL to store on the job.
@@ -4786,7 +4786,7 @@ Flags:
 ```text
       --format string   Render each schedule with a Go template, e.g. '{{.Name}} {{.Every}}'.
       --json            Emit team schedules as JSON.
-      --repo string     Repo root. (default "<repo>")
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team send`
@@ -4812,7 +4812,7 @@ Flags:
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to team-owned instances whose status.toml is stale.
       --status strings        Send to team-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -4831,7 +4831,7 @@ Flags:
 
 ```text
       --json          Emit the team as JSON.
-      --repo string   Repo root. (default "<repo>")
+      --repo string   Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team snapshot`
@@ -4851,7 +4851,7 @@ Flags:
       --json                 Emit the full snapshot JSON to stdout.
       --no-redact            Include raw payload values instead of redacting sensitive keys.
   -o, --output string        Write the full JSON snapshot to this file. Use '-' for stdout.
-      --repo string          Repo root. (default "<repo>")
+      --repo string          Repo root containing .agent_team. (default "<repo>")
       --schedule-limit int   Upcoming team schedules to include after ordering; 0 means all. (default 10)
 ```
 
@@ -4876,7 +4876,7 @@ Flags:
       --latest              Show stats for the most recently started team-owned instance after other filters.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
       --stale               Only show team-owned instances whose status.toml is stale.
@@ -4901,7 +4901,7 @@ Flags:
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team status as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --runtime strings     Only summarize team-owned instances for this runtime: claude or codex. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.
   -w, --watch               Refresh team status until interrupted.
 ```
@@ -4925,7 +4925,7 @@ Flags:
       --json                     Emit machine-readable JSON.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root. (default "<repo>")
+      --repo string              Repo root containing .agent_team. (default "<repo>")
       --runtime strings          Only sync team-owned daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
       --stop-extras              Also stop running daemon-known extras for this team's agents.
       --summary                  Show aggregate action counts instead of per-instance rows.
@@ -4954,7 +4954,7 @@ Flags:
       --limit int           Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int      With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes      With --dry-run, include route and dispatch payload previews for ready pipeline steps.
-      --repo string         Repo root. (default "<repo>")
+      --repo string         Repo root containing .agent_team. (default "<repo>")
       --skip-advance        Skip pipeline advancement work.
       --skip-drain          Skip queue drain work.
       --skip-schedules      Skip due schedule work.
@@ -4982,7 +4982,7 @@ Flags:
       --min-severity string    Only show attention rows at least this severe: critical, warning, or info.
       --no-clear               With --watch, append snapshots instead of redrawing the terminal.
       --reason strings         Only show attention rows with this reason. Can repeat or comma-separate.
-      --repo string            Repo root. (default "<repo>")
+      --repo string            Repo root containing .agent_team. (default "<repo>")
       --stale-after duration   Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks). (default 24h0m0s)
   -w, --watch                  Refresh the team triage view until interrupted.
 ```
@@ -5007,7 +5007,7 @@ Flags:
       --prompt string            Override the default kickoff prompt.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root. (default "<repo>")
+      --repo string              Repo root containing .agent_team. (default "<repo>")
       --runtime strings          Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
@@ -5037,7 +5037,7 @@ Flags:
       --latest                Wait for the most recently started team-owned instance after other filters.
       --phase strings         Wait for team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress output and use only the exit code.
-      --repo string           Repo root. (default "<repo>")
+      --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Wait for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Wait for team-owned instances whose status.toml is stale.
       --status strings        Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -5061,7 +5061,7 @@ agent-team template
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -5084,7 +5084,7 @@ agent-team template ls
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team template pull`
@@ -5106,7 +5106,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team template rm`
@@ -5120,7 +5120,7 @@ agent-team template rm <ref>
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team template run`
@@ -5153,7 +5153,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team template show`
@@ -5167,7 +5167,7 @@ agent-team template show [ref]
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team template smoke`
@@ -5194,7 +5194,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team tick`
@@ -5222,7 +5222,7 @@ Flags:
       --skip-drain          Skip queue draining.
       --skip-reconcile      Skip daemon metadata and job status reconciliation.
       --skip-schedules      Skip firing due schedules.
-      --target string       Repo root. (default "<repo>")
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --until-idle          Run tick cycles until no immediate schedule, queue, or pipeline work remains.
   -w, --watch               Run tick repeatedly until interrupted.
       --workspace string    Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
@@ -5231,7 +5231,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team topology`
@@ -5245,7 +5245,7 @@ agent-team topology
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 Subcommands:
@@ -5271,13 +5271,13 @@ Flags:
       --format string   Graph output format: text, mermaid, or dot. (default "text")
       --json            Emit graph nodes and edges as JSON.
       --routes          Annotate pipeline steps with matching agent.dispatch routes.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team topology reload`
@@ -5291,13 +5291,13 @@ agent-team topology reload [flags]
 Flags:
 
 ```text
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team topology show`
@@ -5312,13 +5312,13 @@ Flags:
 
 ```text
       --json            Emit raw JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team topology summary`
@@ -5333,13 +5333,13 @@ Flags:
 
 ```text
       --json            Emit topology summary as JSON.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team upgrade`
@@ -5361,14 +5361,14 @@ Flags:
       --format string   Render the upgrade check result with a Go template, e.g. '{{.Differs}} {{.TargetVersion}}'.
       --json            Emit the upgrade check result as JSON.
       --strict          With --check, exit 1 when the target template differs from the lock.
-      --target string   Repo root. (default "<repo>")
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --to string       Template ref to compare against (defaults to the ref in .template.lock).
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team wait`
@@ -5399,7 +5399,7 @@ Flags:
       --stale                 Wait for daemon-known instances whose status.toml is stale.
       --status strings        Wait for daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary               Show aggregate final status and phase counts instead of per-instance rows.
-      --target string         Repo root. (default "<repo>")
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration      Maximum time to wait (0 = no timeout).
       --unhealthy             Wait for daemon-known instances that are crashed or stale.
       --until string          Lifecycle condition to wait for: terminal, running, stopped, exited, crashed, or removed. (default "terminal")
@@ -5409,7 +5409,7 @@ Flags:
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
 ## `agent-team watch`
@@ -5450,13 +5450,13 @@ Flags:
       --stop-extras            With --plan, preview running topology extras as stop actions.
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Watch compact non-failing fleet health and optional plan summaries instead of the full monitor.
-      --target string          Repo root. (default "<repo>")
+      --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy              Only show crashed or stale instances.
 ```
 
 Inherited Flags:
 
 ```text
-      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
