@@ -3513,6 +3513,8 @@ func newTeamRepairCmd() *cobra.Command {
 		allReadySteps    bool
 		timeoutStep      string
 		timeoutMessage   string
+		timeoutPipeline  string
+		timeoutTarget    string
 		retryStep        string
 		retryMessage     string
 		untilIdle        bool
@@ -3576,6 +3578,14 @@ func newTeamRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --timeout-step requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(timeoutPipeline) != "" && !timeoutJobs {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --timeout-pipeline requires --timeout-jobs.")
+				return exitErr(2)
+			}
+			if strings.TrimSpace(timeoutTarget) != "" && !timeoutJobs {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --timeout-target-agent requires --timeout-jobs.")
+				return exitErr(2)
+			}
 			if strings.TrimSpace(retryMessage) != "" && !retryPipelines {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --retry-message requires --retry-pipelines.")
 				return exitErr(2)
@@ -3612,6 +3622,8 @@ func newTeamRepairCmd() *cobra.Command {
 				AllReadySteps:    allReadySteps,
 				TimeoutStep:      timeoutStep,
 				TimeoutMessage:   timeoutMessage,
+				TimeoutPipeline:  timeoutPipeline,
+				TimeoutTarget:    timeoutTarget,
 				RetryStep:        retryStep,
 				RetryMessage:     retryMessage,
 				UntilIdle:        untilIdle,
@@ -3643,6 +3655,8 @@ func newTeamRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent team pipeline step during the scoped repair tick.")
 	cmd.Flags().StringVar(&timeoutStep, "timeout-step", "", "With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.")
 	cmd.Flags().StringVar(&timeoutMessage, "timeout-message", "", "Audit message to record when team timeout repair marks stale work failed.")
+	cmd.Flags().StringVar(&timeoutPipeline, "timeout-pipeline", "", "With --timeout-jobs, mark only stale team work owned by this pipeline.")
+	cmd.Flags().StringVar(&timeoutTarget, "timeout-target-agent", "", "With --timeout-jobs, mark only stale team work targeting this agent.")
 	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed team jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed team steps.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.")
@@ -4471,6 +4485,8 @@ type teamRepairOptions struct {
 	AllReadySteps    bool
 	TimeoutStep      string
 	TimeoutMessage   string
+	TimeoutPipeline  string
+	TimeoutTarget    string
 	RetryStep        string
 	RetryMessage     string
 	UntilIdle        bool
@@ -6556,7 +6572,11 @@ func runTeamRepairJobTimeoutStep(teamDir string, team *topology.Team, opts teamR
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}
-	results, err := timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), opts.TimeoutStep, "", message, opts.Limit, opts.DryRun, time.Now().UTC(), staleAfter)
+	candidates := filterJobTimeoutCandidates(teamTimeoutJobCandidates(team, jobs), jobTimeoutFilters{
+		Pipeline:    opts.TimeoutPipeline,
+		TargetAgent: opts.TimeoutTarget,
+	})
+	results, err := timeoutStaleJobWork(teamDir, candidates, opts.TimeoutStep, opts.TimeoutTarget, message, opts.Limit, opts.DryRun, time.Now().UTC(), staleAfter)
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}

@@ -3714,29 +3714,31 @@ agent-team repair [flags]
 Flags:
 
 ```text
-      --all-ready-steps          Advance every currently ready independent pipeline step during the repair tick.
-      --dry-run                  Preview repair actions without mutating state or starting the daemon.
-      --format string            Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.
-      --interval duration        Delay between --until-idle maintenance cycles. (default 2s)
-      --jobs                     Include durable job triage and status-file previews in health snapshots.
-      --json                     Emit machine-readable JSON.
-      --limit int                Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes           With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.
-      --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --retry-message string     Audit message to record when --retry-pipelines resets failed steps.
-      --retry-pipelines          Reset failed pipeline steps and dispatch them before the maintenance tick.
-      --retry-step string        With --retry-pipelines, retry only failed jobs whose next failed step has this id.
-      --skip-daemon              Do not start or reconcile the daemon.
-      --skip-queue               Do not retry dead-letter queue items.
-      --skip-tick                Do not run a maintenance tick after queue retry.
-      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --timeout-jobs             Mark stale running durable job work failed before retrying failed pipeline steps.
-      --timeout-message string   Audit message to record when timeout repair marks stale work failed.
-      --timeout-pipelines        Mark stale running pipeline steps failed before retrying failed pipeline steps.
-      --timeout-step string      With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
-      --until-idle               Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.
-      --workspace string         Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps               Advance every currently ready independent pipeline step during the repair tick.
+      --dry-run                       Preview repair actions without mutating state or starting the daemon.
+      --format string                 Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.
+      --interval duration             Delay between --until-idle maintenance cycles. (default 2s)
+      --jobs                          Include durable job triage and status-file previews in health snapshots.
+      --json                          Emit machine-readable JSON.
+      --limit int                     Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int                With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
+      --preview-routes                With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.
+      --ready-timeout duration        Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
+      --retry-message string          Audit message to record when --retry-pipelines resets failed steps.
+      --retry-pipelines               Reset failed pipeline steps and dispatch them before the maintenance tick.
+      --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
+      --skip-daemon                   Do not start or reconcile the daemon.
+      --skip-queue                    Do not retry dead-letter queue items.
+      --skip-tick                     Do not run a maintenance tick after queue retry.
+      --target string                 Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --timeout-jobs                  Mark stale running durable job work failed before retrying failed pipeline steps.
+      --timeout-message string        Audit message to record when timeout repair marks stale work failed.
+      --timeout-pipeline string       With --timeout-jobs, mark only stale work owned by this pipeline.
+      --timeout-pipelines             Mark stale running pipeline steps failed before retrying failed pipeline steps.
+      --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
+      --timeout-target-agent string   With --timeout-jobs, mark only stale work targeting this agent.
+      --until-idle                    Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.
+      --workspace string              Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:
@@ -5237,29 +5239,31 @@ agent-team team repair <team> [flags]
 Flags:
 
 ```text
-      --all-ready-steps          Advance every currently ready independent team pipeline step during the scoped repair tick.
-      --dry-run                  Preview team repair actions without mutating state or starting the daemon.
-      --format string            Render the team repair result with a Go template, e.g. '{{.Team.Name}} {{.Queue.Action}}'.
-      --interval duration        Delay between --until-idle scoped team tick cycles. (default 2s)
-      --jobs                     Include team-owned durable job and pipeline health.
-      --json                     Emit machine-readable JSON.
-      --limit int                Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes           With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.
-      --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --repo string              Repo root containing .agent_team. (default "<repo>")
-      --retry-message string     Audit message to record when --retry-pipelines resets failed team steps.
-      --retry-pipelines          Reset failed team pipeline steps and dispatch them before the scoped team tick.
-      --retry-step string        With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
-      --skip-daemon              Do not start or reconcile the daemon.
-      --skip-queue               Do not retry team-owned dead-letter queue items.
-      --skip-tick                Do not run a scoped team tick after queue retry.
-      --timeout-jobs             Mark stale running team job work failed before retrying failed pipeline steps.
-      --timeout-message string   Audit message to record when team timeout repair marks stale work failed.
-      --timeout-pipelines        Mark stale running team pipeline steps failed before retrying failed pipeline steps.
-      --timeout-step string      With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.
-      --until-idle               Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.
-      --workspace string         Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps               Advance every currently ready independent team pipeline step during the scoped repair tick.
+      --dry-run                       Preview team repair actions without mutating state or starting the daemon.
+      --format string                 Render the team repair result with a Go template, e.g. '{{.Team.Name}} {{.Queue.Action}}'.
+      --interval duration             Delay between --until-idle scoped team tick cycles. (default 2s)
+      --jobs                          Include team-owned durable job and pipeline health.
+      --json                          Emit machine-readable JSON.
+      --limit int                     Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int                With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
+      --preview-routes                With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.
+      --ready-timeout duration        Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
+      --repo string                   Repo root containing .agent_team. (default "<repo>")
+      --retry-message string          Audit message to record when --retry-pipelines resets failed team steps.
+      --retry-pipelines               Reset failed team pipeline steps and dispatch them before the scoped team tick.
+      --retry-step string             With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
+      --skip-daemon                   Do not start or reconcile the daemon.
+      --skip-queue                    Do not retry team-owned dead-letter queue items.
+      --skip-tick                     Do not run a scoped team tick after queue retry.
+      --timeout-jobs                  Mark stale running team job work failed before retrying failed pipeline steps.
+      --timeout-message string        Audit message to record when team timeout repair marks stale work failed.
+      --timeout-pipeline string       With --timeout-jobs, mark only stale team work owned by this pipeline.
+      --timeout-pipelines             Mark stale running team pipeline steps failed before retrying failed pipeline steps.
+      --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.
+      --timeout-target-agent string   With --timeout-jobs, mark only stale team work targeting this agent.
+      --until-idle                    Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.
+      --workspace string              Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team restart`

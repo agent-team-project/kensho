@@ -74,6 +74,8 @@ agent-team pipeline retry ticket_to_pr --dispatch --dry-run --preview-routes
 agent-team repair --retry-pipelines --dry-run --preview-routes
 agent-team repair --all-ready-steps --dry-run --preview-routes
 agent-team repair --timeout-jobs --dry-run
+agent-team repair --timeout-jobs --timeout-pipeline ticket_to_pr --dry-run
+agent-team repair --timeout-jobs --timeout-target-agent worker --dry-run
 agent-team repair --timeout-pipelines --dry-run
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 ```
@@ -115,7 +117,7 @@ When a step waits on a manual gate, `agent-team pipeline approve <pipeline>` mar
 If an event-triggered pipeline starts with a manual or PR-gated step, the daemon creates the job and returns a `blocked` event outcome instead of spawning an agent. Use `job next`, `job explain`, or the scoped `pipeline ready --state blocked` view to see the approval or metadata action.
 When a step fails, `agent-team pipeline retry <pipeline>` resets retryable failed steps to a blocked-but-ready state so the next `pipeline advance`, `team advance`, or `tick` can dispatch another attempt. Add `--step <id>` to target one failed stage, add `--dispatch` to retry and dispatch in one command, use `--dry-run --preview-routes` before a batch retry to inspect the resolved routes and payloads, and pass `--message` to record why the retry happened.
 Pipeline and team-scoped dispatch commands accept `--runtime` and `--runtime-bin` for one-off Claude/Codex selection; the selected runtime is stored in the dispatch payload so queued or delayed starts keep the same intent.
-Pipeline status also flags `stale_running_steps` when a running step has exceeded its step `timeout`, or the repo job stale threshold (`[health].job_stale_after`, default 24h) when no step timeout is declared. Start recovery with `agent-team job reconcile events --dry-run` so finished or crashed runtime metadata can update the job. If the step is still running after reconciliation, use `agent-team pipeline timeout <pipeline> --dry-run` to preview marking stale steps failed, then `pipeline retry` when another attempt should run. For broader maintenance, `agent-team repair --timeout-jobs --retry-pipelines --dry-run --preview-routes` previews stale job expiration and retry phases in one repair report; use `--timeout-pipelines` for pipeline-step-only expiration.
+Pipeline status also flags `stale_running_steps` when a running step has exceeded its step `timeout`, or the repo job stale threshold (`[health].job_stale_after`, default 24h) when no step timeout is declared. Start recovery with `agent-team job reconcile events --dry-run` so finished or crashed runtime metadata can update the job. If the step is still running after reconciliation, use `agent-team pipeline timeout <pipeline> --dry-run` to preview marking stale steps failed, then `pipeline retry` when another attempt should run. For broader maintenance, `agent-team repair --timeout-jobs --retry-pipelines --dry-run --preview-routes` previews stale job expiration and retry phases in one repair report; use `--timeout-pipelines` for pipeline-step-only expiration, or add `--timeout-pipeline` / `--timeout-target-agent` to `--timeout-jobs` when a repair sweep should stay inside one workflow or agent role.
 By default, `pipeline advance` dispatches one ready step per job. Use `pipeline advance <pipeline> --all-ready-steps` when a job has multiple currently ready independent steps and you want to fan them out in one command. Dependency checks still use the job file: a downstream step waits until all of its `after` steps are marked done, or failed with `optional = true`.
 Use `agent-team team approve <team>` for the same manual-gate approval flow scoped to one team's declared pipelines.
 Use `agent-team team retry <team>` for the same recovery flow scoped to one team's declared pipelines.
@@ -167,6 +169,8 @@ agent-team team tick delivery --all-ready-steps --dry-run
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --all-ready-steps --dry-run --preview-routes
 agent-team team repair delivery --timeout-jobs --dry-run
+agent-team team repair delivery --timeout-jobs --timeout-pipeline ticket_to_pr --dry-run
+agent-team team repair delivery --timeout-jobs --timeout-target-agent worker --dry-run
 agent-team team repair delivery --timeout-pipelines --dry-run
 agent-team team repair delivery --retry-pipelines --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-step review --dry-run --preview-routes
@@ -175,7 +179,7 @@ agent-team team snapshot delivery --output delivery.json
 ```
 
 `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
-Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop.
+Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop; add `--timeout-pipeline` or `--timeout-target-agent` to keep that repair timeout inside one team-owned workflow or agent role.
 `tick --all-ready-steps`, `repair --all-ready-steps`, `team tick <team> --all-ready-steps`, `team repair <team> --all-ready-steps`, and `team drain <team> --all-ready-steps` apply that fan-out during maintenance and recovery cycles, including watch and until-idle loops.
 Use `pipeline hold <pipeline>` or `team hold <team>` for scoped maintenance windows and incident freezes. Use `job hold --all --dry-run` when the freeze should span multiple pipelines or include non-pipeline jobs. These commands hold matching jobs in bulk without changing lifecycle status; add `--state failed`, `--state ready`, `--limit N`, `--for 2h`, or `--until 2026-06-24T18:00:00Z` to narrow or time-box the batch, and run with `--dry-run` first. `pipeline release` and `team release` resume held jobs in the same scope; add `--expired` to release only jobs whose `hold_until` has passed. Use `job ls --expired-hold`, `pipeline jobs <pipeline> --expired-hold`, or `team jobs <team> --expired-hold` to audit elapsed holds before release; `overview`, `next --reason expired_holds`, and team-scoped overview/next views also recommend the matching expired-release dry-run. Use `job release --all --expired --dry-run` when elapsed holds may span multiple pipelines or include non-pipeline jobs.
 

@@ -1726,6 +1726,32 @@ pipelines = ["ticket_to_pr"]
 		}
 	}
 
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{
+		"team", "repair", "delivery",
+		"--repo", root,
+		"--dry-run",
+		"--timeout-jobs",
+		"--timeout-pipeline", "ticket_to_pr",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--json",
+	})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("team repair timeout jobs pipeline dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResult teamRepairResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResult); err != nil {
+		t.Fatalf("decode team repair timeout jobs dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if dryResult.JobTimeout.Action != "would_fail" || len(dryResult.JobTimeout.Results) != 1 || dryResult.JobTimeout.Results[0].JobID != "squ-831" {
+		t.Fatalf("team repair timeout jobs dry-run = %+v", dryResult.JobTimeout)
+	}
+
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -6523,6 +6549,16 @@ func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
 			name: "timeout jobs with timeout pipelines",
 			args: []string{"team", "repair", "delivery", "--timeout-jobs", "--timeout-pipelines"},
 			want: "--timeout-jobs cannot be combined with --timeout-pipelines",
+		},
+		{
+			name: "timeout pipeline without timeout jobs",
+			args: []string{"team", "repair", "delivery", "--timeout-pipeline", "ticket_to_pr"},
+			want: "--timeout-pipeline requires --timeout-jobs",
+		},
+		{
+			name: "timeout target without timeout jobs",
+			args: []string{"team", "repair", "delivery", "--timeout-target-agent", "worker"},
+			want: "--timeout-target-agent requires --timeout-jobs",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

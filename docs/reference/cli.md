@@ -178,7 +178,7 @@ Shortcuts:
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
 | `agent-team team jobs <team>` | Scoped job list or summary; filter held state and mixed-runtime ownership |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
-| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs` |
+| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; add `--timeout-pipeline` or `--timeout-target-agent` to narrow timeout repair |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team |
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |
@@ -228,7 +228,7 @@ Shortcuts:
 | `agent-team watch` | Continuous monitor |
 | `agent-team snapshot` | Redacted diagnostic artifact |
 | `agent-team snapshot diff <before.json> <after.json>` | Compare saved diagnostic artifacts, including instances, jobs, queue, schedules, intake, events, and pipeline state |
-| `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop |
+| `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop; timeout repair accepts `--timeout-pipeline` and `--timeout-target-agent` |
 
 ## Communication
 

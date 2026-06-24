@@ -809,6 +809,127 @@ func TestRepairTimeoutJobsMarksStaleRunningWork(t *testing.T) {
 	}
 }
 
+func TestRepairTimeoutJobsFiltersByPipelineAndTargetAgent(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-824",
+			Ticket:    "SQU-824",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-824", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-825",
+			Ticket:    "SQU-825",
+			Target:    "worker",
+			Pipeline:  "other",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-825", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-826",
+			Ticket:    "SQU-826",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-826", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-827",
+			Ticket:    "SQU-827",
+			Target:    "manager",
+			Instance:  "manager-squ-827",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-48 * time.Hour),
+			UpdatedAt: now.Add(-48 * time.Hour),
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{
+		"repair",
+		"--target", root,
+		"--dry-run",
+		"--timeout-jobs",
+		"--timeout-pipeline", "ticket_to_pr",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--json",
+	})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("repair timeout jobs pipeline dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResult repairResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResult); err != nil {
+		t.Fatalf("decode pipeline dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryResult.JobTimeout.Results) != 2 || dryResult.JobTimeout.Results[0].JobID != "squ-824" || dryResult.JobTimeout.Results[1].JobID != "squ-826" {
+		t.Fatalf("pipeline timeout rows = %+v", dryResult.JobTimeout.Results)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{
+		"repair",
+		"--target", root,
+		"--timeout-jobs",
+		"--timeout-target-agent", "manager",
+		"--timeout-message", "manager repair timeout",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--json",
+	})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("repair timeout jobs target apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(applyOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode target apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if result.JobTimeout.Action != "timed_out" || len(result.JobTimeout.Results) != 2 || result.JobTimeout.Results[0].JobID != "squ-826" || result.JobTimeout.Results[1].JobID != "squ-827" {
+		t.Fatalf("target timeout rows = %+v", result.JobTimeout)
+	}
+	for _, id := range []string{"squ-824", "squ-825"} {
+		unchanged, err := job.Read(teamDir, id)
+		if err != nil {
+			t.Fatalf("read unchanged %s: %v", id, err)
+		}
+		if unchanged.Status != job.StatusRunning {
+			t.Fatalf("%s changed = %+v", id, unchanged)
+		}
+	}
+}
+
 func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
@@ -988,6 +1109,16 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "timeout jobs with timeout pipelines",
 			args: []string{"repair", "--timeout-jobs", "--timeout-pipelines"},
 			want: "--timeout-jobs cannot be combined with --timeout-pipelines",
+		},
+		{
+			name: "timeout pipeline without timeout jobs",
+			args: []string{"repair", "--timeout-pipeline", "ticket_to_pr"},
+			want: "--timeout-pipeline requires --timeout-jobs",
+		},
+		{
+			name: "timeout target without timeout jobs",
+			args: []string{"repair", "--timeout-target-agent", "worker"},
+			want: "--timeout-target-agent requires --timeout-jobs",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
