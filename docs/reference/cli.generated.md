@@ -3850,7 +3850,8 @@ agent-team snapshot diff <before.json> <after.json> [flags]
 Flags:
 
 ```text
-      --json   Emit snapshot diff as JSON.
+      --exit-code   Exit with status 1 when snapshots differ.
+      --json        Emit snapshot diff as JSON.
 ```
 
 Inherited Flags:

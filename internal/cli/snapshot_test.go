@@ -352,6 +352,34 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			t.Fatalf("snapshot diff text missing %q:\n%s", want, textOut.String())
 		}
 	}
+
+	changedExit := NewRootCmd()
+	changedExitOut, changedExitErr := &bytes.Buffer{}, &bytes.Buffer{}
+	changedExit.SetOut(changedExitOut)
+	changedExit.SetErr(changedExitErr)
+	changedExit.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--json", "--exit-code"})
+	if err := changedExit.Execute(); err == nil {
+		t.Fatalf("snapshot diff --exit-code with changes succeeded")
+	}
+	var changedExitResult snapshotDiffResult
+	if err := json.Unmarshal(changedExitOut.Bytes(), &changedExitResult); err != nil {
+		t.Fatalf("decode changed exit-code diff json: %v\nbody=%s\nstderr=%s", err, changedExitOut.String(), changedExitErr.String())
+	}
+	if changedExitResult.Summary.TotalChanges == 0 {
+		t.Fatalf("changed exit-code diff result has no changes: %+v", changedExitResult)
+	}
+
+	sameExit := NewRootCmd()
+	sameExitOut, sameExitErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sameExit.SetOut(sameExitOut)
+	sameExit.SetErr(sameExitErr)
+	sameExit.SetArgs([]string{"snapshot", "diff", beforePath, beforePath, "--exit-code"})
+	if err := sameExit.Execute(); err != nil {
+		t.Fatalf("snapshot diff --exit-code identical: %v\nstderr=%s", err, sameExitErr.String())
+	}
+	if !strings.Contains(sameExitOut.String(), "changes: total=0") || !strings.Contains(sameExitOut.String(), "details: none") {
+		t.Fatalf("identical snapshot diff text = %s", sameExitOut.String())
+	}
 }
 
 func TestSnapshotIncludesGitMetadata(t *testing.T) {

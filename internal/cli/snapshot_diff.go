@@ -13,7 +13,10 @@ import (
 )
 
 func newSnapshotDiffCmd() *cobra.Command {
-	var jsonOut bool
+	var (
+		jsonOut  bool
+		exitCode bool
+	)
 	cmd := &cobra.Command{
 		Use:   "diff <before.json> <after.json>",
 		Short: "Compare two saved diagnostic snapshots.",
@@ -27,13 +30,20 @@ func newSnapshotDiffCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if jsonOut {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+					return err
+				}
+			} else {
+				renderSnapshotDiff(cmd.OutOrStdout(), result)
 			}
-			renderSnapshotDiff(cmd.OutOrStdout(), result)
+			if exitCode && result.Summary.TotalChanges > 0 {
+				return exitErr(1)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
+	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
 	return cmd
 }
 
