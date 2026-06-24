@@ -112,6 +112,10 @@ Delivery history records:
 request IDs, such as duplicate GitHub delivery IDs, while keeping warning-only
 ledgers exit-code clean.
 
+Use `agent-team intake duplicates` to list duplicate provider request IDs and
+copy the generated `intake deliveries --request-id ...` inspection command for
+each group.
+
 When replaying several recorded deliveries after an outage, use
 `agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers`
 first to skip later duplicate provider deliveries before publishing.

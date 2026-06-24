@@ -60,6 +60,18 @@ type intakeDelivery struct {
 	Actions      []string       `json:"actions,omitempty"`
 }
 
+type intakeDuplicateRequest struct {
+	Provider  string    `json:"provider"`
+	RequestID string    `json:"request_id"`
+	Count     int       `json:"count"`
+	IDs       []string  `json:"ids"`
+	FirstID   string    `json:"first_id,omitempty"`
+	LastID    string    `json:"last_id,omitempty"`
+	FirstSeen time.Time `json:"first_seen,omitempty"`
+	LastSeen  time.Time `json:"last_seen,omitempty"`
+	Actions   []string  `json:"actions,omitempty"`
+}
+
 func newIntakeDeliveriesCmd() *cobra.Command {
 	var (
 		target       string
@@ -138,6 +150,56 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tail, "tail", "20", "Show only the last N deliveries (0 or all = all).")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit deliveries as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each delivery with a Go template, e.g. '{{.Provider}} {{.Status}} {{.EventType}}'.")
+	return cmd
+}
+
+func newIntakeDuplicatesCmd() *cobra.Command {
+	var (
+		target    string
+		provider  string
+		requestID string
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "duplicates",
+		Short: "List duplicate provider request ids in the delivery ledger.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			provider = strings.ToLower(strings.TrimSpace(provider))
+			if provider != "" && provider != "linear" && provider != "github" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake duplicates: --provider must be linear or github.")
+				return exitErr(2)
+			}
+			requestID = strings.TrimSpace(requestID)
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake duplicates: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseIntakeDuplicateFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake duplicates: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			deliveries, err := listIntakeDeliveries(teamDir)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake duplicates: %v\n", err)
+				return exitErr(1)
+			}
+			rows := duplicateIntakeRequestIDs(deliveries, provider, requestID)
+			return renderIntakeDuplicates(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().StringVar(&provider, "provider", "", "Only show duplicate request ids for a provider: linear or github.")
+	cmd.Flags().StringVar(&requestID, "request-id", "", "Only show this provider request id.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit duplicate request id groups as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each duplicate group with a Go template, e.g. '{{.Provider}} {{.RequestID}} {{.Count}}'.")
 	return cmd
 }
 
@@ -676,6 +738,61 @@ func filterIntakeDeliveries(deliveries []intakeDelivery, filter intakeDeliveryFi
 	return out
 }
 
+func duplicateIntakeRequestIDs(deliveries []intakeDelivery, providerFilter, requestIDFilter string) []intakeDuplicateRequest {
+	type key struct {
+		provider  string
+		requestID string
+	}
+	groups := map[key]*intakeDuplicateRequest{}
+	for _, delivery := range deliveries {
+		provider := strings.ToLower(strings.TrimSpace(delivery.Provider))
+		requestID := strings.TrimSpace(delivery.RequestID)
+		if provider == "" || requestID == "" {
+			continue
+		}
+		if providerFilter != "" && provider != providerFilter {
+			continue
+		}
+		if requestIDFilter != "" && requestID != requestIDFilter {
+			continue
+		}
+		k := key{provider: provider, requestID: requestID}
+		row := groups[k]
+		if row == nil {
+			row = &intakeDuplicateRequest{
+				Provider:  provider,
+				RequestID: requestID,
+				FirstID:   delivery.ID,
+				FirstSeen: delivery.Time,
+			}
+			groups[k] = row
+		}
+		row.Count++
+		row.IDs = append(row.IDs, delivery.ID)
+		row.LastID = delivery.ID
+		row.LastSeen = delivery.Time
+	}
+	out := make([]intakeDuplicateRequest, 0, len(groups))
+	for _, row := range groups {
+		if row.Count < 2 {
+			continue
+		}
+		row.Actions = []string{fmt.Sprintf(
+			"agent-team intake deliveries --provider %s --request-id %s",
+			shellQuote(row.Provider),
+			shellQuote(row.RequestID),
+		)}
+		out = append(out, *row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Provider != out[j].Provider {
+			return out[i].Provider < out[j].Provider
+		}
+		return out[i].RequestID < out[j].RequestID
+	})
+	return out
+}
+
 func intakeDeliveryMatchesFilter(delivery intakeDelivery, filter intakeDeliveryFilter) bool {
 	if filter.Provider != "" && delivery.Provider != filter.Provider {
 		return false
@@ -1096,6 +1213,17 @@ func parseIntakeDeliveryFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
+func parseIntakeDuplicateFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("intake-duplicate-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
 func parseIntakeSummaryFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -1156,6 +1284,48 @@ func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bo
 		)
 	}
 	return tw.Flush()
+}
+
+func renderIntakeDuplicates(w io.Writer, rows []intakeDuplicateRequest, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(rows)
+	}
+	if tmpl != nil {
+		for _, row := range rows {
+			if err := tmpl.Execute(w, row); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(rows) == 0 {
+		_, err := fmt.Fprintln(w, "(no duplicate provider request ids)")
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PROVIDER\tREQUEST_ID\tCOUNT\tFIRST\tLAST\tIDS\tACTION")
+	for _, row := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+			emptyDash(row.Provider),
+			emptyDash(row.RequestID),
+			row.Count,
+			intakeDuplicateTime(row.FirstSeen),
+			intakeDuplicateTime(row.LastSeen),
+			emptyDash(strings.Join(row.IDs, ",")),
+			emptyDash(strings.Join(row.Actions, "; ")),
+		)
+	}
+	return tw.Flush()
+}
+
+func intakeDuplicateTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func renderIntakeSummary(w io.Writer, summary intakeSummaryResult, jsonOut bool, tmpl *template.Template) error {

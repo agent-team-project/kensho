@@ -1151,6 +1151,7 @@ Subcommands:
 
 - `agent-team intake deliveries` - List recent intake server deliveries.
 - `agent-team intake doctor` - Validate the recorded intake delivery ledger.
+- `agent-team intake duplicates` - List duplicate provider request ids in the delivery ledger.
 - `agent-team intake github` - Normalize a github webhook payload and publish it.
 - `agent-team intake linear` - Normalize a linear webhook payload and publish it.
 - `agent-team intake prune` - Prune recorded intake deliveries.
@@ -1202,6 +1203,30 @@ Flags:
       --format string   Render the intake doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json            Emit ledger doctor findings as JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team intake duplicates`
+
+List duplicate provider request ids in the delivery ledger.
+
+```text
+agent-team intake duplicates [flags]
+```
+
+Flags:
+
+```text
+      --format string       Render each duplicate group with a Go template, e.g. '{{.Provider}} {{.RequestID}} {{.Count}}'.
+      --json                Emit duplicate request id groups as JSON.
+      --provider string     Only show duplicate request ids for a provider: linear or github.
+      --request-id string   Only show this provider request id.
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:

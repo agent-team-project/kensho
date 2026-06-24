@@ -1132,6 +1132,99 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	}
 }
 
+func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, delivery := range []intakeDelivery{
+		{
+			ID:         "first",
+			Time:       time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+			Provider:   "github",
+			RequestID:  "delivery-dup",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: http.StatusOK,
+			EventType:  "pr.opened",
+		},
+		{
+			ID:         "single-provider",
+			Time:       time.Date(2026, 6, 19, 12, 1, 0, 0, time.UTC),
+			Provider:   "linear",
+			RequestID:  "delivery-dup",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: http.StatusOK,
+			EventType:  "ticket.created",
+		},
+		{
+			ID:         "second",
+			Time:       time.Date(2026, 6, 19, 12, 2, 0, 0, time.UTC),
+			Provider:   "github",
+			RequestID:  "delivery-dup",
+			Status:     intakeDeliveryStatusError,
+			HTTPStatus: http.StatusConflict,
+			EventType:  "pr.opened",
+			Error:      "duplicate",
+		},
+		{
+			ID:         "blank-request",
+			Time:       time.Date(2026, 6, 19, 12, 3, 0, 0, time.UTC),
+			Provider:   "github",
+			Status:     intakeDeliveryStatusOK,
+			HTTPStatus: http.StatusOK,
+			EventType:  "pr.opened",
+		},
+	} {
+		if err := appendIntakeDelivery(teamDir, delivery); err != nil {
+			t.Fatalf("append %s: %v", delivery.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "duplicates", "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake duplicates json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []intakeDuplicateRequest
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode duplicates: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Provider != "github" || rows[0].RequestID != "delivery-dup" || rows[0].Count != 2 || strings.Join(rows[0].IDs, ",") != "first,second" {
+		t.Fatalf("duplicates = %+v", rows)
+	}
+	if len(rows[0].Actions) != 1 || !strings.Contains(rows[0].Actions[0], "agent-team intake deliveries --provider github --request-id delivery-dup") {
+		t.Fatalf("duplicate actions = %+v", rows[0].Actions)
+	}
+
+	format := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	format.SetOut(formatOut)
+	format.SetErr(formatErr)
+	format.SetArgs([]string{"intake", "duplicates", "--target", target, "--provider", "github", "--request-id", "delivery-dup", "--format", "{{.Provider}} {{.RequestID}} {{.Count}} {{.FirstID}} {{.LastID}}"})
+	if err := format.Execute(); err != nil {
+		t.Fatalf("intake duplicates format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := strings.TrimSpace(formatOut.String()), "github delivery-dup 2 first second"; got != want {
+		t.Fatalf("duplicates format = %q, want %q", got, want)
+	}
+
+	none := NewRootCmd()
+	noneOut, noneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	none.SetOut(noneOut)
+	none.SetErr(noneErr)
+	none.SetArgs([]string{"intake", "duplicates", "--target", target, "--provider", "linear"})
+	if err := none.Execute(); err != nil {
+		t.Fatalf("intake duplicates empty: %v\nstderr=%s", err, noneErr.String())
+	}
+	if !strings.Contains(noneOut.String(), "(no duplicate provider request ids)") {
+		t.Fatalf("duplicates empty output = %q", noneOut.String())
+	}
+}
+
 func TestIntakeDoctorReportsLedgerFindings(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")

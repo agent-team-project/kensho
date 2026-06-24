@@ -209,6 +209,7 @@ Shortcuts:
 | `agent-team intake serve` | Run local intake server with optional GitHub job reconciliation |
 | `agent-team intake service systemd|launchd|compose|kubernetes` | Print a systemd unit, launchd plist, compose service, or Kubernetes manifests for `intake serve` |
 | `agent-team intake summary` | Summarize delivery history |
+| `agent-team intake duplicates` | List duplicate provider request IDs |
 | `agent-team intake deliveries` | Inspect delivery rows |
 | `agent-team intake replay` | Replay failed deliveries |
 | `agent-team intake doctor` | Validate delivery history |
