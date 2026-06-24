@@ -328,7 +328,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	// only exist with a running daemon.
 	var dispatchClient *daemonClient
 	if cfg.detach || cfg.attach {
-		if err := ensureDaemonReadyWithTimeout(cmd, target, cfg.jsonOut, cfg.readyTimeout); err != nil {
+		if err := ensureDaemonReadyWithTimeout(cmd, target, cfg.jsonOut || formatTemplate != nil, cfg.readyTimeout); err != nil {
 			return err
 		}
 	}
