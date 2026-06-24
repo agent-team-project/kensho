@@ -3604,6 +3604,8 @@ func newTeamTickCmd() *cobra.Command {
 	var (
 		repo          string
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		limit         int
 		skipSchedules bool
 		skipDrain     bool
@@ -3671,6 +3673,7 @@ func newTeamTickCmd() *cobra.Command {
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
 				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 				DryRun:        dryRun,
 				PreviewRoutes: previewRoutes,
 			}
@@ -3715,6 +3718,8 @@ func newTeamTickCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip due schedule work.")
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue drain work.")
@@ -3735,6 +3740,8 @@ func newTeamDrainCmd() *cobra.Command {
 	var (
 		repo          string
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		limit         int
 		skipSchedules bool
 		skipDrain     bool
@@ -3784,6 +3791,7 @@ func newTeamDrainCmd() *cobra.Command {
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
 				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 			}, maxCycles, interval)
 			if err != nil {
 				if errors.Is(err, errDaemonNotRunning) {
@@ -3798,6 +3806,8 @@ func newTeamDrainCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip due schedule work.")
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue drain work.")
@@ -3814,6 +3824,8 @@ func newTeamRepairCmd() *cobra.Command {
 	var (
 		repo             string
 		workspace        string
+		runtimeKind      string
+		runtimeBin       string
 		limit            int
 		dryRun           bool
 		previewRoutes    bool
@@ -3935,6 +3947,7 @@ func newTeamRepairCmd() *cobra.Command {
 			}
 			result, err := runTeamRepair(cmd, repo, teamDir, args[0], teamRepairOptions{
 				Workspace:        workspace,
+				Runtime:          runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 				Limit:            limit,
 				DryRun:           dryRun,
 				PreviewRoutes:    previewRoutes,
@@ -3968,6 +3981,8 @@ func newTeamRepairCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for retried or advanced team step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for retried or advanced team step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.")
@@ -4802,6 +4817,7 @@ type teamTickUntilIdleResult struct {
 
 type teamRepairOptions struct {
 	Workspace        string
+	Runtime          runtimeSelection
 	Limit            int
 	DryRun           bool
 	PreviewRoutes    bool
@@ -6812,7 +6828,7 @@ func runTeamTick(cmd *cobra.Command, teamDir, name, workspace string, limit int,
 		}
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
+		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, opts.Runtime, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
 		if err != nil {
 			return nil, err
 		}
@@ -7000,7 +7016,7 @@ func runTeamRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, team *to
 	if message == "" {
 		message = "team repair retry failed pipeline step"
 	}
-	results, err := retryTeamPipelineJobs(cmd, teamDir, team, opts.RetryPipeline, opts.Workspace, runtimeSelection{}, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
+	results, err := retryTeamPipelineJobs(cmd, teamDir, team, opts.RetryPipeline, opts.Workspace, opts.Runtime, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
 	if err != nil {
 		return repairPipelineRetryStep{Action: "error", Reason: err.Error()}, err
 	}
@@ -7107,7 +7123,7 @@ func runTeamRepairTickStep(cmd *cobra.Command, teamDir, name string, opts teamRe
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		until, err := runTeamTickUntilIdle(ctx, cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{AllReadySteps: opts.AllReadySteps}, opts.MaxCycles, opts.Interval)
+		until, err := runTeamTickUntilIdle(ctx, cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{AllReadySteps: opts.AllReadySteps, Runtime: opts.Runtime}, opts.MaxCycles, opts.Interval)
 		if err != nil {
 			return teamRepairTickStep{Action: "error", Reason: err.Error()}
 		}
@@ -7117,7 +7133,7 @@ func runTeamRepairTickStep(cmd *cobra.Command, teamDir, name string, opts teamRe
 		}
 		return teamRepairTickStep{Action: action, UntilIdle: until}
 	}
-	tick, err := runTeamTick(cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes, AllReadySteps: opts.AllReadySteps})
+	tick, err := runTeamTick(cmd, teamDir, name, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes, AllReadySteps: opts.AllReadySteps, Runtime: opts.Runtime})
 	if err != nil {
 		return teamRepairTickStep{Action: "error", Reason: err.Error()}
 	}

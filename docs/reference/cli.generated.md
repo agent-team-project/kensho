@@ -4341,6 +4341,8 @@ Flags:
       --retry-pipeline string         With --retry-pipelines, retry only failed jobs owned by this pipeline.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the maintenance tick.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
+      --runtime string                Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string            Runtime binary for retried or advanced step dispatches. Overrides env and repo config.
       --skip-daemon                   Do not start or reconcile the daemon.
       --skip-queue                    Do not retry dead-letter queue items.
       --skip-tick                     Do not run a maintenance tick after queue retry.
@@ -5381,17 +5383,19 @@ agent-team team drain <team> [flags]
 Flags:
 
 ```text
-      --all-ready-steps     Advance every currently ready independent team pipeline step in each drain cycle.
-      --format string       Render the drain result with a Go template, e.g. '{{.Team.Name}} {{.CyclesRun}} {{.Idle}}'.
-      --interval duration   Delay between drain cycles. (default 2s)
-      --json                Emit machine-readable JSON.
-      --limit int           Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int      Stop after this many cycles if work keeps appearing. (default 20)
-      --repo string         Repo root containing .agent_team. (default "<repo>")
-      --skip-advance        Skip pipeline advancement work.
-      --skip-drain          Skip queue drain work.
-      --skip-schedules      Skip due schedule work.
-      --workspace string    Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps      Advance every currently ready independent team pipeline step in each drain cycle.
+      --format string        Render the drain result with a Go template, e.g. '{{.Team.Name}} {{.CyclesRun}} {{.Idle}}'.
+      --interval duration    Delay between drain cycles. (default 2s)
+      --json                 Emit machine-readable JSON.
+      --limit int            Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int       Stop after this many cycles if work keeps appearing. (default 20)
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance         Skip pipeline advancement work.
+      --skip-drain           Skip queue drain work.
+      --skip-schedules       Skip due schedule work.
+      --workspace string     Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team events`
@@ -6071,6 +6075,8 @@ Flags:
       --retry-pipeline string         With --retry-pipelines, retry only failed team jobs owned by this pipeline.
       --retry-pipelines               Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --retry-step string             With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
+      --runtime string                Runtime profile for retried or advanced team step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string            Runtime binary for retried or advanced team step dispatches. Overrides env and repo config.
       --skip-daemon                   Do not start or reconcile the daemon.
       --skip-queue                    Do not retry team-owned dead-letter queue items.
       --skip-tick                     Do not run a scoped team tick after queue retry.
@@ -6405,21 +6411,23 @@ agent-team team tick <team> [flags]
 Flags:
 
 ```text
-      --all-ready-steps     Advance every currently ready independent team pipeline step in this tick.
-      --dry-run             Preview team-owned maintenance work without mutating state.
-      --format string       Render the team tick result with a Go template, e.g. '{{.Team.Name}} {{.Tick.Queue.WouldDispatch}}'.
-      --interval duration   Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
-      --json                Emit machine-readable JSON.
-      --limit int           Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int      With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes      With --dry-run, include route and dispatch payload previews for ready pipeline steps.
-      --repo string         Repo root containing .agent_team. (default "<repo>")
-      --skip-advance        Skip pipeline advancement work.
-      --skip-drain          Skip queue drain work.
-      --skip-schedules      Skip due schedule work.
-      --until-idle          Run team tick cycles until no immediate team schedule, queue, or pipeline work remains.
-  -w, --watch               Run the team tick repeatedly until interrupted.
-      --workspace string    Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps      Advance every currently ready independent team pipeline step in this tick.
+      --dry-run              Preview team-owned maintenance work without mutating state.
+      --format string        Render the team tick result with a Go template, e.g. '{{.Team.Name}} {{.Tick.Queue.WouldDispatch}}'.
+      --interval duration    Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
+      --json                 Emit machine-readable JSON.
+      --limit int            Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int       With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
+      --preview-routes       With --dry-run, include route and dispatch payload previews for ready pipeline steps.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance         Skip pipeline advancement work.
+      --skip-drain           Skip queue drain work.
+      --skip-schedules       Skip due schedule work.
+      --until-idle           Run team tick cycles until no immediate team schedule, queue, or pipeline work remains.
+  -w, --watch                Run the team tick repeatedly until interrupted.
+      --workspace string     Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team timeout`
@@ -6693,22 +6701,24 @@ agent-team tick [flags]
 Flags:
 
 ```text
-      --all-ready-steps     Advance every currently ready independent pipeline step in this tick.
-      --dry-run             Preview job status reconciliation, schedule firing, queue drain, and pipeline advancement without mutating state.
-      --format string       Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.
-      --interval duration   Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
-      --json                Emit machine-readable JSON.
-      --limit int           Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int      With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes      With --dry-run, include route and dispatch payload previews for ready pipeline steps.
-      --skip-advance        Skip pipeline advancement.
-      --skip-drain          Skip queue draining.
-      --skip-reconcile      Skip daemon metadata and job status reconciliation.
-      --skip-schedules      Skip firing due schedules.
-      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --until-idle          Run tick cycles until no immediate schedule, queue, or pipeline work remains.
-  -w, --watch               Run tick repeatedly until interrupted.
-      --workspace string    Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps      Advance every currently ready independent pipeline step in this tick.
+      --dry-run              Preview job status reconciliation, schedule firing, queue drain, and pipeline advancement without mutating state.
+      --format string        Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.
+      --interval duration    Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
+      --json                 Emit machine-readable JSON.
+      --limit int            Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int       With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
+      --preview-routes       With --dry-run, include route and dispatch payload previews for ready pipeline steps.
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance         Skip pipeline advancement.
+      --skip-drain           Skip queue draining.
+      --skip-reconcile       Skip daemon metadata and job status reconciliation.
+      --skip-schedules       Skip firing due schedules.
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --until-idle           Run tick cycles until no immediate schedule, queue, or pipeline work remains.
+  -w, --watch                Run tick repeatedly until interrupted.
+      --workspace string     Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:

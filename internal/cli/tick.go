@@ -18,6 +18,8 @@ func newTickCmd() *cobra.Command {
 	var (
 		target        string
 		workspace     string
+		runtimeKind   string
+		runtimeBin    string
 		limit         int
 		skipReconcile bool
 		skipSchedules bool
@@ -88,6 +90,7 @@ func newTickCmd() *cobra.Command {
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
 				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 				DryRun:        dryRun,
 				PreviewRoutes: previewRoutes,
 			}
@@ -129,6 +132,8 @@ func newTickCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
@@ -152,6 +157,7 @@ type tickOptions struct {
 	SkipDrain     bool
 	SkipAdvance   bool
 	AllReadySteps bool
+	Runtime       runtimeSelection
 	DryRun        bool
 	PreviewRoutes bool
 }
@@ -213,7 +219,7 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 		result.Queue = drain
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, "", workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, "", workspace, opts.Runtime, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
 		if err != nil {
 			return nil, err
 		}

@@ -169,6 +169,7 @@ agent-team repair --timeout-pipelines --timeout-pipeline ticket_to_pr --dry-run
 agent-team repair --timeout-pipelines --timeout-target-agent worker --dry-run
 agent-team pipeline repair ticket_to_pr --retry-pipelines --dry-run --preview-routes
 agent-team repair --retry-pipelines --dry-run --preview-routes
+agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-force --retry-message "override after fixing dependency"
 agent-team repair --until-idle
@@ -192,6 +193,7 @@ older pipeline-step expiration scope. Add `--timeout-pipeline` or
 `--timeout-target-agent` with either timeout mode to stay inside one workflow or
 agent role.
 Use `--retry-step <id>` with `--retry-pipelines` when a broad repair pass should target only one failed stage, such as rerunning review jobs after fixing a reviewer prompt. Add `--retry-force` only when capped steps should be retried after the underlying external issue has been fixed.
+Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick advancement should use a one-off runtime override instead of the repo default.
 
 ## Recovery Rules of Thumb
 

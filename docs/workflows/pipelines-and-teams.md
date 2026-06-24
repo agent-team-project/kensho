@@ -100,7 +100,7 @@ agent-team repair --timeout-jobs --timeout-target-agent worker --dry-run
 agent-team repair --timeout-pipelines --dry-run
 agent-team repair --timeout-pipelines --timeout-pipeline ticket_to_pr --dry-run
 agent-team repair --timeout-pipelines --timeout-target-agent worker --dry-run
-agent-team repair --retry-pipelines --retry-pipeline ticket_to_pr --dry-run --preview-routes
+agent-team repair --retry-pipelines --retry-pipeline ticket_to_pr --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 ```
 
@@ -148,7 +148,7 @@ When a stage is best-effort, add `optional = true` to its pipeline step. If that
 When a step waits on a manual gate, `agent-team pipeline approve <pipeline>` marks approveable blocked manual gates queued so `pipeline advance`, `team advance`, or `tick` can dispatch them. Add `--step <id>` to approve one stage, add `--dispatch` to approve and dispatch in one command, and use `--dry-run --preview-routes` before batch approvals. Use `agent-team job reject <job-id> [reason...] --dry-run` before failing one blocked manual gate with a `manual_gate_rejected` audit event, or `agent-team pipeline reject <pipeline> --dry-run` before rejecting a scoped batch.
 If an event-triggered pipeline starts with a manual or PR-gated step, the daemon creates the job and returns a `blocked` event outcome instead of spawning an agent. Use `job next`, `job explain`, or the scoped `pipeline ready --state blocked` view to see the approval or metadata action.
 When a step fails, `agent-team pipeline retry <pipeline>` resets retryable failed steps to a blocked-but-ready state so the next `pipeline advance`, `team advance`, or `tick` can dispatch another attempt. Add `--step <id>` to target one failed stage, add `--dispatch` to retry and dispatch in one command, use `--dry-run --preview-routes` before a batch retry to inspect the resolved routes and payloads, and pass `--message` to record why the retry happened. Add `max_attempts = N` to a pipeline step when retries should stop after N dispatch attempts; `pipeline retry`, `team retry`, and retry-enabled repair sweeps skip capped steps and show the current attempt count in retry/explain output. After fixing an external cause, add `--force` to `pipeline retry` or `team retry` to intentionally override a capped step, or add `--retry-force` with `--retry-pipelines` during repair.
-Pipeline and team-scoped dispatch commands accept `--runtime` and `--runtime-bin` for one-off Claude/Codex selection; pipeline repair accepts the same overrides for retried and advanced steps. The selected runtime is stored in the dispatch payload so queued or delayed starts keep the same intent.
+Pipeline and team-scoped dispatch commands accept `--runtime` and `--runtime-bin` for one-off Claude/Codex selection. `tick`, `repair`, `pipeline repair`, `team tick`, `team drain`, and `team repair` accept the same overrides for retried and advanced steps. The selected runtime is stored in the dispatch payload so queued or delayed starts keep the same intent.
 Pipeline status also flags `stale_running_steps` when a running step has exceeded its step `timeout`, or the repo job stale threshold (`[health].job_stale_after`, default 24h) when no step timeout is declared. Start recovery with `agent-team job reconcile events --dry-run` so finished or crashed runtime metadata can update the job. If the step is still running after reconciliation, use `agent-team pipeline timeout <pipeline> --dry-run` to preview marking stale steps failed, then `pipeline retry` when another attempt should run; add `--target-agent` when only one role's stages should expire. For broader maintenance, `agent-team repair --timeout-jobs --retry-pipelines --dry-run --preview-routes` previews stale job expiration and retry phases in one repair report; use `--timeout-pipelines` for pipeline-step-only expiration. Add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode when a repair sweep should stay inside one workflow or agent role, and add `--retry-pipeline` when the failed-step retry phase should stay inside one workflow.
 By default, `pipeline advance` dispatches one ready step per job. Use `pipeline advance <pipeline> --all-ready-steps` when a job has multiple currently ready independent steps and you want to fan them out in one command. Dependency checks still use the job file: a downstream step waits until all of its `after` steps are marked done, or failed with `optional = true`.
 Use `agent-team team approve <team>` for the same manual-gate approval flow scoped to one team's declared pipelines, `agent-team team reject <team> --dry-run` before rejecting the team's blocked manual gates, `agent-team team skip <team> --step <id> --dry-run` before bypassing a stage across team-owned jobs, and `agent-team team cancel <team> --dry-run` before cancelling obsolete team-owned jobs.
@@ -198,7 +198,7 @@ agent-team team retry delivery --force --message "operator override after fixing
 agent-team team timeout delivery --dry-run
 agent-team team timeout delivery --jobs --dry-run
 agent-team team timeout delivery --jobs --target-agent worker --dry-run
-agent-team team tick delivery --dry-run
+agent-team team tick delivery --runtime codex --dry-run
 agent-team team tick delivery --all-ready-steps --dry-run
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --all-ready-steps --dry-run --preview-routes
@@ -208,11 +208,11 @@ agent-team team repair delivery --timeout-jobs --timeout-target-agent worker --d
 agent-team team repair delivery --timeout-pipelines --dry-run
 agent-team team repair delivery --timeout-pipelines --timeout-pipeline ticket_to_pr --dry-run
 agent-team team repair delivery --timeout-pipelines --timeout-target-agent worker --dry-run
-agent-team team repair delivery --retry-pipelines --dry-run --preview-routes
+agent-team team repair delivery --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-pipeline ticket_to_pr --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-force --retry-message "override after fix"
-agent-team team drain delivery --all-ready-steps
+agent-team team drain delivery --all-ready-steps --runtime codex
 agent-team team snapshot delivery --output delivery.json
 ```
 

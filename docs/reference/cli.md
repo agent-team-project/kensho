@@ -81,7 +81,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team plan` | Preview desired instance state |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
-| `agent-team tick` | Run one maintenance cycle or loop |
+| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps |
 | `agent-team reload` | Top-level daemon topology reload |
 
 ## Jobs
@@ -198,8 +198,8 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team team monitor <team>` | Scoped dashboard |
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
 | `agent-team team jobs <team>` | Scoped job list, summary, or watch view; filter held state, mixed-runtime ownership, and cap output with `--limit` |
-| `agent-team team tick <team>` | Scoped maintenance cycle |
-| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; failed-step retry accepts pipeline/step filters plus `--retry-force` |
+| `agent-team team tick <team>` | Scoped maintenance cycle; use `--runtime` for advanced steps |
+| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; failed-step retry accepts pipeline/step filters, `--retry-force`, and runtime overrides |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team |
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |
@@ -253,7 +253,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team watch` | Continuous monitor |
 | `agent-team snapshot` | Redacted diagnostic artifact |
 | `agent-team snapshot diff <before.json> <after.json>` | Compare saved diagnostic artifacts, including instances, jobs, queue, schedules, intake, events, and pipeline state |
-| `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop; timeout repair accepts filters, and failed-step retry accepts pipeline/step filters plus `--retry-force` |
+| `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop; timeout repair accepts filters, and failed-step retry accepts pipeline/step filters, `--retry-force`, and runtime overrides |
 
 ## Communication
 

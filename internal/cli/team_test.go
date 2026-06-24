@@ -2843,7 +2843,7 @@ pipelines = ["parallel_checks"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-queue", "--all-ready-steps", "--json"})
+	cmd.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-queue", "--all-ready-steps", "--preview-routes", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("team repair all-ready: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2853,6 +2853,13 @@ pipelines = ["parallel_checks"]
 	}
 	if result.Tick.Result == nil || len(result.Tick.Result.Tick.Advance) != 2 || result.Tick.Result.Tick.Advance[0].StepID != "lint" || result.Tick.Result.Tick.Advance[0].StepStatus != job.StatusQueued || result.Tick.Result.Tick.Advance[1].StepID != "test" {
 		t.Fatalf("team repair all-ready advance = %+v, want queued lint then ready test", result.Tick.Result)
+	}
+	if result.Tick.Result.Tick.Advance[0].Preview == nil || result.Tick.Result.Tick.Advance[0].Preview.Dispatch == nil || result.Tick.Result.Tick.Advance[0].Preview.Dispatch.Preview == nil {
+		t.Fatalf("team repair all-ready preview missing route payload = %+v", result.Tick.Result.Tick.Advance[0].Preview)
+	}
+	payload := result.Tick.Result.Tick.Advance[0].Preview.Dispatch.Preview.Payload
+	if payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team repair all-ready payload = %+v", payload)
 	}
 }
 
@@ -6562,7 +6569,7 @@ schedules = ["platform_due"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"team", "tick", "delivery", "--repo", root, "--workspace", "repo", "--dry-run", "--preview-routes", "--json"})
+	cmd.SetArgs([]string{"team", "tick", "delivery", "--repo", root, "--workspace", "repo", "--dry-run", "--preview-routes", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("team tick dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -6581,6 +6588,14 @@ schedules = ["platform_due"]
 	}
 	if len(result.Tick.Advance) != 1 || result.Tick.Advance[0].JobID != "squ-100" || result.Tick.Advance[0].Pipeline != "ticket_to_pr" || result.Tick.Advance[0].Preview == nil {
 		t.Fatalf("team tick advance = %+v", result.Tick.Advance)
+	}
+	dispatch := result.Tick.Advance[0].Preview.Dispatch
+	if dispatch == nil || dispatch.Preview == nil {
+		t.Fatalf("team tick dispatch preview = %+v", result.Tick.Advance[0].Preview)
+	}
+	payload := dispatch.Preview.Payload
+	if payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team tick payload = %+v", payload)
 	}
 	body := out.String()
 	for _, leak := range []string{"platform_due", "platform_work", "oth-100", "q-platform-ready"} {
@@ -7254,6 +7269,8 @@ instances = ["other"]
 		"--skip-queue",
 		"--skip-tick",
 		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
 		"--json",
 	})
 	if err := retryPreview.Execute(); err != nil {
@@ -7272,6 +7289,10 @@ instances = ["other"]
 	}
 	if retryRow.Preview.Dispatch.RequestedName != "worker-squ-300-implement" {
 		t.Fatalf("team repair retry requested name = %q", retryRow.Preview.Dispatch.RequestedName)
+	}
+	retryPayload := retryRow.Preview.Dispatch.Preview.Payload
+	if retryPayload["runtime"] != "codex" || retryPayload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("team repair retry payload = %+v", retryPayload)
 	}
 	if strings.Contains(retryPreviewOut.String(), "oth-300") || strings.Contains(retryPreviewOut.String(), "q-other-repair") || strings.Contains(retryPreviewOut.String(), "rel-300") {
 		t.Fatalf("team repair retry dry-run leaked unrelated work:\n%s", retryPreviewOut.String())

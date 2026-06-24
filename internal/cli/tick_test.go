@@ -117,7 +117,7 @@ branch = "worker-squ-94"
 	routeDryOut, routeDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	routeDry.SetOut(routeDryOut)
 	routeDry.SetErr(routeDryErr)
-	routeDry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--json"})
+	routeDry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := routeDry.Execute(); err != nil {
 		t.Fatalf("tick dry-run preview-routes: %v\nstderr=%s", err, routeDryErr.String())
 	}
@@ -136,7 +136,7 @@ branch = "worker-squ-94"
 		t.Fatalf("tick dispatch route preview = %+v", dispatchPreview)
 	}
 	payload := dispatchPreview.Payload
-	if payload["job_id"] != "squ-93" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" {
+	if payload["job_id"] != "squ-93" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("tick route preview payload = %+v", payload)
 	}
 

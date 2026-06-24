@@ -315,7 +315,7 @@ func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo", "--json"})
+	cmd.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair dry-run preview-routes: %v\nstderr=%s", err, stderr.String())
 	}
@@ -334,7 +334,7 @@ func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
 		t.Fatalf("repair route dispatch preview = %+v", dispatch)
 	}
 	payload := dispatch.Preview.Payload
-	if payload["job_id"] != "squ-122" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" {
+	if payload["job_id"] != "squ-122" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("repair route preview payload = %+v", payload)
 	}
 	unchanged, err := job.Read(teamDir, "squ-122")
@@ -448,6 +448,8 @@ func TestRepairDryRunCanRetryFailedPipelineRoutes(t *testing.T) {
 		"--skip-queue",
 		"--skip-tick",
 		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
 		"--json",
 	})
 	if err := cmd.Execute(); err != nil {
@@ -468,7 +470,7 @@ func TestRepairDryRunCanRetryFailedPipelineRoutes(t *testing.T) {
 		t.Fatalf("requested name = %q", row.Preview.Dispatch.RequestedName)
 	}
 	payload := row.Preview.Dispatch.Preview.Payload
-	if payload["job_id"] != "squ-123" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" {
+	if payload["job_id"] != "squ-123" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("preview payload = %+v", payload)
 	}
 	unchanged, err := job.Read(teamDir, "squ-123")

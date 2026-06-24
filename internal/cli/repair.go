@@ -19,6 +19,8 @@ func newRepairCmd() *cobra.Command {
 	var (
 		target           string
 		workspace        string
+		runtimeKind      string
+		runtimeBin       string
 		limit            int
 		dryRun           bool
 		previewRoutes    bool
@@ -140,6 +142,7 @@ func newRepairCmd() *cobra.Command {
 			}
 			result, err := runRepair(cmd, target, teamDir, repairOptions{
 				Workspace:        workspace,
+				Runtime:          runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
 				Limit:            limit,
 				DryRun:           dryRun,
 				PreviewRoutes:    previewRoutes,
@@ -174,6 +177,8 @@ func newRepairCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for retried or advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.")
@@ -204,6 +209,7 @@ func newRepairCmd() *cobra.Command {
 
 type repairOptions struct {
 	Workspace        string
+	Runtime          runtimeSelection
 	Limit            int
 	DryRun           bool
 	PreviewRoutes    bool
@@ -446,7 +452,7 @@ func runRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, opts repairO
 	if message == "" {
 		message = "repair retry failed pipeline step"
 	}
-	results, err := retryPipelineJobs(cmd, teamDir, opts.RetryPipeline, opts.Workspace, runtimeSelection{}, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
+	results, err := retryPipelineJobs(cmd, teamDir, opts.RetryPipeline, opts.Workspace, opts.Runtime, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
 	if err != nil {
 		return repairPipelineRetryStep{Action: "error", Reason: err.Error()}, err
 	}
@@ -542,7 +548,7 @@ func runRepairTickStep(cmd *cobra.Command, teamDir string, opts repairOptions) r
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		until, err := runTickUntilIdle(ctx, cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{AllReadySteps: opts.AllReadySteps}, opts.MaxCycles, opts.Interval)
+		until, err := runTickUntilIdle(ctx, cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{AllReadySteps: opts.AllReadySteps, Runtime: opts.Runtime}, opts.MaxCycles, opts.Interval)
 		if err != nil {
 			return repairTickStep{Action: "error", Reason: err.Error()}
 		}
@@ -552,7 +558,7 @@ func runRepairTickStep(cmd *cobra.Command, teamDir string, opts repairOptions) r
 		}
 		return repairTickStep{Action: action, UntilIdle: until}
 	}
-	tick, err := runTick(cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes, AllReadySteps: opts.AllReadySteps})
+	tick, err := runTick(cmd, teamDir, opts.Workspace, opts.Limit, tickOptions{DryRun: opts.DryRun, PreviewRoutes: opts.PreviewRoutes, AllReadySteps: opts.AllReadySteps, Runtime: opts.Runtime})
 	if err != nil {
 		return repairTickStep{Action: "error", Reason: err.Error()}
 	}
