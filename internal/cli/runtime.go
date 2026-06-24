@@ -48,6 +48,7 @@ func newRuntimeCmd() *cobra.Command {
 	cmd.AddCommand(newRuntimeProfileCmd())
 	cmd.AddCommand(newRuntimeLsCmd())
 	cmd.AddCommand(newRuntimeProbeCmd())
+	cmd.AddCommand(newRuntimeAdoptCmd())
 	cmd.AddCommand(newRuntimeResumePlanCmd())
 	return cmd
 }

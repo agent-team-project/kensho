@@ -3942,12 +3942,51 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team runtime adopt` - Adopt a live external runtime process.
 - `agent-team runtime ls` - List supported runtime profiles.
 - `agent-team runtime probe` - Probe runtime, daemon, and Codex environment health.
 - `agent-team runtime profile` - Show the selected runtime profile.
 - `agent-team runtime resume-plan` - Show runtime resume and fallback commands for daemon metadata.
 - `agent-team runtime set` - Set the repo default runtime profile.
 - `agent-team runtime unset` - Remove the repo default runtime profile.
+
+## `agent-team runtime adopt`
+
+Adopt a live external runtime process.
+
+Adopt a live external runtime process by writing daemon runtime metadata for it. Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. Use this when a Claude or Codex process was started outside agent-team but should be tracked by the repo daemon.
+
+```text
+agent-team runtime adopt <instance> [flags]
+```
+
+Flags:
+
+```text
+      --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
+      --branch string        Branch name to record on the adopted metadata.
+      --dry-run              Preview adoption without writing metadata.
+      --force                Replace existing live metadata for the instance.
+      --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
+      --job string           Owning job id to record on the adopted metadata.
+      --json                 Emit machine-readable JSON.
+      --log-path string      Runtime log path, if the external process already writes to one.
+      --pid int              Live process PID to adopt.
+      --pr string            PR URL to record on the adopted metadata.
+      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime-bin string   Runtime binary or wrapper used by the adopted process.
+      --session-id string    Runtime session id, when known and resumable.
+      --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --ticket string        Ticket id to record on the adopted metadata.
+      --workspace string     Workspace path for the adopted process. Defaults to the repo root.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
 
 ## `agent-team runtime ls`
 

@@ -72,7 +72,7 @@ Use adoption when a runtime process is already live but was not launched through
 the daemon:
 
 ```sh
-agent-team daemon adopt manager --pid 12345 --workspace "$PWD" --agent manager
+agent-team runtime adopt manager --pid 12345 --workspace "$PWD" --agent manager
 agent-team inspect manager
 agent-team ps --status running
 ```
@@ -93,6 +93,10 @@ Add `--job <id>` when the external process owns a durable job. If that job file
 exists, adoption records the instance, branch, PR, running status, and an
 `adopted` audit event on the job so `job show`, `job logs`, and scoped triage
 commands immediately point at the recovered process.
+
+`agent-team daemon adopt` is the same metadata operation from the daemon
+namespace. Use `agent-team job adopt <job-id> --pid <pid>` when you want to
+start from a durable job instead of an instance name.
 
 ## Remove and Prune
 

@@ -47,6 +47,24 @@ type daemonAdoptResult struct {
 }
 
 func newDaemonAdoptCmd() *cobra.Command {
+	return newAdoptExternalProcessCmd(
+		"Adopt a live external process into daemon metadata.",
+		"Adopt a live external process by writing daemon runtime metadata for it. "+
+			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. "+
+			"The daemon cannot wait on an adopted process it did not spawn, so later exits are observed by daemon reconcile.",
+	)
+}
+
+func newRuntimeAdoptCmd() *cobra.Command {
+	return newAdoptExternalProcessCmd(
+		"Adopt a live external runtime process.",
+		"Adopt a live external runtime process by writing daemon runtime metadata for it. "+
+			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. "+
+			"Use this when a Claude or Codex process was started outside agent-team but should be tracked by the repo daemon.",
+	)
+}
+
+func newAdoptExternalProcessCmd(short, long string) *cobra.Command {
 	var (
 		target        string
 		agent         string
@@ -69,19 +87,18 @@ func newDaemonAdoptCmd() *cobra.Command {
 	cwd, _ := filepath.Abs(".")
 	cmd := &cobra.Command{
 		Use:   "adopt <instance>",
-		Short: "Adopt a live external process into daemon metadata.",
-		Long: "Adopt a live external process by writing daemon runtime metadata for it. " +
-			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. " +
-			"The daemon cannot wait on an adopted process it did not spawn, so later exits are observed by daemon reconcile.",
-		Args: cobra.ExactArgs(1),
+		Short: short,
+		Long:  long,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			label := daemonAdoptCommandLabel(cmd)
 			if jsonOut && format != "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon adopt: --format cannot be combined with --json.")
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", label)
 				return exitErr(2)
 			}
 			tmpl, err := parseDaemonAdoptFormat(format)
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 				return exitErr(2)
 			}
 			return runDaemonAdopt(cmd, target, args[0], daemonAdoptOptions{
@@ -124,13 +141,24 @@ func newDaemonAdoptCmd() *cobra.Command {
 	return cmd
 }
 
+func daemonAdoptCommandLabel(cmd *cobra.Command) string {
+	if cmd == nil {
+		return "agent-team daemon adopt"
+	}
+	if path := strings.TrimSpace(cmd.CommandPath()); path != "" {
+		return path
+	}
+	return "agent-team daemon adopt"
+}
+
 func parseDaemonAdoptFormat(format string) (*template.Template, error) {
 	return parseDaemonFormat("daemon-adopt-format", format)
 }
 
 func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdoptOptions) error {
+	label := daemonAdoptCommandLabel(cmd)
 	if opts.PID <= 0 {
-		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon adopt: --pid is required and must be > 0.")
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --pid is required and must be > 0.\n", label)
 		return exitErr(2)
 	}
 	teamDir, err := resolveTeamDir(cmd, target)
@@ -140,7 +168,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 	repoRoot := filepath.Dir(teamDir)
 	jobDefaults, err := loadDaemonAdoptJobDefaults(teamDir, opts.Job)
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(1)
 	}
 	workspace := strings.TrimSpace(opts.Workspace)
@@ -159,7 +187,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 	}
 	agent, err := inferDaemonAdoptAgent(teamDir, instance, agentDefault)
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(2)
 	}
 	rt, err := runtimeFromConfigWithOverrides(filepath.Join(teamDir, "config.toml"), runtimeSelection{
@@ -167,12 +195,12 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 		Binary: opts.RuntimeBinary,
 	})
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(2)
 	}
 	startedAt, err := parseDaemonAdoptStartedAt(opts.StartedAt)
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(2)
 	}
 	logPath := strings.TrimSpace(opts.LogPath)
@@ -205,7 +233,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 		meta, changed, err = daemon.AdoptMetadata(daemon.DaemonRoot(teamDir), input, time.Now().UTC())
 	}
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(1)
 	}
 	result := daemonAdoptResult{
@@ -217,14 +245,14 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 	if meta != nil {
 		result.Job, result.JobChanged, err = updateJobAfterDaemonAdopt(teamDir, meta, opts.DryRun, time.Now().UTC())
 		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 			return exitErr(1)
 		}
 	}
 	if !opts.DryRun {
 		result.Reconciled, result.Message, err = reconcileAfterDaemonAdopt(teamDir)
 		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon adopt: %v\n", err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 			return exitErr(1)
 		}
 	}

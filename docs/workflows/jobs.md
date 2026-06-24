@@ -158,8 +158,8 @@ agent-team job adopt squ-42 --instance worker-squ-42 --pid 12345
 `job adopt` records daemon metadata and updates the job with the owning
 instance. It defaults `--agent` to the job target, `--workspace` to the job
 worktree, and branch/PR metadata to the existing job fields. Use
-`daemon adopt --job <id>` for the same recovery path when you are starting from
-an instance PID instead of a job.
+`runtime adopt <instance> --job <id>` or `daemon adopt --job <id>` for the same
+recovery path when you are starting from an instance PID instead of a job.
 
 ## Blocking And Unblocking Jobs
 
