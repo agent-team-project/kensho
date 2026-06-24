@@ -694,6 +694,8 @@ func newTeamJobsCmd() *cobra.Command {
 		status         string
 		sortBy         string
 		runtimeFilters []string
+		held           bool
+		unheld         bool
 		summary        bool
 		jsonOut        bool
 		format         string
@@ -715,6 +717,10 @@ func newTeamJobsCmd() *cobra.Command {
 			tmpl, err := parseJobFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
+				return exitErr(2)
+			}
+			if held && unheld {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team jobs: --held and --unheld cannot be combined.")
 				return exitErr(2)
 			}
 			sortMode, err := parseJobSort(sortBy)
@@ -739,7 +745,7 @@ func newTeamJobsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			jobs, err := collectTeamJobs(teamDir, args[0], statusFilter, sortMode, runtimes)
+			jobs, err := collectTeamJobs(teamDir, args[0], statusFilter, sortMode, runtimes, jobHeldFilter(held, unheld))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
 				return exitErr(1)
@@ -759,6 +765,8 @@ func newTeamJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
+	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate team job counts instead of job rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -5262,7 +5270,7 @@ func addTeamJobHealth(result *healthResult, teamDir string, top *topology.Topolo
 	return nil
 }
 
-func collectTeamJobs(teamDir, name string, status job.Status, sortMode string, runtimes map[string]bool) ([]*job.Job, error) {
+func collectTeamJobs(teamDir, name string, status job.Status, sortMode string, runtimes map[string]bool, heldFilter *bool) ([]*job.Job, error) {
 	top, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
 		return nil, err
@@ -5276,6 +5284,15 @@ func collectTeamJobs(teamDir, name string, status job.Status, sortMode string, r
 		filtered := owned[:0]
 		for _, j := range owned {
 			if j.Status == status {
+				filtered = append(filtered, j)
+			}
+		}
+		owned = filtered
+	}
+	if heldFilter != nil {
+		filtered := owned[:0]
+		for _, j := range owned {
+			if j.Held == *heldFilter {
 				filtered = append(filtered, j)
 			}
 		}

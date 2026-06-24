@@ -958,6 +958,8 @@ func newJobLsCmd() *cobra.Command {
 		branch         string
 		pr             string
 		runtimeFilters []string
+		held           bool
+		unheld         bool
 		watch          bool
 		noClear        bool
 		summary        bool
@@ -994,11 +996,16 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
 			}
+			if held && unheld {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --held and --unheld cannot be combined.")
+				return exitErr(2)
+			}
 			filters, err := newJobListFilters(statusFilter, targetFilter, instance, pipeline, ticket, branch, pr, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
 			}
+			filters.Held = jobHeldFilter(held, unheld)
 			filters.Sort = sortMode
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -1027,6 +1034,8 @@ func newJobLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Filter by branch.")
 	cmd.Flags().StringVar(&pr, "pr", "", "Filter by PR URL or number substring.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Filter by owning instance runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
+	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the job table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate job counts instead of job rows.")
@@ -3339,6 +3348,7 @@ type jobListFilters struct {
 	PR       string
 	Sort     string
 	Runtimes map[string]bool
+	Held     *bool
 }
 
 type jobRemoveOptions struct {
@@ -3566,6 +3576,19 @@ func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr st
 	}
 	f.Runtimes = runtimes
 	return f, nil
+}
+
+func jobHeldFilter(held, unheld bool) *bool {
+	switch {
+	case held:
+		value := true
+		return &value
+	case unheld:
+		value := false
+		return &value
+	default:
+		return nil
+	}
 }
 
 func parseJobSort(raw string) (string, error) {
@@ -4882,7 +4905,13 @@ func jobRuntimeIndex(teamDir string, filters jobListFilters) (map[string]string,
 }
 
 func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
+	if j == nil {
+		return false
+	}
 	if filters.Status != "" && j.Status != filters.Status {
+		return false
+	}
+	if filters.Held != nil && j.Held != *filters.Held {
 		return false
 	}
 	if filters.Target != "" && j.Target != filters.Target {

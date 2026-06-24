@@ -1014,6 +1014,54 @@ pipelines = ["ticket_to_pr", "nightly"]
 		t.Fatalf("held failed rows = %+v", heldFailed)
 	}
 
+	jobList := NewRootCmd()
+	jobListOut, jobListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobList.SetOut(jobListOut)
+	jobList.SetErr(jobListErr)
+	jobList.SetArgs([]string{"job", "ls", "--repo", root, "--held", "--json"})
+	if err := jobList.Execute(); err != nil {
+		t.Fatalf("job ls held: %v\nstderr=%s", err, jobListErr.String())
+	}
+	var heldJobs []job.Job
+	if err := json.Unmarshal(jobListOut.Bytes(), &heldJobs); err != nil {
+		t.Fatalf("decode held jobs: %v\nbody=%s", err, jobListOut.String())
+	}
+	if len(heldJobs) != 1 || heldJobs[0].ID != "squ-703" {
+		t.Fatalf("held jobs = %+v", heldJobs)
+	}
+
+	pipelineJobs := NewRootCmd()
+	pipelineJobsOut, pipelineJobsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineJobs.SetOut(pipelineJobsOut)
+	pipelineJobs.SetErr(pipelineJobsErr)
+	pipelineJobs.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--repo", root, "--held", "--summary", "--json"})
+	if err := pipelineJobs.Execute(); err != nil {
+		t.Fatalf("pipeline jobs held summary: %v\nstderr=%s", err, pipelineJobsErr.String())
+	}
+	var heldSummary jobSummary
+	if err := json.Unmarshal(pipelineJobsOut.Bytes(), &heldSummary); err != nil {
+		t.Fatalf("decode held summary: %v\nbody=%s", err, pipelineJobsOut.String())
+	}
+	if heldSummary.Total != 1 || heldSummary.Held != 1 {
+		t.Fatalf("held summary = %+v", heldSummary)
+	}
+
+	teamJobs := NewRootCmd()
+	teamJobsOut, teamJobsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamJobs.SetOut(teamJobsOut)
+	teamJobs.SetErr(teamJobsErr)
+	teamJobs.SetArgs([]string{"team", "jobs", "delivery", "--repo", root, "--held", "--json"})
+	if err := teamJobs.Execute(); err != nil {
+		t.Fatalf("team jobs held: %v\nstderr=%s", err, teamJobsErr.String())
+	}
+	heldJobs = nil
+	if err := json.Unmarshal(teamJobsOut.Bytes(), &heldJobs); err != nil {
+		t.Fatalf("decode team held jobs: %v\nbody=%s", err, teamJobsOut.String())
+	}
+	if len(heldJobs) != 1 || heldJobs[0].ID != "squ-703" {
+		t.Fatalf("team held jobs = %+v", heldJobs)
+	}
+
 	retryHeld := NewRootCmd()
 	retryHeldOut, retryHeldErr := &bytes.Buffer{}, &bytes.Buffer{}
 	retryHeld.SetOut(retryHeldOut)

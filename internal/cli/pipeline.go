@@ -225,6 +225,8 @@ func newPipelineJobsCmd() *cobra.Command {
 		repo           string
 		status         string
 		runtimeFilters []string
+		held           bool
+		unheld         bool
 		summary        bool
 		jsonOut        bool
 		format         string
@@ -248,11 +250,16 @@ func newPipelineJobsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
 			}
+			if held && unheld {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --held and --unheld cannot be combined.")
+				return exitErr(2)
+			}
 			filters, err := newJobListFilters(status, "", "", args[0], "", "", "", runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
 			}
+			filters.Held = jobHeldFilter(held, unheld)
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -276,6 +283,8 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&held, "held", false, "Only show held jobs.")
+	cmd.Flags().BoolVar(&unheld, "unheld", false, "Only show jobs that are not held.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline job counts instead of job rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")

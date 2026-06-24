@@ -1749,6 +1749,7 @@ Flags:
 ```text
       --branch string         Filter by branch.
       --format string         Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --held                  Only show held jobs.
       --instance string       Filter by owning instance.
       --interval duration     Refresh interval for --watch. (default 2s)
       --json                  Emit machine-readable JSON.
@@ -1762,6 +1763,7 @@ Flags:
       --summary               Show aggregate job counts instead of job rows.
       --target-agent string   Filter by target agent.
       --ticket string         Filter by ticket id or URL substring.
+      --unheld                Only show jobs that are not held.
   -w, --watch                 Refresh the job table until interrupted.
 ```
 
@@ -2802,11 +2804,13 @@ Flags:
 
 ```text
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --held              Only show held jobs.
       --json              Emit jobs as JSON.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
       --status string     Filter by job status: queued, running, blocked, done, or failed.
       --summary           Show aggregate pipeline job counts instead of job rows.
+      --unheld            Only show jobs that are not held.
 ```
 
 ## `agent-team pipeline ls`
@@ -4479,12 +4483,14 @@ Flags:
 
 ```text
       --format string     Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --held              Only show held jobs.
       --json              Emit team jobs as JSON.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
       --sort string       Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr. (default "id")
       --status string     Filter by job status: queued, running, blocked, done, or failed.
       --summary           Show aggregate team job counts instead of job rows.
+      --unheld            Only show jobs that are not held.
 ```
 
 ## `agent-team team logs`

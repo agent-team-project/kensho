@@ -82,7 +82,7 @@ Shortcuts:
 | Command | Purpose |
 | --- | --- |
 | `agent-team job create <ticket>` | Create a durable job |
-| `agent-team job ls` | List jobs; filter mixed-runtime ownership with `--runtime` |
+| `agent-team job ls` | List jobs; filter held state with `--held` / `--unheld` and mixed-runtime ownership with `--runtime` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, status previews, and actions |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, queue ownership, state files, and optional log tails |
 | `agent-team job explain <job-id>` | Explain every pipeline step's readiness, blockers, gates, and next actions |
@@ -149,7 +149,7 @@ Shortcuts:
 | `agent-team pipeline explain <pipeline>` | Expand pipeline jobs into per-step readiness, blockers, gates, and actions |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print recommended pipeline actions |
-| `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter mixed-runtime ownership with `--runtime` |
+| `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state and mixed-runtime ownership |
 | `agent-team pipeline ready` | List ready steps |
 | `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status |
 | `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline |
@@ -169,7 +169,7 @@ Shortcuts:
 | `agent-team team status <team>` | Scoped status |
 | `agent-team team monitor <team>` | Scoped dashboard |
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
-| `agent-team team jobs <team>` | Scoped job list or summary; filter mixed-runtime ownership with `--runtime` |
+| `agent-team team jobs <team>` | Scoped job list or summary; filter held state and mixed-runtime ownership |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
 | `agent-team team repair <team>` | Scoped repair loop |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime` |
