@@ -123,6 +123,57 @@ func TestOverviewRecommendsParallelReadyFanout(t *testing.T) {
 	}
 }
 
+func TestOverviewRecommendsStaleRunningJobTimeoutRepair(t *testing.T) {
+	root := writeOverviewStaleRunningFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview stale running json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview stale running: %v\nbody=%s", err, out.String())
+	}
+	if overview.Jobs.StaleRunning != 1 || !stringSliceContains(overview.Actions, "agent-team repair --timeout-jobs --dry-run") {
+		t.Fatalf("overview stale running jobs = %+v actions=%+v", overview.Jobs, overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team repair --timeout-jobs --dry-run"); !ok || detail.Source != "jobs" || detail.Reason != "stale_running=1" {
+		t.Fatalf("stale running action detail = %+v ok=%v", detail, ok)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview stale running text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "stale_running=1") {
+		t.Fatalf("overview text missing stale running count:\n%s", textOut.String())
+	}
+
+	team := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	team.SetOut(teamOut)
+	team.SetErr(teamErr)
+	team.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--json"})
+	if err := team.Execute(); err != nil {
+		t.Fatalf("team overview stale running json: %v\nstderr=%s", err, teamErr.String())
+	}
+	var teamOverview overviewResult
+	if err := json.Unmarshal(teamOut.Bytes(), &teamOverview); err != nil {
+		t.Fatalf("decode team overview stale running: %v\nbody=%s", err, teamOut.String())
+	}
+	if teamOverview.Jobs.StaleRunning != 1 || !stringSliceContains(teamOverview.Actions, "agent-team team repair delivery --timeout-jobs --dry-run") {
+		t.Fatalf("team overview stale running jobs = %+v actions=%+v", teamOverview.Jobs, teamOverview.Actions)
+	}
+}
+
 func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	root := writeOverviewRuntimeFixture(t)
 
@@ -988,6 +1039,47 @@ pipelines = ["parallel_checks"]
 			{ID: "test", Target: "worker", Status: job.StatusBlocked},
 			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"lint", "test"}},
 		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	return root
+}
+
+func writeOverviewStaleRunningFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	instances := `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-720",
+		Ticket:    "SQU-720",
+		Target:    "worker",
+		Instance:  "worker-squ-720",
+		Status:    job.StatusRunning,
+		CreatedAt: now.Add(-48 * time.Hour),
+		UpdatedAt: now.Add(-48 * time.Hour),
 	}
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("job.Write: %v", err)

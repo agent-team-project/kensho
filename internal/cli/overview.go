@@ -181,6 +181,7 @@ type overviewJobSummary struct {
 	Attention             int        `json:"attention"`
 	CleanupReady          int        `json:"cleanup_ready"`
 	ExpiredHolds          int        `json:"expired_holds"`
+	StaleRunning          int        `json:"stale_running,omitempty"`
 	ReadySteps            int        `json:"ready_steps"`
 	StatusPreviews        int        `json:"status_previews"`
 	StatusChanges         int        `json:"status_changes"`
@@ -446,6 +447,7 @@ func overviewJobsFromTriage(triage jobTriageSnapshot) overviewJobSummary {
 		Attention:             len(triage.Attention),
 		CleanupReady:          countJobTriageReason(triage.Attention, "cleanup_ready"),
 		ExpiredHolds:          countJobTriageReason(triage.Attention, "expired_hold"),
+		StaleRunning:          countJobTriageReason(triage.Attention, "stale_running"),
 		ReadySteps:            len(triage.ReadySteps),
 		StatusPreviews:        len(triage.StatusPreviews),
 		StatusChanges:         countChangedJobStatusPreviews(triage.StatusPreviews),
@@ -652,6 +654,14 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 			add(fmt.Sprintf("agent-team team release %s --expired --dry-run", teamName), "jobs", fmt.Sprintf("expired_holds=%d", out.Jobs.ExpiredHolds))
 		} else {
 			add("agent-team job release --all --expired --dry-run", "jobs", fmt.Sprintf("expired_holds=%d", out.Jobs.ExpiredHolds))
+		}
+	}
+	if out.Jobs.StaleRunning > 0 {
+		reason := fmt.Sprintf("stale_running=%d", out.Jobs.StaleRunning)
+		if teamName != "" {
+			add(fmt.Sprintf("agent-team team repair %s --timeout-jobs --dry-run", teamName), "jobs", reason)
+		} else {
+			add("agent-team repair --timeout-jobs --dry-run", "jobs", reason)
 		}
 	}
 	if out.Jobs.StatusChanges > 0 {
@@ -1009,7 +1019,7 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		result.Runtime.Exited,
 		result.Runtime.Crashed,
 		result.Runtime.Unknown)
-	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d attention=%d cleanup_ready=%d expired_holds=%d ready_steps=%d status_changes=%d\n",
+	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d attention=%d cleanup_ready=%d expired_holds=%d stale_running=%d ready_steps=%d status_changes=%d\n",
 		result.Jobs.Summary.Total,
 		result.Jobs.Summary.Queued,
 		result.Jobs.Summary.Running,
@@ -1019,6 +1029,7 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		result.Jobs.Attention,
 		result.Jobs.CleanupReady,
 		result.Jobs.ExpiredHolds,
+		result.Jobs.StaleRunning,
 		result.Jobs.ReadySteps,
 		result.Jobs.StatusChanges)
 	fmt.Fprintln(w, queueSummaryLine(result.Queue))
