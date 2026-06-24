@@ -2467,6 +2467,100 @@ gate = "manual"
 	}
 }
 
+func TestPipelineRejectManualGate(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+payload.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+gate = "manual"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-903", "manual gate rejection", "--repo", root, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, createErr.String())
+	}
+	markDone := NewRootCmd()
+	markDoneOut, markDoneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	markDone.SetOut(markDoneOut)
+	markDone.SetErr(markDoneErr)
+	markDone.SetArgs([]string{"job", "step", "squ-903", "implement", "--status", "done", "--repo", root, "--json"})
+	if err := markDone.Execute(); err != nil {
+		t.Fatalf("mark implement done: %v\nstderr=%s", err, markDoneErr.String())
+	}
+
+	dryRun := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryRun.SetOut(dryOut)
+	dryRun.SetErr(dryErr)
+	dryRun.SetArgs([]string{"job", "reject", "squ-903", "manual review rejected", "--repo", root, "--dry-run", "--json"})
+	if err := dryRun.Execute(); err != nil {
+		t.Fatalf("reject dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview jobStepPreview
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode reject dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.Status != job.StatusFailed || preview.Job.LastEvent != "manual_gate_rejected" || preview.Job.Steps[1].Status != job.StatusFailed {
+		t.Fatalf("reject preview = %+v", preview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-903")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning || unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("dry-run mutated manual gate = %+v", unchanged)
+	}
+
+	reject := NewRootCmd()
+	rejectOut, rejectErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reject.SetOut(rejectOut)
+	reject.SetErr(rejectErr)
+	reject.SetArgs([]string{"job", "reject", "squ-903", "--repo", root, "--step", "review", "--message", "manual review rejected", "--format", "{{.ID}} {{.Status}} {{.LastEvent}} {{.LastStatus}}"})
+	if err := reject.Execute(); err != nil {
+		t.Fatalf("reject gate: %v\nstderr=%s", err, rejectErr.String())
+	}
+	if got := rejectOut.String(); got != "squ-903 failed manual_gate_rejected manual review rejected\n" {
+		t.Fatalf("reject format = %q", got)
+	}
+	rejected, err := job.Read(teamDir, "squ-903")
+	if err != nil {
+		t.Fatalf("read rejected job: %v", err)
+	}
+	if rejected.Status != job.StatusFailed || rejected.Steps[1].Status != job.StatusFailed || rejected.LastEvent != "manual_gate_rejected" || rejected.LastStatus != "manual review rejected" {
+		t.Fatalf("rejected job = %+v", rejected)
+	}
+	events, err := job.ListEvents(teamDir, "squ-903")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != "manual_gate_rejected" || events[len(events)-1].Message != "manual review rejected" {
+		t.Fatalf("reject events = %+v", events)
+	}
+}
+
 func TestPipelinePRGateWaitsForJobPR(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

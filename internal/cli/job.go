@@ -69,6 +69,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobTriageCmd())
 	cmd.AddCommand(newJobStepCmd())
 	cmd.AddCommand(newJobApproveCmd())
+	cmd.AddCommand(newJobRejectCmd())
 	cmd.AddCommand(newJobAdvanceCmd())
 	cmd.AddCommand(newJobReconcileCmd())
 	return cmd
@@ -3969,6 +3970,81 @@ func newJobApproveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview approval and optional advance dispatch without writing job or daemon state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or advance result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.")
+	return cmd
+}
+
+func newJobRejectCmd() *cobra.Command {
+	var (
+		repo        string
+		stepID      string
+		message     string
+		messageFile string
+		dryRun      bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "reject <job-id> [reason...]",
+		Short: "Reject a blocked manual pipeline gate.",
+		Long: "Reject a blocked manual pipeline gate by marking the gate step failed. " +
+			"By default this selects the next blocked manual gate for the job; pass --step to reject a specific gate.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reject: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobStepFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reject: %v\n", err)
+				return exitErr(2)
+			}
+			reason, err := optionalSendMessageBody(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reject: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			selectedStep, err := selectManualGateForApproval(j, stepID)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reject: %v\n", err)
+				return exitErr(2)
+			}
+			if strings.TrimSpace(reason) == "" {
+				reason = "rejected manual gate " + selectedStep
+			}
+			if err := updateJobStep(j, selectedStep, job.StatusFailed, jobStepUpdate{Message: reason}); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reject: %v\n", err)
+				return exitErr(2)
+			}
+			j.LastEvent = "manual_gate_rejected"
+			if dryRun {
+				return renderJobStepPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			}
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": selectedStep}); err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
+			}
+			if tmpl != nil {
+				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
+			}
+			renderJobDetail(cmd.OutOrStdout(), j)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Manual gate step id to reject. Defaults to the next blocked manual gate.")
+	cmd.Flags().StringVar(&message, "message", "", "Rejection reason recorded on the job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read rejection reason from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview rejection without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
 

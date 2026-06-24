@@ -1530,6 +1530,7 @@ Subcommands:
 - `agent-team job queue` - List queue items owned by one job.
 - `agent-team job ready` - List pipeline jobs with ready or selected next-step states.
 - `agent-team job reconcile` - Reconcile external runtime state back into jobs.
+- `agent-team job reject` - Reject a blocked manual pipeline gate.
 - `agent-team job release` - Release a held job so pipeline automation can advance it.
 - `agent-team job reopen` - Reopen a durable job for another attempt.
 - `agent-team job resume-plan` - Show runtime resume and fallback commands for one job.
@@ -2324,6 +2325,28 @@ Flags:
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job reject`
+
+Reject a blocked manual pipeline gate.
+
+Reject a blocked manual pipeline gate by marking the gate step failed. By default this selects the next blocked manual gate for the job; pass --step to reject a specific gate.
+
+```text
+agent-team job reject <job-id> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run               Preview rejection without writing job state.
+      --format string         Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json                  Emit the updated job as JSON.
+      --message string        Rejection reason recorded on the job.
+      --message-file string   Read rejection reason from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --step string           Manual gate step id to reject. Defaults to the next blocked manual gate.
 ```
 
 ## `agent-team job release`
