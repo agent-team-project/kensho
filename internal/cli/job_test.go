@@ -4340,6 +4340,77 @@ func TestJobAttachResolvesOwningInstance(t *testing.T) {
 	}
 }
 
+func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
+	env := newAttachTestEnv(t)
+	sleep := exec.Command("sleep", "30")
+	if err := sleep.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sleep.Process.Kill()
+		_, _ = sleep.Process.Wait()
+	})
+
+	meta := &daemon.Metadata{
+		Instance:      "worker-squ-57",
+		Agent:         "worker",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
+		Workspace:     env.target,
+		PID:           sleep.Process.Pid,
+		SessionID:     "codex-job-session",
+		StartedAt:     time.Now().UTC(),
+		Status:        daemon.StatusRunning,
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(env.teamDir), meta); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if err := env.dmn.Manager().LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(env.teamDir, &job.Job{
+		ID:        "squ-57",
+		Ticket:    "SQU-57",
+		Target:    "worker",
+		Instance:  "worker-squ-57",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cap, restore := captureAttachExec(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "attach", "SQU-57", "--repo", env.target, "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job attach codex dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	if cap.called {
+		t.Fatal("execClaudeAttach should not run during unsupported dry-run")
+	}
+	body := out.String()
+	for _, want := range []string{
+		"runtime:              codex",
+		"managed_resume:       no",
+		"command:              codex resume codex-job-session",
+		"logs_command:         agent-team logs worker-squ-57 --follow",
+		"last_message_command: agent-team logs worker-squ-57 --last-message",
+		"job_logs_command:      agent-team job logs squ-57 --follow",
+		"job_last_message_command: agent-team job logs squ-57 --last-message",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("job attach dry-run missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestJobAttachLogModeReadsOwningInstanceLog(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

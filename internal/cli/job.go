@@ -21,6 +21,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -1860,7 +1861,13 @@ func newJobAttachCmd() *cobra.Command {
 					Grep:     grep,
 				})
 			}
-			return runAttach(cmd, repoRoot, instance, noResume, dryRun)
+			if err := runAttach(cmd, repoRoot, instance, noResume, dryRun); err != nil {
+				return err
+			}
+			if dryRun {
+				renderJobAttachDryRunHints(cmd.OutOrStdout(), teamDir, j)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -1871,6 +1878,23 @@ func newJobAttachCmd() *cobra.Command {
 	cmd.Flags().StringVar(&since, "since", "", "Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Log mode with --no-follow: only print log lines matching this regular expression.")
 	return cmd
+}
+
+func renderJobAttachDryRunHints(w io.Writer, teamDir string, j *job.Job) {
+	if w == nil || j == nil || strings.TrimSpace(j.Instance) == "" {
+		return
+	}
+	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), j.Instance)
+	if err != nil || meta == nil {
+		return
+	}
+	if lifecycleMetadataSupportsManagedResume(meta) {
+		return
+	}
+	fmt.Fprintf(w, "job_logs_command:      agent-team job logs %s --follow\n", j.ID)
+	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
+		fmt.Fprintf(w, "job_last_message_command: agent-team job logs %s --last-message\n", j.ID)
+	}
 }
 
 func newJobStopCmd() *cobra.Command {
