@@ -42,6 +42,7 @@ type Metadata struct {
 	Status        Status    `json:"status"`
 	LogPath       string    `json:"log_path,omitempty"`
 	ExitCode      *int      `json:"exit_code,omitempty"`
+	Adopted       bool      `json:"adopted,omitempty"`
 }
 
 // instanceDir returns the per-instance metadata dir under daemonRoot.

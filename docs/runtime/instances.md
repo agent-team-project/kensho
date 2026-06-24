@@ -61,6 +61,29 @@ Interactive daemon attach requires a managed-resume-capable runtime; Codex-manag
 
 Ephemeral workers are not a good attach target. Use logs and job commands for those.
 
+## Adopt External Processes
+
+Use adoption when a runtime process is already live but was not launched through
+the daemon:
+
+```sh
+agent-team daemon adopt manager --pid 12345 --workspace "$PWD" --agent manager
+agent-team inspect manager
+agent-team ps --status running
+```
+
+Adopted processes are visible in normal daemon metadata views and can be stopped
+by `agent-team stop <instance>`. Because the daemon did not spawn them, it only
+learns about later exits during reconciliation:
+
+```sh
+agent-team daemon reconcile
+```
+
+If the instance is declared in `instances.toml`, `--agent` is inferred. Include
+`--session-id` for Claude-compatible processes when you want future
+managed-resume attempts to have the session identifier available.
+
 ## Remove and Prune
 
 ```sh

@@ -29,9 +29,9 @@ Important paths:
 | --- | --- |
 | `.agent_team/daemon.sock` | Unix socket when the repo path is short enough; otherwise a hashed `/tmp/agent-team-<uid>/*.sock` path |
 | `.agent_team/daemon.pid` | PID file |
-| `.agent_team/daemon/daemon.log` | Daemon log |
+| `.agent_team/daemon/agent-teamd.log` | Daemon log |
 | `.agent_team/daemon/events.jsonl` | Lifecycle event log |
-| `.agent_team/daemon/<instance>/metadata.toml` | Runtime metadata |
+| `.agent_team/daemon/<instance>/meta.json` | Runtime metadata |
 | `.agent_team/daemon/<instance>/child.log` | Child stdout/stderr |
 | `.agent_team/daemon/queue/` | Pending, dead-letter, and quarantine queue state |
 
@@ -55,6 +55,27 @@ agent-team start manager --wait
 agent-team run worker --detach
 agent-team tick --until-idle
 ```
+
+## Adopting External Processes
+
+If a runtime process was started outside `agent-team` but should be visible in
+the same operator views, adopt its live PID:
+
+```sh
+agent-team daemon adopt manager --pid 12345 --workspace "$PWD" --agent manager
+agent-team daemon adopt worker-squ-42 --pid 12346 --agent worker --job squ-42 --ticket SQU-42 --runtime codex
+agent-team daemon adopt manager --pid 12345 --dry-run --json
+```
+
+When the instance name is declared in `instances.toml`, `--agent` is inferred.
+Adoption writes `.agent_team/daemon/<instance>/meta.json`, appends an `adopt`
+lifecycle event, and asks a running daemon to reconcile so `ps`, `inspect`,
+`monitor`, `stop`, and `health` see the process immediately.
+
+The daemon did not spawn adopted processes, so it cannot wait on their final
+exit. A later `agent-team daemon reconcile`, `agent-team health`, or
+`agent-team repair` pass observes whether the PID is still live and marks stale
+metadata exited when needed.
 
 ## API Shape
 
@@ -94,6 +115,7 @@ Metadata tracks:
 - workspace
 - session ID when supported
 - job/ticket/branch/PR metadata when known
+- whether the record was explicitly adopted from an external process
 
 The CLI reads metadata even when the daemon is down, which makes `ps`, `inspect`, `logs`, and `monitor` useful after crashes.
 

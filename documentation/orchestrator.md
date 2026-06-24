@@ -186,6 +186,7 @@ agent-team daemon start [--detach=false] [--ready-timeout 3s] [--format '{{.Acti
                                   # boot agent-teamd; detached by default, foreground with --detach=false
 agent-team daemon stop [--timeout 5s] [--format '{{.Action}} {{.Changed}}'] [--json]
 agent-team daemon restart [--timeout 5s] [--ready-timeout 3s] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
+agent-team daemon adopt <instance> --pid <pid> [--agent manager] [--workspace <path>] [--runtime claude|codex] [--session-id <id>] [--dry-run] [--format '{{.Metadata.Instance}} {{.Metadata.PID}}'] [--json]
 agent-team daemon reconcile [--format '{{.Changed}} {{len .Instances}}'] [--json]
 agent-team daemon status [-q] [--wait [--down] --timeout 30s --interval 200ms] [--format '{{.Ready}} {{.PID}}'] [--json]
                                   # process and API-readiness check for agent-teamd

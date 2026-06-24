@@ -428,12 +428,51 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team daemon adopt` - Adopt a live external process into daemon metadata.
 - `agent-team daemon logs` - Show the agent-teamd daemon log.
 - `agent-team daemon reconcile` - Refresh daemon instance metadata against the live process table.
 - `agent-team daemon restart` - Restart agent-teamd, reconciling existing instance metadata on boot.
 - `agent-team daemon start` - Boot agent-teamd in this repo (detached by default; foreground with --detach=false).
 - `agent-team daemon status` - Print whether agent-teamd is running in this repo, and its pid if so.
 - `agent-team daemon stop` - Gracefully stop the running agent-teamd (SIGTERM, then SIGKILL after timeout).
+
+## `agent-team daemon adopt`
+
+Adopt a live external process into daemon metadata.
+
+Adopt a live external process by writing daemon runtime metadata for it. Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. The daemon cannot wait on an adopted process it did not spawn, so later exits are observed by daemon reconcile.
+
+```text
+agent-team daemon adopt <instance> [flags]
+```
+
+Flags:
+
+```text
+      --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
+      --branch string        Branch name to record on the adopted metadata.
+      --dry-run              Preview adoption without writing metadata.
+      --force                Replace existing live metadata for the instance.
+      --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
+      --job string           Owning job id to record on the adopted metadata.
+      --json                 Emit machine-readable JSON.
+      --log-path string      Runtime log path, if the external process already writes to one.
+      --pid int              Live process PID to adopt.
+      --pr string            PR URL to record on the adopted metadata.
+      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime-bin string   Runtime binary or wrapper used by the adopted process.
+      --session-id string    Runtime session id, when known and resumable.
+      --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --target string        Repo root. (default "<repo>")
+      --ticket string        Ticket id to record on the adopted metadata.
+      --workspace string     Workspace path for the adopted process. Defaults to the repo root.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root for commands that read .agent_team; overrides legacy repo-root --target flags.
+```
 
 ## `agent-team daemon logs`
 

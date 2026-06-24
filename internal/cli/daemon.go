@@ -34,6 +34,7 @@ func newDaemonCmd() *cobra.Command {
 	cmd.AddCommand(newDaemonStartCmd())
 	cmd.AddCommand(newDaemonStopCmd())
 	cmd.AddCommand(newDaemonRestartCmd())
+	cmd.AddCommand(newDaemonAdoptCmd())
 	cmd.AddCommand(newDaemonReconcileCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
 	cmd.AddCommand(newDaemonLogsCmd())

@@ -202,6 +202,8 @@ agent-team daemon stop [-q] [--timeout 5s] [--format '{{.Action}} {{.Changed}}']
                                                 # stop agent-teamd, escalating after the grace period
 agent-team daemon restart [-q] [--timeout 5s] [--ready-timeout 3s] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
                                                 # bounce agent-teamd and reconcile existing daemon metadata
+agent-team daemon adopt <instance> --pid <pid> [--agent manager] [--workspace <path>] [--runtime claude|codex] [--session-id <id>] [--dry-run] [--format '{{.Metadata.Instance}} {{.Metadata.PID}}'] [--json]
+                                                # track an externally started live process in daemon metadata
 agent-team daemon reconcile [--format '{{.Changed}} {{len .Instances}}'] [--json]
                                                 # refresh daemon metadata against the live process table without restarting
 agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --last N] [--format '{{.Healthy}} {{.Summary.Running}}'] [--jobs] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--unhealthy] [--strict-topology] [--json]

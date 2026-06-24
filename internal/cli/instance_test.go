@@ -182,6 +182,7 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		RuntimeBinary: "codex-dev",
 		Workspace:     tmp,
 		SessionID:     "session-1",
+		Adopted:       true,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -206,7 +207,8 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		body.Runtime.Agent != "manager" ||
 		body.Runtime.Runtime != "codex" ||
 		body.Runtime.RuntimeBinary != "codex-dev" ||
-		body.Runtime.SessionID != "session-1" {
+		body.Runtime.SessionID != "session-1" ||
+		!body.Runtime.Adopted {
 		t.Fatalf("runtime = %+v, want stopped manager session", body.Runtime)
 	}
 	if body.Runtime.LogPath != ".agent_team/daemon/adhoc/child.log" {

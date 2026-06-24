@@ -216,6 +216,121 @@ func TestDaemonStatusJSON_ReadyWithInstanceCount(t *testing.T) {
 	}
 }
 
+func TestDaemonAdoptInfersDeclaredAgentAndWritesMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "adopt", "manager", "--target", tmp, "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt: %v", err)
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode daemon adopt json: %v\nbody=%s", err, out.String())
+	}
+	if !result.Changed || result.Reconciled || result.Metadata == nil {
+		t.Fatalf("adopt result = %+v", result)
+	}
+	if result.Metadata.Instance != "manager" || result.Metadata.Agent != "manager" || result.Metadata.Status != daemon.StatusRunning || !result.Metadata.Adopted {
+		t.Fatalf("adopt metadata = %+v", result.Metadata)
+	}
+	absTmp, err := filepath.Abs(tmp)
+	if err != nil {
+		t.Fatalf("Abs(tmp): %v", err)
+	}
+	expectedWorkspace := absTmp
+	if eval, err := filepath.EvalSymlinks(absTmp); err == nil {
+		expectedWorkspace = eval
+	}
+	if result.Metadata.Workspace != expectedWorkspace || result.Metadata.Runtime != "claude" {
+		t.Fatalf("adopt metadata workspace/runtime = %+v", result.Metadata)
+	}
+	disk, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if !disk.Adopted || disk.PID != os.Getpid() {
+		t.Fatalf("disk metadata = %+v", disk)
+	}
+}
+
+func TestDaemonAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt --dry-run: %v", err)
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode daemon adopt dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || !result.Changed || result.Metadata == nil || !result.Metadata.Adopted {
+		t.Fatalf("dry-run result = %+v", result)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(filepath.Join(tmp, ".agent_team")), "external-worker"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata should not exist after dry-run: %v", err)
+	}
+}
+
+func TestDaemonAdoptFormatPrintsRow(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"daemon", "adopt", "worker-one",
+		"--target", tmp,
+		"--agent", "worker",
+		"--pid", strconv.Itoa(os.Getpid()),
+		"--runtime", "codex",
+		"--format", "{{.Metadata.Instance}} {{.Metadata.Runtime}} {{.Metadata.PID}} {{.Changed}}",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt --format: %v", err)
+	}
+	want := "worker-one codex " + strconv.Itoa(os.Getpid()) + " true\n"
+	if out.String() != want {
+		t.Fatalf("format output = %q, want %q", out.String(), want)
+	}
+}
+
+func TestDaemonAdoptRequiresAgentForUndeclaredInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	errOut := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"daemon", "adopt", "unknown", "--target", tmp, "--pid", strconv.Itoa(os.Getpid())})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("daemon adopt without inferred agent succeeded")
+	}
+	if !strings.Contains(errOut.String(), "--agent is required") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
 func TestDaemonStatusQuietNotReadyExitsOneWithoutOutput(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

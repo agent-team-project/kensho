@@ -262,6 +262,7 @@ type inspectRuntimeJSON struct {
 	ExitedAt      string `json:"exited_at,omitempty"`
 	ExitCode      *int   `json:"exit_code,omitempty"`
 	LogPath       string `json:"log_path,omitempty"`
+	Adopted       bool   `json:"adopted,omitempty"`
 }
 
 type inspectStatusJSON struct {
@@ -324,6 +325,7 @@ func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectR
 		Workspace:     filepath.ToSlash(meta.Workspace),
 		SessionID:     meta.SessionID,
 		ExitCode:      meta.ExitCode,
+		Adopted:       meta.Adopted,
 	}
 	if !meta.StartedAt.IsZero() {
 		out.StartedAt = meta.StartedAt.Format(time.RFC3339)
@@ -479,6 +481,9 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	}
 	if runtime.SessionID != "" {
 		fmt.Fprintf(w, "  session_id:  %s\n", runtime.SessionID)
+	}
+	if runtime.Adopted {
+		fmt.Fprintln(w, "  adopted:     yes")
 	}
 	if runtime.StartedAt != "" {
 		fmt.Fprintf(w, "  started_at:  %s\n", runtime.StartedAt)
