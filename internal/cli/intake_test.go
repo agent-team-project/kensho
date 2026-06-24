@@ -1935,6 +1935,18 @@ func TestIntakeGitHubReconcilesOwningJob(t *testing.T) {
 	if updated.Status != job.StatusDone || updated.LastEvent != "pr.merged" || updated.Branch != "worker-squ-106" {
 		t.Fatalf("updated job = %+v", updated)
 	}
+	events, err := job.ListEvents(teamDir, "squ-106")
+	if err != nil {
+		t.Fatalf("read job events: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("events = %+v", events)
+	}
+	for _, ev := range events {
+		if ev.Type != "pr.merged" || ev.Actor != "github" || ev.Data["source"] != "github" {
+			t.Fatalf("event = %+v, all events = %+v", ev, events)
+		}
+	}
 }
 
 func TestIntakeGitHubDryRunReconcileJobDoesNotMutate(t *testing.T) {

@@ -258,6 +258,7 @@ func TestReconcilePRMarksMergedJobDone(t *testing.T) {
 	merged := true
 	result, err := ReconcilePR(teamDir, ReconcileInput{
 		EventType: "pr.merged",
+		Source:    "github",
 		Action:    "closed",
 		PR:        "77",
 		PRURL:     "https://github.com/acme/repo/pull/77/",
@@ -281,7 +282,7 @@ func TestReconcilePRMarksMergedJobDone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "pr.merged" || events[0].Actor != "reconcile" || events[0].Data["matched_by"] != "pr_url" {
+	if len(events) != 1 || events[0].Type != "pr.merged" || events[0].Actor != "github" || events[0].Data["matched_by"] != "pr_url" || events[0].Data["source"] != "github" {
 		t.Fatalf("events = %+v", events)
 	}
 }

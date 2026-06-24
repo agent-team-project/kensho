@@ -86,7 +86,11 @@ func ReconcilePR(teamDir string, input ReconcileInput, now time.Time) (*Reconcil
 	if input.Source != "" {
 		data["source"] = input.Source
 	}
-	if err := AppendSnapshotEvent(teamDir, j, "", "reconcile", "", data); err != nil {
+	actor := strings.TrimSpace(input.Source)
+	if actor == "" {
+		actor = "reconcile"
+	}
+	if err := AppendSnapshotEvent(teamDir, j, "", actor, "", data); err != nil {
 		return nil, err
 	}
 	return result, nil
