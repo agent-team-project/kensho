@@ -172,6 +172,7 @@ Shortcuts:
 | `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter batch actions with `--runtime` |
 | `agent-team team queue prune <team>` | Age-prune team-owned entries; filter prune candidates with `--runtime` |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list |
+| `agent-team team explain <team>` | Expand team-owned pipeline jobs into per-step diagnostics |
 | `agent-team team ready <team>` | Scoped ready pipeline steps |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps |
 | `agent-team team approve <team>` | Scoped manual-gate approval |

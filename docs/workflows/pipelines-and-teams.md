@@ -94,7 +94,7 @@ Common states:
 - `done`
 - `none`
 
-`job triage`, `job explain`, `pipeline status`, `pipeline explain`, `pipeline next`, `pipeline ready`, and `team triage` all read the same job state. Use `job explain <job-id>` when you need one job's full step-by-step readiness view: it lists every step with dependencies, gates, waiting reasons, active instance ownership, and suggested next commands. Use `pipeline explain <pipeline>` for the same diagnostic view across every job in one workflow; add `--limit N` for large histories or `--json` for scripts. `pipeline status` includes `manual_gates` and recommends `pipeline approve` or the team-scoped equivalent when manual gates are ready. `pipeline next` prints just those recommended commands with a short reason when you do not need the full status table; add `--team <team>` to render team-scoped commands for pipelines owned by one declared team.
+`job triage`, `job explain`, `pipeline status`, `pipeline explain`, `pipeline next`, `pipeline ready`, `team explain`, and `team triage` all read the same job state. Use `job explain <job-id>` when you need one job's full step-by-step readiness view: it lists every step with dependencies, gates, waiting reasons, active instance ownership, and suggested next commands. Use `pipeline explain <pipeline>` for the same diagnostic view across every job in one workflow, or `team explain <team>` for the same view scoped to team-owned pipelines; add `--limit N` for large histories or `--json` for scripts. `pipeline status` includes `manual_gates` and recommends `pipeline approve` or the team-scoped equivalent when manual gates are ready. `pipeline next` prints just those recommended commands with a short reason when you do not need the full status table; add `--team <team>` to render team-scoped commands for pipelines owned by one declared team.
 When an operator intentionally bypasses a stage, `agent-team job step <job-id> <step-id> --skip` records that step as `done` with `skipped = true`, so dependency checks can continue while `job show` still reports the bypass.
 When a step waits on a manual gate, `agent-team pipeline approve <pipeline>` marks approveable blocked manual gates queued so `pipeline advance`, `team advance`, or `tick` can dispatch them. Add `--step <id>` to approve one stage, add `--dispatch` to approve and dispatch in one command, and use `--dry-run --preview-routes` before batch approvals.
 When a step fails, `agent-team pipeline retry <pipeline>` resets retryable failed steps to a blocked-but-ready state so the next `pipeline advance`, `team advance`, or `tick` can dispatch another attempt. Add `--step <id>` to target one failed stage, add `--dispatch` to retry and dispatch in one command, use `--dry-run --preview-routes` before a batch retry to inspect the resolved routes and payloads, and pass `--message` to record why the retry happened.
@@ -133,6 +133,7 @@ Team commands provide scoped variants:
 agent-team team overview delivery
 agent-team team jobs delivery
 agent-team team triage delivery
+agent-team team explain delivery
 agent-team team ready delivery
 agent-team team advance delivery --dry-run --preview-routes
 agent-team team advance delivery --all-ready-steps --dry-run --preview-routes

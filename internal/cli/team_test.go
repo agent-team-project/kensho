@@ -443,6 +443,56 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team pipelines format = %q", got)
 	}
 
+	explain := NewRootCmd()
+	explainOut, explainErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explain.SetOut(explainOut)
+	explain.SetErr(explainErr)
+	explain.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--json"})
+	if err := explain.Execute(); err != nil {
+		t.Fatalf("team explain: %v\nstderr=%s", err, explainErr.String())
+	}
+	var explainRows []pipelineExplainRow
+	if err := json.Unmarshal(explainOut.Bytes(), &explainRows); err != nil {
+		t.Fatalf("decode team explain: %v\nbody=%s", err, explainOut.String())
+	}
+	if len(explainRows) != 1 || explainRows[0].Pipeline != "ticket_to_pr" || explainRows[0].TotalJobs != 1 || len(explainRows[0].Jobs) != 1 || explainRows[0].Jobs[0].JobID != "squ-801" {
+		t.Fatalf("team explain rows = %+v", explainRows)
+	}
+	if containsString(explainRows[0].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
+		!containsString(explainRows[0].Actions, "agent-team team advance delivery --dry-run --preview-routes") ||
+		!containsString(explainRows[0].Jobs[0].Actions, "agent-team job advance squ-801") {
+		t.Fatalf("team explain actions = %+v job actions=%+v", explainRows[0].Actions, explainRows[0].Jobs[0].Actions)
+	}
+
+	explainText := NewRootCmd()
+	explainTextOut, explainTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainText.SetOut(explainTextOut)
+	explainText.SetErr(explainTextErr)
+	explainText.SetArgs([]string{"team", "explain", "delivery", "--repo", root})
+	if err := explainText.Execute(); err != nil {
+		t.Fatalf("team explain text: %v\nstderr=%s", err, explainTextErr.String())
+	}
+	for _, want := range []string{"Pipeline: ticket_to_pr", "squ-801", "agent-team team advance delivery --dry-run --preview-routes", "agent-team job advance squ-801"} {
+		if !strings.Contains(explainTextOut.String(), want) {
+			t.Fatalf("team explain text missing %q:\n%s", want, explainTextOut.String())
+		}
+	}
+	if strings.Contains(explainTextOut.String(), "oth-801") {
+		t.Fatalf("team explain text included outside job:\n%s", explainTextOut.String())
+	}
+
+	explainFormat := NewRootCmd()
+	explainFormatOut, explainFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainFormat.SetOut(explainFormatOut)
+	explainFormat.SetErr(explainFormatErr)
+	explainFormat.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--format", "{{.Pipeline}} {{.TotalJobs}} {{.ExplainedJobs}}"})
+	if err := explainFormat.Execute(); err != nil {
+		t.Fatalf("team explain format: %v\nstderr=%s", err, explainFormatErr.String())
+	}
+	if got := strings.TrimSpace(explainFormatOut.String()); got != "ticket_to_pr 1 1" {
+		t.Fatalf("team explain format = %q", got)
+	}
+
 	schedules := NewRootCmd()
 	schedulesOut, schedulesErr := &bytes.Buffer{}, &bytes.Buffer{}
 	schedules.SetOut(schedulesOut)

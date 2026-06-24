@@ -4040,6 +4040,7 @@ Subcommands:
 - `agent-team team down` - Stop a team&#39;s persistent instances and active ephemeral children.
 - `agent-team team drain` - Run one team&#39;s maintenance loop until idle.
 - `agent-team team events` - Show lifecycle events scoped to one team.
+- `agent-team team explain` - Explain pipeline jobs owned by one team.
 - `agent-team team graph` - Render a declared team graph.
 - `agent-team team health` - Check health for one declared team.
 - `agent-team team jobs` - List jobs owned by one team.
@@ -4239,6 +4240,25 @@ Flags:
       --status strings    Only show events with this lifecycle status. Can repeat or comma-separate.
       --summary           Summarize matching team events by action, status, agent, and instance.
       --tail int          Show only the last N matching team events before returning or following (0 = all).
+```
+
+## `agent-team team explain`
+
+Explain pipeline jobs owned by one team.
+
+Explain team-owned pipeline state from durable jobs, expanding each matching job with step readiness, dependency blockers, gates, active instances, and suggested next actions.
+
+```text
+agent-team team explain <team> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
+      --json            Emit team pipeline explanations as JSON.
+      --limit int       Limit job explanations per team-owned pipeline; 0 means no limit.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team graph`

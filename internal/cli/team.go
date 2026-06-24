@@ -59,6 +59,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamDrainCmd())
 	cmd.AddCommand(newTeamRepairCmd())
 	cmd.AddCommand(newTeamPipelinesCmd())
+	cmd.AddCommand(newTeamExplainCmd())
 	cmd.AddCommand(newTeamSchedulesCmd())
 	cmd.AddCommand(newTeamHealthCmd())
 	cmd.AddCommand(newTeamMonitorCmd())
@@ -2868,6 +2869,53 @@ func newTeamPipelinesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team pipeline status as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline with a Go template, e.g. '{{.Pipeline}} {{.ReadySteps}}'.")
+	return cmd
+}
+
+func newTeamExplainCmd() *cobra.Command {
+	var (
+		repo    string
+		limit   int
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "explain <team>",
+		Short: "Explain pipeline jobs owned by one team.",
+		Long: "Explain team-owned pipeline state from durable jobs, expanding each matching job with step readiness, " +
+			"dependency blockers, gates, active instances, and suggested next actions.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineExplainFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team explain: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			rows, err := collectTeamPipelineExplain(teamDir, args[0], limit)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team explain: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineExplainRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit job explanations per team-owned pipeline; 0 means no limit.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team pipeline explanations as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
 }
 
@@ -5747,6 +5795,18 @@ func collectTeamPipelineStatus(teamDir, name string) ([]pipelineStatusRow, error
 	return teamPipelineStatus(team, rows), nil
 }
 
+func collectTeamPipelineExplain(teamDir, name string, limit int) ([]pipelineExplainRow, error) {
+	_, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := collectPipelineExplainRows(teamDir, "", limit)
+	if err != nil {
+		return nil, err
+	}
+	return teamPipelineExplain(team, rows), nil
+}
+
 func collectTeamSchedules(teamDir, name string) ([]scheduleInfo, error) {
 	_, team, err := loadTopologyTeam(teamDir, name)
 	if err != nil {
@@ -6936,6 +6996,23 @@ func teamPipelineStatus(team *topology.Team, rows []pipelineStatusRow) []pipelin
 		if pipelines[row.Pipeline] {
 			scoped := row
 			scoped.Actions = teamPipelineActions(team.Name, row)
+			out = append(out, scoped)
+		}
+	}
+	return out
+}
+
+func teamPipelineExplain(team *topology.Team, rows []pipelineExplainRow) []pipelineExplainRow {
+	if team == nil || len(team.Pipelines) == 0 {
+		return nil
+	}
+	pipelines := stringSliceSet(team.Pipelines)
+	out := make([]pipelineExplainRow, 0, len(rows))
+	for _, row := range rows {
+		if pipelines[row.Pipeline] {
+			scoped := row
+			scoped.Actions = teamPipelineActions(team.Name, row.Status)
+			scoped.Status.Actions = append([]string(nil), scoped.Actions...)
 			out = append(out, scoped)
 		}
 	}
