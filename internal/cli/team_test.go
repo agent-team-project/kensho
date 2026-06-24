@@ -486,6 +486,78 @@ since = "2026-06-18T12:00:00Z"
 	}
 }
 
+func TestTeamAdvanceAllReadySteps(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.parallel_checks]
+trigger.event = "ticket.created"
+
+[[pipelines.parallel_checks.steps]]
+id = "lint"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "test"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "review"
+target = "manager"
+after = ["lint", "test"]
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["parallel_checks"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"team", "run", "delivery", "SQU-812", "--repo", root, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("team run: %v\nstderr=%s", err, createErr.String())
+	}
+
+	all := NewRootCmd()
+	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
+	all.SetOut(allOut)
+	all.SetErr(allErr)
+	all.SetArgs([]string{"team", "advance", "delivery", "--repo", root, "--dry-run", "--all-ready-steps", "--json"})
+	if err := all.Execute(); err != nil {
+		t.Fatalf("team advance all-ready: %v\nstderr=%s", err, allErr.String())
+	}
+	var allRows []pipelineAdvanceResult
+	if err := json.Unmarshal(allOut.Bytes(), &allRows); err != nil {
+		t.Fatalf("decode team advance all-ready: %v\nbody=%s", err, allOut.String())
+	}
+	if len(allRows) != 2 || allRows[0].JobID != "squ-812" || allRows[0].StepID != "lint" || allRows[0].StepStatus != job.StatusQueued || allRows[1].StepID != "test" {
+		t.Fatalf("team all-ready rows = %+v, want queued lint then ready test", allRows)
+	}
+
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"team", "advance", "delivery", "--repo", root, "--dry-run", "--all-ready-steps", "--limit", "1", "--json"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("team advance all-ready limited: %v\nstderr=%s", err, limitedErr.String())
+	}
+	var limitedRows []pipelineAdvanceResult
+	if err := json.Unmarshal(limitedOut.Bytes(), &limitedRows); err != nil {
+		t.Fatalf("decode limited team advance: %v\nbody=%s", err, limitedOut.String())
+	}
+	if len(limitedRows) != 1 || limitedRows[0].StepID != "lint" {
+		t.Fatalf("limited team rows = %+v, want queued first step", limitedRows)
+	}
+}
+
 func TestTeamJobsFiltersByRuntime(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

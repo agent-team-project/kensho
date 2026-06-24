@@ -128,6 +128,7 @@ agent-team team jobs delivery
 agent-team team triage delivery
 agent-team team ready delivery
 agent-team team advance delivery --dry-run --preview-routes
+agent-team team advance delivery --all-ready-steps --dry-run --preview-routes
 agent-team team approve delivery --dispatch --dry-run --preview-routes
 agent-team team retry delivery --dispatch --dry-run --preview-routes
 agent-team team retry delivery --step review --dry-run
@@ -137,6 +138,8 @@ agent-team team repair delivery --retry-pipelines --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team team snapshot delivery --output delivery.json
 ```
+
+`team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
 
 ## Why Teams Matter
 

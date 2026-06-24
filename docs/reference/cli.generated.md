@@ -3987,10 +3987,11 @@ agent-team team advance <team> [flags]
 Flags:
 
 ```text
+      --all-ready-steps      Advance every currently ready independent step for each selected team job.
       --dry-run              Preview ready steps without dispatching them.
       --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
       --json                 Emit advance results as JSON.
-      --limit int            Advance at most this many ready team jobs; 0 means no limit.
+      --limit int            Advance at most this many ready team jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes       With --dry-run, include local topology route and dispatch payload previews.
       --repo string          Repo root. (default "<repo>")
       --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.

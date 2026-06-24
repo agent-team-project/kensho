@@ -924,6 +924,7 @@ func newTeamAdvanceCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		limit         int
+		allReadySteps bool
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -962,7 +963,7 @@ func newTeamAdvanceCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team advance: %v\n", err)
 				return exitErr(1)
 			}
-			results, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, limit, dryRun, previewRoutes)
+			results, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, limit, dryRun, previewRoutes, allReadySteps)
 			if err != nil {
 				if errors.Is(err, errDaemonNotRunning) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team advance: daemon is not running — start it with `agent-team start`, or use --dry-run.")
@@ -978,7 +979,8 @@ func newTeamAdvanceCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready team jobs; 0 means no limit.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready team jobs, or ready steps with --all-ready-steps; 0 means no limit.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent step for each selected team job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready steps without dispatching them.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit advance results as JSON.")
@@ -5628,7 +5630,7 @@ func runTeamTick(cmd *cobra.Command, teamDir, name, workspace string, limit int,
 		}
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes)
+		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, false)
 		if err != nil {
 			return nil, err
 		}
@@ -5907,7 +5909,7 @@ func queueItemIDsFromPointers(items []*daemon.QueueItem) []string {
 	return ids
 }
 
-func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Team, workspace string, selection runtimeSelection, limit int, dryRun bool, previewRoutes bool) ([]pipelineAdvanceResult, error) {
+func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Team, workspace string, selection runtimeSelection, limit int, dryRun bool, previewRoutes bool, allReadySteps bool) ([]pipelineAdvanceResult, error) {
 	if team == nil || len(team.Pipelines) == 0 {
 		return []pipelineAdvanceResult{}, nil
 	}
@@ -5921,7 +5923,7 @@ func advanceTeamReadyPipelineJobs(cmd *cobra.Command, teamDir string, team *topo
 		if limit > 0 {
 			batchLimit = remaining
 		}
-		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, selection, batchLimit, dryRun, previewRoutes, false)
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, selection, batchLimit, dryRun, previewRoutes, allReadySteps)
 		if err != nil {
 			return nil, err
 		}
