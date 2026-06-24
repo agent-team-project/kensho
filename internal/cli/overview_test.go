@@ -60,6 +60,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 		"agent-team job queue quarantine squ-700",
 		"agent-team job triage",
 		"agent-team schedule fire --dry-run --preview-triggers",
+		"agent-team drain",
 	} {
 		if !stringSliceContains(overview.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
@@ -70,6 +71,9 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	}
 	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team job queue retry squ-700 --all --dry-run"); !ok || detail.Source != "queue" || detail.Reason != "queue_dead_letter" {
 		t.Fatalf("queue retry detail = %+v, ok=%v", detail, ok)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team drain"); !ok || detail.Source != "overview" || !strings.HasPrefix(detail.Reason, "drainable_work=") {
+		t.Fatalf("drain detail = %+v, ok=%v", detail, ok)
 	}
 	if stringSliceContains(overview.Actions, "agent-team queue quarantine ls") {
 		t.Fatalf("actions should use job-scoped queue quarantine: %+v", overview.Actions)
@@ -658,6 +662,7 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 		"agent-team team triage delivery",
 		"agent-team team advance delivery --dry-run --preview-routes",
 		"agent-team team tick delivery --dry-run --skip-drain --skip-advance",
+		"agent-team team drain delivery",
 	} {
 		if !stringSliceContains(overview.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, overview.Actions)
@@ -809,6 +814,13 @@ func TestOverviewStateReportsActiveForReadyWork(t *testing.T) {
 	}
 	if !stringSliceContains(overview.Actions, "agent-team queue drain --dry-run") {
 		t.Fatalf("actions = %+v", overview.Actions)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team drain") {
+		t.Fatalf("actions missing drain: %+v", overview.Actions)
+	}
+	details := overviewActionHints(overview, nil)
+	if detail, ok := findOperatorActionHint(details, "agent-team drain"); !ok || detail.Source != "overview" || detail.Reason != "drainable_work=1" {
+		t.Fatalf("drain detail = %+v, ok=%v", detail, ok)
 	}
 }
 

@@ -69,6 +69,9 @@ Use `--source` to narrow recommendations to one subsystem such as `queue`,
 `jobs`, `runtime`, or `pipelines`. Use `--reason` when an automation only wants a
 specific trigger; values match exactly, or as prefixes before `=`, so
 `--reason dead` matches a detail reason like `dead=2`.
+When outstanding queue, schedule, status, or ready pipeline work can be drained,
+overview adds `agent-team drain` (or `agent-team team drain <team>`). Filter that
+shortcut with `agent-team next --source overview --reason drainable_work`.
 
 Use it in scripts or when a human wants a short checklist.
 

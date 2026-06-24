@@ -204,6 +204,22 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 		t.Fatalf("prefix-filtered result = %+v", prefixResult)
 	}
 
+	overviewSource := NewRootCmd()
+	overviewSourceOut, overviewSourceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	overviewSource.SetOut(overviewSourceOut)
+	overviewSource.SetErr(overviewSourceErr)
+	overviewSource.SetArgs([]string{"next", "--target", root, "--source", "overview", "--reason", "drainable_work", "--json"})
+	if err := overviewSource.Execute(); err != nil {
+		t.Fatalf("next overview source json: %v\nstderr=%s", err, overviewSourceErr.String())
+	}
+	var overviewSourceResult nextActionResult
+	if err := json.Unmarshal(overviewSourceOut.Bytes(), &overviewSourceResult); err != nil {
+		t.Fatalf("decode overview source next json: %v\nbody=%s", err, overviewSourceOut.String())
+	}
+	if len(overviewSourceResult.Actions) != 1 || overviewSourceResult.Actions[0] != "agent-team drain" {
+		t.Fatalf("overview-source result = %+v", overviewSourceResult)
+	}
+
 	staleRoot := writeOverviewStaleRunningFixture(t)
 	stale := NewRootCmd()
 	staleOut, staleErr := &bytes.Buffer{}, &bytes.Buffer{}

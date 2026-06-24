@@ -710,6 +710,13 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 			add("agent-team schedule fire --dry-run --preview-triggers", "schedules", fmt.Sprintf("due=%d", out.Schedules.Due))
 		}
 	}
+	if overviewHasDrainableWork(out) {
+		if teamName != "" {
+			add(fmt.Sprintf("agent-team team drain %s", teamName), "overview", overviewDrainableWorkReason(out))
+		} else {
+			add("agent-team drain", "overview", overviewDrainableWorkReason(out))
+		}
+	}
 	if teamName == "" && out.Intake.Errors > 0 {
 		add("agent-team intake summary", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
 		add("agent-team intake deliveries --status error", "intake", fmt.Sprintf("errors=%d", out.Intake.Errors))
@@ -734,6 +741,35 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 		}
 	}
 	return actions
+}
+
+func overviewHasDrainableWork(out *overviewResult) bool {
+	if out == nil {
+		return false
+	}
+	return out.Queue.Pending > out.Queue.Delayed ||
+		out.Jobs.StatusChanges > 0 ||
+		out.Jobs.ReadySteps > 0 ||
+		out.Pipelines.ReadySteps > 0 ||
+		out.Schedules.Due > 0
+}
+
+func overviewDrainableWorkReason(out *overviewResult) string {
+	if out == nil {
+		return "drainable_work"
+	}
+	total := 0
+	if out.Queue.Pending > out.Queue.Delayed {
+		total += out.Queue.Pending - out.Queue.Delayed
+	}
+	total += out.Jobs.StatusChanges
+	total += out.Jobs.ReadySteps
+	total += out.Pipelines.ReadySteps
+	total += out.Schedules.Due
+	if total <= 0 {
+		return "drainable_work"
+	}
+	return fmt.Sprintf("drainable_work=%d", total)
 }
 
 func overviewActionCommands(hints []operatorActionHint) []string {
