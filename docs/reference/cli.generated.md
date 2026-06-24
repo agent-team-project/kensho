@@ -4923,11 +4923,12 @@ agent-team team tick <team> [flags]
 Flags:
 
 ```text
+      --all-ready-steps     Advance every currently ready independent team pipeline step in this tick.
       --dry-run             Preview team-owned maintenance work without mutating state.
       --format string       Render the team tick result with a Go template, e.g. '{{.Team.Name}} {{.Tick.Queue.WouldDispatch}}'.
       --interval duration   Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
       --json                Emit machine-readable JSON.
-      --limit int           Advance at most this many ready pipeline jobs; 0 means no limit.
+      --limit int           Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int      With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes      With --dry-run, include route and dispatch payload previews for ready pipeline steps.
       --repo string         Repo root. (default "<repo>")
@@ -5186,11 +5187,12 @@ agent-team tick [flags]
 Flags:
 
 ```text
+      --all-ready-steps     Advance every currently ready independent pipeline step in this tick.
       --dry-run             Preview job status reconciliation, schedule firing, queue drain, and pipeline advancement without mutating state.
       --format string       Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.
       --interval duration   Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
       --json                Emit machine-readable JSON.
-      --limit int           Advance at most this many ready pipeline jobs; 0 means no limit.
+      --limit int           Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int      With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes      With --dry-run, include route and dispatch payload previews for ready pipeline steps.
       --skip-advance        Skip pipeline advancement.

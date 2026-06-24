@@ -23,6 +23,7 @@ func newTickCmd() *cobra.Command {
 		skipSchedules bool
 		skipDrain     bool
 		skipAdvance   bool
+		allReadySteps bool
 		dryRun        bool
 		previewRoutes bool
 		watch         bool
@@ -86,6 +87,7 @@ func newTickCmd() *cobra.Command {
 				SkipSchedules: skipSchedules,
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
+				AllReadySteps: allReadySteps,
 				DryRun:        dryRun,
 				PreviewRoutes: previewRoutes,
 			}
@@ -127,11 +129,12 @@ func newTickCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs; 0 means no limit.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in this tick.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job status reconciliation, schedule firing, queue drain, and pipeline advancement without mutating state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
@@ -148,6 +151,7 @@ type tickOptions struct {
 	SkipSchedules bool
 	SkipDrain     bool
 	SkipAdvance   bool
+	AllReadySteps bool
 	DryRun        bool
 	PreviewRoutes bool
 }
@@ -209,7 +213,7 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 		result.Queue = drain
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, "", workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, false)
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, "", workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
 		if err != nil {
 			return nil, err
 		}

@@ -5032,6 +5032,78 @@ schedules = ["platform_due"]
 	}
 }
 
+func TestTeamTickAllReadyStepsDryRun(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.parallel_checks]
+trigger.event = "ticket.created"
+
+[[pipelines.parallel_checks.steps]]
+id = "lint"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "test"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "review"
+target = "manager"
+after = ["lint", "test"]
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["parallel_checks"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"team", "run", "delivery", "SQU-813", "--repo", root, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("team run: %v\nstderr=%s", err, createErr.String())
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "tick", "delivery", "--repo", root, "--dry-run", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team tick all-ready: %v\nstderr=%s", err, stderr.String())
+	}
+	var result teamTickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team tick all-ready: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Tick.Advance) != 2 || result.Tick.Advance[0].JobID != "squ-813" || result.Tick.Advance[0].StepID != "lint" || result.Tick.Advance[0].StepStatus != job.StatusQueued || result.Tick.Advance[1].StepID != "test" {
+		t.Fatalf("team tick all-ready advance = %+v, want queued lint then ready test", result.Tick.Advance)
+	}
+
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"team", "tick", "delivery", "--repo", root, "--dry-run", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--limit", "1", "--json"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("team tick all-ready limited: %v\nstderr=%s", err, limitedErr.String())
+	}
+	var limitedResult teamTickResult
+	if err := json.Unmarshal(limitedOut.Bytes(), &limitedResult); err != nil {
+		t.Fatalf("decode limited team tick all-ready: %v\nbody=%s", err, limitedOut.String())
+	}
+	if len(limitedResult.Tick.Advance) != 1 || limitedResult.Tick.Advance[0].StepID != "lint" {
+		t.Fatalf("limited team tick advance = %+v, want queued first step", limitedResult.Tick.Advance)
+	}
+}
+
 func TestTeamTickRunsScopedMaintenance(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "agent-team-team-tick-")
 	if err != nil {

@@ -199,6 +199,72 @@ branch = "worker-squ-94"
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickAllReadyStepsDryRun(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.parallel_checks]
+trigger.event = "ticket.created"
+
+[[pipelines.parallel_checks.steps]]
+id = "lint"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "test"
+target = "worker"
+
+[[pipelines.parallel_checks.steps]]
+id = "review"
+target = "manager"
+after = ["lint", "test"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{"pipeline", "run", "parallel_checks", "SQU-320", "--repo", target, "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("pipeline run: %v\nstderr=%s", err, createErr.String())
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick all-ready dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick all-ready: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Advance) != 2 || result.Advance[0].StepID != "lint" || result.Advance[0].StepStatus != job.StatusQueued || result.Advance[1].StepID != "test" {
+		t.Fatalf("tick all-ready advance = %+v, want queued lint then ready test", result.Advance)
+	}
+
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--limit", "1", "--json"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("tick all-ready limited: %v\nstderr=%s", err, limitedErr.String())
+	}
+	var limitedResult tickResult
+	if err := json.Unmarshal(limitedOut.Bytes(), &limitedResult); err != nil {
+		t.Fatalf("decode limited tick all-ready: %v\nbody=%s", err, limitedOut.String())
+	}
+	if len(limitedResult.Advance) != 1 || limitedResult.Advance[0].StepID != "lint" {
+		t.Fatalf("limited tick advance = %+v, want queued first step", limitedResult.Advance)
+	}
+}
+
 func TestTickReconcilesJobEvents(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

@@ -133,6 +133,7 @@ agent-team team approve delivery --dispatch --dry-run --preview-routes
 agent-team team retry delivery --dispatch --dry-run --preview-routes
 agent-team team retry delivery --step review --dry-run
 agent-team team tick delivery --dry-run
+agent-team team tick delivery --all-ready-steps --dry-run
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --retry-pipelines --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-step review --dry-run --preview-routes
@@ -140,6 +141,7 @@ agent-team team snapshot delivery --output delivery.json
 ```
 
 `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
+`tick --all-ready-steps` and `team tick <team> --all-ready-steps` apply that fan-out during maintenance cycles, including watch and until-idle loops.
 
 ## Why Teams Matter
 

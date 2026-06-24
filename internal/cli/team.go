@@ -2864,6 +2864,7 @@ func newTeamTickCmd() *cobra.Command {
 		skipSchedules bool
 		skipDrain     bool
 		skipAdvance   bool
+		allReadySteps bool
 		dryRun        bool
 		previewRoutes bool
 		watch         bool
@@ -2925,6 +2926,7 @@ func newTeamTickCmd() *cobra.Command {
 				SkipSchedules: skipSchedules,
 				SkipDrain:     skipDrain,
 				SkipAdvance:   skipAdvance,
+				AllReadySteps: allReadySteps,
 				DryRun:        dryRun,
 				PreviewRoutes: previewRoutes,
 			}
@@ -2969,10 +2971,11 @@ func newTeamTickCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
-	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs; 0 means no limit.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip due schedule work.")
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue drain work.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement work.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent team pipeline step in this tick.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team-owned maintenance work without mutating state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run the team tick repeatedly until interrupted.")
@@ -5630,7 +5633,7 @@ func runTeamTick(cmd *cobra.Command, teamDir, name, workspace string, limit int,
 		}
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, false)
+		advanced, err := advanceTeamReadyPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{}, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
 		if err != nil {
 			return nil, err
 		}
