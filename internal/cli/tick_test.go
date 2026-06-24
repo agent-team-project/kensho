@@ -447,6 +447,60 @@ func TestTickUntilIdleRunsUntilScheduleClears(t *testing.T) {
 	}
 }
 
+func TestDrainRunsUntilIdle(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:         "q-drain",
+		State:      daemon.QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-drain",
+		Payload:    map[string]any{"target": "worker", "name": "worker-drain", "ticket": "SQU-DRAIN"},
+		QueuedAt:   now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("write queue item: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"drain",
+		"--target", target,
+		"--skip-reconcile",
+		"--skip-schedules",
+		"--skip-advance",
+		"--interval", "0s",
+		"--max-cycles", "3",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("drain: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickUntilIdleResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode drain json: %v\nbody=%s", err, out.String())
+	}
+	if !result.Idle || result.HitLimit || result.CyclesRun != 2 || len(result.Cycles) != 2 {
+		t.Fatalf("drain result = %+v", result)
+	}
+	if result.Cycles[0].Queue == nil || result.Cycles[0].Queue.Dispatched != 1 {
+		t.Fatalf("first drain cycle queue = %+v", result.Cycles[0].Queue)
+	}
+	if result.Cycles[1].Queue == nil || result.Cycles[1].Queue.Dispatched != 0 || result.Cycles[1].Queue.Pending != 0 {
+		t.Fatalf("second drain cycle queue = %+v", result.Cycles[1].Queue)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-drain"); !os.IsNotExist(err) {
+		t.Fatalf("drain queue item still exists or unexpected err=%v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-drain")
+}
+
 func TestTickUntilIdleRejectsDryRun(t *testing.T) {
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -470,6 +524,33 @@ func TestTickUntilIdleRejectsDryRun(t *testing.T) {
 	}
 	if !strings.Contains(previewRoutesErr.String(), "--preview-routes requires --dry-run") {
 		t.Fatalf("stderr = %q", previewRoutesErr.String())
+	}
+}
+
+func TestDrainRejectsInvalidFlags(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "negative interval", args: []string{"drain", "--interval", "-1s"}, want: "--interval must be >= 0"},
+		{name: "zero max cycles", args: []string{"drain", "--max-cycles", "0"}, want: "--max-cycles must be > 0"},
+		{name: "format with json", args: []string{"drain", "--format", "{{.CyclesRun}}", "--json"}, want: "--format cannot be combined with --json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("drain invalid flags succeeded: stdout=%s", out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
 	}
 }
 

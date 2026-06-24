@@ -82,6 +82,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team plan` | Preview desired instance state |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
 | `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps |
+| `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps |
 | `agent-team reload` | Top-level daemon topology reload |
 
 ## Jobs

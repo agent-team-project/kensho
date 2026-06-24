@@ -34,6 +34,7 @@ Subcommands:
 - `agent-team dispatch` - Dispatch an agent through daemon topology.
 - `agent-team docs` - Generate developer documentation from the command tree.
 - `agent-team doctor` - Sanity-check the vendored team.
+- `agent-team drain` - Run maintenance cycles until idle.
 - `agent-team event` - Publish manual topology events to the daemon (for testing trigger matching).
 - `agent-team events` - Show daemon lifecycle events.
 - `agent-team health` - Check daemon and instance fleet health.
@@ -726,6 +727,41 @@ Flags:
       --strict-runtime       Fail when the selected LLM runtime binary is not discoverable.
       --strict-template      Fail when .template.lock no longer matches its resolved template ref.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team drain`
+
+Run maintenance cycles until idle.
+
+Run orchestration maintenance cycles until no immediate job-status, schedule, queue, or pipeline work remains. This is the script-friendly shortcut for `agent-team tick --until-idle`.
+
+```text
+agent-team drain [flags]
+```
+
+Flags:
+
+```text
+      --all-ready-steps      Advance every currently ready independent pipeline step in each drain cycle.
+      --format string        Render the drain result with a Go template, e.g. '{{.CyclesRun}} {{.Idle}}'.
+      --interval duration    Delay between drain cycles. (default 2s)
+      --json                 Emit machine-readable JSON.
+      --limit int            Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int       Stop after this many cycles if work keeps appearing. (default 20)
+      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance         Skip pipeline advancement.
+      --skip-drain           Skip queue draining.
+      --skip-reconcile       Skip daemon metadata and job status reconciliation.
+      --skip-schedules       Skip firing due schedules.
+      --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --workspace string     Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:

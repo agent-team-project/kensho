@@ -151,6 +151,93 @@ func newTickCmd() *cobra.Command {
 	return cmd
 }
 
+func newDrainCmd() *cobra.Command {
+	var (
+		target        string
+		workspace     string
+		runtimeKind   string
+		runtimeBin    string
+		limit         int
+		skipReconcile bool
+		skipSchedules bool
+		skipDrain     bool
+		skipAdvance   bool
+		allReadySteps bool
+		jsonOut       bool
+		format        string
+		interval      time.Duration
+		maxCycles     int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drain",
+		Short: "Run maintenance cycles until idle.",
+		Long: "Run orchestration maintenance cycles until no immediate job-status, schedule, queue, or pipeline work remains. " +
+			"This is the script-friendly shortcut for `agent-team tick --until-idle`.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if maxCycles <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: --max-cycles must be > 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTickFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team drain: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			result, err := runTickUntilIdle(ctx, cmd, teamDir, workspace, limit, tickOptions{
+				SkipReconcile: skipReconcile,
+				SkipSchedules: skipSchedules,
+				SkipDrain:     skipDrain,
+				SkipAdvance:   skipAdvance,
+				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+			}, maxCycles, interval)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team drain: %v\n", err)
+				if errors.Is(err, errDaemonNotRunning) {
+					return exitErr(2)
+				}
+				return exitErr(1)
+			}
+			return renderTickUntilIdleResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
+	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
+	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
+	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in each drain cycle.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.CyclesRun}} {{.Idle}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Delay between drain cycles.")
+	cmd.Flags().IntVar(&maxCycles, "max-cycles", 20, "Stop after this many cycles if work keeps appearing.")
+	return cmd
+}
+
 type tickOptions struct {
 	SkipReconcile bool
 	SkipSchedules bool

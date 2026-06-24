@@ -53,6 +53,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newPlanCmd())
 	root.AddCommand(newSyncCmd())
 	root.AddCommand(newTickCmd())
+	root.AddCommand(newDrainCmd())
 	root.AddCommand(newRepairCmd())
 	root.AddCommand(newOverviewCmd())
 	root.AddCommand(newNextCmd())

@@ -173,6 +173,7 @@ agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-force --retry-message "override after fixing dependency"
 agent-team repair --until-idle
+agent-team drain --all-ready-steps --runtime codex
 agent-team team repair delivery --dry-run --jobs
 ```
 
@@ -186,6 +187,8 @@ Repair can:
 6. include before/after health snapshots
 
 `--dry-run` should be the first step.
+Use `drain` when a script should keep running global maintenance cycles until
+the daemon has no immediate schedule, queue, or pipeline work left.
 Use `--timeout-jobs` after status/event reconciliation when stale running work
 should become failed before a retry pass. It covers stale pipeline steps and
 stale step-less running jobs; use `--timeout-pipelines` when you only want the
