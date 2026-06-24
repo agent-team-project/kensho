@@ -1483,6 +1483,7 @@ func newJobNoteCmd() *cobra.Command {
 func newJobBlockCmd() *cobra.Command {
 	var (
 		repo        string
+		actor       string
 		message     string
 		messageFile string
 		dryRun      bool
@@ -1522,13 +1523,18 @@ func newJobBlockCmd() *cobra.Command {
 			if dryRun {
 				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "blocked", "cli", reason, map[string]string{"status": string(job.StatusBlocked)}); err != nil {
+			blockActor := strings.TrimSpace(actor)
+			if blockActor == "" {
+				blockActor = "cli"
+			}
+			if err := writeJobWithAudit(teamDir, j, "blocked", blockActor, reason, map[string]string{"status": string(job.StatusBlocked)}); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the blocked audit event.")
 	cmd.Flags().StringVar(&message, "message", "", "Blocked reason recorded on the job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read blocked reason from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the blocked job without changing job state or writing an audit event.")

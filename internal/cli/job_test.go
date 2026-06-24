@@ -4835,7 +4835,7 @@ func TestJobBlockMarksBlockedAndRecordsEvent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "block", "SQU-75", "waiting on vendor API", "--repo", tmp, "--json"})
+	cmd.SetArgs([]string{"job", "block", "SQU-75", "waiting on vendor API", "--repo", tmp, "--actor", "linear", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job block: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -4850,7 +4850,7 @@ func TestJobBlockMarksBlockedAndRecordsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "blocked" || events[0].Message != "waiting on vendor API" || events[0].Data["status"] != "blocked" {
+	if len(events) != 1 || events[0].Type != "blocked" || events[0].Actor != "linear" || events[0].Message != "waiting on vendor API" || events[0].Data["status"] != "blocked" {
 		t.Fatalf("events = %+v", events)
 	}
 }

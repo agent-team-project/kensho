@@ -1595,6 +1595,7 @@ agent-team job block <job-id> [reason...] [flags]
 Flags:
 
 ```text
+      --actor string          Actor label recorded in the blocked audit event. (default "cli")
       --dry-run               Preview the blocked job without changing job state or writing an audit event.
       --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json                  Emit the updated job or dry-run preview as JSON.
