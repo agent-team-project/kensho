@@ -274,6 +274,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		Intake: []snapshotDiffIntake{
 			{ID: "delivery-1", Provider: "linear", Status: "error", HTTPStatus: 500, ReplayStatus: "error", EventType: "ticket.created", Ticket: "SQU-801", JobID: "squ-801"},
 		},
+		IntakeDuplicates: []snapshotDiffIntakeDuplicate{
+			{Provider: "github", RequestID: "github-delivery-1", Count: 2, IDs: []string{"delivery-1", "delivery-old"}},
+		},
 		Events: []snapshotDiffEvent{
 			{ID: "ev-1", Action: "start", Instance: "worker-squ-801", Agent: "worker", Job: "squ-801", Status: "running"},
 		},
@@ -318,6 +321,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		Intake: []snapshotDiffIntake{
 			{ID: "delivery-1", Provider: "linear", Status: "ok", HTTPStatus: 200, ReplayStatus: "ok", EventType: "ticket.created", Ticket: "SQU-801", JobID: "squ-801"},
 			{ID: "delivery-2", Provider: "github", Status: "ok", HTTPStatus: 202, EventType: "pr.merged", PR: "https://github.test/pr/1", JobID: "squ-801"},
+		},
+		IntakeDuplicates: []snapshotDiffIntakeDuplicate{
+			{Provider: "github", RequestID: "github-delivery-1", Count: 3, IDs: []string{"delivery-1", "delivery-2", "delivery-old"}},
 		},
 		Events: []snapshotDiffEvent{
 			{ID: "ev-1", Action: "exit", Instance: "worker-squ-801", Agent: "worker", Job: "squ-801", Status: "exited", ExitCode: &exitCode},
@@ -368,7 +374,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Schedules.Changed != 2 {
 		t.Fatalf("schedule counters = %+v", result.Summary.Schedules)
 	}
-	if result.Summary.Intake.Added != 1 || result.Summary.Intake.Changed != 1 {
+	if result.Summary.Intake.Added != 1 || result.Summary.Intake.Changed != 2 {
 		t.Fatalf("intake counters = %+v", result.Summary.Intake)
 	}
 	if result.Summary.Events.Added != 1 || result.Summary.Events.Changed != 1 {
@@ -387,6 +393,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "instances", "worker-squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "queue_quarantine", "dead/q-dead.json", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "schedules", "declared/delivery_due", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "intake", "duplicate/github/github-delivery-1", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "intake", "delivery-1", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "events", "ev-1", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "pipelines", "ticket_to_pr.ready_steps", "changed") ||
@@ -410,7 +417,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"queue: added=1 removed=0 changed=1",
 		"queue_quarantine: added=1 removed=0 changed=1",
 		"schedules: added=0 removed=0 changed=2",
-		"intake: added=1 removed=0 changed=1",
+		"intake: added=1 removed=0 changed=2",
 		"events: added=1 removed=0 changed=1",
 		"advance: added=1 removed=1 changed=0",
 		"section_errors: added=1 removed=1 changed=0",

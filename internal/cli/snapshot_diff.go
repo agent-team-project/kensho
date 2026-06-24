@@ -55,24 +55,25 @@ func newSnapshotDiffCmd() *cobra.Command {
 }
 
 type snapshotDiffInput struct {
-	Version         string                   `json:"version,omitempty"`
-	CapturedAt      string                   `json:"captured_at,omitempty"`
-	Repo            string                   `json:"repo,omitempty"`
-	Team            *teamInfo                `json:"team,omitempty"`
-	Pipeline        string                   `json:"pipeline,omitempty"`
-	Instances       []snapshotDiffInstance   `json:"instances,omitempty"`
-	Jobs            []snapshotDiffJob        `json:"jobs,omitempty"`
-	Queue           []snapshotDiffQueueItem  `json:"queue,omitempty"`
-	QueueQuarantine []snapshotDiffQuarantine `json:"queue_quarantine,omitempty"`
-	Schedules       []snapshotDiffSchedule   `json:"schedules,omitempty"`
-	ScheduleNext    []snapshotDiffSchedule   `json:"schedule_next,omitempty"`
-	Intake          []snapshotDiffIntake     `json:"intake,omitempty"`
-	Events          []snapshotDiffEvent      `json:"events,omitempty"`
-	PipelineStatus  []pipelineStatusRow      `json:"pipeline_status,omitempty"`
-	Status          *pipelineStatusRow       `json:"status,omitempty"`
-	PipelineAdvance []snapshotDiffAdvance    `json:"pipeline_advance_preview,omitempty"`
-	AdvancePreview  []snapshotDiffAdvance    `json:"advance_preview,omitempty"`
-	SectionErrors   map[string]string        `json:"section_errors,omitempty"`
+	Version          string                        `json:"version,omitempty"`
+	CapturedAt       string                        `json:"captured_at,omitempty"`
+	Repo             string                        `json:"repo,omitempty"`
+	Team             *teamInfo                     `json:"team,omitempty"`
+	Pipeline         string                        `json:"pipeline,omitempty"`
+	Instances        []snapshotDiffInstance        `json:"instances,omitempty"`
+	Jobs             []snapshotDiffJob             `json:"jobs,omitempty"`
+	Queue            []snapshotDiffQueueItem       `json:"queue,omitempty"`
+	QueueQuarantine  []snapshotDiffQuarantine      `json:"queue_quarantine,omitempty"`
+	Schedules        []snapshotDiffSchedule        `json:"schedules,omitempty"`
+	ScheduleNext     []snapshotDiffSchedule        `json:"schedule_next,omitempty"`
+	Intake           []snapshotDiffIntake          `json:"intake,omitempty"`
+	IntakeDuplicates []snapshotDiffIntakeDuplicate `json:"intake_duplicates,omitempty"`
+	Events           []snapshotDiffEvent           `json:"events,omitempty"`
+	PipelineStatus   []pipelineStatusRow           `json:"pipeline_status,omitempty"`
+	Status           *pipelineStatusRow            `json:"status,omitempty"`
+	PipelineAdvance  []snapshotDiffAdvance         `json:"pipeline_advance_preview,omitempty"`
+	AdvancePreview   []snapshotDiffAdvance         `json:"advance_preview,omitempty"`
+	SectionErrors    map[string]string             `json:"section_errors,omitempty"`
 }
 
 type snapshotDiffJob struct {
@@ -134,6 +135,13 @@ type snapshotDiffIntake struct {
 	HTTPStatus   int    `json:"http_status,omitempty"`
 	ReplayStatus string `json:"replay_status,omitempty"`
 	DryRun       bool   `json:"dry_run,omitempty"`
+}
+
+type snapshotDiffIntakeDuplicate struct {
+	Provider  string   `json:"provider,omitempty"`
+	RequestID string   `json:"request_id,omitempty"`
+	Count     int      `json:"count,omitempty"`
+	IDs       []string `json:"ids,omitempty"`
 }
 
 type snapshotDiffEvent struct {
@@ -400,6 +408,9 @@ func snapshotDiffComparableFromInput(path string, input snapshotDiffInput) snaps
 		}
 		out.Intake[id] = compactSnapshotDiffValue(delivery.Provider, delivery.Status, intSnapshotDiffValue("http", delivery.HTTPStatus), delivery.ReplayStatus, delivery.EventType, delivery.Ticket, delivery.PR, delivery.JobID, boolSnapshotDiffValue("dry_run", delivery.DryRun))
 	}
+	for _, duplicate := range input.IntakeDuplicates {
+		addSnapshotDiffIntakeDuplicate(out.Intake, duplicate)
+	}
 	for _, ev := range input.Events {
 		id := strings.TrimSpace(ev.ID)
 		if id == "" {
@@ -503,6 +514,20 @@ func addSnapshotDiffAdvance(out map[string]string, advance snapshotDiffAdvance) 
 		id += ":" + step
 	}
 	out[id] = compactSnapshotDiffValue(advance.Action, advance.Pipeline, advance.Target, advance.StepStatus)
+}
+
+func addSnapshotDiffIntakeDuplicate(out map[string]string, duplicate snapshotDiffIntakeDuplicate) {
+	provider := strings.ToLower(strings.TrimSpace(duplicate.Provider))
+	requestID := strings.TrimSpace(duplicate.RequestID)
+	if provider == "" || requestID == "" {
+		return
+	}
+	ids := append([]string(nil), duplicate.IDs...)
+	sort.Strings(ids)
+	out["duplicate/"+provider+"/"+requestID] = compactSnapshotDiffValue(
+		fmt.Sprintf("count=%d", duplicate.Count),
+		strings.Join(ids, ","),
+	)
 }
 
 func boolSnapshotDiffValue(name string, value bool) string {

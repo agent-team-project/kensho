@@ -111,7 +111,7 @@ agent-team snapshot diff before-repair.json after-repair.json --section intake
 agent-team snapshot diff before-repair.json after-repair.json --exit-code
 ```
 
-Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section instances`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference.
+Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section instances`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference. Intake diffs include both delivery rows and duplicate request-id groups.
 
 They include:
 
