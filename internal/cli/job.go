@@ -3527,9 +3527,12 @@ func newJobNextCmd() *cobra.Command {
 
 func newJobExplainCmd() *cobra.Command {
 	var (
-		repo    string
-		jsonOut bool
-		format  string
+		repo     string
+		watch    bool
+		noClear  bool
+		interval time.Duration
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -3543,19 +3546,35 @@ func newJobExplainCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			tmpl, err := parseJobExplainFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job explain: %v\n", err)
 				return exitErr(2)
 			}
-			j, err := readJobFromRepo(cmd, repo, args[0])
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			return renderJobExplainResult(cmd.OutOrStdout(), explainJobPipeline(j), jsonOut, tmpl)
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runJobExplainWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
+			if err := runJobExplain(cmd.OutOrStdout(), teamDir, args[0], jsonOut, tmpl); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job explain: %v\n", err)
+				return exitErr(1)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the job pipeline explanation until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline explanation as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.")
 	return cmd
@@ -8449,6 +8468,40 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 		}
 	}
 	return nil
+}
+
+func runJobExplain(w io.Writer, teamDir, id string, jsonOut bool, tmpl *template.Template) error {
+	j, err := job.Read(teamDir, id)
+	if err != nil {
+		return err
+	}
+	return renderJobExplainResult(w, explainJobPipeline(j), jsonOut, tmpl)
+}
+
+func runJobExplainWatch(ctx context.Context, w io.Writer, teamDir, id string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runJobExplain(w, teamDir, id, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func validateJobCleanupReady(j *job.Job) error {

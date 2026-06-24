@@ -1791,9 +1791,12 @@ agent-team job explain <job-id> [flags]
 Flags:
 
 ```text
-      --format string   Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.
-      --json            Emit the pipeline explanation as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --format string       Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit the pipeline explanation as JSON.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+  -w, --watch               Refresh the job pipeline explanation until interrupted.
 ```
 
 ## `agent-team job hold`
@@ -2938,13 +2941,16 @@ agent-team pipeline explain [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all             Explain all pipelines. This is the default when no pipeline is passed.
-      --format string   Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
-      --json            Emit pipeline explanations as JSON.
-      --limit int       Limit job explanations per pipeline; 0 means no limit.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --state strings   Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
-      --step string     Only include jobs and step details for this pipeline step id.
+      --all                 Explain all pipelines. This is the default when no pipeline is passed.
+      --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit pipeline explanations as JSON.
+      --limit int           Limit job explanations per pipeline; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --state strings       Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --step string         Only include jobs and step details for this pipeline step id.
+  -w, --watch               Refresh pipeline explanations until interrupted.
 ```
 
 ## `agent-team pipeline graph`

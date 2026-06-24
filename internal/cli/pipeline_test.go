@@ -925,6 +925,21 @@ target = "manager"
 		t.Fatalf("pipeline explain format = %q", got)
 	}
 
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	explainWatch := NewRootCmd()
+	explainWatchOut, explainWatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainWatch.SetContext(ctx)
+	explainWatch.SetOut(explainWatchOut)
+	explainWatch.SetErr(explainWatchErr)
+	explainWatch.SetArgs([]string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--state", "failed", "--watch", "--no-clear", "--interval", "1h", "--format", "{{.Pipeline}} {{len .Jobs}}"})
+	if err := explainWatch.Execute(); err != nil {
+		t.Fatalf("pipeline explain watch: %v\nstderr=%s", err, explainWatchErr.String())
+	}
+	if got := strings.TrimSpace(explainWatchOut.String()); got != "ticket_to_pr 1" || strings.Contains(explainWatchOut.String(), watchClearSequence) {
+		t.Fatalf("pipeline explain watch output = %q", explainWatchOut.String())
+	}
+
 	explainLimited := NewRootCmd()
 	explainLimitedOut, explainLimitedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainLimited.SetOut(explainLimitedOut)
@@ -988,6 +1003,18 @@ target = "manager"
 	}
 	if !strings.Contains(explainInvalidStateErr.String(), "--state must be ready") {
 		t.Fatalf("invalid state stderr = %q", explainInvalidStateErr.String())
+	}
+
+	explainInvalidInterval := NewRootCmd()
+	explainInvalidIntervalOut, explainInvalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainInvalidInterval.SetOut(explainInvalidIntervalOut)
+	explainInvalidInterval.SetErr(explainInvalidIntervalErr)
+	explainInvalidInterval.SetArgs([]string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--watch", "--interval", "-1s"})
+	if err := explainInvalidInterval.Execute(); err == nil {
+		t.Fatalf("pipeline explain negative interval succeeded")
+	}
+	if !strings.Contains(explainInvalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("invalid interval stderr = %q", explainInvalidIntervalErr.String())
 	}
 
 	invalid := NewRootCmd()

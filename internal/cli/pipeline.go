@@ -384,13 +384,16 @@ func newPipelineStatusCmd() *cobra.Command {
 
 func newPipelineExplainCmd() *cobra.Command {
 	var (
-		repo    string
-		all     bool
-		limit   int
-		states  []string
-		step    string
-		jsonOut bool
-		format  string
+		repo     string
+		all      bool
+		limit    int
+		states   []string
+		step     string
+		watch    bool
+		noClear  bool
+		interval time.Duration
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -414,6 +417,10 @@ func newPipelineExplainCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline explain: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline explain: --interval must be >= 0.")
 				return exitErr(2)
 			}
 			var stateFilter map[string]bool
@@ -442,12 +449,16 @@ func newPipelineExplainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rows, err := collectPipelineExplainRows(teamDir, pipelineName, limit, stateFilter, step)
-			if err != nil {
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runPipelineExplainWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, limit, stateFilter, step, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
+			if err := runPipelineExplain(cmd.OutOrStdout(), teamDir, pipelineName, limit, stateFilter, step, jsonOut, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline explain: %v\n", err)
 				return exitErr(1)
 			}
-			return renderPipelineExplainRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -455,6 +466,9 @@ func newPipelineExplainCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit job explanations per pipeline; 0 means no limit.")
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Only explain jobs whose next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&step, "step", "", "Only include jobs and step details for this pipeline step id.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh pipeline explanations until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline explanations as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
@@ -3567,6 +3581,40 @@ func renderPipelineExplainRows(w io.Writer, rows []pipelineExplainRow, jsonOut b
 		renderPipelineExplainRow(w, row)
 	}
 	return nil
+}
+
+func runPipelineExplain(w io.Writer, teamDir, pipeline string, limit int, stateFilter map[string]bool, step string, jsonOut bool, tmpl *template.Template) error {
+	rows, err := collectPipelineExplainRows(teamDir, pipeline, limit, stateFilter, step)
+	if err != nil {
+		return err
+	}
+	return renderPipelineExplainRows(w, rows, jsonOut, tmpl)
+}
+
+func runPipelineExplainWatch(ctx context.Context, w io.Writer, teamDir, pipeline string, limit int, stateFilter map[string]bool, step string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runPipelineExplain(w, teamDir, pipeline, limit, stateFilter, step, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {

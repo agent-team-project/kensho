@@ -87,7 +87,7 @@ Shortcuts:
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, status previews, and actions |
 | `agent-team job wait <job-id>` | Wait for lifecycle status or last event with `--event` |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, queue ownership, state files, and optional log tails |
-| `agent-team job explain <job-id>` | Explain every pipeline step's readiness, blockers, gates, and next actions |
+| `agent-team job explain <job-id>` | Explain or watch every pipeline step's readiness, blockers, gates, and next actions |
 | `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection |
 | `agent-team job send <job-id>` | Send message to job instance |
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |
@@ -152,7 +152,7 @@ Shortcuts:
 | `agent-team pipeline doctor --all` | Validate workflows |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts runtime overrides |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs |
-| `agent-team pipeline explain <pipeline>` | Expand pipeline jobs into per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
+| `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print or watch recommended pipeline actions |
 | `agent-team pipeline jobs <pipeline>` | List or summarize pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, and sort rows |

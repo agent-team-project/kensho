@@ -6779,6 +6779,33 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 		t.Fatalf("explain steps = %+v", explained.Steps)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	explainWatch := NewRootCmd()
+	explainWatchOut, explainWatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainWatch.SetContext(ctx)
+	explainWatch.SetOut(explainWatchOut)
+	explainWatch.SetErr(explainWatchErr)
+	explainWatch.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--watch", "--no-clear", "--interval", "1h", "--format", "{{.JobID}} {{.State}} {{len .Steps}}"})
+	if err := explainWatch.Execute(); err != nil {
+		t.Fatalf("job explain watch: %v\nstderr=%s", err, explainWatchErr.String())
+	}
+	if got := strings.TrimSpace(explainWatchOut.String()); got != "squ-204 ready 2" || strings.Contains(explainWatchOut.String(), watchClearSequence) {
+		t.Fatalf("job explain watch output = %q", explainWatchOut.String())
+	}
+
+	explainInterval := NewRootCmd()
+	explainIntervalOut, explainIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainInterval.SetOut(explainIntervalOut)
+	explainInterval.SetErr(explainIntervalErr)
+	explainInterval.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--watch", "--interval", "-1s"})
+	if err := explainInterval.Execute(); err == nil {
+		t.Fatalf("job explain negative interval succeeded")
+	}
+	if !strings.Contains(explainIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("job explain negative interval stderr = %q", explainIntervalErr.String())
+	}
+
 	ready := NewRootCmd()
 	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ready.SetOut(readyOut)
