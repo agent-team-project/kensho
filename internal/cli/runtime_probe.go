@@ -45,8 +45,9 @@ func newRuntimeProbeCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "probe",
-		Short: "Probe runtime, daemon, and Codex environment health.",
+		Use:     "probe",
+		Aliases: []string{"doctor", "check"},
+		Short:   "Probe runtime, daemon, and Codex environment health.",
 		Long: "Probe the selected runtime and repo daemon health. For the Codex runtime, " +
 			"the probe also runs `codex doctor --json` so provider reachability, auth, " +
 			"and sandbox issues are captured before dispatching work. Pass --exec to also " +

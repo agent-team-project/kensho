@@ -37,6 +37,35 @@ func withRuntimeProbeStartDaemon(t *testing.T, fn func(*cobra.Command, string, t
 	t.Cleanup(func() { runtimeProbeStartDaemon = old })
 }
 
+func TestRuntimeProbeDoctorAlias(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "sh" {
+			t.Fatalf("look path bin = %q, want sh", bin)
+		}
+		return "/bin/sh", nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "doctor", "--target", tmp, "--runtime", "codex", "--runtime-bin", "sh", "--skip-doctor", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime doctor alias: %v\nstderr=%s", err, stderr.String())
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode runtime doctor json: %v\nbody=%s", err, out.String())
+	}
+	if result.Runtime.Runtime != "codex" || result.Runtime.Binary != "sh" {
+		t.Fatalf("runtime = %+v, want codex sh", result.Runtime)
+	}
+}
+
 func TestRuntimeProbeCodexDoctorFailureJSON(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")

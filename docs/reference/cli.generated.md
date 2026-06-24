@@ -3979,6 +3979,8 @@ Probe the selected runtime and repo daemon health. For the Codex runtime, the pr
 agent-team runtime probe [flags]
 ```
 
+Aliases: `check`, `doctor`
+
 Flags:
 
 ```text

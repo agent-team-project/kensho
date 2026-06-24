@@ -38,7 +38,7 @@ as the output directory instead.
 | `agent-team runtime unset` | Remove the repo default runtime profile from `.agent_team/config.toml` |
 | `agent-team runtime profile` | Explicit profile view, with `show` as a shorter alias |
 | `agent-team runtime ls` | List supported runtime profiles, availability, and capabilities |
-| `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, and write diagnostics with `--output` |
+| `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, and write diagnostics with `--output`; aliases: `doctor`, `check` |
 | `agent-team runtime resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--action` or summarize with `--summary` |
 
 ## Instance Lifecycle
