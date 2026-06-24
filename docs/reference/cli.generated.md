@@ -1489,6 +1489,7 @@ Subcommands:
 - `agent-team job logs` - Show a job&#39;s owning instance log.
 - `agent-team job ls` - List durable jobs.
 - `agent-team job next` - Show the next pipeline step for a job without dispatching it.
+- `agent-team job note` - Append an operator note to a job&#39;s audit history.
 - `agent-team job prune` - Remove terminal job files and their event logs.
 - `agent-team job queue` - List queue items owned by one job.
 - `agent-team job ready` - List pipeline jobs with ready or selected next-step states.
@@ -1851,6 +1852,27 @@ Flags:
       --format string   Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.
       --json            Emit the next-step state as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job note`
+
+Append an operator note to a job&#39;s audit history.
+
+Append an operator note to a durable job without sending a mailbox message or changing ownership. The note updates last_event and last_status, then records a durable job event.
+
+```text
+agent-team job note <job-id> [message...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run               Preview the note without changing job state or writing an audit event.
+      --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.
+      --json                  Emit the updated job or dry-run preview as JSON.
+      --message string        Note text recorded on the job.
+      --message-file string   Read note text from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job prune`

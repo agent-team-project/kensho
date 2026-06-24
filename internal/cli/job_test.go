@@ -4727,6 +4727,94 @@ func TestJobSendMessageSourceValidation(t *testing.T) {
 	}
 }
 
+func TestJobNoteRecordsAuditEvent(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-73",
+		Ticket:    "SQU-73",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "note", "SQU-73", "blocked on staging credentials", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job note: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var noted job.Job
+	if err := json.Unmarshal(out.Bytes(), &noted); err != nil {
+		t.Fatalf("decode note json: %v\nbody=%s", err, out.String())
+	}
+	if noted.Status != job.StatusRunning || noted.LastEvent != "note" || noted.LastStatus != "blocked on staging credentials" {
+		t.Fatalf("noted job = %+v", noted)
+	}
+	events, err := job.ListEvents(teamDir, "squ-73")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "note" || events[0].Actor != "cli" || events[0].Message != "blocked on staging credentials" || events[0].Status != job.StatusRunning {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobNoteDryRunDoesNotMutateJob(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	original := &job.Job{
+		ID:        "squ-74",
+		Ticket:    "SQU-74",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, original); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "note", "squ-74", "--repo", tmp, "--message", "preview note", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job note dry-run: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var preview jobActionPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode note preview: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.LastEvent != "note" || preview.Job.LastStatus != "preview note" {
+		t.Fatalf("preview = %+v", preview)
+	}
+	updated, err := job.Read(teamDir, "squ-74")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.LastEvent != "" || updated.LastStatus != "" || !updated.UpdatedAt.Equal(original.UpdatedAt) {
+		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-74")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("dry-run wrote events = %+v", events)
+	}
+}
+
 func TestJobUnblockSendsMessageAndMarksRunning(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

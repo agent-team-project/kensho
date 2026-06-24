@@ -42,6 +42,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobAdoptCmd())
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
+	cmd.AddCommand(newJobNoteCmd())
 	cmd.AddCommand(newJobUnblockCmd())
 	cmd.AddCommand(newJobLogsCmd())
 	cmd.AddCommand(newJobSnapshotCmd())
@@ -1413,6 +1414,62 @@ func newJobSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or batch rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.")
+	return cmd
+}
+
+func newJobNoteCmd() *cobra.Command {
+	var (
+		repo        string
+		message     string
+		messageFile string
+		dryRun      bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "note <job-id> [message...]",
+		Short: "Append an operator note to a job's audit history.",
+		Long: "Append an operator note to a durable job without sending a mailbox message or changing ownership. " +
+			"The note updates last_event and last_status, then records a durable job event.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job note: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job note: %v\n", err)
+				return exitErr(2)
+			}
+			body, err := sendMessageBody(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job note: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			j.LastEvent = "note"
+			j.LastStatus = body
+			j.UpdatedAt = time.Now().UTC()
+			if dryRun {
+				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
+			}
+			if err := writeJobWithAudit(teamDir, j, "note", "cli", body, nil); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&message, "message", "", "Note text recorded on the job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read note text from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the note without changing job state or writing an audit event.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or dry-run preview as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.")
 	return cmd
 }
 
