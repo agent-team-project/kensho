@@ -992,6 +992,21 @@ func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 				{ID: "review", Target: "worker", Status: job.StatusFailed, Instance: "worker-review", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
 			},
 		},
+		{
+			ID:         "ops-126",
+			Ticket:     "OPS-126",
+			Target:     "worker",
+			Kickoff:    "ops review failed",
+			Pipeline:   "ops_review",
+			Status:     job.StatusFailed,
+			LastEvent:  "step_failed",
+			LastStatus: "ops review failed",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			Steps: []job.Step{
+				{ID: "review", Target: "worker", Status: job.StatusFailed, Instance: "worker-ops-review", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
 	} {
 		if err := job.Write(teamDir, j); err != nil {
 			t.Fatalf("write %s: %v", j.ID, err)
@@ -1007,6 +1022,7 @@ func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 		"--target", target,
 		"--dry-run",
 		"--retry-pipelines",
+		"--retry-pipeline", "ticket_to_pr",
 		"--retry-step", "review",
 		"--skip-daemon",
 		"--skip-queue",
@@ -1031,12 +1047,22 @@ func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 	if strings.Contains(out.String(), "squ-125") {
 		t.Fatalf("repair retry step leaked nonmatching job:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), "ops-126") {
+		t.Fatalf("repair retry pipeline filter leaked other pipeline:\n%s", out.String())
+	}
 	unchanged, err := job.Read(teamDir, "squ-125")
 	if err != nil {
 		t.Fatalf("read unchanged: %v", err)
 	}
 	if unchanged.Status != job.StatusFailed || unchanged.Steps[0].Status != job.StatusFailed || unchanged.Steps[0].Instance != "worker-implement" {
 		t.Fatalf("dry-run changed nonmatching job = %+v", unchanged)
+	}
+	otherPipeline, err := job.Read(teamDir, "ops-126")
+	if err != nil {
+		t.Fatalf("read other pipeline: %v", err)
+	}
+	if otherPipeline.Status != job.StatusFailed || otherPipeline.Steps[0].Status != job.StatusFailed || otherPipeline.Steps[0].Instance != "worker-ops-review" {
+		t.Fatalf("dry-run changed other pipeline job = %+v", otherPipeline)
 	}
 }
 
@@ -1130,6 +1156,11 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "retry step without retry pipelines",
 			args: []string{"repair", "--retry-step", "review"},
 			want: "--retry-step requires --retry-pipelines",
+		},
+		{
+			name: "retry pipeline without retry pipelines",
+			args: []string{"repair", "--retry-pipeline", "ticket_to_pr"},
+			want: "--retry-pipeline requires --retry-pipelines",
 		},
 		{
 			name: "retry force without retry pipelines",

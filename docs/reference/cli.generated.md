@@ -4299,6 +4299,7 @@ Flags:
       --ready-timeout duration        Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --retry-force                   With --retry-pipelines, ignore step max_attempts caps for explicit repair retry.
       --retry-message string          Audit message to record when --retry-pipelines resets failed steps.
+      --retry-pipeline string         With --retry-pipelines, retry only failed jobs owned by this pipeline.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the maintenance tick.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
       --skip-daemon                   Do not start or reconcile the daemon.
