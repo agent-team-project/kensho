@@ -3841,7 +3841,7 @@ Subcommands:
 
 Compare two saved diagnostic snapshots.
 
-Compare two saved global, team, or pipeline diagnostic snapshot JSON files and summarize job, queue, pipeline, ready-advance, and section-error changes.
+Compare two saved global, team, or pipeline diagnostic snapshot JSON files and summarize instance, job, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.
 
 ```text
 agent-team snapshot diff <before.json> <after.json> [flags]
@@ -3852,7 +3852,7 @@ Flags:
 ```text
       --exit-code         Exit with status 1 when snapshots differ.
       --json              Emit snapshot diff as JSON.
-      --section strings   Only compare sections: jobs, pipelines, queue, advance, section_errors, or all. Can repeat or comma-separate.
+      --section strings   Only compare sections: instances, jobs, pipelines, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
 ```
 
 Inherited Flags:

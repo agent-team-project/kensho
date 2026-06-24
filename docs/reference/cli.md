@@ -212,7 +212,7 @@ Shortcuts:
 | `agent-team monitor` | Operator dashboard |
 | `agent-team watch` | Continuous monitor |
 | `agent-team snapshot` | Redacted diagnostic artifact |
-| `agent-team snapshot diff <before.json> <after.json>` | Compare saved diagnostic artifacts, including instances, jobs, queue, and pipeline state |
+| `agent-team snapshot diff <before.json> <after.json>` | Compare saved diagnostic artifacts, including instances, jobs, queue, schedules, intake, events, and pipeline state |
 | `agent-team repair` | Start/reconcile/retry/tick recovery loop |
 
 ## Communication
