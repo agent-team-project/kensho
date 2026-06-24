@@ -92,6 +92,20 @@ Human output includes:
 If a Codex one-shot captured `.agent_team/state/<instance>/last-message.txt`,
 `job show` includes an action hint for `agent-team job logs <job-id> --last-message`.
 
+## Waiting For Jobs
+
+```sh
+agent-team job wait squ-42
+agent-team job wait squ-42 --status running
+agent-team job wait squ-42 --event adopted
+agent-team job wait squ-42 --status done --event closed
+```
+
+Without flags, `job wait` waits for a terminal status: `done` or `failed`.
+Use `--event` to wait for a specific last event such as `adopted`, `closed`,
+or `pipeline_done`. When `--event` is set without `--status`, any lifecycle
+status is accepted.
+
 ## Capturing Job Snapshots
 
 Use `job snapshot` when one job needs a shareable post-mortem artifact:

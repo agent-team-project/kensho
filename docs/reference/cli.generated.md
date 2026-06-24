@@ -1505,7 +1505,7 @@ Subcommands:
 - `agent-team job triage` - Show jobs that need operator attention.
 - `agent-team job unblock` - Answer a blocked job and mark it ready to continue.
 - `agent-team job update` - Update job metadata.
-- `agent-team job wait` - Wait for a job to reach a lifecycle status.
+- `agent-team job wait` - Wait for a job to reach a lifecycle status or event.
 
 ## `agent-team job adopt`
 
@@ -2483,9 +2483,9 @@ Flags:
 
 ## `agent-team job wait`
 
-Wait for a job to reach a lifecycle status.
+Wait for a job to reach a lifecycle status or event.
 
-Wait for a durable job to reach one of the requested lifecycle statuses. By default this waits for a terminal status: done or failed.
+Wait for a durable job to reach one of the requested lifecycle statuses and/or last events. By default this waits for a terminal status: done or failed. When --event is set without --status, any status is accepted.
 
 ```text
 agent-team job wait <job-id> [flags]
@@ -2494,6 +2494,7 @@ agent-team job wait <job-id> [flags]
 Flags:
 
 ```text
+      --event strings       Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.
       --fail-on-failed      Exit 1 if the job resolves to failed.
       --format string       Render the final job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --interval duration   Polling interval. (default 500ms)

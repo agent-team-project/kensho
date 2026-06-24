@@ -4017,6 +4017,57 @@ func TestJobWaitPollsUntilTerminalStatus(t *testing.T) {
 	}
 }
 
+func TestJobWaitPollsUntilLastEvent(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-62",
+		Ticket:    "SQU-62",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(25 * time.Millisecond)
+		updated, err := job.Read(teamDir, "squ-62")
+		if err != nil {
+			t.Errorf("read job in updater: %v", err)
+			return
+		}
+		updated.LastEvent = "adopted"
+		updated.LastStatus = "external process adopted"
+		updated.UpdatedAt = time.Now().UTC()
+		if err := job.Write(teamDir, updated); err != nil {
+			t.Errorf("write adopted job: %v", err)
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "wait", "SQU-62", "--repo", tmp, "--event", "adopted", "--timeout", "2s", "--interval", "10ms", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job wait event: %v\nstderr=%s", err, stderr.String())
+	}
+	<-done
+	var got job.Job
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode wait event json: %v\nbody=%s", err, out.String())
+	}
+	if got.Status != job.StatusRunning || got.LastEvent != "adopted" {
+		t.Fatalf("wait event result = %+v", got)
+	}
+}
+
 func TestJobWaitTimesOut(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -4042,6 +4093,36 @@ func TestJobWaitTimesOut(t *testing.T) {
 		t.Fatalf("job wait succeeded unexpectedly")
 	}
 	if !strings.Contains(stderr.String(), "timed out") || !strings.Contains(stderr.String(), "current=running") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestJobWaitEventTimesOut(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-63",
+		Ticket:    "SQU-63",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		LastEvent: "dispatched",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "wait", "squ-63", "--repo", tmp, "--event", "closed", "--timeout", "1ms", "--interval", "10ms"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job wait event succeeded unexpectedly")
+	}
+	if !strings.Contains(stderr.String(), "event=closed") || !strings.Contains(stderr.String(), "current=running event=dispatched") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

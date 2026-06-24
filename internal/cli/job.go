@@ -1111,6 +1111,7 @@ func newJobWaitCmd() *cobra.Command {
 	var (
 		repo         string
 		statuses     []string
+		events       []string
 		timeout      time.Duration
 		interval     time.Duration
 		failOnFailed bool
@@ -1121,9 +1122,9 @@ func newJobWaitCmd() *cobra.Command {
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "wait <job-id>",
-		Short: "Wait for a job to reach a lifecycle status.",
-		Long: "Wait for a durable job to reach one of the requested lifecycle statuses. " +
-			"By default this waits for a terminal status: done or failed.",
+		Short: "Wait for a job to reach a lifecycle status or event.",
+		Long: "Wait for a durable job to reach one of the requested lifecycle statuses and/or last events. " +
+			"By default this waits for a terminal status: done or failed. When --event is set without --status, any status is accepted.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
@@ -1142,9 +1143,14 @@ func newJobWaitCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job wait: --format cannot be combined with --quiet or --json.")
 				return exitErr(2)
 			}
-			waitStatuses, err := parseJobWaitStatuses(statuses, !cmd.Flags().Changed("status"))
+			waitEvents := parseJobWaitEvents(events)
+			waitStatuses, err := parseJobWaitStatuses(statuses, !cmd.Flags().Changed("status") && len(waitEvents) == 0)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: %v\n", err)
+				return exitErr(2)
+			}
+			if len(waitStatuses) == 0 && len(waitEvents) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job wait: pass at least one non-empty --status or --event.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -1163,16 +1169,23 @@ func newJobWaitCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 			}
 			defer cancel()
-			j, err := runJobWait(ctx, teamDir, args[0], waitStatuses, interval)
+			j, err := runJobWait(ctx, teamDir, args[0], waitStatuses, waitEvents, interval)
 			if err != nil {
 				if timeoutErr, ok := err.(*jobWaitTimeoutError); ok {
 					if !quiet {
 						status := "unknown"
+						event := ""
 						if timeoutErr.Job != nil {
 							status = string(timeoutErr.Job.Status)
+							event = strings.TrimSpace(timeoutErr.Job.LastEvent)
 						}
-						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s).\n",
-							job.NormalizeID(args[0]), jobWaitStatusList(waitStatuses), status)
+						if len(waitEvents) > 0 {
+							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s event=%s).\n",
+								job.NormalizeID(args[0]), jobWaitConditionList(waitStatuses, waitEvents), status, emptyDash(event))
+						} else {
+							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s).\n",
+								job.NormalizeID(args[0]), jobWaitStatusList(waitStatuses), status)
+						}
 					}
 					return exitErr(1)
 				}
@@ -1200,6 +1213,7 @@ func newJobWaitCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&events, "event", nil, "Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&interval, "interval", 500*time.Millisecond, "Polling interval.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "Exit 1 if the job resolves to failed.")
@@ -5329,13 +5343,25 @@ func parseJobWaitStatuses(raw []string, useDefault bool) (map[job.Status]bool, e
 			statuses[status] = true
 		}
 	}
-	if len(statuses) == 0 {
+	if len(statuses) == 0 && len(raw) > 0 {
 		return nil, fmt.Errorf("--status requires at least one non-empty status")
 	}
 	return statuses, nil
 }
 
-func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, interval time.Duration) (*job.Job, error) {
+func parseJobWaitEvents(raw []string) map[string]bool {
+	events := map[string]bool{}
+	for _, value := range splitFilterValues(raw) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		events[value] = true
+	}
+	return events
+}
+
+func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, interval time.Duration) (*job.Job, error) {
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
@@ -5346,7 +5372,9 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 			return nil, err
 		}
 		last = j
-		if statuses[j.Status] {
+		statusMatched := len(statuses) == 0 || statuses[j.Status]
+		eventMatched := len(events) == 0 || events[strings.TrimSpace(j.LastEvent)]
+		if statusMatched && eventMatched {
 			return j, nil
 		}
 		timer := time.NewTimer(interval)
@@ -5362,6 +5390,17 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 	}
 }
 
+func jobWaitConditionList(statuses map[job.Status]bool, events map[string]bool) string {
+	parts := make([]string, 0, 2)
+	if len(statuses) > 0 {
+		parts = append(parts, "status="+jobWaitStatusList(statuses))
+	}
+	if len(events) > 0 {
+		parts = append(parts, "event="+jobWaitEventList(events))
+	}
+	return strings.Join(parts, " ")
+}
+
 func jobWaitStatusList(statuses map[job.Status]bool) string {
 	order := []job.Status{job.StatusQueued, job.StatusRunning, job.StatusBlocked, job.StatusDone, job.StatusFailed}
 	out := make([]string, 0, len(statuses))
@@ -5370,6 +5409,15 @@ func jobWaitStatusList(statuses map[job.Status]bool) string {
 			out = append(out, string(status))
 		}
 	}
+	return strings.Join(out, "|")
+}
+
+func jobWaitEventList(events map[string]bool) string {
+	out := make([]string, 0, len(events))
+	for event := range events {
+		out = append(out, event)
+	}
+	sort.Strings(out)
 	return strings.Join(out, "|")
 }
 
