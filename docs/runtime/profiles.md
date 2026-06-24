@@ -233,6 +233,31 @@ Use jobs, queue, and pipeline commands for orchestration around Codex runs inste
 | Tool scripts cannot find state | Missing `AGENT_TEAM_*` environment in runtime shell | Check `agent-team runtime` and inspect the daemon child log |
 | Codex exits before running any task | Codex auth, provider reachability, sandbox setup, stdin handling, or last-message capture is broken | `agent-team runtime probe --runtime codex --json`, then `agent-team runtime probe --runtime codex --exec --timeout 2m` |
 
+## Observed Probe Findings
+
+2026-06-24 local probe:
+
+```sh
+agent-team runtime probe --runtime codex --exec --timeout 2m --json
+```
+
+Result:
+
+- `runtime.available = true` for `/opt/homebrew/bin/codex`
+- `codex_doctor` failed `network.provider_reachability` for
+  `https://chatgpt.com/backend-api/`
+- WebSocket reachability warned with DNS lookup failure for `chatgpt.com`
+- Codex plugin/update sync also hit DNS failures for `github.com` and
+  `api.github.com`
+- `exec_probe` failed with `provider_unreachable` and did not produce a
+  last-message sidecar
+- daemon readiness was a warning only because the probe was run without
+  `--start-daemon` / `--require-daemon`
+
+Action: fix DNS/proxy/VPN/provider reachability first, then rerun the same
+probe. Use `--start-daemon --require-daemon` when validating daemon-backed
+dispatch readiness in the same pass.
+
 ## Adapter Design Notes
 
 New runtime profiles should preserve the repo-local contract:
