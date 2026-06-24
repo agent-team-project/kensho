@@ -84,16 +84,20 @@ Shortcuts:
 | `agent-team job create <ticket>` | Create a durable job |
 | `agent-team job ls` | List jobs; filter held state with `--held` / `--unheld`, hold deadlines with `--expired-hold` / `--active-hold`, and mixed-runtime ownership with `--runtime` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, status previews, and actions |
+| `agent-team job wait <job-id>` | Wait for lifecycle status or last event with `--event` |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, queue ownership, state files, and optional log tails |
 | `agent-team job explain <job-id>` | Explain every pipeline step's readiness, blockers, gates, and next actions |
 | `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection |
 | `agent-team job send <job-id>` | Send message to job instance |
+| `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |
+| `agent-team job block <job-id>` | Mark a job blocked and record the reason |
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job |
 | `agent-team job update <job-id>` | Update job metadata; use `--advance --dry-run` to preview unblocked pipeline steps |
 | `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; use `--all` for repo-wide freezes, and add `--for` or `--until` for a deadline |
 | `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds |
-| `agent-team job close <job-id>` | Mark done or failed |
+| `agent-team job close <job-id>` | Mark done or failed; use `--dry-run` to preview |
+| `agent-team job cancel <job-id>` | Fail a job as cancelled, optionally stopping its owner |
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention |
 | `agent-team job ready` | List next pipeline steps |
