@@ -1955,7 +1955,7 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 	if row.StaleRunningSteps > 0 {
 		actions = append(actions, "agent-team job reconcile events --dry-run")
 		actions = append(actions, fmt.Sprintf("agent-team pipeline timeout %s --dry-run", row.Pipeline))
-		actions = append(actions, "agent-team repair --timeout-pipelines --dry-run")
+		actions = append(actions, "agent-team repair --timeout-jobs --dry-run")
 		actions = append(actions, fmt.Sprintf("agent-team pipeline explain %s --state running", row.Pipeline))
 		actions = append(actions, fmt.Sprintf("agent-team pipeline ready %s --state running", row.Pipeline))
 	}

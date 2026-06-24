@@ -7618,7 +7618,7 @@ func teamPipelineActions(teamName string, row pipelineStatusRow) []string {
 	if row.StaleRunningSteps > 0 {
 		actions = append(actions, "agent-team job reconcile events --dry-run")
 		actions = append(actions, fmt.Sprintf("agent-team team timeout %s --dry-run", teamName))
-		actions = append(actions, fmt.Sprintf("agent-team team repair %s --timeout-pipelines --dry-run", teamName))
+		actions = append(actions, fmt.Sprintf("agent-team team repair %s --timeout-jobs --dry-run", teamName))
 		actions = append(actions, fmt.Sprintf("agent-team team explain %s --state running", teamName))
 		actions = append(actions, fmt.Sprintf("agent-team team ready %s --state running", teamName))
 	}
