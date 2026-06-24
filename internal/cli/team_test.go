@@ -7081,13 +7081,20 @@ agent = "other"
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
-[[pipelines.ticket_to_pr.steps]]
-id = "implement"
-target = "worker"
+	[[pipelines.ticket_to_pr.steps]]
+	id = "implement"
+	target = "worker"
 
-[teams.delivery]
-instances = ["manager", "worker"]
-pipelines = ["ticket_to_pr"]
+	[pipelines.release_review]
+	trigger.event = "release.created"
+
+	[[pipelines.release_review.steps]]
+	id = "implement"
+	target = "worker"
+
+	[teams.delivery]
+	instances = ["manager", "worker"]
+	pipelines = ["ticket_to_pr", "release_review"]
 
 [teams.platform]
 instances = ["other"]
@@ -7110,6 +7117,22 @@ instances = ["other"]
 	}
 	if err := job.Write(teamDir, teamJob); err != nil {
 		t.Fatalf("write team job: %v", err)
+	}
+	releaseJob := &job.Job{
+		ID:         "rel-300",
+		Ticket:     "REL-300",
+		Target:     "worker",
+		Pipeline:   "release_review",
+		Status:     job.StatusFailed,
+		LastStatus: "release review failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusFailed},
+		},
+	}
+	if err := job.Write(teamDir, releaseJob); err != nil {
+		t.Fatalf("write release job: %v", err)
 	}
 	otherJob := &job.Job{
 		ID:         "oth-300",
@@ -7171,7 +7194,7 @@ instances = ["other"]
 	if preview.Team.Name != "delivery" || !preview.DryRun || preview.Daemon.Action != "skipped" || preview.Queue.Action != "would_retry" {
 		t.Fatalf("team repair preview = %+v", preview)
 	}
-	if preview.HealthBefore == nil || preview.HealthBefore.Queue.Dead != 1 || preview.HealthBefore.Jobs == nil || preview.HealthBefore.Jobs.Summary.Total != 1 {
+	if preview.HealthBefore == nil || preview.HealthBefore.Queue.Dead != 1 || preview.HealthBefore.Jobs == nil || preview.HealthBefore.Jobs.Summary.Total != 2 {
 		t.Fatalf("team repair health before = %+v", preview.HealthBefore)
 	}
 	if len(preview.Queue.Results) != 1 || preview.Queue.Results[0].ID != "q-team-repair" || preview.Queue.Results[0].Action != "would_retry" {
@@ -7225,6 +7248,7 @@ instances = ["other"]
 		"--repo", root,
 		"--dry-run",
 		"--retry-pipelines",
+		"--retry-pipeline", "ticket_to_pr",
 		"--preview-routes",
 		"--skip-daemon",
 		"--skip-queue",
@@ -7249,7 +7273,7 @@ instances = ["other"]
 	if retryRow.Preview.Dispatch.RequestedName != "worker-squ-300-implement" {
 		t.Fatalf("team repair retry requested name = %q", retryRow.Preview.Dispatch.RequestedName)
 	}
-	if strings.Contains(retryPreviewOut.String(), "oth-300") || strings.Contains(retryPreviewOut.String(), "q-other-repair") {
+	if strings.Contains(retryPreviewOut.String(), "oth-300") || strings.Contains(retryPreviewOut.String(), "q-other-repair") || strings.Contains(retryPreviewOut.String(), "rel-300") {
 		t.Fatalf("team repair retry dry-run leaked unrelated work:\n%s", retryPreviewOut.String())
 	}
 	unchangedJob, err := job.Read(teamDir, "squ-300")
@@ -7258,6 +7282,13 @@ instances = ["other"]
 	}
 	if unchangedJob.Status != job.StatusFailed || unchangedJob.Steps[0].Status != job.StatusFailed {
 		t.Fatalf("team repair retry dry-run mutated job = %+v", unchangedJob)
+	}
+	unchangedRelease, err := job.Read(teamDir, "rel-300")
+	if err != nil {
+		t.Fatalf("read unchanged release job: %v", err)
+	}
+	if unchangedRelease.Status != job.StatusFailed || unchangedRelease.Steps[0].Status != job.StatusFailed {
+		t.Fatalf("team repair retry dry-run mutated release job = %+v", unchangedRelease)
 	}
 
 	run := NewRootCmd()
@@ -7313,6 +7344,11 @@ func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
 			name: "retry step without retry pipelines",
 			args: []string{"team", "repair", "delivery", "--retry-step", "review"},
 			want: "--retry-step requires --retry-pipelines",
+		},
+		{
+			name: "retry pipeline without retry pipelines",
+			args: []string{"team", "repair", "delivery", "--retry-pipeline", "ticket_to_pr"},
+			want: "--retry-pipeline requires --retry-pipelines",
 		},
 		{
 			name: "retry force without retry pipelines",

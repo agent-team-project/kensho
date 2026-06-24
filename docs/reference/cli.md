@@ -198,7 +198,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts runtime overrides |
 | `agent-team team jobs <team>` | Scoped job list, summary, or watch view; filter held state, mixed-runtime ownership, and cap output with `--limit` |
 | `agent-team team tick <team>` | Scoped maintenance cycle |
-| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; add `--retry-force` to override retry caps during scoped failed-step retry |
+| `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; failed-step retry accepts pipeline/step filters plus `--retry-force` |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team |
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter batch actions with `--runtime` |

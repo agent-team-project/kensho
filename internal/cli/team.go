@@ -1664,7 +1664,7 @@ func newTeamRetryCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
 				return exitErr(1)
 			}
-			results, err := retryTeamPipelineJobs(cmd, teamDir, team, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, force, dispatchNow, dryRun, previewRoutes)
+			results, err := retryTeamPipelineJobs(cmd, teamDir, team, "", workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, force, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				if errors.Is(err, errDaemonNotRunning) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team retry: daemon is not running — start it with `agent-team start`, or use --dry-run without --dispatch.")
@@ -3831,6 +3831,7 @@ func newTeamRepairCmd() *cobra.Command {
 		timeoutMessage   string
 		timeoutPipeline  string
 		timeoutTarget    string
+		retryPipeline    string
 		retryStep        string
 		retryMessage     string
 		retryForce       bool
@@ -3911,6 +3912,10 @@ func newTeamRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --retry-step requires --retry-pipelines.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(retryPipeline) != "" && !retryPipelines {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --retry-pipeline requires --retry-pipelines.")
+				return exitErr(2)
+			}
 			if retryForce && !retryPipelines {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team repair: --retry-force requires --retry-pipelines.")
 				return exitErr(2)
@@ -3945,6 +3950,7 @@ func newTeamRepairCmd() *cobra.Command {
 				TimeoutMessage:   timeoutMessage,
 				TimeoutPipeline:  timeoutPipeline,
 				TimeoutTarget:    timeoutTarget,
+				RetryPipeline:    retryPipeline,
 				RetryStep:        retryStep,
 				RetryMessage:     retryMessage,
 				RetryForce:       retryForce,
@@ -3979,6 +3985,7 @@ func newTeamRepairCmd() *cobra.Command {
 	cmd.Flags().StringVar(&timeoutMessage, "timeout-message", "", "Audit message to record when team timeout repair marks stale work failed.")
 	cmd.Flags().StringVar(&timeoutPipeline, "timeout-pipeline", "", "With --timeout-jobs or --timeout-pipelines, mark only stale team work owned by this pipeline.")
 	cmd.Flags().StringVar(&timeoutTarget, "timeout-target-agent", "", "With --timeout-jobs or --timeout-pipelines, mark only stale team work targeting this agent.")
+	cmd.Flags().StringVar(&retryPipeline, "retry-pipeline", "", "With --retry-pipelines, retry only failed team jobs owned by this pipeline.")
 	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed team jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed team steps.")
 	cmd.Flags().BoolVar(&retryForce, "retry-force", false, "With --retry-pipelines, ignore step max_attempts caps for explicit team repair retry.")
@@ -4810,6 +4817,7 @@ type teamRepairOptions struct {
 	TimeoutMessage   string
 	TimeoutPipeline  string
 	TimeoutTarget    string
+	RetryPipeline    string
 	RetryStep        string
 	RetryMessage     string
 	RetryForce       bool
@@ -6992,7 +7000,7 @@ func runTeamRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, team *to
 	if message == "" {
 		message = "team repair retry failed pipeline step"
 	}
-	results, err := retryTeamPipelineJobs(cmd, teamDir, team, opts.Workspace, runtimeSelection{}, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
+	results, err := retryTeamPipelineJobs(cmd, teamDir, team, opts.RetryPipeline, opts.Workspace, runtimeSelection{}, opts.RetryStep, message, opts.Limit, opts.RetryForce, true, opts.DryRun, opts.PreviewRoutes)
 	if err != nil {
 		return repairPipelineRetryStep{Action: "error", Reason: err.Error()}, err
 	}
@@ -7357,13 +7365,17 @@ func cancelTeamPipelineJobs(teamDir string, team *topology.Team, message string,
 	return results, nil
 }
 
-func retryTeamPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Team, workspace string, selection runtimeSelection, stepFilter string, message string, limit int, force bool, dispatchNow bool, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
+func retryTeamPipelineJobs(cmd *cobra.Command, teamDir string, team *topology.Team, pipelineFilter string, workspace string, selection runtimeSelection, stepFilter string, message string, limit int, force bool, dispatchNow bool, dryRun bool, previewRoutes bool) ([]pipelineRetryResult, error) {
 	if team == nil || len(team.Pipelines) == 0 {
 		return []pipelineRetryResult{}, nil
 	}
+	pipelineFilter = strings.TrimSpace(pipelineFilter)
 	results := []pipelineRetryResult{}
 	remaining := limit
 	for _, pipeline := range team.Pipelines {
+		if pipelineFilter != "" && pipeline != pipelineFilter {
+			continue
+		}
 		if limit > 0 && remaining <= 0 {
 			break
 		}

@@ -207,6 +207,7 @@ agent-team team repair delivery --timeout-pipelines --dry-run
 agent-team team repair delivery --timeout-pipelines --timeout-pipeline ticket_to_pr --dry-run
 agent-team team repair delivery --timeout-pipelines --timeout-target-agent worker --dry-run
 agent-team team repair delivery --retry-pipelines --dry-run --preview-routes
+agent-team team repair delivery --retry-pipelines --retry-pipeline ticket_to_pr --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team team repair delivery --retry-pipelines --retry-force --retry-message "override after fix"
 agent-team team drain delivery --all-ready-steps

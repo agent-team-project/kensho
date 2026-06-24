@@ -6029,6 +6029,7 @@ Flags:
       --repo string                   Repo root containing .agent_team. (default "<repo>")
       --retry-force                   With --retry-pipelines, ignore step max_attempts caps for explicit team repair retry.
       --retry-message string          Audit message to record when --retry-pipelines resets failed team steps.
+      --retry-pipeline string         With --retry-pipelines, retry only failed team jobs owned by this pipeline.
       --retry-pipelines               Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --retry-step string             With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
       --skip-daemon                   Do not start or reconcile the daemon.

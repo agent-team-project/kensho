@@ -185,7 +185,7 @@ agent-team sync [-q] [--dry-run] [--stop-extras] [--agent manager] [--instance m
                                                 # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
 agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--preview-routes] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
                                                 # run one maintenance cycle, watch cycles, or tick until no immediate job-status/schedule/queue/pipeline work remains
-agent-team repair [--dry-run] [--preview-routes] [--jobs] [--timeout-jobs|--timeout-pipelines] [--timeout-step <id>] [--timeout-pipeline name] [--timeout-target-agent worker] [--timeout-message "..."] [--retry-pipelines] [--retry-step <id>] [--retry-message "..."] [--retry-force] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Action}}'] [--json]
+agent-team repair [--dry-run] [--preview-routes] [--jobs] [--timeout-jobs|--timeout-pipelines] [--timeout-step <id>] [--timeout-pipeline name] [--timeout-target-agent worker] [--timeout-message "..."] [--retry-pipelines] [--retry-pipeline name] [--retry-step <id>] [--retry-message "..."] [--retry-force] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--format '{{.Queue.Action}}'] [--json]
                                                 # recover common unhealthy orchestration state by starting/reconciling the daemon, retrying dead queue items, and ticking work
 agent-team overview [-w] [--no-clear] [--interval 2s] [--schedule-limit N] [--format '{{.State}}'] [--json]
                                                 # show a read-only operator overview with health, topology, jobs, queue, pipelines, schedules, and action hints
@@ -335,7 +335,7 @@ Use `repair --dry-run` when `health` reports dead-letter queue items or stale da
 
 Add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode to keep stale-work repair scoped to one workflow or agent role. Team repair accepts the same timeout filters inside the team's ownership boundary.
 
-Add `--retry-pipeline <name>` with `--retry-pipelines` when failed-step repair should stay inside one workflow; combine it with `--retry-step <id>` when only one stage in that workflow should be reset.
+Add `--retry-pipeline <name>` with `--retry-pipelines` when failed-step repair should stay inside one workflow; combine it with `--retry-step <id>` when only one stage in that workflow should be reset. Team repair accepts the same retry filters inside the team's ownership boundary.
 
 Use `intake summary` for a compact delivery ledger rollup before replaying or pruning webhook history. It distinguishes successful, failed, unresolved, recovered, replayable, and replay-failed deliveries, includes per-provider counts, and prints the same recovery/prune action hints as the detailed delivery rows. Use `intake doctor` when summary or replay fails to parse history; it reports corrupt JSONL lines, duplicate IDs, invalid statuses, and unreplayable failure rows without mutating the ledger. Top-level `doctor` includes the same intake ledger validation.
 
