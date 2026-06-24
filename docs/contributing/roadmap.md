@@ -53,6 +53,7 @@ Built or substantially implemented:
 - optional GitHub PR merge verification for job/team cleanup
 - intake server deployment guide
 - runtime profile guide for Claude and Codex
+- runtime resume-plan action filters and summaries
 - copyable topology example fixtures parsed in CI
 - conservative template upgrade apply mode
 - manual pipeline gates and approval hints
@@ -100,7 +101,7 @@ Use these when evaluating feature ideas:
 
 High-value follow-up work:
 
-- runtime resume/adopt flows for long-running agents
+- deeper runtime adopt/resume flows for long-running agents beyond current plan/adopt commands
 - richer pipeline semantics without overbuilding a workflow engine
 
 ## Anti-Patterns
