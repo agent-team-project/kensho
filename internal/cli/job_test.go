@@ -183,6 +183,112 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobCancelDryRunDoesNotMutateJob(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	original := &job.Job{
+		ID:        "squ-64",
+		Ticket:    "SQU-64",
+		Target:    "worker",
+		Instance:  "worker-squ-64",
+		Status:    job.StatusRunning,
+		Held:      true,
+		HoldUntil: now.Add(time.Hour),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, original); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "cancel", "squ-64", "not needed", "--repo", tmp, "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job cancel --dry-run: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var preview jobCancelResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode cancel preview: %v\nbody=%s", err, out.String())
+	}
+	if !preview.DryRun || preview.Job == nil || preview.Job.Status != job.StatusFailed || preview.Job.LastEvent != "cancelled" || preview.Job.LastStatus != "not needed" || preview.Job.Held {
+		t.Fatalf("preview = %+v", preview)
+	}
+	updated, err := job.Read(teamDir, "squ-64")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.Held || !updated.UpdatedAt.Equal(original.UpdatedAt) {
+		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+}
+
+func TestJobCancelStopsOwningInstanceAndFailsJob(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-cancel-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-65", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-65",
+		Ticket:    "SQU-65",
+		Target:    "worker",
+		Instance:  "worker-squ-65",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "cancel", "squ-65", "--repo", tmp, "--message", "operator cancelled", "--stop", "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job cancel --stop: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result jobCancelResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode cancel result: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusFailed || result.Job.LastEvent != "cancelled" || result.Job.LastStatus != "operator cancelled" {
+		t.Fatalf("cancel result job = %+v", result.Job)
+	}
+	if len(result.InstanceActions) != 1 || result.InstanceActions[0].Action != "stop" || result.InstanceActions[0].Instance != "worker-squ-65" || result.InstanceActions[0].Status != "stopped" {
+		t.Fatalf("instance actions = %+v", result.InstanceActions)
+	}
+	updated, err := job.Read(teamDir, "squ-65")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "cancelled" || updated.LastStatus != "operator cancelled" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-65")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "cancelled" || events[0].Data["instance_action"] != "stop" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobShowDisplaysRuntimeMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

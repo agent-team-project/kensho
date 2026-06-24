@@ -1476,6 +1476,7 @@ Subcommands:
 
 - `agent-team job advance` - Dispatch the next ready step in a pipeline job.
 - `agent-team job attach` - Attach to a job&#39;s owning instance.
+- `agent-team job cancel` - Cancel a job as failed.
 - `agent-team job cleanup` - Remove a job-owned worker worktree and branch after merge.
 - `agent-team job close` - Close a job as done or failed.
 - `agent-team job create` - Create a durable job for a ticket.
@@ -1545,6 +1546,33 @@ Flags:
       --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --tail string    Log mode: show only the last N lines before following (0 or all = all). (default "50")
+```
+
+## `agent-team job cancel`
+
+Cancel a job as failed.
+
+Cancel a durable job by marking it failed with a cancelled audit event. By default this only updates the job file; pass --stop or --kill to also stop the owning instance.
+
+```text
+agent-team job cancel <job-id> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --dry-run                 Preview the cancellation without changing daemon or job state.
+      --format string           Render the cancellation result with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
+      --json                    Emit the cancellation result as JSON.
+      --kill                    Force-stop the owning instance before recording the cancellation.
+      --message string          Cancellation reason recorded on the job.
+      --message-file string     Read cancellation reason from a file, or '-' for stdin.
+      --repo string             Repo root containing .agent_team. (default "<repo>")
+      --rm                      Remove selected instance state and daemon metadata after stopping or killing.
+      --stop                    Gracefully stop the owning instance before recording the cancellation.
+      --timeout duration        Grace before --kill escalation, or wait deadline when used with --wait and no --wait-timeout.
+      --wait                    Wait for the owning instance to reach a terminal state when --stop or --kill is set.
+      --wait-timeout duration   Maximum time to wait for terminal state with --wait.
 ```
 
 ## `agent-team job cleanup`

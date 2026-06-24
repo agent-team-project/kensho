@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,6 +48,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobStopCmd())
 	cmd.AddCommand(newJobKillCmd())
 	cmd.AddCommand(newJobCloseCmd())
+	cmd.AddCommand(newJobCancelCmd())
 	cmd.AddCommand(newJobUpdateCmd())
 	cmd.AddCommand(newJobHoldCmd())
 	cmd.AddCommand(newJobReleaseCmd())
@@ -1868,6 +1870,245 @@ func newJobCloseCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
+}
+
+func newJobCancelCmd() *cobra.Command {
+	var (
+		repo           string
+		message        string
+		messageFile    string
+		stopInstance   bool
+		killInstance   bool
+		wait           bool
+		timeout        time.Duration
+		waitTimeout    time.Duration
+		remove         bool
+		dryRun         bool
+		jsonOut        bool
+		format         string
+		timeoutSet     bool
+		waitTimeoutSet bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "cancel <job-id> [reason...]",
+		Short: "Cancel a job as failed.",
+		Long: "Cancel a durable job by marking it failed with a cancelled audit event. " +
+			"By default this only updates the job file; pass --stop or --kill to also stop the owning instance.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			timeoutSet = cmd.Flags().Changed("timeout")
+			waitTimeoutSet = cmd.Flags().Changed("wait-timeout")
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if stopInstance && killInstance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: choose one of --stop or --kill.")
+				return exitErr(2)
+			}
+			if !stopInstance && !killInstance {
+				if wait || remove || timeoutSet || waitTimeoutSet {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --wait, --timeout, --wait-timeout, and --rm require --stop or --kill.")
+					return exitErr(2)
+				}
+			}
+			if dryRun && wait {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --dry-run cannot be combined with --wait.")
+				return exitErr(2)
+			}
+			reason, err := jobCancelMessage(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cancel: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobCancelFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cancel: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if (stopInstance || killInstance) && strings.TrimSpace(j.Instance) == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cancel: job %q has no owning instance; omit --stop/--kill to cancel only the job file.\n", j.ID)
+				return exitErr(2)
+			}
+			repoRoot := filepath.Dir(teamDir)
+			cancelled := *j
+			applyJobCancelUpdate(&cancelled, reason)
+			result := jobCancelResult{
+				DryRun:  dryRun,
+				Job:     &cancelled,
+				Message: reason,
+			}
+			if stopInstance || killInstance {
+				actions, err := runJobCancelInstanceAction(cmd, repoRoot, j.Instance, jobCancelInstanceOptions{
+					Stop:           stopInstance,
+					Kill:           killInstance,
+					Wait:           wait,
+					Timeout:        timeout,
+					WaitTimeout:    waitTimeout,
+					WaitTimeoutSet: waitTimeoutSet,
+					Remove:         remove,
+					DryRun:         dryRun,
+				})
+				if err != nil {
+					return err
+				}
+				result.InstanceActions = actions
+			}
+			if dryRun {
+				return renderJobCancelResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+			}
+			*j = cancelled
+			data := map[string]string{
+				"status":  string(j.Status),
+				"message": reason,
+			}
+			if strings.TrimSpace(j.Instance) != "" {
+				data["instance"] = strings.TrimSpace(j.Instance)
+			}
+			if len(result.InstanceActions) > 0 {
+				data["instance_action"] = result.InstanceActions[0].Action
+			}
+			if err := writeJobWithAudit(teamDir, j, "cancelled", "cli", reason, data); err != nil {
+				return err
+			}
+			result.Job = j
+			return renderJobCancelResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&message, "message", "", "Cancellation reason recorded on the job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read cancellation reason from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&stopInstance, "stop", false, "Gracefully stop the owning instance before recording the cancellation.")
+	cmd.Flags().BoolVar(&killInstance, "kill", false, "Force-stop the owning instance before recording the cancellation.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state when --stop or --kill is set.")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --kill escalation, or wait deadline when used with --wait and no --wait-timeout.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
+	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after stopping or killing.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the cancellation without changing daemon or job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cancellation result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the cancellation result with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.")
+	return cmd
+}
+
+type jobCancelResult struct {
+	DryRun          bool                 `json:"dry_run,omitempty"`
+	Job             *job.Job             `json:"job"`
+	Message         string               `json:"message,omitempty"`
+	InstanceActions []instanceDownResult `json:"instance_actions,omitempty"`
+}
+
+type jobCancelInstanceOptions struct {
+	Stop           bool
+	Kill           bool
+	Wait           bool
+	Timeout        time.Duration
+	WaitTimeout    time.Duration
+	WaitTimeoutSet bool
+	Remove         bool
+	DryRun         bool
+}
+
+func jobCancelMessage(message, messageFile string, positional []string) (string, error) {
+	if strings.TrimSpace(message) == "" && strings.TrimSpace(messageFile) == "" && len(positional) == 0 {
+		return "cancelled by operator", nil
+	}
+	return sendMessageBody(message, messageFile, positional)
+}
+
+func applyJobCancelUpdate(j *job.Job, message string) {
+	if j == nil {
+		return
+	}
+	j.Status = job.StatusFailed
+	j.Held = false
+	j.HoldReason = ""
+	j.HoldUntil = time.Time{}
+	j.LastEvent = "cancelled"
+	j.LastStatus = strings.TrimSpace(message)
+	j.UpdatedAt = time.Now().UTC()
+}
+
+func runJobCancelInstanceAction(cmd *cobra.Command, repoRoot, instance string, opts jobCancelInstanceOptions) ([]instanceDownResult, error) {
+	instance = strings.TrimSpace(instance)
+	if instance == "" || (!opts.Stop && !opts.Kill) {
+		return nil, nil
+	}
+	action := "stop"
+	timeout := opts.Timeout
+	force := false
+	if opts.Kill {
+		action = "kill"
+		force = true
+		if timeout == 0 {
+			timeout = 2 * time.Second
+		}
+	}
+	var buf bytes.Buffer
+	downCmd := *cmd
+	downCmd.SetOut(&buf)
+	downCmd.SetErr(cmd.ErrOrStderr())
+	err := runInstanceDownWithOptions(&downCmd, repoRoot, []string{instance}, instanceDownOptions{
+		Force:          force,
+		Wait:           opts.Wait,
+		Timeout:        timeout,
+		WaitTimeout:    opts.WaitTimeout,
+		WaitTimeoutSet: opts.WaitTimeoutSet,
+		DryRun:         opts.DryRun,
+		Remove:         opts.Remove,
+		Action:         action,
+		JSON:           true,
+	})
+	var rows []instanceDownResult
+	if strings.TrimSpace(buf.String()) != "" {
+		if decodeErr := json.Unmarshal(buf.Bytes(), &rows); decodeErr != nil && err == nil {
+			return nil, fmt.Errorf("decode instance action: %w", decodeErr)
+		}
+	}
+	if err != nil {
+		return rows, err
+	}
+	return rows, nil
+}
+
+func renderJobCancelResult(w io.Writer, result jobCancelResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	if result.DryRun {
+		fmt.Fprintln(w, "Dry run: true")
+	}
+	if result.Job != nil {
+		fmt.Fprintf(w, "Job: %s cancelled status=%s\n", result.Job.ID, result.Job.Status)
+		if strings.TrimSpace(result.Message) != "" {
+			fmt.Fprintf(w, "Reason: %s\n", strings.TrimSpace(result.Message))
+		}
+		if strings.TrimSpace(result.Job.Instance) != "" && len(result.InstanceActions) == 0 {
+			fmt.Fprintf(w, "Instance: %s unchanged\n", result.Job.Instance)
+		}
+	}
+	if len(result.InstanceActions) > 0 {
+		fmt.Fprintln(w, "Instance actions:")
+		for _, action := range result.InstanceActions {
+			detail := strings.TrimSpace(action.Detail)
+			if detail == "" {
+				detail = action.Status
+			}
+			fmt.Fprintf(w, "  %s %-20s %s\n", action.Action, action.Instance, detail)
+		}
+	}
+	return nil
 }
 
 func newJobUpdateCmd() *cobra.Command {
@@ -7692,6 +7933,17 @@ func parseJobFormat(format string) (*template.Template, error) {
 		return nil, nil
 	}
 	tmpl, err := template.New("job-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func parseJobCancelFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("job-cancel-format").Parse(format)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
