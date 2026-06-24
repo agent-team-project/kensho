@@ -1058,7 +1058,13 @@ func collectPipelineGraph(teamDir, name string, includeRoutes bool) (pipelineGra
 	if top == nil || top.Pipelines[name] == nil {
 		return pipelineGraph{}, fmt.Errorf("pipeline %q not found", name)
 	}
-	pipeline := top.Pipelines[name]
+	return pipelineGraphFromTopology(top, top.Pipelines[name], includeRoutes), nil
+}
+
+func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeline, includeRoutes bool) pipelineGraph {
+	if pipeline == nil {
+		return pipelineGraph{}
+	}
 	graph := pipelineGraph{
 		Name:    pipeline.Name,
 		Trigger: triggerAsMap(pipeline.Trigger),
@@ -1107,7 +1113,7 @@ func collectPipelineGraph(teamDir, name string, includeRoutes bool) (pipelineGra
 	for _, id := range missingIDs {
 		graph.Nodes = append(graph.Nodes, pipelineGraphNode{ID: id, Target: "(missing)", Missing: true})
 	}
-	return graph, nil
+	return graph
 }
 
 func collectPipelineDoctor(teamDir, pipelineName string) (*pipelineDoctorResult, error) {

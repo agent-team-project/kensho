@@ -29,6 +29,7 @@ func newTeamCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newTeamLsCmd())
 	cmd.AddCommand(newTeamShowCmd())
+	cmd.AddCommand(newTeamGraphCmd())
 	cmd.AddCommand(newTeamDoctorCmd())
 	cmd.AddCommand(newTeamOverviewCmd())
 	cmd.AddCommand(newTeamNextCmd())
@@ -118,6 +119,48 @@ func newTeamShowCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the team as JSON.")
+	return cmd
+}
+
+func newTeamGraphCmd() *cobra.Command {
+	var (
+		repo          string
+		graphFormat   string
+		includeRoutes bool
+		jsonOut       bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "graph <team>",
+		Short: "Render a declared team graph.",
+		Long:  "Render a read-only graph of one declared team's instances, pipelines, schedules, and step dispatch wiring.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOut && cmd.Flags().Changed("format") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team graph: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			format, err := parsePipelineGraphFormat(graphFormat)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team graph: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			graph, err := collectTeamGraph(teamDir, args[0], includeRoutes)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team graph: %v\n", err)
+				return exitErr(1)
+			}
+			return renderTeamGraph(cmd.OutOrStdout(), graph, format, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, "Repo root.")
+	cmd.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
+	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate pipeline steps with matching agent.dispatch routes.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
 	return cmd
 }
 
@@ -3938,6 +3981,34 @@ type teamInfo struct {
 	Schedules   []string `json:"schedules,omitempty"`
 }
 
+type teamGraph struct {
+	Team      teamInfo            `json:"team"`
+	Instances []teamGraphInstance `json:"instances,omitempty"`
+	Pipelines []pipelineGraph     `json:"pipelines,omitempty"`
+	Schedules []teamGraphSchedule `json:"schedules,omitempty"`
+	Edges     []teamGraphEdge     `json:"edges,omitempty"`
+}
+
+type teamGraphInstance struct {
+	Name      string `json:"name"`
+	Agent     string `json:"agent,omitempty"`
+	Ephemeral bool   `json:"ephemeral,omitempty"`
+	Missing   bool   `json:"missing,omitempty"`
+}
+
+type teamGraphSchedule struct {
+	Name       string `json:"name"`
+	Every      string `json:"every,omitempty"`
+	RunOnStart bool   `json:"run_on_start,omitempty"`
+	Missing    bool   `json:"missing,omitempty"`
+}
+
+type teamGraphEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind,omitempty"`
+}
+
 type teamStatusSnapshot struct {
 	Team            teamInfo            `json:"team"`
 	CheckedAt       string              `json:"checked_at"`
@@ -4062,6 +4133,109 @@ func loadTopologyTeam(teamDir, name string) (*topology.Topology, *topology.Team,
 		return top, nil, fmt.Errorf("team %q not found", name)
 	}
 	return top, top.Teams[name], nil
+}
+
+func collectTeamGraph(teamDir, name string, includeRoutes bool) (teamGraph, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return teamGraph{}, err
+	}
+	graph := teamGraph{Team: teamInfoFromTopology(team)}
+	teamNode := "team:" + team.Name
+	for _, name := range team.Instances {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		inst := top.Instances[name]
+		node := teamGraphInstance{Name: name}
+		if inst == nil {
+			node.Missing = true
+		} else {
+			node.Agent = strings.TrimSpace(inst.Agent)
+			node.Ephemeral = inst.Ephemeral
+		}
+		graph.Instances = append(graph.Instances, node)
+		graph.Edges = append(graph.Edges, teamGraphEdge{From: teamNode, To: "instance:" + name, Kind: "owns_instance"})
+	}
+	for _, name := range team.Pipelines {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		pipeline := top.Pipelines[name]
+		if pipeline == nil {
+			graph.Pipelines = append(graph.Pipelines, pipelineGraph{Name: name})
+			graph.Edges = append(graph.Edges, teamGraphEdge{From: teamNode, To: "pipeline:" + name, Kind: "owns_pipeline"})
+			continue
+		}
+		pg := pipelineGraphFromTopology(top, pipeline, includeRoutes)
+		graph.Pipelines = append(graph.Pipelines, pg)
+		graph.Edges = append(graph.Edges, teamGraphEdge{From: teamNode, To: "pipeline:" + name, Kind: "owns_pipeline"})
+		graph.Edges = append(graph.Edges, teamGraphEdge{From: "pipeline:" + name, To: "pipeline:" + name + ":trigger", Kind: "has_trigger"})
+		for _, edge := range pg.Edges {
+			graph.Edges = append(graph.Edges, teamGraphEdge{
+				From: namespacedPipelineGraphNode(name, edge.From),
+				To:   namespacedPipelineGraphNode(name, edge.To),
+				Kind: "pipeline_dependency",
+			})
+		}
+		for _, node := range pg.Nodes {
+			if node.Missing {
+				continue
+			}
+			targets := node.Routes
+			if len(targets) == 0 && strings.TrimSpace(node.Target) != "" {
+				targets = []string{strings.TrimSpace(node.Target)}
+			}
+			for _, target := range targets {
+				target = strings.TrimSpace(target)
+				if target == "" {
+					continue
+				}
+				graph.Edges = append(graph.Edges, teamGraphEdge{
+					From: "pipeline:" + name + ":step:" + node.ID,
+					To:   "instance:" + target,
+					Kind: "dispatches_to",
+				})
+			}
+		}
+	}
+	for _, name := range team.Schedules {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		schedule := top.Schedules[name]
+		node := teamGraphSchedule{Name: name}
+		if schedule == nil {
+			node.Missing = true
+		} else {
+			node.Every = schedule.Every.String()
+			node.RunOnStart = schedule.RunOnStart
+		}
+		graph.Schedules = append(graph.Schedules, node)
+		graph.Edges = append(graph.Edges, teamGraphEdge{From: teamNode, To: "schedule:" + name, Kind: "owns_schedule"})
+		if schedule == nil {
+			continue
+		}
+		payload := schedule.EventPayload()
+		for _, pipelineName := range team.Pipelines {
+			pipeline := top.Pipelines[pipelineName]
+			if pipeline == nil || pipeline.Trigger == nil || pipeline.Trigger.Event != topology.EventSchedule || !pipeline.Trigger.Matches(payload) {
+				continue
+			}
+			graph.Edges = append(graph.Edges, teamGraphEdge{From: "schedule:" + name, To: "pipeline:" + pipeline.Name, Kind: "triggers_pipeline"})
+		}
+	}
+	return graph, nil
+}
+
+func namespacedPipelineGraphNode(pipeline, node string) string {
+	if node == "<trigger>" {
+		return "pipeline:" + pipeline + ":trigger"
+	}
+	return "pipeline:" + pipeline + ":step:" + node
 }
 
 func teamInfoFromTopology(team *topology.Team) teamInfo {
@@ -6909,6 +7083,167 @@ func renderTeamDetail(w io.Writer, team teamInfo, jsonOut bool) error {
 	fmt.Fprintf(w, "Pipelines:   %s\n", emptyDash(strings.Join(team.Pipelines, ", ")))
 	fmt.Fprintf(w, "Schedules:   %s\n", emptyDash(strings.Join(team.Schedules, ", ")))
 	return nil
+}
+
+func renderTeamGraph(w io.Writer, graph teamGraph, format pipelineGraphFormat, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(graph)
+	}
+	switch format {
+	case pipelineGraphMermaid:
+		renderTeamGraphMermaid(w, graph)
+	case pipelineGraphDOT:
+		renderTeamGraphDOT(w, graph)
+	default:
+		renderTeamGraphText(w, graph)
+	}
+	return nil
+}
+
+func renderTeamGraphText(w io.Writer, graph teamGraph) {
+	fmt.Fprintf(w, "Team: %s\n", graph.Team.Name)
+	if graph.Team.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", graph.Team.Description)
+	}
+	if len(graph.Instances) == 0 {
+		fmt.Fprintln(w, "Instances: -")
+	} else {
+		fmt.Fprintln(w, "Instances:")
+		for _, inst := range graph.Instances {
+			missing := ""
+			if inst.Missing {
+				missing = " missing=true"
+			}
+			fmt.Fprintf(w, "  %s agent=%s ephemeral=%t%s\n", inst.Name, emptyDash(inst.Agent), inst.Ephemeral, missing)
+		}
+	}
+	if len(graph.Pipelines) == 0 {
+		fmt.Fprintln(w, "Pipelines: -")
+	} else {
+		fmt.Fprintln(w, "Pipelines:")
+		for _, pipeline := range graph.Pipelines {
+			fmt.Fprintf(w, "  %s trigger=%s steps=%d\n", pipeline.Name, emptyDash(pipeline.Summary), len(pipeline.Nodes))
+			for _, node := range pipeline.Nodes {
+				after := "-"
+				if len(node.After) > 0 {
+					after = strings.Join(node.After, ",")
+				}
+				routes := ""
+				if len(node.Routes) > 0 {
+					routes = " routes=" + strings.Join(node.Routes, ",")
+				}
+				gate := ""
+				if node.Gate != "" {
+					gate = " gate=" + node.Gate
+				}
+				missing := ""
+				if node.Missing {
+					missing = " missing=true"
+				}
+				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, routes, missing)
+			}
+		}
+	}
+	if len(graph.Schedules) == 0 {
+		fmt.Fprintln(w, "Schedules: -")
+	} else {
+		fmt.Fprintln(w, "Schedules:")
+		for _, schedule := range graph.Schedules {
+			missing := ""
+			if schedule.Missing {
+				missing = " missing=true"
+			}
+			fmt.Fprintf(w, "  %s every=%s run_on_start=%t%s\n", schedule.Name, emptyDash(schedule.Every), schedule.RunOnStart, missing)
+		}
+	}
+	if len(graph.Edges) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Edges:")
+	for _, edge := range graph.Edges {
+		kind := ""
+		if edge.Kind != "" {
+			kind = " kind=" + edge.Kind
+		}
+		fmt.Fprintf(w, "  %s -> %s%s\n", edge.From, edge.To, kind)
+	}
+}
+
+func renderTeamGraphMermaid(w io.Writer, graph teamGraph) {
+	fmt.Fprintln(w, "flowchart TD")
+	for _, node := range teamGraphNodeLabels(graph) {
+		label := strings.ReplaceAll(node.Label, "\n", "<br/>")
+		fmt.Fprintf(w, "  %s[%q]\n", pipelineGraphMermaidID(node.ID), pipelineMermaidLabel(label))
+	}
+	for _, edge := range graph.Edges {
+		fmt.Fprintf(w, "  %s --> %s\n", pipelineGraphMermaidID(edge.From), pipelineGraphMermaidID(edge.To))
+	}
+}
+
+func renderTeamGraphDOT(w io.Writer, graph teamGraph) {
+	name := graph.Team.Name
+	if name == "" {
+		name = "team"
+	}
+	fmt.Fprintf(w, "digraph %q {\n", name)
+	fmt.Fprintln(w, "  rankdir=TB;")
+	for _, node := range teamGraphNodeLabels(graph) {
+		fmt.Fprintf(w, "  %q [label=%q];\n", node.ID, node.Label)
+	}
+	for _, edge := range graph.Edges {
+		fmt.Fprintf(w, "  %q -> %q", edge.From, edge.To)
+		if edge.Kind != "" {
+			fmt.Fprintf(w, " [label=%q]", edge.Kind)
+		}
+		fmt.Fprintln(w, ";")
+	}
+	fmt.Fprintln(w, "}")
+}
+
+type teamGraphLabel struct {
+	ID    string
+	Label string
+}
+
+func teamGraphNodeLabels(graph teamGraph) []teamGraphLabel {
+	labels := []teamGraphLabel{{ID: "team:" + graph.Team.Name, Label: "team: " + graph.Team.Name}}
+	for _, inst := range graph.Instances {
+		parts := []string{"instance: " + inst.Name}
+		if inst.Agent != "" {
+			parts = append(parts, "agent: "+inst.Agent)
+		}
+		if inst.Ephemeral {
+			parts = append(parts, "ephemeral")
+		}
+		if inst.Missing {
+			parts = append(parts, "missing")
+		}
+		labels = append(labels, teamGraphLabel{ID: "instance:" + inst.Name, Label: strings.Join(parts, "\n")})
+	}
+	for _, pipeline := range graph.Pipelines {
+		labels = append(labels, teamGraphLabel{ID: "pipeline:" + pipeline.Name, Label: "pipeline: " + pipeline.Name})
+		labels = append(labels, teamGraphLabel{ID: "pipeline:" + pipeline.Name + ":trigger", Label: "trigger: " + emptyDash(pipeline.Summary)})
+		for _, node := range pipeline.Nodes {
+			labels = append(labels, teamGraphLabel{
+				ID:    "pipeline:" + pipeline.Name + ":step:" + node.ID,
+				Label: pipelineGraphNodeLabel(node, "\n"),
+			})
+		}
+	}
+	for _, schedule := range graph.Schedules {
+		parts := []string{"schedule: " + schedule.Name}
+		if schedule.Every != "" {
+			parts = append(parts, "every: "+schedule.Every)
+		}
+		if schedule.RunOnStart {
+			parts = append(parts, "run_on_start")
+		}
+		if schedule.Missing {
+			parts = append(parts, "missing")
+		}
+		labels = append(labels, teamGraphLabel{ID: "schedule:" + schedule.Name, Label: strings.Join(parts, "\n")})
+	}
+	return labels
 }
 
 func parseTeamStatusFormat(format string) (*template.Template, error) {

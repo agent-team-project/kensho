@@ -152,6 +152,7 @@ Shortcuts:
 | --- | --- |
 | `agent-team team ls` | List teams |
 | `agent-team team show <team>` | Show team declaration |
+| `agent-team team graph <team>` | Render team-owned instance, schedule, and pipeline wiring |
 | `agent-team team overview <team>` | Scoped operator overview |
 | `agent-team team health <team>` | Scoped health |
 | `agent-team team status <team>` | Scoped status |

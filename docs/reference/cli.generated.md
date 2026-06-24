@@ -3946,6 +3946,7 @@ Subcommands:
 - `agent-team team down` - Stop a team&#39;s persistent instances and active ephemeral children.
 - `agent-team team drain` - Run one team&#39;s maintenance loop until idle.
 - `agent-team team events` - Show lifecycle events scoped to one team.
+- `agent-team team graph` - Render a declared team graph.
 - `agent-team team health` - Check health for one declared team.
 - `agent-team team jobs` - List jobs owned by one team.
 - `agent-team team logs` - Show daemon-captured logs for one team.
@@ -4144,6 +4145,25 @@ Flags:
       --status strings    Only show events with this lifecycle status. Can repeat or comma-separate.
       --summary           Summarize matching team events by action, status, agent, and instance.
       --tail int          Show only the last N matching team events before returning or following (0 = all).
+```
+
+## `agent-team team graph`
+
+Render a declared team graph.
+
+Render a read-only graph of one declared team&#39;s instances, pipelines, schedules, and step dispatch wiring.
+
+```text
+agent-team team graph <team> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Graph output format: text, mermaid, or dot. (default "text")
+      --json            Emit graph nodes and edges as JSON.
+      --repo string     Repo root. (default "<repo>")
+      --routes          Annotate pipeline steps with matching agent.dispatch routes.
 ```
 
 ## `agent-team team health`

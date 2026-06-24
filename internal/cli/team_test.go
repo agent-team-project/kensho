@@ -152,6 +152,72 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team info = %+v", info)
 	}
 
+	graphCmd := NewRootCmd()
+	graphOut, graphErr := &bytes.Buffer{}, &bytes.Buffer{}
+	graphCmd.SetOut(graphOut)
+	graphCmd.SetErr(graphErr)
+	graphCmd.SetArgs([]string{"team", "graph", "delivery", "--repo", root, "--routes", "--json"})
+	if err := graphCmd.Execute(); err != nil {
+		t.Fatalf("team graph json: %v\nstderr=%s", err, graphErr.String())
+	}
+	var graph teamGraph
+	if err := json.Unmarshal(graphOut.Bytes(), &graph); err != nil {
+		t.Fatalf("decode team graph: %v\nbody=%s", err, graphOut.String())
+	}
+	if graph.Team.Name != "delivery" || len(graph.Instances) != 3 || len(graph.Pipelines) != 1 || len(graph.Schedules) != 1 {
+		t.Fatalf("team graph summary = %+v", graph)
+	}
+	if len(graph.Pipelines[0].Nodes) != 2 || graph.Pipelines[0].Nodes[0].Routes[0] != "worker" {
+		t.Fatalf("team graph pipeline nodes = %+v", graph.Pipelines[0].Nodes)
+	}
+	foundDispatchEdge := false
+	for _, edge := range graph.Edges {
+		if edge.From == "pipeline:ticket_to_pr:step:implement" && edge.To == "instance:worker" && edge.Kind == "dispatches_to" {
+			foundDispatchEdge = true
+		}
+	}
+	if !foundDispatchEdge {
+		t.Fatalf("team graph edges missing dispatch edge: %+v", graph.Edges)
+	}
+
+	graphText := NewRootCmd()
+	graphTextOut, graphTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	graphText.SetOut(graphTextOut)
+	graphText.SetErr(graphTextErr)
+	graphText.SetArgs([]string{"team", "graph", "delivery", "--repo", root, "--routes"})
+	if err := graphText.Execute(); err != nil {
+		t.Fatalf("team graph text: %v\nstderr=%s", err, graphTextErr.String())
+	}
+	for _, want := range []string{"Team: delivery", "Instances:", "Pipelines:", "implement target=worker after=- routes=worker", "Edges:", "dispatches_to"} {
+		if !strings.Contains(graphTextOut.String(), want) {
+			t.Fatalf("team graph text missing %q:\n%s", want, graphTextOut.String())
+		}
+	}
+
+	graphMermaid := NewRootCmd()
+	graphMermaidOut, graphMermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	graphMermaid.SetOut(graphMermaidOut)
+	graphMermaid.SetErr(graphMermaidErr)
+	graphMermaid.SetArgs([]string{"team", "graph", "delivery", "--repo", root, "--format", "mermaid"})
+	if err := graphMermaid.Execute(); err != nil {
+		t.Fatalf("team graph mermaid: %v\nstderr=%s", err, graphMermaidErr.String())
+	}
+	if !strings.Contains(graphMermaidOut.String(), "flowchart TD") || !strings.Contains(graphMermaidOut.String(), "team_delivery") {
+		t.Fatalf("team graph mermaid output:\n%s", graphMermaidOut.String())
+	}
+
+	graphDOT := NewRootCmd()
+	graphDOTOut, graphDOTErr := &bytes.Buffer{}, &bytes.Buffer{}
+	graphDOT.SetOut(graphDOTOut)
+	graphDOT.SetErr(graphDOTErr)
+	graphDOT.SetArgs([]string{"team", "graph", "delivery", "--repo", root, "--format", "dot"})
+	if err := graphDOT.Execute(); err != nil {
+		t.Fatalf("team graph dot: %v\nstderr=%s", err, graphDOTErr.String())
+	}
+	if !strings.Contains(graphDOTOut.String(), "digraph \"delivery\"") || !strings.Contains(graphDOTOut.String(), "\"team:delivery\" -> \"pipeline:ticket_to_pr\"") {
+		t.Fatalf("team graph dot output:\n%s", graphDOTOut.String())
+	}
+
 	ps := NewRootCmd()
 	psOut, psErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ps.SetOut(psOut)
