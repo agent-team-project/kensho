@@ -41,6 +41,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineApproveCmd())
 	cmd.AddCommand(newPipelineRejectCmd())
 	cmd.AddCommand(newPipelineSkipCmd())
+	cmd.AddCommand(newPipelineCancelCmd())
 	cmd.AddCommand(newPipelineRetryCmd())
 	cmd.AddCommand(newPipelineTimeoutCmd())
 	cmd.AddCommand(newPipelineRunCmd())
@@ -1005,6 +1006,77 @@ func newPipelineSkipCmd() *cobra.Command {
 	return cmd
 }
 
+func newPipelineCancelCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		actor   string
+		message string
+		limit   int
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "cancel <pipeline>|--all",
+		Short: "Cancel non-terminal pipeline jobs.",
+		Long: "Cancel queued, running, or blocked jobs in one pipeline, or all pipelines with --all, by marking the durable job failed with a cancelled audit event. " +
+			"Batch cancellation only updates job files; use job cancel --stop or --kill when an owning instance should also be stopped.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cancel: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cancel: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cancel: pass a pipeline name or --all.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cancel: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineCancelFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline cancel: %v\n", err)
+				return exitErr(2)
+			}
+			pipelineName := ""
+			if len(args) == 1 {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if !all && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cancel: pipeline name is required.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			results, err := cancelPipelineJobs(teamDir, pipelineName, message, actor, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline cancel: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineCancelResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Cancel non-terminal jobs across all pipelines.")
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in cancellation audit events.")
+	cmd.Flags().StringVar(&message, "message", "", "Cancellation reason recorded on each cancelled job.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum matching jobs to cancel (0 = no limit).")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview cancellations without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit cancellation results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each cancellation result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StatusAfter}}'.")
+	return cmd
+}
+
 func newPipelineRetryCmd() *cobra.Command {
 	var (
 		repo          string
@@ -1622,6 +1694,19 @@ type pipelineSkipResult struct {
 	SkipReason string     `json:"skip_reason,omitempty"`
 	Job        *job.Job   `json:"job,omitempty"`
 	Step       *job.Step  `json:"step,omitempty"`
+}
+
+type pipelineCancelResult struct {
+	JobID        string     `json:"job_id"`
+	Ticket       string     `json:"ticket"`
+	Pipeline     string     `json:"pipeline"`
+	StatusBefore job.Status `json:"status_before"`
+	StatusAfter  job.Status `json:"status_after"`
+	Instance     string     `json:"instance,omitempty"`
+	Action       string     `json:"action"`
+	DryRun       bool       `json:"dry_run,omitempty"`
+	Message      string     `json:"message,omitempty"`
+	Job          *job.Job   `json:"job,omitempty"`
 }
 
 type pipelineRetryResult struct {
@@ -3100,6 +3185,65 @@ func skipPipelineSteps(teamDir, pipeline, stepID, message string, limit int, dry
 	return results, nil
 }
 
+func cancelPipelineJobs(teamDir, pipeline, message, actor string, limit int, dryRun bool) ([]pipelineCancelResult, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	reason := strings.TrimSpace(message)
+	if reason == "" {
+		reason = "cancelled by operator"
+	}
+	cancelActor := strings.TrimSpace(actor)
+	if cancelActor == "" {
+		cancelActor = "cli"
+	}
+	results := []pipelineCancelResult{}
+	for _, j := range jobs {
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		if j == nil || jobStatusTerminal(j.Status) {
+			continue
+		}
+		statusBefore := j.Status
+		cancelled := *j
+		applyJobCancelUpdate(&cancelled, reason)
+		result := pipelineCancelResult{
+			JobID:        j.ID,
+			Ticket:       j.Ticket,
+			Pipeline:     j.Pipeline,
+			StatusBefore: statusBefore,
+			StatusAfter:  cancelled.Status,
+			Instance:     j.Instance,
+			Action:       "would_cancel",
+			DryRun:       dryRun,
+			Message:      reason,
+			Job:          &cancelled,
+		}
+		if dryRun {
+			results = append(results, result)
+			continue
+		}
+		*j = cancelled
+		data := map[string]string{
+			"status":  string(j.Status),
+			"message": reason,
+		}
+		if strings.TrimSpace(j.Instance) != "" {
+			data["instance"] = strings.TrimSpace(j.Instance)
+		}
+		if err := writeJobWithAudit(teamDir, j, "cancelled", cancelActor, reason, data); err != nil {
+			return nil, err
+		}
+		result.Action = "cancelled"
+		result.DryRun = false
+		result.Job = j
+		results = append(results, result)
+	}
+	return results, nil
+}
+
 func filterPipelineApproveRows(rows []jobReadyRow, stepFilter string) []jobReadyRow {
 	stepFilter = strings.TrimSpace(stepFilter)
 	out := rows[:0]
@@ -3854,6 +3998,17 @@ func parsePipelineSkipFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
+func parsePipelineCancelFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-cancel-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
 func parsePipelineRetryFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -4438,6 +4593,46 @@ func renderPipelineSkipTable(w io.Writer, results []pipelineSkipResult) {
 			emptyDash(string(result.StepStatus)),
 			emptyDash(result.Instance),
 			skipped,
+			emptyDash(result.Message),
+		)
+	}
+	_ = tw.Flush()
+}
+
+func renderPipelineCancelResults(w io.Writer, results []pipelineCancelResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if tmpl != nil {
+		for _, result := range results {
+			if err := tmpl.Execute(w, result); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderPipelineCancelTable(w, results)
+	return nil
+}
+
+func renderPipelineCancelTable(w io.Writer, results []pipelineCancelResult) {
+	if len(results) == 0 {
+		fmt.Fprintln(w, "(no cancellable pipeline jobs)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "JOB\tPIPELINE\tACTION\tBEFORE\tAFTER\tINSTANCE\tMESSAGE")
+	for _, result := range results {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			result.JobID,
+			emptyDash(result.Pipeline),
+			result.Action,
+			result.StatusBefore,
+			result.StatusAfter,
+			emptyDash(result.Instance),
 			emptyDash(result.Message),
 		)
 	}

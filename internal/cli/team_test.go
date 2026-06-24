@@ -2569,6 +2569,124 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestTeamCancelScopesToTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ticket.created"
+
+[[pipelines.ops_review.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-936",
+			Ticket:    "SQU-936",
+			Target:    "worker",
+			Kickoff:   "delivery cancel",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusQueued},
+			},
+		},
+		{
+			ID:        "squ-937",
+			Ticket:    "SQU-937",
+			Target:    "worker",
+			Kickoff:   "ops cancel",
+			Pipeline:  "ops_review",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusQueued},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dryRun := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryRun.SetOut(dryOut)
+	dryRun.SetErr(dryErr)
+	dryRun.SetArgs([]string{"team", "cancel", "delivery", "--repo", root, "--message", "superseded", "--dry-run", "--json"})
+	if err := dryRun.Execute(); err != nil {
+		t.Fatalf("team cancel dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []pipelineCancelResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode team cancel dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-936" || preview[0].Action != "would_cancel" || preview[0].StatusAfter != job.StatusFailed {
+		t.Fatalf("team cancel preview = %+v", preview)
+	}
+	if strings.Contains(dryOut.String(), "squ-937") {
+		t.Fatalf("team cancel leaked foreign job:\n%s", dryOut.String())
+	}
+	unchanged, err := job.Read(teamDir, "squ-936")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.LastEvent == "cancelled" {
+		t.Fatalf("dry-run mutated delivery job = %+v", unchanged)
+	}
+
+	run := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	run.SetOut(out)
+	run.SetErr(stderr)
+	run.SetArgs([]string{"team", "cancel", "delivery", "--repo", root, "--message", "superseded", "--json"})
+	if err := run.Execute(); err != nil {
+		t.Fatalf("team cancel: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineCancelResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team cancel: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].JobID != "squ-936" || rows[0].Action != "cancelled" || rows[0].Message != "superseded" {
+		t.Fatalf("team cancel rows = %+v", rows)
+	}
+	delivery, err := job.Read(teamDir, "squ-936")
+	if err != nil {
+		t.Fatalf("read delivery job: %v", err)
+	}
+	if delivery.Status != job.StatusFailed || delivery.LastEvent != "cancelled" || delivery.LastStatus != "superseded" {
+		t.Fatalf("delivery job = %+v", delivery)
+	}
+	foreign, err := job.Read(teamDir, "squ-937")
+	if err != nil {
+		t.Fatalf("read foreign job: %v", err)
+	}
+	if foreign.Status != job.StatusQueued || foreign.LastEvent == "cancelled" {
+		t.Fatalf("foreign job changed = %+v", foreign)
+	}
+}
+
 func TestTeamRepairRetryPipelinesStepFilter(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

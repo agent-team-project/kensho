@@ -2790,6 +2790,114 @@ after = ["implement"]
 	}
 }
 
+func TestPipelineCancelBatch(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-907",
+			Ticket:    "SQU-907",
+			Target:    "worker",
+			Kickoff:   "obsolete running job",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-907",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-907", StartedAt: now.Add(-time.Hour)},
+			},
+		},
+		{
+			ID:        "squ-908",
+			Ticket:    "SQU-908",
+			Target:    "worker",
+			Kickoff:   "already done",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusDone,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dryRun := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryRun.SetOut(dryOut)
+	dryRun.SetErr(dryErr)
+	dryRun.SetArgs([]string{"pipeline", "cancel", "ticket_to_pr", "--repo", root, "--message", "duplicate ticket", "--dry-run", "--json"})
+	if err := dryRun.Execute(); err != nil {
+		t.Fatalf("pipeline cancel dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []pipelineCancelResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode cancel dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-907" || preview[0].Action != "would_cancel" || preview[0].StatusBefore != job.StatusRunning || preview[0].StatusAfter != job.StatusFailed || preview[0].Instance != "worker-squ-907" {
+		t.Fatalf("cancel preview = %+v", preview)
+	}
+	unchanged, err := job.Read(teamDir, "squ-907")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning || unchanged.LastEvent == "cancelled" {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+
+	run := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	run.SetOut(out)
+	run.SetErr(stderr)
+	run.SetArgs([]string{"pipeline", "cancel", "ticket_to_pr", "--repo", root, "--message", "duplicate ticket", "--format", "{{.JobID}} {{.Action}} {{.StatusBefore}} {{.StatusAfter}} {{.Instance}} {{.Message}}"})
+	if err := run.Execute(); err != nil {
+		t.Fatalf("pipeline cancel: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != "squ-907 cancelled running failed worker-squ-907 duplicate ticket\n" {
+		t.Fatalf("cancel format = %q", got)
+	}
+	cancelled, err := job.Read(teamDir, "squ-907")
+	if err != nil {
+		t.Fatalf("read cancelled job: %v", err)
+	}
+	if cancelled.Status != job.StatusFailed || cancelled.LastEvent != "cancelled" || cancelled.LastStatus != "duplicate ticket" || cancelled.Instance != "worker-squ-907" {
+		t.Fatalf("cancelled job = %+v", cancelled)
+	}
+	done, err := job.Read(teamDir, "squ-908")
+	if err != nil {
+		t.Fatalf("read done job: %v", err)
+	}
+	if done.Status != job.StatusDone || done.LastEvent == "cancelled" {
+		t.Fatalf("terminal job changed = %+v", done)
+	}
+	events, err := job.ListEvents(teamDir, "squ-907")
+	if err != nil {
+		t.Fatalf("list cancel events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != "cancelled" || events[len(events)-1].Message != "duplicate ticket" || events[len(events)-1].Data["instance"] != "worker-squ-907" {
+		t.Fatalf("cancel events = %+v", events)
+	}
+}
+
 func TestPipelinePRGateWaitsForJobPR(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

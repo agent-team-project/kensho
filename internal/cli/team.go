@@ -52,6 +52,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamApproveCmd())
 	cmd.AddCommand(newTeamRejectCmd())
 	cmd.AddCommand(newTeamSkipCmd())
+	cmd.AddCommand(newTeamCancelCmd())
 	cmd.AddCommand(newTeamRetryCmd())
 	cmd.AddCommand(newTeamTimeoutCmd())
 	cmd.AddCommand(newTeamQueueCmd())
@@ -1552,6 +1553,64 @@ func newTeamSkipCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview skipped team steps without writing job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit skip results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")
+	return cmd
+}
+
+func newTeamCancelCmd() *cobra.Command {
+	var (
+		repo    string
+		actor   string
+		message string
+		limit   int
+		dryRun  bool
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "cancel <team>",
+		Short: "Cancel non-terminal pipeline jobs owned by one team.",
+		Long: "Cancel queued, running, or blocked jobs in one team's declared pipelines by marking the durable job failed with a cancelled audit event. " +
+			"Batch cancellation only updates job files; use job cancel --stop or --kill when an owning instance should also be stopped.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cancel: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cancel: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineCancelFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cancel: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			_, team, err := loadTopologyTeam(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cancel: %v\n", err)
+				return exitErr(1)
+			}
+			results, err := cancelTeamPipelineJobs(teamDir, team, message, actor, limit, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team cancel: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineCancelResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in cancellation audit events.")
+	cmd.Flags().StringVar(&message, "message", "", "Cancellation reason recorded on each cancelled team job.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Cancel at most this many non-terminal team jobs; 0 means no limit.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team cancellations without writing job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit cancellation results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StatusAfter}}'.")
 	return cmd
 }
 
@@ -7267,6 +7326,32 @@ func skipTeamPipelineSteps(teamDir string, team *topology.Team, stepID string, m
 		results = append(results, skipped...)
 		if limit > 0 {
 			remaining -= len(skipped)
+		}
+	}
+	return results, nil
+}
+
+func cancelTeamPipelineJobs(teamDir string, team *topology.Team, message string, actor string, limit int, dryRun bool) ([]pipelineCancelResult, error) {
+	if team == nil || len(team.Pipelines) == 0 {
+		return []pipelineCancelResult{}, nil
+	}
+	results := []pipelineCancelResult{}
+	remaining := limit
+	for _, pipeline := range team.Pipelines {
+		if limit > 0 && remaining <= 0 {
+			break
+		}
+		batchLimit := 0
+		if limit > 0 {
+			batchLimit = remaining
+		}
+		cancelled, err := cancelPipelineJobs(teamDir, pipeline, message, actor, batchLimit, dryRun)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, cancelled...)
+		if limit > 0 {
+			remaining -= len(cancelled)
 		}
 	}
 	return results, nil

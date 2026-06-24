@@ -2917,6 +2917,7 @@ Subcommands:
 
 - `agent-team pipeline advance` - Dispatch ready pipeline steps.
 - `agent-team pipeline approve` - Approve blocked manual pipeline gates.
+- `agent-team pipeline cancel` - Cancel non-terminal pipeline jobs.
 - `agent-team pipeline doctor` - Validate pipeline workflow wiring.
 - `agent-team pipeline explain` - Explain pipeline jobs and step blockers.
 - `agent-team pipeline graph` - Render a declared pipeline step graph.
@@ -2987,6 +2988,29 @@ Flags:
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Approve only manual gates whose next blocked step has this id.
       --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team pipeline cancel`
+
+Cancel non-terminal pipeline jobs.
+
+Cancel queued, running, or blocked jobs in one pipeline, or all pipelines with --all, by marking the durable job failed with a cancelled audit event. Batch cancellation only updates job files; use job cancel --stop or --kill when an owning instance should also be stopped.
+
+```text
+agent-team pipeline cancel <pipeline>|--all [flags]
+```
+
+Flags:
+
+```text
+      --actor string     Actor label recorded in cancellation audit events. (default "cli")
+      --all              Cancel non-terminal jobs across all pipelines.
+      --dry-run          Preview cancellations without writing job state.
+      --format string    Render each cancellation result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StatusAfter}}'.
+      --json             Emit cancellation results as JSON.
+      --limit int        Maximum matching jobs to cancel (0 = no limit).
+      --message string   Cancellation reason recorded on each cancelled job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline doctor`
@@ -4739,6 +4763,7 @@ Subcommands:
 
 - `agent-team team advance` - Dispatch ready pipeline steps owned by one team.
 - `agent-team team approve` - Approve manual pipeline gates owned by one team.
+- `agent-team team cancel` - Cancel non-terminal pipeline jobs owned by one team.
 - `agent-team team cleanup` - Clean up done jobs owned by one team.
 - `agent-team team doctor` - Validate one team&#39;s topology wiring.
 - `agent-team team down` - Stop a team&#39;s persistent instances and active ephemeral children.
@@ -4831,6 +4856,28 @@ Flags:
       --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
       --step string          Approve only manual gates whose next blocked step has this id.
       --workspace string     Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team team cancel`
+
+Cancel non-terminal pipeline jobs owned by one team.
+
+Cancel queued, running, or blocked jobs in one team&#39;s declared pipelines by marking the durable job failed with a cancelled audit event. Batch cancellation only updates job files; use job cancel --stop or --kill when an owning instance should also be stopped.
+
+```text
+agent-team team cancel <team> [flags]
+```
+
+Flags:
+
+```text
+      --actor string     Actor label recorded in cancellation audit events. (default "cli")
+      --dry-run          Preview team cancellations without writing job state.
+      --format string    Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StatusAfter}}'.
+      --json             Emit cancellation results as JSON.
+      --limit int        Cancel at most this many non-terminal team jobs; 0 means no limit.
+      --message string   Cancellation reason recorded on each cancelled team job.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team team cleanup`
