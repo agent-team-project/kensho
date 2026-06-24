@@ -1686,6 +1686,7 @@ agent-team job logs <job-id> [flags]
 Flags:
 
 ```text
+      --clean          Hide known Codex runtime diagnostic noise when printing the raw owning instance log.
   -f, --follow         Tail the owning instance log; print new bytes as they appear.
       --grep string    Only print log lines matching this regular expression. One-shot reads only.
       --last-message   Show the clean final Codex response sidecar for the owning instance.
@@ -2415,6 +2416,7 @@ Flags:
 ```text
       --agent strings     Only show logs for this agent. Can repeat or comma-separate.
   -a, --all               Show logs for every daemon-known instance, prefixed by instance name.
+      --clean             Hide known Codex runtime diagnostic noise when printing raw logs.
       --daemon            Show the agent-teamd daemon log instead of instance logs.
   -f, --follow            Tail the log; print new bytes as they appear.
       --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
@@ -4266,6 +4268,7 @@ agent-team team logs <team> [flags]
 Flags:
 
 ```text
+      --clean             Hide known Codex runtime diagnostic noise when printing raw team logs.
   -f, --follow            Tail selected team logs.
       --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
       --grep string       Only print log lines matching this regular expression. One-shot reads only.

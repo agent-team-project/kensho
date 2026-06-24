@@ -541,12 +541,18 @@ This is still usable, but `agent-team logs` is noisy for simple status checks.
 one-shot mode: it captures Codex stdout/stderr internally, replays them only on
 failure, and prints the `--output-last-message` sidecar on success.
 
+Follow-up status: `agent-team logs`, `agent-team job logs`, and
+`agent-team team logs` now accept `--clean` for a filtered raw-log view that
+hides known Codex startup/plugin/MCP/reconnect diagnostics while preserving raw
+logs by default.
+
 Suggested improvement:
 
 - Keep daemon-managed `logs --last-message` documented as the retrieval path for
   detached Codex work.
 - Keep documenting that raw Codex adapter logs include Codex CLI diagnostics and
-  full prompt echo today.
+  full prompt echo by default; `--clean` is an operator convenience, not a
+  replacement for persisted raw logs.
 
 ## Suggested Next Fix Order
 

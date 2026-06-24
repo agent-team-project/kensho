@@ -48,7 +48,7 @@ as the output directory instead.
 | `agent-team restart [instances...]` | Restart/resume selected instances |
 | `agent-team ps` | List instance rows; filter mixed-runtime views with `--runtime` |
 | `agent-team inspect [instances...]` | Show runtime and state detail |
-| `agent-team logs [instance]` | Read/follow instance logs, or use `--last-message` for clean Codex final responses |
+| `agent-team logs [instance]` | Read/follow instance logs, use `--last-message` for clean Codex final responses, or `--clean` to hide known Codex diagnostics |
 | `agent-team stats` | Show CPU/RSS data |
 | `agent-team attach <instance>` | Interactive runtime resume handoff |
 | `agent-team wait [instances...]` | Wait for lifecycle or phase conditions |

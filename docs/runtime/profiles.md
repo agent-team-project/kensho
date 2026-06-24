@@ -166,6 +166,15 @@ agent-team job logs <job-id> --last-message
 agent-team team logs <team> --last-message
 ```
 
+When you need raw Codex logs for debugging but do not want startup/plugin/MCP
+reconnect diagnostics mixed into the useful output, add `--clean`:
+
+```sh
+agent-team logs <instance> --clean --tail 200
+agent-team job logs <job-id> --clean --grep "error"
+agent-team team logs <team> --clean
+```
+
 The Codex adapter sets `AGENT_TEAM_*` variables through Codex shell-environment policy options, so status, inbox, and channel scripts can find the repo team root and state directory without broadly inheriting the parent process environment.
 
 ## Codex Limitations

@@ -105,6 +105,41 @@ func TestLogsSingleInstanceUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	}
 }
 
+func TestLogsCleanFiltersCodexNoiseBeforeTail(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "worker",
+		Agent:    "worker",
+		Runtime:  string(runtimebin.KindCodex),
+		Status:   daemon.StatusExited,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "worker", strings.Join([]string{
+		"Reading additional input from stdin...",
+		"2026-06-24T10:10:44Z  WARN codex_core_plugins::manager: failed to refresh remote installed plugins cache",
+		"first useful line",
+		"ERROR: Reconnecting... 1/5",
+		"final useful line",
+		"",
+	}, "\n"))
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"logs", "worker", "--clean", "--tail", "1", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("logs clean: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := out.String(), "final useful line\n"; got != want {
+		t.Fatalf("logs clean output = %q, want %q", got, want)
+	}
+}
+
 func TestLogsLastMessageUsesStateSidecarWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -1189,6 +1224,7 @@ func TestLogsGrepValidation(t *testing.T) {
 		{[]string{"logs", "--list", "--grep", "error"}, "--grep cannot be combined with --list"},
 		{[]string{"logs", "manager", "--grep", "["}, "invalid --grep pattern"},
 		{[]string{"logs", "manager", "--last-message", "--follow"}, "--last-message cannot be combined with --follow"},
+		{[]string{"logs", "manager", "--last-message", "--clean"}, "--last-message cannot be combined with --clean"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -1860,7 +1896,7 @@ func TestStreamLocalLogFollowStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	var buf bytes.Buffer
-	if err := streamLocalLog(ctx, &buf, path, true, 0, nil); err != nil {
+	if err := streamLocalLog(ctx, &buf, path, true, 0, nil, false); err != nil {
 		t.Fatalf("streamLocalLog: %v", err)
 	}
 	if got := buf.String(); got != "seed\n" {

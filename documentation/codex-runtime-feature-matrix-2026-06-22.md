@@ -194,7 +194,11 @@ and `tick` do not advance them.
 
 13. **Codex runtime logs are noisy even for successful short runs.**
     Successful Codex runs printed plugin/skill warnings before the expected
-    marker text. This is usable, but it makes `logs` harder to scan.
+    marker text. Status after follow-up: raw logs remain available by default,
+    `--last-message` remains the clean final-response path for Codex one-shots,
+    and `agent-team logs`, `agent-team job logs`, and `agent-team team logs`
+    now accept `--clean` to hide known Codex startup/plugin/MCP/reconnect
+    diagnostics when operators need a filtered raw-log view.
 
 14. **Large Codex adapter prompts should not be passed as argv.**
     Follow-up socket validation exposed daemon-managed `codex exec` runs that
@@ -236,7 +240,5 @@ and `tick` do not advance them.
 
 1. Re-run `agent-team runtime probe --runtime codex --json` and then a real
    Codex worker socket check after DNS/provider reachability is healthy.
-2. Reduce noisy raw Codex adapter logs in successful short runs, especially
-   plugin/skill warnings that obscure the useful last message.
-3. Investigate why `agent-team`-supervised `codex exec -` stalls even though
+2. Investigate why `agent-team`-supervised `codex exec -` stalls even though
    raw replay with the same stdin/add-dir succeeds.
