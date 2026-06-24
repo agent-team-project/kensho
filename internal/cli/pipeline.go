@@ -2682,6 +2682,10 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 		fmt.Fprintln(w, "Jobs: none")
 		return
 	}
+	if row.ExplainedJobs == 0 {
+		fmt.Fprintln(w, "Jobs: none selected")
+		return
+	}
 	if row.Truncated {
 		fmt.Fprintf(w, "Jobs: showing %d of %d\n", row.ExplainedJobs, row.TotalJobs)
 	} else {

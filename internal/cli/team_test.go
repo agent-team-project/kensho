@@ -525,6 +525,18 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team failed explain rows = %+v", failedExplainRows)
 	}
 
+	explainFailedText := NewRootCmd()
+	explainFailedTextOut, explainFailedTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainFailedText.SetOut(explainFailedTextOut)
+	explainFailedText.SetErr(explainFailedTextErr)
+	explainFailedText.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--state", "failed"})
+	if err := explainFailedText.Execute(); err != nil {
+		t.Fatalf("team explain failed text: %v\nstderr=%s", err, explainFailedTextErr.String())
+	}
+	if !strings.Contains(explainFailedTextOut.String(), "Jobs: none selected") {
+		t.Fatalf("team explain failed text = %q", explainFailedTextOut.String())
+	}
+
 	schedules := NewRootCmd()
 	schedulesOut, schedulesErr := &bytes.Buffer{}, &bytes.Buffer{}
 	schedules.SetOut(schedulesOut)
