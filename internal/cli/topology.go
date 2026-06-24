@@ -122,31 +122,56 @@ func newTopologySummaryCmd() *cobra.Command {
 }
 
 func newTopologyReloadCmd() *cobra.Command {
-	var target string
+	var (
+		target  string
+		jsonOut bool
+		format  string
+	)
 	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "reload",
 		Short: "Re-read instances.toml from disk (daemon must be running).",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team topology reload: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseReloadFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team topology reload: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
 			}
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: daemon is not running — start it first with `agent-team daemon start`.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team topology reload: daemon is not running — start it first with `agent-team daemon start`.")
 				return exitErr(2)
 			}
 			res, err := dc.TopologyReload()
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team topology reload: %v\n", err)
 				return exitErr(1)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+			}
+			if tmpl != nil {
+				if err := tmpl.Execute(cmd.OutOrStdout(), res); err != nil {
+					return err
+				}
+				_, err := fmt.Fprintln(cmd.OutOrStdout())
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Reloaded — %d instance(s) declared.\n", len(res.Instances))
 			return nil
 		},
 	}
 	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	c.Flags().BoolVar(&jsonOut, "json", false, "Emit reloaded topology as JSON.")
+	c.Flags().StringVar(&format, "format", "", "Render reload result with a Go template, e.g. '{{len .Instances}}'.")
 	return c
 }
 

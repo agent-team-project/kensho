@@ -177,7 +177,7 @@ agent-team restart [<instance>...] [-q] [--all] [--latest | --last N] [--runtime
                                                 # restart persistent or daemon-known instances
 agent-team reload [--format '{{len .Topology.Instances}} {{.Reconcile.Changed}}'] [--json]
                                                 # re-read instances.toml in the daemon and reconcile runtime metadata
-agent-team topology show [--json] | graph [--format text|mermaid|dot] [--routes] [--json] | summary [--json] | reload
+agent-team topology show [--json] | graph [--format text|mermaid|dot] [--routes] [--json] | summary [--json] | reload [--format '{{len .Instances}}'] [--json]
                                                 # inspect declared topology, render topology graphs, summarize workflow/team route health, or reload the daemon view
 agent-team plan [--json] [--summary] [--stop-extras] [--format '{{.Instance}} {{.Action}}'] [--agent manager] [--instance manager] [--runtime codex] [--status running] [--phase idle] [--action start]
                                                 # preview desired instance state from topology and daemon metadata

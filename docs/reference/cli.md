@@ -75,7 +75,7 @@ Shortcuts:
 | `agent-team topology show` | Render loaded topology |
 | `agent-team topology graph` | Render full topology graph |
 | `agent-team topology summary` | Summarize topology health |
-| `agent-team topology reload` | Reload daemon topology |
+| `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team plan` | Preview desired instance state |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
 | `agent-team tick` | Run one maintenance cycle or loop |

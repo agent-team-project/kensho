@@ -6088,6 +6088,8 @@ agent-team topology reload [flags]
 Flags:
 
 ```text
+      --format string   Render reload result with a Go template, e.g. '{{len .Instances}}'.
+      --json            Emit reloaded topology as JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 

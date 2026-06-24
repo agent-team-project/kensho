@@ -283,6 +283,7 @@ agent-team restart [<name>...] [--agent <agent>] [--status <status>] [--phase <p
     exactly one selected instance is required.
 
 agent-team reload [--json]
+agent-team topology reload [--format '{{len .Instances}}'] [--json]
     Top-level operator command: re-read instances.toml in the running daemon,
     then reconcile daemon metadata against the live process table. It does not
     start newly-declared instances or stop undeclared running work.

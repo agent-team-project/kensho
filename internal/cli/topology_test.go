@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -101,6 +102,77 @@ agent = "manager"
 	}
 	if len(res.Instances) != 1 || res.Instances[0].Name != "solo" {
 		t.Errorf("after reload: %v", res.Instances)
+	}
+}
+
+func TestTopologyReloadCommandJSONAndFormat(t *testing.T) {
+	root := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(root); err == nil {
+		root = eval
+	}
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldPidLiveCheck := daemon.PidLiveCheck
+	daemon.PidLiveCheck = func(pid int) bool { return pid == os.Getpid() }
+	t.Cleanup(func() { daemon.PidLiveCheck = oldPidLiveCheck })
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.solo]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"topology", "reload", "--target", root, "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("topology reload --json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var body topologyResponse
+	if err := json.Unmarshal(jsonOut.Bytes(), &body); err != nil {
+		t.Fatalf("decode topology reload json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if len(body.Instances) != 1 || body.Instances[0].Name != "solo" {
+		t.Fatalf("reload json = %+v, want solo", body.Instances)
+	}
+
+	formatCmd := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatCmd.SetOut(formatOut)
+	formatCmd.SetErr(formatErr)
+	formatCmd.SetArgs([]string{"topology", "reload", "--target", root, "--format", "{{len .Instances}} {{(index .Instances 0).Name}}"})
+	if err := formatCmd.Execute(); err != nil {
+		t.Fatalf("topology reload --format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got := strings.TrimSpace(formatOut.String()); got != "1 solo" {
+		t.Fatalf("format output = %q, want %q", got, "1 solo")
+	}
+
+	badCmd := NewRootCmd()
+	badOut, badErr := &bytes.Buffer{}, &bytes.Buffer{}
+	badCmd.SetOut(badOut)
+	badCmd.SetErr(badErr)
+	badCmd.SetArgs([]string{"topology", "reload", "--target", root, "--json", "--format", "{{len .Instances}}"})
+	err := badCmd.Execute()
+	if err == nil {
+		t.Fatalf("topology reload accepted --json with --format; stdout=%s", badOut.String())
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(badErr.String(), "--format cannot be combined with --json") {
+		t.Fatalf("stderr = %q", badErr.String())
 	}
 }
 
