@@ -6556,7 +6556,7 @@ func runTeamRepairJobTimeoutStep(teamDir string, team *topology.Team, opts teamR
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}
-	results, err := timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), opts.TimeoutStep, message, opts.Limit, opts.DryRun, time.Now().UTC(), staleAfter)
+	results, err := timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), opts.TimeoutStep, "", message, opts.Limit, opts.DryRun, time.Now().UTC(), staleAfter)
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}
@@ -6851,7 +6851,7 @@ func timeoutTeamWork(teamDir string, team *topology.Team, stepFilter string, mes
 	if err != nil {
 		return nil, err
 	}
-	return timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), stepFilter, message, limit, dryRun, time.Now().UTC(), staleAfter)
+	return timeoutStaleJobWork(teamDir, teamTimeoutJobCandidates(team, jobs), stepFilter, "", message, limit, dryRun, time.Now().UTC(), staleAfter)
 }
 
 func renderTeamTickResult(w io.Writer, result *teamTickResult, jsonOut bool, tmpl *template.Template) error {

@@ -2464,6 +2464,146 @@ func TestJobTimeoutAllMarksStaleRunningWork(t *testing.T) {
 	}
 }
 
+func TestJobTimeoutAllFiltersByPipelineAndTargetAgent(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-845",
+			Ticket:    "SQU-845",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-845", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-846",
+			Ticket:    "SQU-846",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-846", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-847",
+			Ticket:    "SQU-847",
+			Target:    "worker",
+			Pipeline:  "other",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-847", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-848",
+			Ticket:    "SQU-848",
+			Target:    "worker",
+			Instance:  "worker-squ-848",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-48 * time.Hour),
+			UpdatedAt: now.Add(-48 * time.Hour),
+		},
+		{
+			ID:        "squ-849",
+			Ticket:    "SQU-849",
+			Target:    "manager",
+			Instance:  "manager-squ-849",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-48 * time.Hour),
+			UpdatedAt: now.Add(-48 * time.Hour),
+		},
+		{
+			ID:        "squ-850",
+			Ticket:    "SQU-850",
+			Target:    "worker",
+			Pipeline:  "other",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-850", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+				{ID: "review", Target: "manager", Status: job.StatusDone, FinishedAt: now.Add(-80 * time.Minute)},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	pipelineDry := NewRootCmd()
+	pipelineOut, pipelineErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineDry.SetOut(pipelineOut)
+	pipelineDry.SetErr(pipelineErr)
+	pipelineDry.SetArgs([]string{"job", "timeout", "--all", "--repo", root, "--pipeline", "ticket_to_pr", "--dry-run", "--json"})
+	if err := pipelineDry.Execute(); err != nil {
+		t.Fatalf("job timeout --all --pipeline dry-run: %v\nstderr=%s", err, pipelineErr.String())
+	}
+	var pipelineRows []pipelineTimeoutResult
+	if err := json.Unmarshal(pipelineOut.Bytes(), &pipelineRows); err != nil {
+		t.Fatalf("decode pipeline dry-run: %v\nbody=%s", err, pipelineOut.String())
+	}
+	if len(pipelineRows) != 2 || pipelineRows[0].JobID != "squ-845" || pipelineRows[1].JobID != "squ-846" {
+		t.Fatalf("pipeline rows = %+v", pipelineRows)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"job", "timeout", "--all", "--repo", root, "--target-agent", "manager", "--message", "manager timeout sweep", "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("job timeout --all --target-agent apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var rows []pipelineTimeoutResult
+	if err := json.Unmarshal(applyOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode target-agent apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(rows) != 2 || rows[0].JobID != "squ-846" || rows[1].JobID != "squ-849" {
+		t.Fatalf("target-agent rows = %+v", rows)
+	}
+	review, err := job.Read(teamDir, "squ-846")
+	if err != nil {
+		t.Fatalf("read review job: %v", err)
+	}
+	if review.Status != job.StatusFailed || review.Steps[0].Status != job.StatusFailed || review.Steps[0].Instance != "" || review.LastStatus != "manager timeout sweep" {
+		t.Fatalf("review job = %+v", review)
+	}
+	standalone, err := job.Read(teamDir, "squ-849")
+	if err != nil {
+		t.Fatalf("read standalone manager job: %v", err)
+	}
+	if standalone.Status != job.StatusFailed || standalone.LastEvent != "job_timeout" || standalone.LastStatus != "manager timeout sweep" {
+		t.Fatalf("standalone job = %+v", standalone)
+	}
+	for _, id := range []string{"squ-845", "squ-847", "squ-848", "squ-850"} {
+		unchanged, err := job.Read(teamDir, id)
+		if err != nil {
+			t.Fatalf("read unchanged %s: %v", id, err)
+		}
+		if unchanged.Status != job.StatusRunning {
+			t.Fatalf("%s changed = %+v", id, unchanged)
+		}
+		if id == "squ-850" && unchanged.Steps[0].Status != job.StatusRunning {
+			t.Fatalf("%s worker step changed = %+v", id, unchanged)
+		}
+	}
+}
+
 func TestJobTimeoutRejectsInvalidArgs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -2489,6 +2629,16 @@ func TestJobTimeoutRejectsInvalidArgs(t *testing.T) {
 			name: "format with json",
 			args: []string{"job", "timeout", "squ-1", "--json", "--format", "{{.JobID}}"},
 			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "pipeline without all",
+			args: []string{"job", "timeout", "squ-1", "--pipeline", "ticket_to_pr"},
+			want: "--pipeline and --target-agent require --all",
+		},
+		{
+			name: "target agent without all",
+			args: []string{"job", "timeout", "squ-1", "--target-agent", "worker"},
+			want: "--pipeline and --target-agent require --all",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -2322,14 +2322,16 @@ func renderJobCancelResult(w io.Writer, result jobCancelResult, jsonOut bool, tm
 
 func newJobTimeoutCmd() *cobra.Command {
 	var (
-		repo    string
-		step    string
-		message string
-		all     bool
-		limit   int
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo        string
+		step        string
+		message     string
+		pipeline    string
+		targetAgent string
+		all         bool
+		limit       int
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2352,6 +2354,10 @@ func newJobTimeoutCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeout: pass a job id or --all.")
 				return exitErr(2)
 			}
+			if !all && (strings.TrimSpace(pipeline) != "" || strings.TrimSpace(targetAgent) != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeout: --pipeline and --target-agent require --all.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeout: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -2361,7 +2367,7 @@ func newJobTimeoutCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeout: %v\n", err)
 				return exitErr(2)
 			}
-			results, err := runJobTimeoutCommand(cmd, repo, args, all, step, message, limit, dryRun)
+			results, err := runJobTimeoutCommand(cmd, repo, args, all, step, message, pipeline, targetAgent, limit, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeout: %v\n", err)
 				return exitErr(1)
@@ -2373,6 +2379,8 @@ func newJobTimeoutCmd() *cobra.Command {
 	cmd.Flags().StringVar(&step, "step", "", "Mark only a stale running step with this id failed.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the timed-out job.")
 	cmd.Flags().BoolVar(&all, "all", false, "Mark stale running work across all jobs.")
+	cmd.Flags().StringVar(&pipeline, "pipeline", "", "With --all, mark only stale work owned by this pipeline.")
+	cmd.Flags().StringVar(&targetAgent, "target-agent", "", "With --all, mark only stale work targeting this agent.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, mark at most this many stale running jobs or steps failed; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview stale-work failure without writing job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit timeout results as JSON.")
@@ -2380,13 +2388,16 @@ func newJobTimeoutCmd() *cobra.Command {
 	return cmd
 }
 
-func runJobTimeoutCommand(cmd *cobra.Command, repo string, args []string, all bool, step, message string, limit int, dryRun bool) ([]pipelineTimeoutResult, error) {
+func runJobTimeoutCommand(cmd *cobra.Command, repo string, args []string, all bool, step, message, pipeline, targetAgent string, limit int, dryRun bool) ([]pipelineTimeoutResult, error) {
 	if all {
 		teamDir, err := resolveTeamDir(cmd, repo)
 		if err != nil {
 			return nil, err
 		}
-		return timeoutAllStaleJobWork(teamDir, step, message, limit, dryRun)
+		return timeoutAllStaleJobWork(teamDir, step, message, limit, dryRun, jobTimeoutFilters{
+			Pipeline:    pipeline,
+			TargetAgent: targetAgent,
+		})
 	}
 	teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 	if err != nil {
@@ -2396,10 +2407,15 @@ func runJobTimeoutCommand(cmd *cobra.Command, repo string, args []string, all bo
 	if err != nil {
 		return nil, err
 	}
-	return timeoutStaleJobWork(teamDir, []*job.Job{j}, step, message, 0, dryRun, time.Now().UTC(), staleAfter)
+	return timeoutStaleJobWork(teamDir, []*job.Job{j}, step, "", message, 0, dryRun, time.Now().UTC(), staleAfter)
 }
 
-func timeoutAllStaleJobWork(teamDir, stepFilter, message string, limit int, dryRun bool) ([]pipelineTimeoutResult, error) {
+type jobTimeoutFilters struct {
+	Pipeline    string
+	TargetAgent string
+}
+
+func timeoutAllStaleJobWork(teamDir, stepFilter, message string, limit int, dryRun bool, filters jobTimeoutFilters) ([]pipelineTimeoutResult, error) {
 	staleAfter, err := configuredJobTriageStaleAfter(teamDir)
 	if err != nil {
 		return nil, err
@@ -2408,12 +2424,52 @@ func timeoutAllStaleJobWork(teamDir, stepFilter, message string, limit int, dryR
 	if err != nil {
 		return nil, err
 	}
-	return timeoutStaleJobWork(teamDir, jobs, stepFilter, message, limit, dryRun, time.Now().UTC(), staleAfter)
+	jobs = filterJobTimeoutCandidates(jobs, filters)
+	return timeoutStaleJobWork(teamDir, jobs, stepFilter, filters.TargetAgent, message, limit, dryRun, time.Now().UTC(), staleAfter)
 }
 
-func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
+func filterJobTimeoutCandidates(jobs []*job.Job, filters jobTimeoutFilters) []*job.Job {
+	pipeline := strings.TrimSpace(filters.Pipeline)
+	target := strings.TrimSpace(filters.TargetAgent)
+	if pipeline == "" && target == "" {
+		return jobs
+	}
+	out := make([]*job.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		if pipeline != "" && j.Pipeline != pipeline {
+			continue
+		}
+		if target != "" && !jobTargetsAgent(j, target) {
+			continue
+		}
+		out = append(out, j)
+	}
+	return out
+}
+
+func jobTargetsAgent(j *job.Job, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || j == nil {
+		return false
+	}
+	if j.Target == target {
+		return true
+	}
+	for _, step := range j.Steps {
+		if step.Target == target {
+			return true
+		}
+	}
+	return false
+}
+
+func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, targetFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
 	results := []pipelineTimeoutResult{}
 	stepFilter = strings.TrimSpace(stepFilter)
+	targetFilter = strings.TrimSpace(targetFilter)
 	for _, j := range jobs {
 		if limit > 0 && len(results) >= limit {
 			break
@@ -2422,7 +2478,7 @@ func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, message st
 		if limit > 0 {
 			batchLimit = limit - len(results)
 		}
-		timedOut, err := timeoutJobRunningSteps(teamDir, j, stepFilter, message, batchLimit, dryRun, now, staleAfter)
+		timedOut, err := timeoutJobRunningSteps(teamDir, j, stepFilter, targetFilter, message, batchLimit, dryRun, now, staleAfter)
 		if err != nil {
 			return nil, err
 		}
@@ -2433,7 +2489,7 @@ func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, message st
 		if stepFilter != "" {
 			continue
 		}
-		lifecycle, err := timeoutJobLifecycle(teamDir, j, message, dryRun, now, staleAfter)
+		lifecycle, err := timeoutJobLifecycle(teamDir, j, targetFilter, message, dryRun, now, staleAfter)
 		if err != nil {
 			return nil, err
 		}
@@ -2442,8 +2498,11 @@ func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, message st
 	return results, nil
 }
 
-func timeoutJobLifecycle(teamDir string, j *job.Job, message string, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
+func timeoutJobLifecycle(teamDir string, j *job.Job, targetFilter, message string, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
 	if j == nil || len(j.Steps) > 0 || j.Status != job.StatusRunning || staleAfter <= 0 || j.UpdatedAt.IsZero() {
+		return nil, nil
+	}
+	if targetFilter = strings.TrimSpace(targetFilter); targetFilter != "" && j.Target != targetFilter {
 		return nil, nil
 	}
 	if now.IsZero() {

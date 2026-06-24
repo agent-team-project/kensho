@@ -458,7 +458,7 @@ func runRepairJobTimeoutStep(teamDir string, opts repairOptions) (repairPipeline
 	if message == "" {
 		message = "repair timed out stale job work"
 	}
-	results, err := timeoutAllStaleJobWork(teamDir, opts.TimeoutStep, message, opts.Limit, opts.DryRun)
+	results, err := timeoutAllStaleJobWork(teamDir, opts.TimeoutStep, message, opts.Limit, opts.DryRun, jobTimeoutFilters{})
 	if err != nil {
 		return repairPipelineTimeoutStep{Action: "error", Reason: err.Error()}, err
 	}

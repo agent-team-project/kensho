@@ -2694,7 +2694,7 @@ func timeoutPipelineJobs(teamDir, pipeline, stepFilter, message string, limit in
 		if limit > 0 {
 			batchLimit = limit - len(results)
 		}
-		timedOut, err := timeoutJobRunningSteps(teamDir, j, stepFilter, message, batchLimit, dryRun, now, staleAfter)
+		timedOut, err := timeoutJobRunningSteps(teamDir, j, stepFilter, "", message, batchLimit, dryRun, now, staleAfter)
 		if err != nil {
 			return nil, err
 		}
@@ -2706,11 +2706,12 @@ func timeoutPipelineJobs(teamDir, pipeline, stepFilter, message string, limit in
 	return results, nil
 }
 
-func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
+func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, targetFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
 	if j == nil {
 		return nil, nil
 	}
 	stepFilter = strings.TrimSpace(stepFilter)
+	targetFilter = strings.TrimSpace(targetFilter)
 	results := []pipelineTimeoutResult{}
 	for i := range j.Steps {
 		step := &j.Steps[i]
@@ -2718,6 +2719,9 @@ func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, message stri
 			continue
 		}
 		if stepFilter != "" && step.ID != stepFilter {
+			continue
+		}
+		if targetFilter != "" && step.Target != targetFilter {
 			continue
 		}
 		timeout := pipelineStepStaleAfter(step, staleAfter)

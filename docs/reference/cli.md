@@ -99,7 +99,7 @@ Shortcuts:
 | `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds |
 | `agent-team job close <job-id>` | Mark done or failed; use `--dry-run` to preview |
 | `agent-team job cancel <job-id>` | Fail a job as cancelled, optionally stopping its owner |
-| `agent-team job timeout <job-id> or --all` | Mark stale running job steps or stale step-less running jobs failed |
+| `agent-team job timeout <job-id> or --all` | Mark stale running job steps or stale step-less running jobs failed; add `--pipeline` or `--target-agent` with `--all` to scope a sweep |
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention |
 | `agent-team job ready` | List next pipeline steps |
