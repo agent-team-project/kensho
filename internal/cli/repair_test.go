@@ -679,6 +679,136 @@ timeout = "1h"
 	}
 }
 
+func TestRepairTimeoutJobsMarksStaleRunningWork(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-821",
+			Ticket:    "SQU-821",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-821", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
+			},
+		},
+		{
+			ID:        "squ-822",
+			Ticket:    "SQU-822",
+			Target:    "worker",
+			Instance:  "worker-squ-822",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-48 * time.Hour),
+			UpdatedAt: now.Add(-48 * time.Hour),
+		},
+		{
+			ID:        "squ-823",
+			Ticket:    "SQU-823",
+			Target:    "worker",
+			Instance:  "worker-squ-823",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-30 * time.Minute),
+			UpdatedAt: now.Add(-30 * time.Minute),
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{
+		"repair",
+		"--target", root,
+		"--dry-run",
+		"--timeout-jobs",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--json",
+	})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("repair timeout jobs dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryResult repairResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResult); err != nil {
+		t.Fatalf("decode dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if dryResult.JobTimeout.Action != "would_fail" || len(dryResult.JobTimeout.Results) != 2 {
+		t.Fatalf("dry job timeout = %+v", dryResult.JobTimeout)
+	}
+	dryJobs := map[string]pipelineTimeoutResult{}
+	for _, result := range dryResult.JobTimeout.Results {
+		dryJobs[result.JobID] = result
+	}
+	if dryJobs["squ-821"].StepID != "implement" || dryJobs["squ-822"].StepID != "" {
+		t.Fatalf("dry timeout jobs = %+v", dryJobs)
+	}
+	unchanged, err := job.Read(teamDir, "squ-822")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning || unchanged.Instance != "worker-squ-822" {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{
+		"repair",
+		"--target", root,
+		"--timeout-jobs",
+		"--timeout-message", "repair timed out job work",
+		"--skip-daemon",
+		"--skip-queue",
+		"--skip-tick",
+		"--json",
+	})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("repair timeout jobs apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(applyOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if result.JobTimeout.Action != "timed_out" || len(result.JobTimeout.Results) != 2 {
+		t.Fatalf("apply job timeout = %+v", result.JobTimeout)
+	}
+	stepJob, err := job.Read(teamDir, "squ-821")
+	if err != nil {
+		t.Fatalf("read timed out step job: %v", err)
+	}
+	if stepJob.Status != job.StatusFailed || stepJob.Steps[0].Status != job.StatusFailed || stepJob.Steps[0].Instance != "" || stepJob.LastStatus != "repair timed out job work" {
+		t.Fatalf("step job = %+v", stepJob)
+	}
+	lifecycleJob, err := job.Read(teamDir, "squ-822")
+	if err != nil {
+		t.Fatalf("read timed out lifecycle job: %v", err)
+	}
+	if lifecycleJob.Status != job.StatusFailed || lifecycleJob.Instance != "worker-squ-822" || lifecycleJob.LastEvent != "job_timeout" || lifecycleJob.LastStatus != "repair timed out job work" {
+		t.Fatalf("lifecycle job = %+v", lifecycleJob)
+	}
+	freshJob, err := job.Read(teamDir, "squ-823")
+	if err != nil {
+		t.Fatalf("read fresh job: %v", err)
+	}
+	if freshJob.Status != job.StatusRunning || freshJob.Instance != "worker-squ-823" {
+		t.Fatalf("fresh job changed = %+v", freshJob)
+	}
+}
+
 func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
@@ -853,6 +983,11 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "retry step without retry pipelines",
 			args: []string{"repair", "--retry-step", "review"},
 			want: "--retry-step requires --retry-pipelines",
+		},
+		{
+			name: "timeout jobs with timeout pipelines",
+			args: []string{"repair", "--timeout-jobs", "--timeout-pipelines"},
+			want: "--timeout-jobs cannot be combined with --timeout-pipelines",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

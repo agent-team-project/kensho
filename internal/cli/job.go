@@ -2356,19 +2356,10 @@ func newJobTimeoutCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeout: %v\n", err)
 				return exitErr(2)
 			}
-			now := time.Now().UTC()
-			results, err := timeoutJobRunningSteps(teamDir, j, step, message, 0, dryRun, now, staleAfter)
+			results, err := timeoutStaleJobWork(teamDir, []*job.Job{j}, step, message, 0, dryRun, time.Now().UTC(), staleAfter)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeout: %v\n", err)
 				return exitErr(1)
-			}
-			if len(results) == 0 && strings.TrimSpace(step) == "" {
-				lifecycle, err := timeoutJobLifecycle(teamDir, j, message, dryRun, now, staleAfter)
-				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeout: %v\n", err)
-					return exitErr(1)
-				}
-				results = append(results, lifecycle...)
 			}
 			return renderPipelineTimeoutResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
@@ -2382,8 +2373,51 @@ func newJobTimeoutCmd() *cobra.Command {
 	return cmd
 }
 
+func timeoutAllStaleJobWork(teamDir, stepFilter, message string, limit int, dryRun bool) ([]pipelineTimeoutResult, error) {
+	staleAfter, err := configuredJobTriageStaleAfter(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	return timeoutStaleJobWork(teamDir, jobs, stepFilter, message, limit, dryRun, time.Now().UTC(), staleAfter)
+}
+
+func timeoutStaleJobWork(teamDir string, jobs []*job.Job, stepFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
+	results := []pipelineTimeoutResult{}
+	stepFilter = strings.TrimSpace(stepFilter)
+	for _, j := range jobs {
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		batchLimit := 0
+		if limit > 0 {
+			batchLimit = limit - len(results)
+		}
+		timedOut, err := timeoutJobRunningSteps(teamDir, j, stepFilter, message, batchLimit, dryRun, now, staleAfter)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, timedOut...)
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+		if stepFilter != "" {
+			continue
+		}
+		lifecycle, err := timeoutJobLifecycle(teamDir, j, message, dryRun, now, staleAfter)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, lifecycle...)
+	}
+	return results, nil
+}
+
 func timeoutJobLifecycle(teamDir string, j *job.Job, message string, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
-	if j == nil || j.Status != job.StatusRunning || staleAfter <= 0 || j.UpdatedAt.IsZero() {
+	if j == nil || len(j.Steps) > 0 || j.Status != job.StatusRunning || staleAfter <= 0 || j.UpdatedAt.IsZero() {
 		return nil, nil
 	}
 	if now.IsZero() {

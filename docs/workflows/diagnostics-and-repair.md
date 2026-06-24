@@ -157,6 +157,7 @@ agent-team repair --dry-run --jobs
 agent-team repair --skip-daemon
 agent-team repair --skip-queue
 agent-team repair --skip-tick
+agent-team repair --timeout-jobs --dry-run
 agent-team repair --retry-pipelines --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --until-idle
@@ -167,11 +168,16 @@ Repair can:
 
 1. start or reconcile daemon state
 2. retry dead-letter queue items
-3. optionally retry failed pipeline steps with `--retry-pipelines`
-4. run a maintenance tick
-5. include before/after health snapshots
+3. optionally mark stale running job work failed with `--timeout-jobs`
+4. optionally retry failed pipeline steps with `--retry-pipelines`
+5. run a maintenance tick
+6. include before/after health snapshots
 
 `--dry-run` should be the first step.
+Use `--timeout-jobs` after status/event reconciliation when stale running work
+should become failed before a retry pass. It covers stale pipeline steps and
+stale step-less running jobs; use `--timeout-pipelines` when you only want the
+older pipeline-step expiration scope.
 Use `--retry-step <id>` with `--retry-pipelines` when a broad repair pass should target only one failed stage, such as rerunning review jobs after fixing a reviewer prompt.
 
 ## Recovery Rules of Thumb
@@ -192,6 +198,7 @@ Use `--retry-step <id>` with `--retry-pipelines` when a broad repair pass should
 | Queue parsing fails | `agent-team queue doctor --quarantine --dry-run` |
 | Dead queue entries | `agent-team repair --dry-run --jobs` |
 | Crashed runtime metadata | `agent-team runtime resume-plan --status crashed` |
+| Stale running jobs | `agent-team repair --timeout-jobs --dry-run` |
 | Failed pipeline steps | `agent-team repair --retry-pipelines --dry-run --preview-routes` |
 | Failed stage across jobs | `agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes` |
 | One stuck job | `agent-team job show <job-id> --events all` |

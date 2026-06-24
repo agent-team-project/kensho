@@ -3701,7 +3701,7 @@ Inherited Flags:
 
 Recover common unhealthy orchestration state.
 
-Recover common unhealthy orchestration state: ensure the daemon is ready, retry dead-letter queue items, optionally retry failed pipeline steps, and run a maintenance tick to drain ready work and advance pipelines. Use --dry-run to preview.
+Recover common unhealthy orchestration state: ensure the daemon is ready, retry dead-letter queue items, optionally time out stale job work, optionally retry failed pipeline steps, and run a maintenance tick to drain ready work and advance pipelines. Use --dry-run to preview.
 
 ```text
 agent-team repair [flags]
@@ -3727,9 +3727,10 @@ Flags:
       --skip-queue               Do not retry dead-letter queue items.
       --skip-tick                Do not run a maintenance tick after queue retry.
       --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --timeout-message string   Audit message to record when --timeout-pipelines marks stale steps failed.
+      --timeout-jobs             Mark stale running durable job work failed before retrying failed pipeline steps.
+      --timeout-message string   Audit message to record when timeout repair marks stale work failed.
       --timeout-pipelines        Mark stale running pipeline steps failed before retrying failed pipeline steps.
-      --timeout-step string      With --timeout-pipelines, mark only stale running steps with this id failed.
+      --timeout-step string      With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
       --until-idle               Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.
       --workspace string         Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
@@ -5223,7 +5224,7 @@ Flags:
 
 Recover unhealthy orchestration state for one team.
 
-Recover unhealthy orchestration state scoped to one team: ensure the daemon is ready, retry team-owned dead-letter queue items, optionally retry failed team pipeline steps, and run a scoped team tick. Use --dry-run to preview.
+Recover unhealthy orchestration state scoped to one team: ensure the daemon is ready, retry team-owned dead-letter queue items, optionally time out stale team work, retry failed team pipeline steps, and run a scoped team tick. Use --dry-run to preview.
 
 ```text
 agent-team team repair <team> [flags]
@@ -5249,9 +5250,10 @@ Flags:
       --skip-daemon              Do not start or reconcile the daemon.
       --skip-queue               Do not retry team-owned dead-letter queue items.
       --skip-tick                Do not run a scoped team tick after queue retry.
-      --timeout-message string   Audit message to record when --timeout-pipelines marks stale team steps failed.
+      --timeout-jobs             Mark stale running team job work failed before retrying failed pipeline steps.
+      --timeout-message string   Audit message to record when team timeout repair marks stale work failed.
       --timeout-pipelines        Mark stale running team pipeline steps failed before retrying failed pipeline steps.
-      --timeout-step string      With --timeout-pipelines, mark only stale running team steps with this id failed.
+      --timeout-step string      With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.
       --until-idle               Run scoped team ticks until no immediate team queue, schedule, or pipeline work remains.
       --workspace string         Workspace mode for retried or advanced team pipeline steps: auto, worktree, or repo. (default "auto")
 ```
