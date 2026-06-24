@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,6 +108,7 @@ type snapshotResult struct {
 	CapturedAt      string                     `json:"captured_at"`
 	Repo            string                     `json:"repo"`
 	TeamDir         string                     `json:"team_dir"`
+	Git             *snapshotGitInfo           `json:"git,omitempty"`
 	Team            *teamInfo                  `json:"team,omitempty"`
 	Redacted        bool                       `json:"redacted"`
 	Overview        *overviewResult            `json:"overview,omitempty"`
@@ -132,6 +135,16 @@ type snapshotResult struct {
 	SectionErrors   map[string]string          `json:"section_errors,omitempty"`
 }
 
+type snapshotGitInfo struct {
+	Branch   string `json:"branch,omitempty"`
+	Commit   string `json:"commit,omitempty"`
+	Upstream string `json:"upstream,omitempty"`
+	Ahead    int    `json:"ahead,omitempty"`
+	Behind   int    `json:"behind,omitempty"`
+	Dirty    bool   `json:"dirty"`
+	Changes  int    `json:"changes,omitempty"`
+}
+
 func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotResult {
 	now := opts.Now
 	if now.IsZero() {
@@ -143,6 +156,7 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		Repo:       filepath.ToSlash(repoRoot),
 		TeamDir:    filepath.ToSlash(teamDir),
 	}
+	out.Git = collectSnapshotGitInfo(repoRoot)
 
 	if runtime, err := collectRuntimeInfoForTeam(teamDir); err != nil {
 		out.addError("runtime", err)
@@ -252,6 +266,7 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		TeamDir:    filepath.ToSlash(teamDir),
 		Team:       &info,
 	}
+	out.Git = collectSnapshotGitInfo(repoRoot)
 
 	if runtime, err := collectRuntimeInfoForTeam(teamDir); err != nil {
 		out.addError("runtime", err)
@@ -411,6 +426,61 @@ func (r *snapshotResult) addError(section string, err error) {
 		r.SectionErrors = map[string]string{}
 	}
 	r.SectionErrors[section] = err.Error()
+}
+
+func collectSnapshotGitInfo(repoRoot string) *snapshotGitInfo {
+	if strings.TrimSpace(repoRoot) == "" {
+		return nil
+	}
+	if out, ok := snapshotGitCommand(repoRoot, "rev-parse", "--is-inside-work-tree"); !ok || strings.TrimSpace(out) != "true" {
+		return nil
+	}
+	info := &snapshotGitInfo{}
+	if out, ok := snapshotGitCommand(repoRoot, "branch", "--show-current"); ok {
+		info.Branch = strings.TrimSpace(out)
+	}
+	if info.Branch == "" {
+		if out, ok := snapshotGitCommand(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"); ok {
+			info.Branch = strings.TrimSpace(out)
+		}
+	}
+	if out, ok := snapshotGitCommand(repoRoot, "rev-parse", "--short=12", "HEAD"); ok {
+		info.Commit = strings.TrimSpace(out)
+	}
+	if out, ok := snapshotGitCommand(repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); ok {
+		info.Upstream = strings.TrimSpace(out)
+	}
+	if info.Upstream != "" {
+		if out, ok := snapshotGitCommand(repoRoot, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"); ok {
+			fields := strings.Fields(out)
+			if len(fields) == 2 {
+				info.Ahead, _ = strconv.Atoi(fields[0])
+				info.Behind, _ = strconv.Atoi(fields[1])
+			}
+		}
+	}
+	if out, ok := snapshotGitCommand(repoRoot, "status", "--porcelain"); ok {
+		out = strings.TrimRight(out, "\n")
+		info.Dirty = strings.TrimSpace(out) != ""
+		if info.Dirty {
+			info.Changes = len(strings.Split(out, "\n"))
+		}
+	}
+	if info.Branch == "" && info.Commit == "" && info.Upstream == "" && !info.Dirty {
+		return nil
+	}
+	return info
+}
+
+func snapshotGitCommand(repoRoot string, args ...string) (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repoRoot}, args...)...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
 }
 
 func collectSnapshotEvents(teamDir string, limit int) ([]daemon.LifecycleEvent, error) {
@@ -635,6 +705,23 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	fmt.Fprintf(w, "snapshot: %s\n", snapshot.CapturedAt)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
+	if snapshot.Git != nil {
+		branch := snapshot.Git.Branch
+		if branch == "" {
+			branch = "unknown"
+		}
+		commit := snapshot.Git.Commit
+		if commit == "" {
+			commit = "unknown"
+		}
+		fmt.Fprintf(w, "git: branch=%s commit=%s dirty=%s changes=%d ahead=%d behind=%d\n",
+			branch,
+			commit,
+			yesNo(snapshot.Git.Dirty),
+			snapshot.Git.Changes,
+			snapshot.Git.Ahead,
+			snapshot.Git.Behind)
+	}
 	if snapshot.Team != nil {
 		fmt.Fprintf(w, "team: %s\n", snapshot.Team.Name)
 	}

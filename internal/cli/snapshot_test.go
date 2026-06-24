@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -239,6 +240,41 @@ func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	}
 }
 
+func TestSnapshotIncludesGitMetadata(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	runGitForJobTest(t, tmp, "init")
+	runGitForJobTest(t, tmp, "config", "user.email", "agent-team@example.test")
+	runGitForJobTest(t, tmp, "config", "user.name", "Agent Team")
+	runGitForJobTest(t, tmp, "add", ".")
+	runGitForJobTest(t, tmp, "commit", "-m", "init")
+	if err := os.WriteFile(filepath.Join(tmp, "uncommitted.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot git metadata: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Git == nil || snapshot.Git.Branch == "" || snapshot.Git.Commit == "" {
+		t.Fatalf("git metadata = %+v, want branch and commit", snapshot.Git)
+	}
+	if !snapshot.Git.Dirty || snapshot.Git.Changes == 0 {
+		t.Fatalf("git metadata = %+v, want dirty working tree", snapshot.Git)
+	}
+}
+
 func TestSnapshotIntakeSummaryUsesFullLedger(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -296,6 +332,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 	snapshot := &snapshotResult{
 		CapturedAt: now.Format(time.RFC3339),
 		Repo:       "/repo",
+		Git:        &snapshotGitInfo{Branch: "main", Commit: "abcdef123456", Dirty: true, Changes: 2, Ahead: 1},
 		Redacted:   true,
 		Jobs: []*job.Job{
 			{ID: "squ-601", Ticket: "SQU-601", Target: "worker", Status: job.StatusFailed, CreatedAt: now, UpdatedAt: now},
@@ -361,7 +398,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "intake: deliveries=1 errors=1 recovered=0 replayable=1"} {
+	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "intake: deliveries=1 errors=1 recovered=0 replayable=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}

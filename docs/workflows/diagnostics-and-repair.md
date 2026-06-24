@@ -101,6 +101,7 @@ Snapshots are redacted by default and are designed for debugging or handoff.
 They include:
 
 - overview and next-action details
+- git branch, commit, and dirty-state context
 - health
 - desired-state plan
 - instance rows
