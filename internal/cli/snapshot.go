@@ -105,36 +105,37 @@ type snapshotOptions struct {
 }
 
 type snapshotResult struct {
-	Version         string                     `json:"version"`
-	CapturedAt      string                     `json:"captured_at"`
-	Repo            string                     `json:"repo"`
-	TeamDir         string                     `json:"team_dir"`
-	Git             *snapshotGitInfo           `json:"git,omitempty"`
-	Team            *teamInfo                  `json:"team,omitempty"`
-	Redacted        bool                       `json:"redacted"`
-	Overview        *overviewResult            `json:"overview,omitempty"`
-	Next            *nextActionResult          `json:"next,omitempty"`
-	Runtime         *runtimeInfo               `json:"runtime,omitempty"`
-	Health          *healthResult              `json:"health,omitempty"`
-	Plan            *planResult                `json:"plan,omitempty"`
-	Instances       []psJSONRow                `json:"instances,omitempty"`
-	Jobs            []*job.Job                 `json:"jobs,omitempty"`
-	JobTriage       *jobTriageSnapshot         `json:"job_triage,omitempty"`
-	JobStatus       []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
-	PipelineStatus  []pipelineStatusRow        `json:"pipeline_status,omitempty"`
-	PipelineExplain []pipelineExplainRow       `json:"pipeline_explain,omitempty"`
-	PipelineAdvance []pipelineAdvanceResult    `json:"pipeline_advance_preview,omitempty"`
-	TeamsDoctor     *allTeamDoctorResult       `json:"teams_doctor,omitempty"`
-	TeamDoctor      *teamDoctorResult          `json:"team_doctor,omitempty"`
-	Queue           []*daemon.QueueItem        `json:"queue,omitempty"`
-	QueueSummary    *queueSummary              `json:"queue_summary,omitempty"`
-	QueueQuarantine []queueQuarantineItem      `json:"queue_quarantine,omitempty"`
-	Schedules       []scheduleInfo             `json:"schedules,omitempty"`
-	ScheduleNext    []scheduleInfo             `json:"schedule_next,omitempty"`
-	Intake          []intakeDelivery           `json:"intake,omitempty"`
-	IntakeSummary   *overviewIntakeSummary     `json:"intake_summary,omitempty"`
-	Events          []daemon.LifecycleEvent    `json:"events,omitempty"`
-	SectionErrors   map[string]string          `json:"section_errors,omitempty"`
+	Version          string                     `json:"version"`
+	CapturedAt       string                     `json:"captured_at"`
+	Repo             string                     `json:"repo"`
+	TeamDir          string                     `json:"team_dir"`
+	Git              *snapshotGitInfo           `json:"git,omitempty"`
+	Team             *teamInfo                  `json:"team,omitempty"`
+	Redacted         bool                       `json:"redacted"`
+	Overview         *overviewResult            `json:"overview,omitempty"`
+	Next             *nextActionResult          `json:"next,omitempty"`
+	Runtime          *runtimeInfo               `json:"runtime,omitempty"`
+	Health           *healthResult              `json:"health,omitempty"`
+	Plan             *planResult                `json:"plan,omitempty"`
+	Instances        []psJSONRow                `json:"instances,omitempty"`
+	Jobs             []*job.Job                 `json:"jobs,omitempty"`
+	JobTriage        *jobTriageSnapshot         `json:"job_triage,omitempty"`
+	JobStatus        []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
+	PipelineStatus   []pipelineStatusRow        `json:"pipeline_status,omitempty"`
+	PipelineExplain  []pipelineExplainRow       `json:"pipeline_explain,omitempty"`
+	PipelineAdvance  []pipelineAdvanceResult    `json:"pipeline_advance_preview,omitempty"`
+	TeamsDoctor      *allTeamDoctorResult       `json:"teams_doctor,omitempty"`
+	TeamDoctor       *teamDoctorResult          `json:"team_doctor,omitempty"`
+	Queue            []*daemon.QueueItem        `json:"queue,omitempty"`
+	QueueSummary     *queueSummary              `json:"queue_summary,omitempty"`
+	QueueQuarantine  []queueQuarantineItem      `json:"queue_quarantine,omitempty"`
+	Schedules        []scheduleInfo             `json:"schedules,omitempty"`
+	ScheduleNext     []scheduleInfo             `json:"schedule_next,omitempty"`
+	Intake           []intakeDelivery           `json:"intake,omitempty"`
+	IntakeSummary    *overviewIntakeSummary     `json:"intake_summary,omitempty"`
+	IntakeDuplicates []intakeDuplicateRequest   `json:"intake_duplicates,omitempty"`
+	Events           []daemon.LifecycleEvent    `json:"events,omitempty"`
+	SectionErrors    map[string]string          `json:"section_errors,omitempty"`
 }
 
 type snapshotGitInfo struct {
@@ -239,6 +240,7 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 	} else {
 		summary := overviewIntakeFromDeliveries(deliveries)
 		out.IntakeSummary = &summary
+		out.IntakeDuplicates = duplicateIntakeRequestIDs(deliveries, "", "")
 		out.Intake = collectSnapshotIntakeDeliveries(deliveries, opts.IntakeLimit)
 	}
 	if events, err := collectSnapshotEvents(teamDir, opts.EventLimit); err != nil {
@@ -796,11 +798,12 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	fmt.Fprintf(w, "schedules: declared=%d upcoming=%d\n", len(snapshot.Schedules), len(snapshot.ScheduleNext))
 	if snapshot.IntakeSummary != nil {
-		fmt.Fprintf(w, "intake: deliveries=%d errors=%d recovered=%d replayable=%d\n",
+		fmt.Fprintf(w, "intake: deliveries=%d errors=%d recovered=%d replayable=%d duplicate_request_ids=%d\n",
 			snapshot.IntakeSummary.Deliveries,
 			snapshot.IntakeSummary.Errors,
 			snapshot.IntakeSummary.Recovered,
-			snapshot.IntakeSummary.Replayable)
+			snapshot.IntakeSummary.Replayable,
+			len(snapshot.IntakeDuplicates))
 	}
 	fmt.Fprintf(w, "events: %d\n", len(snapshot.Events))
 	if len(snapshot.SectionErrors) > 0 {

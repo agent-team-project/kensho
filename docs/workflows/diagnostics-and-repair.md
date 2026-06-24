@@ -130,7 +130,7 @@ They include:
 - queue items
 - queue quarantine inventory
 - schedules
-- intake deliveries
+- intake deliveries and duplicate request-id groups
 - runtime profile
 - lifecycle events
 

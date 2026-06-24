@@ -549,6 +549,7 @@ func TestSnapshotIntakeSummaryUsesFullLedger(t *testing.T) {
 			ID:         "older-error",
 			Time:       now.Add(-time.Hour),
 			Provider:   "linear",
+			RequestID:  "linear-delivery-505",
 			Status:     intakeDeliveryStatusError,
 			HTTPStatus: 503,
 			EventType:  "ticket.created",
@@ -560,6 +561,7 @@ func TestSnapshotIntakeSummaryUsesFullLedger(t *testing.T) {
 			ID:         "newer-ok",
 			Time:       now,
 			Provider:   "linear",
+			RequestID:  "linear-delivery-505",
 			Status:     intakeDeliveryStatusOK,
 			HTTPStatus: 200,
 			EventType:  "ticket.created",
@@ -588,6 +590,9 @@ func TestSnapshotIntakeSummaryUsesFullLedger(t *testing.T) {
 	}
 	if snapshot.IntakeSummary == nil || snapshot.IntakeSummary.Deliveries != 2 || snapshot.IntakeSummary.Errors != 1 || snapshot.IntakeSummary.Replayable != 1 || snapshot.IntakeSummary.LatestErrorID != "older-error" {
 		t.Fatalf("intake summary = %+v", snapshot.IntakeSummary)
+	}
+	if len(snapshot.IntakeDuplicates) != 1 || snapshot.IntakeDuplicates[0].RequestID != "linear-delivery-505" || snapshot.IntakeDuplicates[0].Count != 2 {
+		t.Fatalf("intake duplicates = %+v", snapshot.IntakeDuplicates)
 	}
 }
 
@@ -658,11 +663,16 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 			Recovered:  0,
 			Replayable: 1,
 		},
+		IntakeDuplicates: []intakeDuplicateRequest{{
+			Provider:  "github",
+			RequestID: "delivery-1",
+			Count:     2,
+		}},
 	}
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "intake: deliveries=1 errors=1 recovered=0 replayable=1"} {
+	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "intake: deliveries=1 errors=1 recovered=0 replayable=1 duplicate_request_ids=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
