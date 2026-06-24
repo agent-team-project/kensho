@@ -1977,6 +1977,7 @@ func newJobKillCmd() *cobra.Command {
 func newJobCloseCmd() *cobra.Command {
 	var (
 		repo        string
+		actor       string
 		status      string
 		message     string
 		messageFile string
@@ -2019,13 +2020,18 @@ func newJobCloseCmd() *cobra.Command {
 			if dryRun {
 				return renderJobActionPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "closed", "cli", closeMessage, map[string]string{"status": status}); err != nil {
+			closeActor := strings.TrimSpace(actor)
+			if closeActor == "" {
+				closeActor = "cli"
+			}
+			if err := writeJobWithAudit(teamDir, j, "closed", closeActor, closeMessage, map[string]string{"status": status}); err != nil {
 				return err
 			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the close audit event.")
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Close status: done or failed.")
 	cmd.Flags().StringVar(&message, "message", "", "Close message recorded on the job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read close message from a file, or '-' for stdin.")

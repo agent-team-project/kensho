@@ -1663,6 +1663,7 @@ agent-team job close <job-id> [message...] [flags]
 Flags:
 
 ```text
+      --actor string          Actor label recorded in the close audit event. (default "cli")
       --dry-run               Preview the close without changing job state or writing an audit event.
       --format string         Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json                  Emit the updated job as JSON.

@@ -215,13 +215,15 @@ For pipeline jobs it resets the first failed step whose dependencies are satisfi
 agent-team job close squ-42 --status done --dry-run
 agent-team job close squ-42 --status done
 agent-team job close squ-42 --status failed
+agent-team job close squ-42 --status done --actor github --message "PR merged"
 agent-team job close squ-42 --status failed --message "superseded by SQU-43"
 ```
 
 Use `--dry-run` to preview the terminal status and message before mutating the
 job. Closing records a job event and updates timestamps. Add a positional
 message, `--message`, or `--message-file <path|->` when the terminal state
-needs an operator-readable reason.
+needs an operator-readable reason. Use `--actor` when automation records the
+close.
 
 ## Cancelling Jobs
 

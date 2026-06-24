@@ -204,7 +204,7 @@ func TestJobCloseRecordsMessage(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "close", "squ-70", "--repo", tmp, "--status", "failed", "--message", "superseded by SQU-71", "--json"})
+	cmd.SetArgs([]string{"job", "close", "squ-70", "--repo", tmp, "--status", "failed", "--message", "superseded by SQU-71", "--actor", "github", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job close message: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -219,7 +219,7 @@ func TestJobCloseRecordsMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "closed" || events[0].Message != "superseded by SQU-71" || events[0].Data["status"] != "failed" {
+	if len(events) != 1 || events[0].Type != "closed" || events[0].Actor != "github" || events[0].Message != "superseded by SQU-71" || events[0].Data["status"] != "failed" {
 		t.Fatalf("events = %+v", events)
 	}
 }
