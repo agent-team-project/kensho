@@ -98,7 +98,7 @@ agent-team team snapshot delivery --output delivery-diagnostics.json
 agent-team snapshot diff before-repair.json after-repair.json
 ```
 
-Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention.
+Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention.
 
 They include:
 

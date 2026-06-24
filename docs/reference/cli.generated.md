@@ -2870,7 +2870,7 @@ Flags:
 
 Capture a read-only diagnostic snapshot for one pipeline.
 
-Capture a compact read-only diagnostic artifact for one pipeline, including status, step explanations, owned jobs, and dry-run advance previews.
+Capture a compact read-only diagnostic artifact for one pipeline, including status, step explanations, owned jobs, queue ownership, and dry-run advance previews.
 
 ```text
 agent-team pipeline snapshot <pipeline> [flags]

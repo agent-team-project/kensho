@@ -938,6 +938,55 @@ target = "worker"
 			t.Fatalf("write job %s: %v", j.ID, err)
 		}
 	}
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-ticket-pipeline",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-704-implement",
+			Payload: map[string]any{
+				"job_id":       "squ-704",
+				"target":       "worker",
+				"ticket":       "SQU-704",
+				"access_token": "ticket-secret",
+			},
+			QueuedAt:  now.Add(-time.Minute),
+			UpdatedAt: now.Add(-time.Minute),
+		},
+		{
+			ID:         "q-platform-pipeline",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-705-implement",
+			Payload:    map[string]any{"job_id": "squ-705", "target": "worker", "ticket": "SQU-705"},
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-ticket-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-704-implement",
+		Payload:    map[string]any{"job_id": "squ-704", "target": "worker", "ticket": "SQU-704"},
+		QueuedAt:   now.Add(-2 * time.Minute),
+		UpdatedAt:  now.Add(-2 * time.Minute),
+	})
+	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
+		ID:         "q-platform-quarantined",
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-squ-705-implement",
+		Payload:    map[string]any{"job_id": "squ-705", "target": "worker", "ticket": "SQU-705"},
+		QueuedAt:   now.Add(-2 * time.Minute),
+		UpdatedAt:  now.Add(-2 * time.Minute),
+	})
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -966,6 +1015,15 @@ target = "worker"
 	if len(snapshot.Jobs) != 1 || snapshot.Jobs[0].ID != "squ-704" {
 		t.Fatalf("snapshot jobs = %+v", snapshot.Jobs)
 	}
+	if len(snapshot.Queue) != 1 || snapshot.Queue[0].ID != "q-ticket-pipeline" || snapshot.QueueSummary == nil || snapshot.QueueSummary.Total != 1 || snapshot.QueueSummary.Quarantined != 1 || snapshot.QueueSummary.QuarantineRestorable != 1 {
+		t.Fatalf("snapshot queue = %+v summary=%+v", snapshot.Queue, snapshot.QueueSummary)
+	}
+	if snapshot.Queue[0].Payload["access_token"] != snapshotRedactedValue {
+		t.Fatalf("snapshot queue payload not redacted: %+v", snapshot.Queue[0].Payload)
+	}
+	if len(snapshot.QueueQuarantine) != 1 || snapshot.QueueQuarantine[0].ID != "q-ticket-quarantined" || snapshot.QueueQuarantine[0].Job != "squ-704" {
+		t.Fatalf("snapshot queue quarantine = %+v", snapshot.QueueQuarantine)
+	}
 	if len(snapshot.AdvancePreview) != 1 || snapshot.AdvancePreview[0].JobID != "squ-704" || snapshot.AdvancePreview[0].Action != "would_advance" || !snapshot.AdvancePreview[0].DryRun {
 		t.Fatalf("snapshot advance = %+v", snapshot.AdvancePreview)
 	}
@@ -973,7 +1031,7 @@ target = "worker"
 	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-704-implement" {
 		t.Fatalf("snapshot route preview = %+v", preview)
 	}
-	if strings.Contains(out.String(), "platform_work") || strings.Contains(out.String(), "squ-705") {
+	if strings.Contains(out.String(), "platform_work") || strings.Contains(out.String(), "squ-705") || strings.Contains(out.String(), "q-platform") || strings.Contains(out.String(), "ticket-secret") {
 		t.Fatalf("pipeline snapshot leaked unrelated workflow:\n%s", out.String())
 	}
 
@@ -985,12 +1043,12 @@ target = "worker"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "advance: ready=1 route_previews=1"} {
+	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "advance: ready=1 route_previews=1"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline snapshot text missing %q:\n%s", want, textOut.String())
 		}
 	}
-	for _, leak := range []string{"platform_work", "squ-705"} {
+	for _, leak := range []string{"platform_work", "squ-705", "q-platform"} {
 		if strings.Contains(textOut.String(), leak) {
 			t.Fatalf("pipeline snapshot text leaked %q:\n%s", leak, textOut.String())
 		}

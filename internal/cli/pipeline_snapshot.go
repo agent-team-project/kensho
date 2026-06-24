@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +27,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <pipeline>",
 		Short: "Capture a read-only diagnostic snapshot for one pipeline.",
 		Long: "Capture a compact read-only diagnostic artifact for one pipeline, including status, " +
-			"step explanations, owned jobs, and dry-run advance previews.",
+			"step explanations, owned jobs, queue ownership, and dry-run advance previews.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && output != "" && output != "-" {
@@ -79,18 +80,21 @@ type pipelineSnapshotOptions struct {
 }
 
 type pipelineSnapshotResult struct {
-	Version        string                  `json:"version"`
-	CapturedAt     string                  `json:"captured_at"`
-	Repo           string                  `json:"repo"`
-	TeamDir        string                  `json:"team_dir"`
-	Pipeline       string                  `json:"pipeline"`
-	Git            *snapshotGitInfo        `json:"git,omitempty"`
-	Redacted       bool                    `json:"redacted"`
-	Status         *pipelineStatusRow      `json:"status,omitempty"`
-	Explain        *pipelineExplainRow     `json:"explain,omitempty"`
-	Jobs           []*job.Job              `json:"jobs,omitempty"`
-	AdvancePreview []pipelineAdvanceResult `json:"advance_preview,omitempty"`
-	SectionErrors  map[string]string       `json:"section_errors,omitempty"`
+	Version         string                  `json:"version"`
+	CapturedAt      string                  `json:"captured_at"`
+	Repo            string                  `json:"repo"`
+	TeamDir         string                  `json:"team_dir"`
+	Pipeline        string                  `json:"pipeline"`
+	Git             *snapshotGitInfo        `json:"git,omitempty"`
+	Redacted        bool                    `json:"redacted"`
+	Status          *pipelineStatusRow      `json:"status,omitempty"`
+	Explain         *pipelineExplainRow     `json:"explain,omitempty"`
+	Jobs            []*job.Job              `json:"jobs,omitempty"`
+	Queue           []*daemon.QueueItem     `json:"queue,omitempty"`
+	QueueSummary    *queueSummary           `json:"queue_summary,omitempty"`
+	QueueQuarantine []queueQuarantineItem   `json:"queue_quarantine,omitempty"`
+	AdvancePreview  []pipelineAdvanceResult `json:"advance_preview,omitempty"`
+	SectionErrors   map[string]string       `json:"section_errors,omitempty"`
 }
 
 func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSnapshotOptions) *pipelineSnapshotResult {
@@ -127,6 +131,19 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 		out.Jobs = filterJobsByPipeline(jobs, pipeline)
 		sortJobs(out.Jobs, "updated")
 	}
+	if queue, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir)); err != nil {
+		out.addError("queue", err)
+	} else {
+		out.Queue = queueItemsForJobs(queue, out.Jobs)
+		summary := summarizeQueueItems(out.Queue, now)
+		out.QueueSummary = &summary
+	}
+	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
+		out.addError("queue_quarantine", err)
+	} else {
+		out.QueueQuarantine = queueQuarantineItemsForJobs(quarantine, out.Jobs)
+		applyQueueQuarantineSummary(ensurePipelineSnapshotQueueSummary(out, now), out.QueueQuarantine)
+	}
 	if advance, err := advanceReadyPipelineJobs(nil, teamDir, pipeline, "auto", runtimeSelection{}, 0, true, true, false); err != nil {
 		out.addError("advance_preview", err)
 	} else {
@@ -138,6 +155,14 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 	return out
 }
 
+func ensurePipelineSnapshotQueueSummary(snapshot *pipelineSnapshotResult, now time.Time) *queueSummary {
+	if snapshot.QueueSummary == nil {
+		summary := summarizeQueueItems(snapshot.Queue, now)
+		snapshot.QueueSummary = &summary
+	}
+	return snapshot.QueueSummary
+}
+
 func filterJobsByPipeline(jobs []*job.Job, pipeline string) []*job.Job {
 	pipeline = strings.TrimSpace(pipeline)
 	out := make([]*job.Job, 0, len(jobs))
@@ -146,6 +171,19 @@ func filterJobsByPipeline(jobs []*job.Job, pipeline string) []*job.Job {
 			continue
 		}
 		out = append(out, j)
+	}
+	return out
+}
+
+func queueQuarantineItemsForJobs(items []queueQuarantineItem, jobs []*job.Job) []queueQuarantineItem {
+	if len(items) == 0 || len(jobs) == 0 {
+		return nil
+	}
+	out := make([]queueQuarantineItem, 0, len(items))
+	for _, item := range items {
+		if queueQuarantineMatchesAnyJob(item, jobs) {
+			out = append(out, item)
+		}
 	}
 	return out
 }
@@ -165,6 +203,12 @@ func redactPipelineSnapshotResult(snapshot *pipelineSnapshotResult) {
 		return
 	}
 	snapshot.Redacted = true
+	for _, item := range snapshot.Queue {
+		if item == nil {
+			continue
+		}
+		item.Payload = redactSnapshotMap(item.Payload)
+	}
 	for i := range snapshot.AdvancePreview {
 		redactSnapshotPipelineAdvance(&snapshot.AdvancePreview[i])
 	}
@@ -248,6 +292,9 @@ func renderPipelineSnapshotSummary(w io.Writer, snapshot *pipelineSnapshotResult
 			countPipelineExplainStateSteps([]pipelineExplainRow{*snapshot.Explain}, "blocked"))
 	}
 	renderSnapshotJobSummary(w, snapshot.Jobs)
+	if snapshot.QueueSummary != nil {
+		fmt.Fprintln(w, queueSummaryLine(*snapshot.QueueSummary))
+	}
 	if snapshot.AdvancePreview != nil {
 		fmt.Fprintf(w, "advance: ready=%d route_previews=%d\n",
 			len(snapshot.AdvancePreview),
