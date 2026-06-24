@@ -1474,6 +1474,7 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team job adopt` - Adopt a live external process as a job&#39;s owning instance.
 - `agent-team job advance` - Dispatch the next ready step in a pipeline job.
 - `agent-team job attach` - Attach to a job&#39;s owning instance.
 - `agent-team job cancel` - Cancel a job as failed.
@@ -1505,6 +1506,37 @@ Subcommands:
 - `agent-team job unblock` - Answer a blocked job and mark it ready to continue.
 - `agent-team job update` - Update job metadata.
 - `agent-team job wait` - Wait for a job to reach a lifecycle status.
+
+## `agent-team job adopt`
+
+Adopt a live external process as a job&#39;s owning instance.
+
+Adopt a live external process into daemon metadata and sync the durable job ownership fields. Defaults such as agent, workspace, branch, PR, and ticket come from the job file when present.
+
+```text
+agent-team job adopt <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --agent string         Agent name for the adopted instance. Defaults to the job target.
+      --branch string        Branch name to record. Defaults to the job branch.
+      --dry-run              Preview adoption without writing metadata or job state.
+      --force                Replace existing live metadata for the instance.
+      --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.
+      --instance string      Instance name that should own the job.
+      --json                 Emit machine-readable JSON.
+      --log-path string      Runtime log path, if the external process already writes to one.
+      --pid int              Live process PID to adopt.
+      --pr string            PR URL to record. Defaults to the job PR.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime-bin string   Runtime binary or wrapper used by the adopted process.
+      --session-id string    Runtime session id, when known and resumable.
+      --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --workspace string     Workspace path for the adopted process. Defaults to the job worktree, then repo root.
+```
 
 ## `agent-team job advance`
 

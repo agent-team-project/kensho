@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -286,6 +287,96 @@ func TestJobCancelStopsOwningInstanceAndFailsJob(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "cancelled" || events[0].Data["instance_action"] != "stop" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobAdoptUsesJobDefaultsAndUpdatesJob(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	worktree := filepath.Join(tmp, "worktrees", "squ-68")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-68",
+		Ticket:    "SQU-68",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		Branch:    "squ-68-existing",
+		Worktree:  worktree,
+		PR:        "https://github.com/example/repo/pull/68",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "adopt", "squ-68", "--repo", tmp, "--instance", "worker-squ-68", "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job adopt: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job adopt result: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Instance != "worker-squ-68" || result.Metadata.Agent != "worker" || result.Metadata.Job != "squ-68" || result.Metadata.Workspace != worktree || result.Metadata.Branch != "squ-68-existing" || result.Metadata.PR != "https://github.com/example/repo/pull/68" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Status != job.StatusRunning || result.Job.Instance != "worker-squ-68" || result.Job.LastEvent != "adopted" {
+		t.Fatalf("job adopt result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-68")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusRunning || updated.Instance != "worker-squ-68" || updated.Branch != "squ-68-existing" || updated.PR != "https://github.com/example/repo/pull/68" || updated.LastEvent != "adopted" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobAdoptDryRunDoesNotMutateJobOrMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-69",
+		Ticket:    "SQU-69",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "adopt", "squ-69", "--repo", tmp, "--instance", "worker-squ-69", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job adopt --dry-run: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job adopt dry-run result: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Job == nil || !result.JobChanged || result.Job.Status != job.StatusRunning || result.Job.Instance != "worker-squ-69" {
+		t.Fatalf("dry-run result = %+v", result)
+	}
+	unchanged, err := job.Read(teamDir, "squ-69")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.Instance != "" || unchanged.LastEvent != "" {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "worker-squ-69"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata should not exist after dry-run: %v", err)
 	}
 }
 

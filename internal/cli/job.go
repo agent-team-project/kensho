@@ -39,6 +39,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobEventsCmd())
 	cmd.AddCommand(newJobWaitCmd())
 	cmd.AddCommand(newJobStartCmd())
+	cmd.AddCommand(newJobAdoptCmd())
 	cmd.AddCommand(newJobDispatchCmd())
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobUnblockCmd())
