@@ -765,6 +765,7 @@ target = "manager"
 	if !containsString(ticket.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
 		!containsString(ticket.Actions, "agent-team job reconcile events --dry-run") ||
 		!containsString(ticket.Actions, "agent-team pipeline timeout ticket_to_pr --dry-run") ||
+		!containsString(ticket.Actions, "agent-team repair --timeout-pipelines --dry-run") ||
 		!containsString(ticket.Actions, "agent-team pipeline explain ticket_to_pr --state running") ||
 		!containsString(ticket.Actions, "agent-team pipeline approve ticket_to_pr --dry-run --dispatch --preview-routes") ||
 		!containsString(ticket.Actions, "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes") ||
@@ -805,7 +806,7 @@ target = "manager"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "STALE_RUNNING", "MANUAL_GATES", "ACTION", "ticket_to_pr", "yes", "running=2,blocked=1,failed=1", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "agent-team job reconcile events --dry-run", "agent-team pipeline timeout ticket_to_pr --dry-run", "agent-team pipeline approve ticket_to_pr --dry-run --dispatch --preview-routes", "agent-team repair --retry-pipelines --dry-run --preview-routes", "ad_hoc", "no"} {
+	for _, want := range []string{"PIPELINE", "STALE_RUNNING", "MANUAL_GATES", "ACTION", "ticket_to_pr", "yes", "running=2,blocked=1,failed=1", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "agent-team job reconcile events --dry-run", "agent-team pipeline timeout ticket_to_pr --dry-run", "agent-team repair --timeout-pipelines --dry-run", "agent-team pipeline approve ticket_to_pr --dry-run --dispatch --preview-routes", "agent-team repair --retry-pipelines --dry-run --preview-routes", "ad_hoc", "no"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline status text missing %q:\n%s", want, textOut.String())
 		}

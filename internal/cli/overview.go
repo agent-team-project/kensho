@@ -684,8 +684,12 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 		reason := fmt.Sprintf("stale_running_steps=%d", out.Pipelines.StaleRunningSteps)
 		add("agent-team job reconcile events --dry-run", "pipelines", reason)
 		if teamName != "" {
+			add(fmt.Sprintf("agent-team team timeout %s --dry-run", teamName), "pipelines", reason)
+			add(fmt.Sprintf("agent-team team repair %s --timeout-pipelines --dry-run", teamName), "pipelines", reason)
 			add(fmt.Sprintf("agent-team team explain %s --state running", teamName), "pipelines", reason)
 		} else {
+			add("agent-team pipeline timeout --all --dry-run", "pipelines", reason)
+			add("agent-team repair --timeout-pipelines --dry-run", "pipelines", reason)
 			add("agent-team pipeline explain --all --state running", "pipelines", reason)
 		}
 	}
