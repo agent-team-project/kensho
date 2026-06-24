@@ -109,6 +109,7 @@ They include:
 - job triage
 - status-derived job previews
 - pipeline status
+- pipeline explain step diagnostics
 - ready pipeline advance previews
 - team doctor findings
 - queue items

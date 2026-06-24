@@ -121,6 +121,7 @@ type snapshotResult struct {
 	JobTriage       *jobTriageSnapshot         `json:"job_triage,omitempty"`
 	JobStatus       []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
 	PipelineStatus  []pipelineStatusRow        `json:"pipeline_status,omitempty"`
+	PipelineExplain []pipelineExplainRow       `json:"pipeline_explain,omitempty"`
 	PipelineAdvance []pipelineAdvanceResult    `json:"pipeline_advance_preview,omitempty"`
 	TeamsDoctor     *allTeamDoctorResult       `json:"teams_doctor,omitempty"`
 	TeamDoctor      *teamDoctorResult          `json:"team_doctor,omitempty"`
@@ -197,6 +198,11 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("pipeline_status", err)
 	} else {
 		out.PipelineStatus = status
+	}
+	if explain, err := collectPipelineExplainRows(teamDir, "", 0, nil); err != nil {
+		out.addError("pipeline_explain", err)
+	} else {
+		out.PipelineExplain = explain
 	}
 	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", runtimeSelection{}, 0, true, true, false); err != nil {
 		out.addError("pipeline_advance_preview", err)
@@ -335,6 +341,11 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		out.addError("pipeline_status", err)
 	} else {
 		out.PipelineStatus = teamPipelineStatus(team, status)
+	}
+	if explain, err := collectTeamPipelineExplain(teamDir, name, 0, nil); err != nil {
+		out.addError("pipeline_explain", err)
+	} else {
+		out.PipelineExplain = explain
 	}
 	if advance, err := advanceReadyPipelineJobs(nil, teamDir, "", "auto", runtimeSelection{}, 0, true, true, false); err != nil {
 		out.addError("pipeline_advance_preview", err)
@@ -757,6 +768,14 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			countPipelineStatusManualGates(snapshot.PipelineStatus),
 			countPipelineStatusFailedSteps(snapshot.PipelineStatus))
 	}
+	if snapshot.PipelineExplain != nil {
+		fmt.Fprintf(w, "pipeline explain: pipelines=%d jobs=%d steps=%d failed_steps=%d blocked_steps=%d\n",
+			len(snapshot.PipelineExplain),
+			countPipelineExplainJobs(snapshot.PipelineExplain),
+			countPipelineExplainSteps(snapshot.PipelineExplain),
+			countPipelineExplainStateSteps(snapshot.PipelineExplain, "failed"),
+			countPipelineExplainStateSteps(snapshot.PipelineExplain, "blocked"))
+	}
 	if snapshot.PipelineAdvance != nil {
 		fmt.Fprintf(w, "pipeline advance: ready=%d route_previews=%d\n", len(snapshot.PipelineAdvance), countPipelineAdvanceRoutePreviews(snapshot.PipelineAdvance))
 	}
@@ -824,6 +843,38 @@ func countPipelineStatusFailedSteps(rows []pipelineStatusRow) int {
 	count := 0
 	for _, row := range rows {
 		count += row.FailedSteps
+	}
+	return count
+}
+
+func countPipelineExplainJobs(rows []pipelineExplainRow) int {
+	count := 0
+	for _, row := range rows {
+		count += row.ExplainedJobs
+	}
+	return count
+}
+
+func countPipelineExplainSteps(rows []pipelineExplainRow) int {
+	count := 0
+	for _, row := range rows {
+		for _, explained := range row.Jobs {
+			count += len(explained.Steps)
+		}
+	}
+	return count
+}
+
+func countPipelineExplainStateSteps(rows []pipelineExplainRow, state string) int {
+	count := 0
+	for _, row := range rows {
+		for _, explained := range row.Jobs {
+			for _, step := range explained.Steps {
+				if step.State == state {
+					count++
+				}
+			}
+		}
 	}
 	return count
 }

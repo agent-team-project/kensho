@@ -220,6 +220,9 @@ func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	if len(snapshot.PipelineStatus) != 1 || snapshot.PipelineStatus[0].Pipeline != "ticket_to_pr" || snapshot.PipelineStatus[0].Declared || snapshot.PipelineStatus[0].Jobs != 1 || snapshot.PipelineStatus[0].ReadySteps != 1 {
 		t.Fatalf("pipeline status = %+v", snapshot.PipelineStatus)
 	}
+	if len(snapshot.PipelineExplain) != 1 || snapshot.PipelineExplain[0].Pipeline != "ticket_to_pr" || snapshot.PipelineExplain[0].ExplainedJobs != 1 || len(snapshot.PipelineExplain[0].Jobs) != 1 || snapshot.PipelineExplain[0].Jobs[0].JobID != "squ-503" || len(snapshot.PipelineExplain[0].Jobs[0].Steps) != 2 {
+		t.Fatalf("pipeline explain = %+v", snapshot.PipelineExplain)
+	}
 	preview := snapshot.PipelineAdvance[0].Preview
 	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-503-implement" {
 		t.Fatalf("pipeline advance route preview = %+v", preview)

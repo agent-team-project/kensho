@@ -4769,6 +4769,9 @@ branch = "other-oth-701"
 	if len(snapshot.PipelineStatus) != 1 || snapshot.PipelineStatus[0].Pipeline != "ticket_to_pr" || snapshot.PipelineStatus[0].ReadySteps != 1 {
 		t.Fatalf("snapshot pipeline status = %+v", snapshot.PipelineStatus)
 	}
+	if len(snapshot.PipelineExplain) != 1 || snapshot.PipelineExplain[0].Pipeline != "ticket_to_pr" || snapshot.PipelineExplain[0].ExplainedJobs != 1 || len(snapshot.PipelineExplain[0].Jobs) != 1 || snapshot.PipelineExplain[0].Jobs[0].JobID != "squ-701" {
+		t.Fatalf("snapshot pipeline explain = %+v", snapshot.PipelineExplain)
+	}
 	if len(snapshot.PipelineAdvance) != 1 || snapshot.PipelineAdvance[0].JobID != "squ-701" || snapshot.PipelineAdvance[0].Pipeline != "ticket_to_pr" {
 		t.Fatalf("snapshot pipeline advance = %+v", snapshot.PipelineAdvance)
 	}
@@ -4800,7 +4803,7 @@ branch = "other-oth-701"
 		t.Fatalf("team snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
 	textBody := textOut.String()
-	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1", "team doctor: problems=0 warnings=1", "events: 0"} {
+	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1", "pipeline explain: pipelines=1 jobs=1 steps=1", "team doctor: problems=0 warnings=1", "events: 0"} {
 		if !strings.Contains(textBody, want) {
 			t.Fatalf("team snapshot text missing %q:\n%s", want, textBody)
 		}
