@@ -921,7 +921,7 @@ func healthRowMatchesFilters(row instanceRow, opts healthOptions) bool {
 
 func crashedInstanceHealthActions(row instanceRow) []string {
 	if id := job.NormalizeID(row.Job); id != "" {
-		return []string{fmt.Sprintf("agent-team runtime resume-plan --job %s --status crashed", id)}
+		return []string{fmt.Sprintf("agent-team job resume-plan %s --status crashed", id)}
 	}
 	if instance := strings.TrimSpace(row.Instance); instance != "" {
 		return []string{fmt.Sprintf("agent-team runtime resume-plan %s --status crashed", instance)}

@@ -92,6 +92,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team job ls` | List jobs; filter held state, hold deadlines, and mixed-runtime ownership; sort rows and cap output with `--limit` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, status previews, and actions |
 | `agent-team job wait <job-id>` | Wait for lifecycle status or last event with `--event` |
+| `agent-team job resume-plan <job-id>` | Show runtime resume, attach, and log fallback commands for one job |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, queue ownership, state files, and optional log tails |
 | `agent-team job explain <job-id>` | Explain or watch every pipeline step's readiness, blockers, gates, and next actions |
 | `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection |

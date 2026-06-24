@@ -554,7 +554,7 @@ func TestJobShowSuggestsRuntimeResumePlanForCrashedMetadata(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job show crashed runtime: %v\nstderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(out.String(), "agent-team runtime resume-plan --job squ-46 --status crashed") {
+	if !strings.Contains(out.String(), "agent-team job resume-plan squ-46 --status crashed") {
 		t.Fatalf("job show missing runtime resume action:\n%s", out.String())
 	}
 }

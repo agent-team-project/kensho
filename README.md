@@ -251,6 +251,7 @@ agent-team job update <job-id> [--status running] [--instance name] [--branch na
 agent-team job step <job-id> <step-id> [--status done|failed|blocked|running|queued] [--skip] [--advance] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--dry-run] [--format '{{.ID}} {{.Status}}'] [--json]
 agent-team job send <job-id> [message...] [--message "..."] [--message-file <path|->] [--from cli] [--allow-missing] [--format '{{.ID}}'] [--json]
 agent-team job unblock <job-id> [answer...] [--message "..."] [--message-file <path|->] [--status running|queued] [--dry-run] [--json]
+agent-team job resume-plan <job-id> [--status crashed] [--runtime codex] [--action resume|logs] [--summary] [--format '{{.RecommendedCommand}}'] [--json]
 agent-team job cleanup <job-id>|--all [--dry-run|--merged] [--force-branch] [--verify-pr] [--format '{{.Total}} {{.Cleaned}}'] [--json]
 agent-team job start|stop|kill|wait|logs [--last-message|--clean]|attach|send|unblock|update|hold|release|timeout [--all --pipeline name --target-agent worker]|close [--message "..."]|cancel|adopt|reopen|rm|prune|reconcile ...
                                                 # create, monitor, dispatch, control, and clean up durable work units

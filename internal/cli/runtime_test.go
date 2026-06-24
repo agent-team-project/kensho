@@ -696,6 +696,22 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	if !strings.Contains(plan.Detail, `runtime "codex" does not support managed resume`) {
 		t.Fatalf("detail = %q", plan.Detail)
 	}
+
+	jobCmd := NewRootCmd()
+	jobOut, jobErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobCmd.SetOut(jobOut)
+	jobCmd.SetErr(jobErr)
+	jobCmd.SetArgs([]string{"job", "resume-plan", "SQU-42", "--repo", tmp, "--json"})
+	if err := jobCmd.Execute(); err != nil {
+		t.Fatalf("job resume-plan --json: %v\nstderr=%s", err, jobErr.String())
+	}
+	var jobPlans []runtimeResumePlan
+	if err := json.Unmarshal(jobOut.Bytes(), &jobPlans); err != nil {
+		t.Fatalf("decode job resume plans: %v\nbody=%s", err, jobOut.String())
+	}
+	if len(jobPlans) != 1 || jobPlans[0].Instance != "worker-squ-42" || jobPlans[0].Job != "squ-42" || jobPlans[0].JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
+		t.Fatalf("job plans = %+v", jobPlans)
+	}
 }
 
 func TestRuntimeResumePlanFormatAndFilters(t *testing.T) {

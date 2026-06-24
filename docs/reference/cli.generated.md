@@ -1531,6 +1531,7 @@ Subcommands:
 - `agent-team job reconcile` - Reconcile external runtime state back into jobs.
 - `agent-team job release` - Release a held job so pipeline automation can advance it.
 - `agent-team job reopen` - Reopen a durable job for another attempt.
+- `agent-team job resume-plan` - Show runtime resume and fallback commands for one job.
 - `agent-team job rm` - Remove job files and their event logs.
 - `agent-team job send` - Send a mailbox message to a job&#39;s owning instance.
 - `agent-team job show` - Show one durable job.
@@ -2348,6 +2349,28 @@ Flags:
       --source string        Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).
       --status string        Reopened status: queued or blocked. (default "queued")
       --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team job resume-plan`
+
+Show runtime resume and fallback commands for one job.
+
+Show runtime resume and fallback commands for daemon metadata owned by one durable job. This is the job-scoped form of `agent-team runtime resume-plan --job &lt;job-id&gt;`.
+
+```text
+agent-team job resume-plan <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
+      --json              Emit machine-readable JSON.
+      --repo string       Repo root containing .agent_team. (default "<repo>")
+      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --status strings    Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.
+      --summary           Summarize matching resume plans by recommended action, runtime, and status.
 ```
 
 ## `agent-team job rm`

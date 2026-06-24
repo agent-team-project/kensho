@@ -48,6 +48,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobBlockCmd())
 	cmd.AddCommand(newJobUnblockCmd())
 	cmd.AddCommand(newJobLogsCmd())
+	cmd.AddCommand(newJobResumePlanCmd())
 	cmd.AddCommand(newJobSnapshotCmd())
 	cmd.AddCommand(newJobAttachCmd())
 	cmd.AddCommand(newJobStopCmd())
@@ -9725,7 +9726,7 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 		}
 	}
 	if jobHasCrashedRuntimeMetadata(teamDir, j) {
-		add(fmt.Sprintf("agent-team runtime resume-plan --job %s --status crashed", j.ID))
+		add(fmt.Sprintf("agent-team job resume-plan %s --status crashed", j.ID))
 	}
 	for _, preview := range statusPreviews {
 		if preview.Changed && preview.After == job.StatusBlocked {

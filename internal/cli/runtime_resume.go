@@ -124,6 +124,74 @@ func newRuntimeResumePlanCmd() *cobra.Command {
 	return cmd
 }
 
+func newJobResumePlanCmd() *cobra.Command {
+	var (
+		repo          string
+		statusFilters []string
+		runtimeFilter []string
+		actionFilters []string
+		summary       bool
+		jsonOut       bool
+		format        string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "resume-plan <job-id>",
+		Short: "Show runtime resume and fallback commands for one job.",
+		Long: "Show runtime resume and fallback commands for daemon metadata owned by one durable job. " +
+			"This is the job-scoped form of `agent-team runtime resume-plan --job <job-id>`.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job resume-plan: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job resume-plan: --summary cannot be combined with --format.")
+				return exitErr(2)
+			}
+			tmpl, err := parseRuntimeResumePlanFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job resume-plan: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			plans, err := collectRuntimeResumePlans(teamDir, nil, args[0], statusFilters, runtimeFilter, actionFilters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job resume-plan: %v\n", err)
+				return exitErr(1)
+			}
+			if summary {
+				out := summarizeRuntimeResumePlans(plans)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				renderRuntimeResumeSummary(cmd.OutOrStdout(), out)
+				return nil
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
+			}
+			if tmpl != nil {
+				return renderRuntimeResumePlanFormat(cmd.OutOrStdout(), plans, tmpl)
+			}
+			renderRuntimeResumePlans(cmd.OutOrStdout(), plans)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only include metadata with this status: running, stopped, exited, or crashed. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching resume plans by recommended action, runtime, and status.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
+	return cmd
+}
+
 func collectRuntimeResumePlans(teamDir string, instances []string, jobID string, statusFilters []string, runtimeFilters []string, actionFilters []string) ([]runtimeResumePlan, error) {
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {

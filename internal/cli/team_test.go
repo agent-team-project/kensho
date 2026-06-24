@@ -7546,7 +7546,7 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 		{Code: "declared_missing", Actions: []string{"agent-team sync --dry-run", "agent-team daemon start"}},
 		{Code: "queue_dead_letter", Actions: []string{"agent-team queue retry --all --dry-run"}},
 		{Code: "instance_crashed", Actions: []string{"agent-team runtime resume-plan worker-squ-1 --status crashed"}},
-		{Code: "instance_crashed", Actions: []string{"agent-team runtime resume-plan --job squ-1 --status crashed"}},
+		{Code: "instance_crashed", Actions: []string{"agent-team job resume-plan squ-1 --status crashed"}},
 	}}
 	scopeTeamHealthIssueActions(result, "delivery")
 	if got := result.Issues[0].Actions; !containsString(got, "agent-team team sync delivery --dry-run") || containsString(got, "agent-team sync --dry-run") || !containsString(got, "agent-team daemon start") {
@@ -7558,7 +7558,7 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 	if got := result.Issues[2].Actions; !containsString(got, "agent-team team runtime resume-plan delivery --status crashed") || containsString(got, "agent-team runtime resume-plan worker-squ-1 --status crashed") {
 		t.Fatalf("runtime actions = %+v", got)
 	}
-	if got := result.Issues[3].Actions; !containsString(got, "agent-team runtime resume-plan --job squ-1 --status crashed") {
+	if got := result.Issues[3].Actions; !containsString(got, "agent-team job resume-plan squ-1 --status crashed") {
 		t.Fatalf("job runtime action should remain job-scoped: %+v", got)
 	}
 }

@@ -116,7 +116,7 @@ func TestHealthCrashedIssueSuggestsRuntimeResumePlan(t *testing.T) {
 	if crashed == nil {
 		t.Fatalf("issues = %+v, missing instance_crashed", got.Issues)
 	}
-	if crashed.Job != "squ-46" || !containsString(crashed.Actions, "agent-team runtime resume-plan --job squ-46 --status crashed") {
+	if crashed.Job != "squ-46" || !containsString(crashed.Actions, "agent-team job resume-plan squ-46 --status crashed") {
 		t.Fatalf("crashed issue = %+v", crashed)
 	}
 }

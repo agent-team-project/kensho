@@ -220,6 +220,7 @@ the daemon:
 agent-team runtime resume-plan
 agent-team runtime resume-plan worker-squ-42
 agent-team runtime resume-plan --job squ-42
+agent-team job resume-plan squ-42
 agent-team runtime resume-plan --runtime codex --status exited
 agent-team runtime resume-plan --action resume --format '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'
 agent-team runtime resume-plan --status crashed --summary --json
