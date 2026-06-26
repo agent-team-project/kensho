@@ -2108,6 +2108,90 @@ func TestQueuePruneFiltersByInstanceEventJobAndRuntime(t *testing.T) {
 	}
 }
 
+func TestQueuePruneReadyDefaultsToPendingDueItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-910",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-910"},
+			NextRetry:  now.Add(-time.Minute),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now.Add(-time.Hour),
+		},
+		{
+			ID:         "q-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-911",
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-911"},
+			NextRetry:  now.Add(time.Hour),
+			QueuedAt:   now.Add(-time.Hour),
+			UpdatedAt:  now.Add(-time.Hour),
+		},
+		{
+			ID:             "q-dead",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-912",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-912"},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"queue", "prune", "--target", tmp, "--ready", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("queue prune ready dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var dryRows []queuePruneResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryRows); err != nil {
+		t.Fatalf("decode ready prune dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(dryRows) != 1 || dryRows[0].ID != "q-ready" || dryRows[0].State != daemon.QueueStatePending || !dryRows[0].DryRun || dryRows[0].Dropped {
+		t.Fatalf("ready dry-run rows = %+v", dryRows)
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--ready", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("queue prune ready: %v\nstderr=%s", err, pruneErr.String())
+	}
+	if got, want := strings.TrimSpace(pruneOut.String()), "q-ready pending true"; got != want {
+		t.Fatalf("ready prune output = %q, want %q", got, want)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-ready"); !os.IsNotExist(err) {
+		t.Fatalf("ready item err=%v, want not exist", err)
+	}
+	for _, id := range []string{"q-delayed", "q-dead"} {
+		if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id); err != nil {
+			t.Fatalf("queue item %s should remain: %v", id, err)
+		}
+	}
+}
+
 func TestQueuePruneLimitPrunesOldestMatches(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

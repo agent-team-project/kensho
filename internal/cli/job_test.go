@@ -1973,6 +1973,110 @@ func TestJobQueuePruneEventTypeFiltersItems(t *testing.T) {
 	}
 }
 
+func TestJobQueuePruneReadyDefaultsToPendingDueItems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	j, err := job.New("SQU-126", "worker", "ready scoped cleanup", time.Now())
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Instance = "worker-squ-126"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-job-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-126",
+			Payload: map[string]any{
+				"job_id": "squ-126",
+				"ticket": "SQU-126",
+				"target": "worker",
+			},
+			NextRetry: now.Add(-time.Minute),
+			QueuedAt:  now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:         "q-job-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-126",
+			Payload: map[string]any{
+				"job_id": "squ-126",
+				"ticket": "SQU-126",
+				"target": "worker",
+			},
+			NextRetry: now.Add(time.Hour),
+			QueuedAt:  now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:         "q-job-dead",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-126",
+			Payload: map[string]any{
+				"job_id": "squ-126",
+				"ticket": "SQU-126",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "spawn failed",
+			QueuedAt:       now.Add(-48 * time.Hour),
+			UpdatedAt:      now.Add(-47 * time.Hour),
+			DeadLetteredAt: now.Add(-47 * time.Hour),
+		},
+		{
+			ID:         "q-other-ready",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-127",
+			Payload: map[string]any{
+				"job_id": "squ-127",
+				"ticket": "SQU-127",
+				"target": "worker",
+			},
+			NextRetry: now.Add(-time.Minute),
+			QueuedAt:  now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	prune := NewRootCmd()
+	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	prune.SetOut(pruneOut)
+	prune.SetErr(pruneErr)
+	prune.SetArgs([]string{"job", "queue", "prune", "SQU-126", "--repo", tmp, "--ready", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
+	if err := prune.Execute(); err != nil {
+		t.Fatalf("job queue prune ready: %v\nstderr=%s", err, pruneErr.String())
+	}
+	if got, want := strings.TrimSpace(pruneOut.String()), "q-job-ready pending true"; got != want {
+		t.Fatalf("ready prune output = %q, want %q", got, want)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-job-ready"); !os.IsNotExist(err) {
+		t.Fatalf("ready item err=%v, want not exist", err)
+	}
+	for _, id := range []string{"q-job-delayed", "q-job-dead", "q-other-ready"} {
+		if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), id); err != nil {
+			t.Fatalf("queue item %s should remain: %v", id, err)
+		}
+	}
+}
+
 func TestJobQueueRejectsFormatCombinations(t *testing.T) {
 	for _, tc := range []struct {
 		name string

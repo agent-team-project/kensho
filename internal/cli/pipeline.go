@@ -1343,6 +1343,7 @@ func newPipelineQueuePruneCmd() *cobra.Command {
 		eventTypes []string
 		jobs       []string
 		runtimes   []string
+		readyOnly  bool
 		limit      int
 	)
 	cwd, _ := os.Getwd()
@@ -1369,12 +1370,12 @@ func newPipelineQueuePruneCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue prune: %v\n", err)
 				return exitErr(2)
 			}
-			state, err := parseQueuePruneState(stateFlag)
+			state, err := parseQueuePruneStateWithReady(stateFlag, readyOnly, cmd.Flags().Changed("state"))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue prune: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := parseQueueListFiltersWithRuntime("", nil, eventTypes, jobs, runtimes, false, time.Now().UTC())
+			filters, err := parseQueueListFiltersWithRuntime("", nil, eventTypes, jobs, runtimes, readyOnly, time.Now().UTC())
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue prune: %v\n", err)
 				return exitErr(2)
@@ -1392,6 +1393,7 @@ func newPipelineQueuePruneCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type before pruning; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket before pruning; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Prune at most this many matching pipeline-owned queue items; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pipeline-owned queue items that would be pruned without dropping them.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")

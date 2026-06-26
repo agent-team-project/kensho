@@ -2116,6 +2116,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --limit int             Prune at most this many matching job-owned queue items; 0 means no limit.
       --older-than duration   Only prune job-owned items older than this duration based on retry/dead-letter/update time.
+      --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
@@ -3403,6 +3404,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --limit int             Prune at most this many matching pipeline-owned queue items; 0 means no limit.
       --older-than duration   Only prune pipeline-owned items older than this duration based on retry/dead-letter/update time.
+      --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
@@ -4173,6 +4175,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --limit int             Prune at most this many matching queue items; 0 means no limit.
       --older-than duration   Only prune items older than this duration based on retry/dead-letter/update time.
+      --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -5958,6 +5961,7 @@ Flags:
       --json                  Emit prune results as JSON.
       --limit int             Prune at most this many matching team-owned queue items; 0 means no limit.
       --older-than duration   Only prune team-owned items older than this duration based on retry/dead-letter/update time.
+      --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
