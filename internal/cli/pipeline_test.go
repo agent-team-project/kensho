@@ -36,6 +36,7 @@ label = "Code review"
 description = "Review branch and PR state."
 instructions = "Check tests, summarize risks, and decide whether the PR can proceed."
 target = "manager"
+workspace = "repo"
 after = ["implement"]
 optional = true
 timeout = "45m"
@@ -52,7 +53,7 @@ max_attempts = 3
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("pipeline ls: %v\nstderr=%s", err, lsErr.String())
 	}
-	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", `review:manager label="Code review" after=implement optional=true timeout=45m0s max_attempts=3`} {
+	for _, want := range []string{"PIPELINE", "ticket_to_pr", "ticket.created", "implement:worker", `review:manager workspace=repo label="Code review" after=implement optional=true timeout=45m0s max_attempts=3`} {
 		if !strings.Contains(lsOut.String(), want) {
 			t.Fatalf("pipeline ls missing %q:\n%s", want, lsOut.String())
 		}
@@ -66,7 +67,7 @@ max_attempts = 3
 	if err := show.Execute(); err != nil {
 		t.Fatalf("pipeline show: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", `review target=manager after=implement label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3`} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker after=-", `review target=manager after=implement workspace=repo label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3`} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("pipeline show missing %q:\n%s", want, showOut.String())
 		}
@@ -84,7 +85,7 @@ max_attempts = 3
 	if err := json.Unmarshal(jsonOut.Bytes(), &rows); err != nil {
 		t.Fatalf("decode pipeline json: %v\nbody=%s", err, jsonOut.String())
 	}
-	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || rows[0].Steps[1].Label != "Code review" || rows[0].Steps[1].Description != "Review branch and PR state." || rows[0].Steps[1].Instructions != "Check tests, summarize risks, and decide whether the PR can proceed." || !rows[0].Steps[1].Optional || rows[0].Steps[1].Timeout != "45m0s" || rows[0].Steps[1].MaxAttempts != 3 {
+	if len(rows) != 1 || rows[0].Name != "ticket_to_pr" || len(rows[0].Steps) != 2 || rows[0].Steps[1].Label != "Code review" || rows[0].Steps[1].Description != "Review branch and PR state." || rows[0].Steps[1].Instructions != "Check tests, summarize risks, and decide whether the PR can proceed." || rows[0].Steps[1].Workspace != "repo" || !rows[0].Steps[1].Optional || rows[0].Steps[1].Timeout != "45m0s" || rows[0].Steps[1].MaxAttempts != 3 {
 		t.Fatalf("pipeline rows = %+v", rows)
 	}
 
@@ -133,6 +134,7 @@ label = "Verification"
 description = "Confirm implementation matches the ticket."
 instructions = "Check acceptance criteria before closing the workflow."
 target = "manager"
+workspace = "repo"
 after = ["implement"]
 optional = true
 timeout = "30m"
@@ -153,7 +155,7 @@ max_attempts = 2
 	if err != nil {
 		t.Fatalf("read created job: %v", err)
 	}
-	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || created.Steps[1].Label != "Verification" || created.Steps[1].Description != "Confirm implementation matches the ticket." || created.Steps[1].Instructions != "Check acceptance criteria before closing the workflow." || !created.Steps[1].Optional || created.Steps[1].Timeout != "30m0s" || created.Steps[1].MaxAttempts != 2 {
+	if len(created.Steps) != 2 || created.Steps[1].ID != "verify" || created.Steps[1].Label != "Verification" || created.Steps[1].Description != "Confirm implementation matches the ticket." || created.Steps[1].Instructions != "Check acceptance criteria before closing the workflow." || created.Steps[1].Workspace != "repo" || !created.Steps[1].Optional || created.Steps[1].Timeout != "30m0s" || created.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("optional step metadata was not copied: %+v", created.Steps)
 	}
 }
@@ -5647,11 +5649,65 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 		t.Fatalf("dispatch preview = %+v", advancePreview.Dispatch)
 	}
 	payload := advancePreview.Dispatch.Preview.Payload
-	if payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["job_id"] != "squ-308" {
+	if payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["job_id"] != "squ-308" || payload["workspace"] != "worktree" {
 		t.Fatalf("dispatch payload = %+v", payload)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".agent_team", "jobs", "squ-308.toml")); !os.IsNotExist(err) {
 		t.Fatalf("dispatch dry-run wrote pipeline job file, err=%v", err)
+	}
+}
+
+func TestPipelineRunStepWorkspaceOverridesAuto(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.repo_worker]
+trigger.event = "ticket.created"
+
+[[pipelines.repo_worker.steps]]
+id = "implement"
+target = "worker"
+workspace = "repo"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "run", "repo_worker", "SQU-312", "--repo", root, "--dry-run", "--dispatch", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline run step workspace dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview jobAdvancePreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode step workspace preview: %v\nbody=%s", err, out.String())
+	}
+	if preview.Step == nil || preview.Step.Workspace != "repo" || len(preview.Job.Steps) != 1 || preview.Job.Steps[0].Workspace != "repo" {
+		t.Fatalf("preview step workspace was not preserved: %+v", preview)
+	}
+	if got := preview.Dispatch.Preview.Payload["workspace"]; got != "repo" {
+		t.Fatalf("dispatch workspace = %v, want repo; payload=%+v", got, preview.Dispatch.Preview.Payload)
+	}
+
+	override := NewRootCmd()
+	overrideOut, overrideErr := &bytes.Buffer{}, &bytes.Buffer{}
+	override.SetOut(overrideOut)
+	override.SetErr(overrideErr)
+	override.SetArgs([]string{"pipeline", "run", "repo_worker", "SQU-313", "--repo", root, "--dry-run", "--dispatch", "--workspace", "worktree", "--json"})
+	if err := override.Execute(); err != nil {
+		t.Fatalf("pipeline run explicit workspace dry-run: %v\nstderr=%s", err, overrideErr.String())
+	}
+	var overridden jobAdvancePreview
+	if err := json.Unmarshal(overrideOut.Bytes(), &overridden); err != nil {
+		t.Fatalf("decode overridden workspace preview: %v\nbody=%s", err, overrideOut.String())
+	}
+	if got := overridden.Dispatch.Preview.Payload["workspace"]; got != "worktree" {
+		t.Fatalf("dispatch workspace = %v, want worktree; payload=%+v", got, overridden.Dispatch.Preview.Payload)
 	}
 }
 

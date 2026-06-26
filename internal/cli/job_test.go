@@ -814,6 +814,7 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 	if advancePayload["pipeline"] != "ticket_to_pr" ||
 		advancePayload["pipeline_step"] != "implement" ||
 		advancePayload["job_id"] != "squ-46" ||
+		advancePayload["workspace"] != "worktree" ||
 		advancePayload["runtime"] != "codex" ||
 		advancePayload["runtime_binary"] != "codex-dev" {
 		t.Fatalf("advance payload = %+v", advancePayload)

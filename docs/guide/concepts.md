@@ -103,6 +103,7 @@ Supported workspace modes include:
 - `auto`: choose based on target and topology
 
 Workers normally use worktrees. Managers and ticket managers normally use the repo root.
+Pipeline steps can declare `workspace = "repo"` or `workspace = "worktree"` to set the default for that stage while still allowing operator `--workspace` overrides.
 
 ## Job
 

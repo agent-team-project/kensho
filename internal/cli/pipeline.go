@@ -3173,6 +3173,7 @@ type pipelineStepInfo struct {
 	Description  string   `json:"description,omitempty"`
 	Instructions string   `json:"instructions,omitempty"`
 	Target       string   `json:"target"`
+	Workspace    string   `json:"workspace,omitempty"`
 	After        []string `json:"after,omitempty"`
 	Gate         string   `json:"gate,omitempty"`
 	Optional     bool     `json:"optional,omitempty"`
@@ -3194,6 +3195,7 @@ type pipelineGraphNode struct {
 	Description  string   `json:"description,omitempty"`
 	Instructions string   `json:"instructions,omitempty"`
 	Target       string   `json:"target,omitempty"`
+	Workspace    string   `json:"workspace,omitempty"`
 	After        []string `json:"after,omitempty"`
 	Gate         string   `json:"gate,omitempty"`
 	Optional     bool     `json:"optional,omitempty"`
@@ -3508,6 +3510,7 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			Description:  strings.TrimSpace(step.Description),
 			Instructions: strings.TrimSpace(step.Instructions),
 			Target:       strings.TrimSpace(step.Target),
+			Workspace:    strings.TrimSpace(step.Workspace),
 			After:        trimStringSlice(step.After),
 			Gate:         strings.TrimSpace(step.Gate),
 			Optional:     step.Optional,
@@ -3802,6 +3805,7 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 			Description:  step.Description,
 			Instructions: step.Instructions,
 			Target:       step.Target,
+			Workspace:    step.Workspace,
 			After:        append([]string(nil), step.After...),
 			Gate:         step.Gate,
 			Optional:     step.Optional,
@@ -6194,7 +6198,11 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		if step.Instructions != "" {
 			instructions = fmt.Sprintf(" instructions=%q", step.Instructions)
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s\n", step.ID, step.Target, after, label, description, instructions, gate, optional, timeout, maxAttempts)
+		workspace := ""
+		if step.Workspace != "" {
+			workspace = " workspace=" + step.Workspace
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s\n", step.ID, step.Target, after, workspace, label, description, instructions, gate, optional, timeout, maxAttempts)
 	}
 	return nil
 }
@@ -6280,11 +6288,15 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Instructions != "" {
 			instructions = fmt.Sprintf(" instructions=%q", node.Instructions)
 		}
+		workspace := ""
+		if node.Workspace != "" {
+			workspace = " workspace=" + node.Workspace
+		}
 		missing := ""
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, label, description, instructions, gate, optional, timeout, maxAttempts, routes, missing)
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, workspace, label, description, instructions, gate, optional, timeout, maxAttempts, routes, missing)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -6347,6 +6359,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.Target != "" {
 		parts = append(parts, "target: "+node.Target)
+	}
+	if node.Workspace != "" {
+		parts = append(parts, "workspace: "+node.Workspace)
 	}
 	if len(node.Routes) > 0 {
 		parts = append(parts, "routes: "+strings.Join(node.Routes, ","))
@@ -6508,14 +6523,18 @@ func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
 		if step.MaxAttempts > 0 {
 			maxAttempts = fmt.Sprintf(" max_attempts=%d", step.MaxAttempts)
 		}
+		workspace := ""
+		if step.Workspace != "" {
+			workspace = " workspace=" + step.Workspace
+		}
 		label := ""
 		if step.Label != "" {
 			label = fmt.Sprintf(" label=%q", step.Label)
 		}
 		if len(step.After) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s%s after=%s%s%s%s%s", step.ID, step.Target, label, strings.Join(step.After, ","), gate, optional, timeout, maxAttempts))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s after=%s%s%s%s%s", step.ID, step.Target, workspace, label, strings.Join(step.After, ","), gate, optional, timeout, maxAttempts))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s%s%s", step.ID, step.Target, label, gate, optional, timeout, maxAttempts))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s%s%s%s", step.ID, step.Target, workspace, label, gate, optional, timeout, maxAttempts))
 		}
 	}
 	return strings.Join(parts, " -> ")

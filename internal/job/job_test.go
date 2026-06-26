@@ -211,6 +211,14 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err != nil {
 		t.Fatalf("Validate rejected valid attempt metadata: %v", err)
 	}
+	j.Steps[0].Workspace = "scratch"
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid step workspace")
+	}
+	j.Steps[0].Workspace = "repo"
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected valid step workspace: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

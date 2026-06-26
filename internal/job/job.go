@@ -63,6 +63,7 @@ type Step struct {
 	Description  string    `toml:"description,omitempty"`
 	Instructions string    `toml:"instructions,omitempty"`
 	Target       string    `toml:"target"`
+	Workspace    string    `toml:"workspace,omitempty"`
 	Status       Status    `toml:"status"`
 	Instance     string    `toml:"instance,omitempty"`
 	After        []string  `toml:"after,omitempty"`
@@ -251,6 +252,9 @@ func Validate(j *Job) error {
 		if strings.TrimSpace(step.Target) == "" {
 			return fmt.Errorf("steps[%d]: target is required", i)
 		}
+		if !ValidStepWorkspace(step.Workspace) {
+			return fmt.Errorf("steps[%d]: workspace must be auto, worktree, or repo", i)
+		}
 		if !ValidStatus(step.Status) {
 			return fmt.Errorf("steps[%d]: unknown status %q", i, step.Status)
 		}
@@ -277,6 +281,16 @@ func Validate(j *Job) error {
 		}
 	}
 	return nil
+}
+
+// ValidStepWorkspace reports whether a step workspace override is supported.
+func ValidStepWorkspace(workspace string) bool {
+	switch strings.TrimSpace(workspace) {
+	case "", "auto", "worktree", "repo":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidStepGate reports whether gate is one of the supported pipeline gates.

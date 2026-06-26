@@ -99,6 +99,7 @@ type PipelineStep struct {
 	Description  string
 	Instructions string
 	Target       string
+	Workspace    string
 	After        []string
 	Gate         string
 	Optional     bool
@@ -698,6 +699,10 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if !ok || target == "" {
 			return nil, fmt.Errorf("pipeline %q step[%d]: target is required", name, i)
 		}
+		workspace, err := parseStepWorkspace(body["workspace"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
 		label, err := parseStepText(body["label"], "label")
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
@@ -730,7 +735,7 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Workspace: workspace, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -752,6 +757,23 @@ func parseStepText(raw any, field string) (string, error) {
 		return "", fmt.Errorf("%s must be a non-empty string", field)
 	}
 	return value, nil
+}
+
+func parseStepWorkspace(raw any) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !ok || value == "" {
+		return "", fmt.Errorf("workspace must be a non-empty string")
+	}
+	switch value {
+	case "auto", "worktree", "repo":
+		return value, nil
+	default:
+		return "", fmt.Errorf("workspace must be auto, worktree, or repo")
+	}
 }
 
 func parseStepMaxAttempts(raw any) (int, error) {
