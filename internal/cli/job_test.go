@@ -5319,6 +5319,99 @@ func TestJobLogsReadsOwningInstanceLog(t *testing.T) {
 	}
 }
 
+func TestJobLogsReadsExplicitStepInstanceLog(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-58",
+		Ticket:   "SQU-58",
+		Target:   "manager",
+		Instance: "manager-squ-58",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-58"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-58-implement", After: []string{"triage"}},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-58", Agent: "manager", Status: daemon.StatusStopped, StartedAt: now, Job: "squ-58", Ticket: "SQU-58"},
+		{Instance: "worker-squ-58-implement", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now, Job: "squ-58", Ticket: "SQU-58"},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+	writeChildLogForTest(t, root, "manager-squ-58", "manager-last\n")
+	writeChildLogForTest(t, root, "worker-squ-58-implement", "step-first\nstep-last\n")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "logs", "SQU-58", "--repo", tmp, "--step", "implement", "--tail", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job logs step: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != "step-last\n" {
+		t.Fatalf("job logs step output = %q, want step log", got)
+	}
+}
+
+func TestJobLogsUsesUniqueRunningStepInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-59",
+		Ticket:   "SQU-59",
+		Target:   "manager",
+		Instance: "manager-squ-59",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-59"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-59-implement", After: []string{"triage"}},
+			{ID: "review", Target: "manager", Status: job.StatusQueued, After: []string{"implement"}},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-59", Agent: "manager", Status: daemon.StatusStopped, StartedAt: now, Job: "squ-59", Ticket: "SQU-59"},
+		{Instance: "worker-squ-59-implement", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now, Job: "squ-59", Ticket: "SQU-59"},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+	writeChildLogForTest(t, root, "manager-squ-59", "manager-last\n")
+	writeChildLogForTest(t, root, "worker-squ-59-implement", "worker-last\n")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "logs", "SQU-59", "--repo", tmp, "--tail", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job logs inferred step: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != "worker-last\n" {
+		t.Fatalf("job logs inferred step output = %q, want worker step log", got)
+	}
+}
+
 func TestJobLogsLastMessageUsesOwningInstanceSidecar(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -5412,6 +5505,47 @@ func TestJobLogsRequiresOwningInstance(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "has no owning instance") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestJobLogsUnknownStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-61",
+		Ticket:   "SQU-61",
+		Target:   "worker",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-61-implement"},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "logs", "squ-61", "--repo", tmp, "--step", "review"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("job logs unknown step succeeded unexpectedly")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), `step "review" not found`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
 	}
 }
 
@@ -5527,6 +5661,81 @@ func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("job attach dry-run missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestJobAttachDryRunStepShowsStepFallbacks(t *testing.T) {
+	env := newAttachTestEnv(t)
+	sleep := exec.Command("sleep", "30")
+	if err := sleep.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sleep.Process.Kill()
+		_, _ = sleep.Process.Wait()
+	})
+
+	meta := &daemon.Metadata{
+		Instance:      "worker-squ-58-implement",
+		Agent:         "worker",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
+		Workspace:     env.target,
+		PID:           sleep.Process.Pid,
+		SessionID:     "codex-step-session",
+		StartedAt:     time.Now().UTC(),
+		Status:        daemon.StatusRunning,
+		Job:           "squ-58",
+		Ticket:        "SQU-58",
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(env.teamDir), meta); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if err := env.dmn.Manager().LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(env.teamDir, &job.Job{
+		ID:       "squ-58",
+		Ticket:   "SQU-58",
+		Target:   "manager",
+		Instance: "manager-squ-58",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-58-implement"},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cap, restore := captureAttachExec(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "attach", "SQU-58", "--repo", env.target, "--step", "implement", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job attach step dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	if cap.called {
+		t.Fatal("execClaudeAttach should not run during unsupported dry-run")
+	}
+	body := out.String()
+	for _, want := range []string{
+		"command:              codex resume codex-step-session",
+		"logs_command:         agent-team logs worker-squ-58-implement --follow",
+		"last_message_command: agent-team logs worker-squ-58-implement --last-message",
+		"job_logs_command:      agent-team job logs squ-58 --step implement --follow",
+		"job_last_message_command: agent-team job logs squ-58 --step implement --last-message",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("job attach step dry-run missing %q:\n%s", want, body)
 		}
 	}
 }
@@ -5936,6 +6145,71 @@ func TestJobDispatchAndSend(t *testing.T) {
 		t.Fatalf("updated job = %+v", updated)
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-43")
+}
+
+func TestJobSendUsesExplicitStepInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-44",
+		Ticket:   "SQU-44",
+		Target:   "manager",
+		Instance: "manager-squ-44",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-44"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-44-implement", After: []string{"triage"}},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-44", Agent: "manager", Status: daemon.StatusRunning, StartedAt: now, Job: "squ-44", Ticket: "SQU-44"},
+		{Instance: "worker-squ-44-implement", Agent: "worker", Status: daemon.StatusRunning, StartedAt: now, Job: "squ-44", Ticket: "SQU-44"},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "send", "SQU-44", "continue implementation", "--repo", tmp, "--step", "implement"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job send step: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "worker-squ-44-implement") {
+		t.Fatalf("send output = %q, want step instance", out.String())
+	}
+	workerMessages, err := daemon.ReadMessages(root, "worker-squ-44-implement")
+	if err != nil {
+		t.Fatalf("read worker messages: %v", err)
+	}
+	if len(workerMessages) != 1 || workerMessages[0].Body != "continue implementation" {
+		t.Fatalf("worker messages = %+v", workerMessages)
+	}
+	managerMessages, err := daemon.ReadMessages(root, "manager-squ-44")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(managerMessages) != 0 {
+		t.Fatalf("manager messages = %+v, want none", managerMessages)
+	}
+	updated, err := job.Read(teamDir, "squ-44")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.LastEvent != "message_sent" || updated.LastStatus != "continue implementation" {
+		t.Fatalf("updated job = %+v", updated)
+	}
 }
 
 func TestJobSendMessageSourceValidation(t *testing.T) {

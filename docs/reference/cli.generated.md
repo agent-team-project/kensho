@@ -1788,6 +1788,7 @@ Flags:
       --no-resume      Leave the owning instance in stopped state when the runtime exits.
       --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Log mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
+      --step string    Use this pipeline step's owning instance.
       --tail string    Log mode: show only the last N lines before following (0 or all = all). (default "50")
 ```
 
@@ -2040,6 +2041,7 @@ Flags:
       --last-message   Show the clean final Codex response sidecar for the owning instance.
       --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.
+      --step string    Use this pipeline step's owning instance.
       --tail string    Show only the last N lines before returning or following (0 or all = all). (default "0")
 ```
 
@@ -2626,6 +2628,7 @@ Flags:
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
       --repo string           Repo root containing .agent_team. (default "<repo>")
+      --step string           Use this pipeline step's owning instance.
 ```
 
 ## `agent-team job show`

@@ -1475,6 +1475,7 @@ func newJobSendCmd() *cobra.Command {
 		from         string
 		message      string
 		messageFile  string
+		stepID       string
 		allowMissing bool
 		dryRun       bool
 		jsonOut      bool
@@ -1504,25 +1505,31 @@ func newJobSendCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if strings.TrimSpace(j.Instance) == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job send: job %q has no owning instance; dispatch it first.\n", j.ID)
+			selection, err := selectJobOwningInstance(j, stepID)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job send: %v\n", err)
 				return exitErr(2)
 			}
+			if strings.TrimSpace(selection.Instance) == "" {
+				printMissingJobInstanceError(cmd.ErrOrStderr(), "send", j, selection.StepID, "dispatch or adopt it first")
+				return exitErr(2)
+			}
+			instance := strings.TrimSpace(selection.Instance)
 			client, err := sendClientForTeamDir(teamDir)
 			if err != nil {
 				return err
 			}
 			if dryRun {
-				if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, j.Instance, body, sendOptions{
+				if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
 					From:         from,
 					AllowMissing: allowMissing,
 					DryRun:       true,
 				}); err != nil {
 					return err
 				}
-				return renderJobSendPreview(cmd.OutOrStdout(), j, j.Instance, from, body, jsonOut, tmpl)
+				return renderJobSendPreview(cmd.OutOrStdout(), j, instance, from, body, jsonOut, tmpl)
 			}
-			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, j.Instance, body, sendOptions{
+			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
 				From:         from,
 				AllowMissing: allowMissing,
 			}); err != nil {
@@ -1531,7 +1538,14 @@ func newJobSendCmd() *cobra.Command {
 			j.LastEvent = "message_sent"
 			j.LastStatus = strings.TrimSpace(body)
 			j.UpdatedAt = time.Now().UTC()
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"from": from}); err != nil {
+			auditData := map[string]string{
+				"from":     from,
+				"instance": instance,
+			}
+			if strings.TrimSpace(selection.StepID) != "" {
+				auditData["step"] = strings.TrimSpace(selection.StepID)
+			}
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", auditData); err != nil {
 				return err
 			}
 			if jsonOut {
@@ -1540,7 +1554,7 @@ func newJobSendCmd() *cobra.Command {
 			if tmpl != nil {
 				return renderJobTemplate(cmd.OutOrStdout(), j, tmpl)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  sent   %-20s job=%s\n", j.Instance, j.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "  sent   %-20s job=%s\n", instance, j.ID)
 			return nil
 		},
 	}
@@ -1548,6 +1562,7 @@ func newJobSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the send without appending a mailbox message or updating the job.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or batch rows as JSON.")
@@ -1867,9 +1882,78 @@ func applyStatusPreviewOwnership(j *job.Job, preview jobStatusReconcileResult) {
 	}
 }
 
+type jobInstanceSelection struct {
+	Instance string
+	StepID   string
+}
+
+func selectJobOwningInstance(j *job.Job, requestedStepID string) (jobInstanceSelection, error) {
+	if j == nil {
+		return jobInstanceSelection{}, nil
+	}
+	requestedStepID = strings.TrimSpace(requestedStepID)
+	if requestedStepID != "" {
+		idx := jobStepIndex(j, requestedStepID)
+		if idx < 0 {
+			return jobInstanceSelection{}, fmt.Errorf("step %q not found", requestedStepID)
+		}
+		step := j.Steps[idx]
+		return jobInstanceSelection{
+			Instance: strings.TrimSpace(step.Instance),
+			StepID:   step.ID,
+		}, nil
+	}
+	if step := uniqueRunningJobStepWithInstance(j); step != nil {
+		return jobInstanceSelection{
+			Instance: strings.TrimSpace(step.Instance),
+			StepID:   step.ID,
+		}, nil
+	}
+	return jobInstanceSelection{Instance: strings.TrimSpace(j.Instance)}, nil
+}
+
+func uniqueRunningJobStepWithInstance(j *job.Job) *job.Step {
+	if j == nil {
+		return nil
+	}
+	var found *job.Step
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Status != job.StatusRunning || strings.TrimSpace(step.Instance) == "" {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = step
+	}
+	return found
+}
+
+func printMissingJobInstanceError(w io.Writer, command string, j *job.Job, stepID, hint string) {
+	if j == nil {
+		return
+	}
+	stepID = strings.TrimSpace(stepID)
+	if stepID != "" {
+		fmt.Fprintf(w, "agent-team job %s: job %q step %q has no owning instance; %s.\n", command, j.ID, stepID, hint)
+		return
+	}
+	fmt.Fprintf(w, "agent-team job %s: job %q has no owning instance; %s.\n", command, j.ID, hint)
+}
+
+func jobStepCommandFlag(stepID string) string {
+	stepID = strings.TrimSpace(stepID)
+	if stepID == "" {
+		return ""
+	}
+	return " --step " + stepID
+}
+
 func newJobLogsCmd() *cobra.Command {
 	var (
 		repo   string
+		stepID string
 		follow bool
 		tail   string
 		since  string
@@ -1887,9 +1971,14 @@ func newJobLogsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			instance := strings.TrimSpace(j.Instance)
+			selection, err := selectJobOwningInstance(j, stepID)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: %v\n", err)
+				return exitErr(2)
+			}
+			instance := strings.TrimSpace(selection.Instance)
 			if instance == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job logs: job %q has no owning instance; dispatch it first.\n", j.ID)
+				printMissingJobInstanceError(cmd.ErrOrStderr(), "logs", j, selection.StepID, "dispatch or adopt it first")
 				return exitErr(2)
 			}
 			if last {
@@ -1941,6 +2030,7 @@ func newJobLogsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail the owning instance log; print new bytes as they appear.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.")
@@ -1953,6 +2043,7 @@ func newJobLogsCmd() *cobra.Command {
 func newJobAttachCmd() *cobra.Command {
 	var (
 		repo     string
+		stepID   string
 		noResume bool
 		dryRun   bool
 		noFollow bool
@@ -1973,9 +2064,14 @@ func newJobAttachCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			instance := strings.TrimSpace(j.Instance)
+			selection, err := selectJobOwningInstance(j, stepID)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job attach: %v\n", err)
+				return exitErr(2)
+			}
+			instance := strings.TrimSpace(selection.Instance)
 			if instance == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job attach: job %q has no owning instance; dispatch it first.\n", j.ID)
+				printMissingJobInstanceError(cmd.ErrOrStderr(), "attach", j, selection.StepID, "dispatch or adopt it first")
 				return exitErr(2)
 			}
 			repoRoot := filepath.Dir(teamDir)
@@ -2001,12 +2097,13 @@ func newJobAttachCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
-				renderJobAttachDryRunHints(cmd.OutOrStdout(), teamDir, j)
+				renderJobAttachDryRunHints(cmd.OutOrStdout(), teamDir, j, instance, selection.StepID)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the owning instance in stopped state when the runtime exits.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the owning instance handoff without stopping or resuming the daemon child.")
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Log mode: print the selected log tail and exit instead of following.")
@@ -2016,20 +2113,22 @@ func newJobAttachCmd() *cobra.Command {
 	return cmd
 }
 
-func renderJobAttachDryRunHints(w io.Writer, teamDir string, j *job.Job) {
-	if w == nil || j == nil || strings.TrimSpace(j.Instance) == "" {
+func renderJobAttachDryRunHints(w io.Writer, teamDir string, j *job.Job, instance, stepID string) {
+	instance = strings.TrimSpace(instance)
+	if w == nil || j == nil || instance == "" {
 		return
 	}
-	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), j.Instance)
+	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), instance)
 	if err != nil || meta == nil {
 		return
 	}
 	if lifecycleMetadataSupportsManagedResume(meta) {
 		return
 	}
-	fmt.Fprintf(w, "job_logs_command:      agent-team job logs %s --follow\n", j.ID)
+	stepFlag := jobStepCommandFlag(stepID)
+	fmt.Fprintf(w, "job_logs_command:      agent-team job logs %s%s --follow\n", j.ID, stepFlag)
 	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
-		fmt.Fprintf(w, "job_last_message_command: agent-team job logs %s --last-message\n", j.ID)
+		fmt.Fprintf(w, "job_last_message_command: agent-team job logs %s%s --last-message\n", j.ID, stepFlag)
 	}
 }
 
