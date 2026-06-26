@@ -2890,6 +2890,18 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 				{ID: "triage", Target: "manager", Status: job.StatusBlocked},
 			},
 		},
+		{
+			ID:        "squ-313",
+			Ticket:    "SQU-313",
+			Target:    "manager",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now.Add(2 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
 	} {
 		if err := job.Write(teamDir, j); err != nil {
 			t.Fatalf("write %s: %v", j.ID, err)
@@ -2910,6 +2922,10 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].JobID != "squ-310" || rows[0].State != "ready" || rows[0].StepID != "review" {
 		t.Fatalf("ready rows = %+v", rows)
+	}
+	if !containsString(rows[0].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
+		containsString(rows[0].Actions, "agent-team job advance squ-310") {
+		t.Fatalf("ready actions = %+v", rows[0].Actions)
 	}
 
 	format := NewRootCmd()
@@ -2989,6 +3005,10 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	}
 	if len(allRows) != 2 || allRows[0].JobID != "squ-310" || allRows[1].JobID != "squ-312" || allRows[1].Pipeline != "nightly" {
 		t.Fatalf("all ready rows = %+v", allRows)
+	}
+	if !containsString(allRows[0].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
+		!containsString(allRows[1].Actions, "agent-team pipeline advance nightly --dry-run --preview-routes") {
+		t.Fatalf("all ready actions = %+v", allRows)
 	}
 
 	invalidAll := NewRootCmd()

@@ -1616,12 +1616,13 @@ func newPipelineReadyCmd() *cobra.Command {
 				Sort:     sortMode,
 				Limit:    limit,
 			}
+			allPipelines := all || pipelineName == ""
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				return runJobReadyWatch(ctx, cmd.OutOrStdout(), teamDir, opts, jsonOut, tmpl, interval, !noClear && !jsonOut)
+				return runPipelineReadyWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, allPipelines, opts, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			return runJobReady(cmd.OutOrStdout(), teamDir, opts, jsonOut, tmpl)
+			return runPipelineReady(cmd.OutOrStdout(), teamDir, pipelineName, allPipelines, opts, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -1636,6 +1637,46 @@ func newPipelineReadyCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
 	return cmd
+}
+
+func runPipelineReady(w io.Writer, teamDir, pipeline string, allPipelines bool, opts jobReadyOptions, jsonOut bool, tmpl *template.Template) error {
+	rows, err := collectJobReadyRows(teamDir, opts.Pipeline, opts.States)
+	if err != nil {
+		return err
+	}
+	if allPipelines {
+		rows = scopePipelineReadyRowsByOwner(rows)
+	} else {
+		rows = scopePipelineReadyRows(pipeline, rows)
+	}
+	rows = prepareJobReadyRows(rows, opts)
+	return renderJobReadyRows(w, rows, jsonOut, tmpl)
+}
+
+func runPipelineReadyWatch(ctx context.Context, w io.Writer, teamDir, pipeline string, allPipelines bool, opts jobReadyOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runPipelineReady(w, teamDir, pipeline, allPipelines, opts, jsonOut, tmpl); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !jsonOut && !clear {
+				fmt.Fprintln(w)
+			}
+		}
+	}
 }
 
 func newPipelineAdvanceCmd() *cobra.Command {
@@ -4824,6 +4865,22 @@ func scopePipelineReadyRows(pipeline string, rows []jobReadyRow) []jobReadyRow {
 	copy(out, rows)
 	for idx := range out {
 		out[idx].Actions = pipelineReadyRowActions(pipeline, out[idx])
+	}
+	return out
+}
+
+func scopePipelineReadyRowsByOwner(rows []jobReadyRow) []jobReadyRow {
+	if len(rows) == 0 {
+		return rows
+	}
+	out := make([]jobReadyRow, 0, len(rows))
+	for _, row := range rows {
+		pipeline := strings.TrimSpace(row.Pipeline)
+		if pipeline == "" {
+			continue
+		}
+		row.Actions = pipelineReadyRowActions(pipeline, row)
+		out = append(out, row)
 	}
 	return out
 }

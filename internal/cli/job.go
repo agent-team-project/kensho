@@ -6207,6 +6207,10 @@ func runJobReady(w io.Writer, teamDir string, opts jobReadyOptions, jsonOut bool
 		return err
 	}
 	rows = prepareJobReadyRows(rows, opts)
+	return renderJobReadyRows(w, rows, jsonOut, tmpl)
+}
+
+func renderJobReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
 	}
