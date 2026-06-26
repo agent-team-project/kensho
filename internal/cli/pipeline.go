@@ -4350,7 +4350,7 @@ func collectPipelineExplainRows(teamDir, pipeline string, limit int, stateFilter
 				continue
 			}
 			row.TotalJobs++
-			explained := explainJobPipeline(j)
+			explained := scopePipelineExplainResultActions(status.Pipeline, explainJobPipeline(j))
 			var ok bool
 			explained, ok = filterJobExplainResultByStep(explained, stepFilter)
 			if !ok {
@@ -4369,6 +4369,70 @@ func collectPipelineExplainRows(teamDir, pipeline string, limit int, stateFilter
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+func scopePipelineExplainResultActions(pipeline string, explained jobExplainResult) jobExplainResult {
+	pipeline = strings.TrimSpace(pipeline)
+	jobID := strings.TrimSpace(explained.JobID)
+	if pipeline == "" || jobID == "" {
+		return explained
+	}
+	explained.Actions = scopePipelineExplainActionList(pipeline, jobID, explained.Next.StepID, explained.Actions)
+	explained.Next.Actions = scopePipelineExplainActionList(pipeline, jobID, explained.Next.StepID, explained.Next.Actions)
+	for idx := range explained.Steps {
+		explained.Steps[idx].Actions = scopePipelineExplainActionList(pipeline, jobID, explained.Steps[idx].ID, explained.Steps[idx].Actions)
+	}
+	return explained
+}
+
+func scopePipelineExplainActionList(pipeline, jobID, stepID string, actions []string) []string {
+	if len(actions) == 0 {
+		return actions
+	}
+	out := make([]string, len(actions))
+	for idx, action := range actions {
+		out[idx] = scopePipelineExplainAction(pipeline, jobID, stepID, action)
+	}
+	return out
+}
+
+func scopePipelineExplainAction(pipeline, jobID, stepID, action string) string {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return action
+	}
+	if action == fmt.Sprintf("agent-team job advance %s", jobID) {
+		return fmt.Sprintf("agent-team pipeline advance %s --dry-run --preview-routes", pipeline)
+	}
+	if action == fmt.Sprintf("agent-team job advance %s --all-ready-steps", jobID) {
+		return fmt.Sprintf("agent-team pipeline advance %s --all-ready-steps --dry-run --preview-routes", pipeline)
+	}
+	if action == fmt.Sprintf("agent-team job retry %s --dispatch", jobID) ||
+		action == fmt.Sprintf("agent-team job retry %s --dry-run --dispatch", jobID) {
+		scoped := fmt.Sprintf("agent-team pipeline retry %s", pipeline)
+		if stepID = strings.TrimSpace(stepID); stepID != "" {
+			scoped = fmt.Sprintf("%s --step %s", scoped, stepID)
+		}
+		return scoped + " --dry-run --dispatch --preview-routes"
+	}
+	if action == fmt.Sprintf("agent-team job release %s", jobID) {
+		return fmt.Sprintf("agent-team pipeline release %s --dry-run", pipeline)
+	}
+	if action == jobUnblockAction(jobID, stepID) {
+		scoped := fmt.Sprintf("agent-team pipeline unblock %s", pipeline)
+		if stepID = strings.TrimSpace(stepID); stepID != "" {
+			scoped = fmt.Sprintf("%s --step %s", scoped, stepID)
+		}
+		return scoped + " <answer...> --dry-run"
+	}
+	stepID = strings.TrimSpace(stepID)
+	if stepID != "" && action == fmt.Sprintf("agent-team job approve %s --step %s", jobID, stepID) {
+		return fmt.Sprintf("agent-team pipeline approve %s --step %s --dry-run --dispatch --preview-routes", pipeline, stepID)
+	}
+	if stepID != "" && action == fmt.Sprintf("agent-team job reject %s --step %s", jobID, stepID) {
+		return fmt.Sprintf("agent-team pipeline reject %s --step %s --dry-run", pipeline, stepID)
+	}
+	return action
 }
 
 func filterJobExplainResultByStep(explained jobExplainResult, stepFilter string) (jobExplainResult, bool) {

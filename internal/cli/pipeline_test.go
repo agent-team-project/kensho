@@ -1196,13 +1196,19 @@ target = "manager"
 		for _, step := range explainedJob.Steps {
 			switch {
 			case explainedJob.JobID == "squ-610" && step.ID == "review":
-				readyReview = step.State == "ready" && containsString(step.Actions, "agent-team job advance squ-610")
+				readyReview = step.State == "ready" &&
+					containsString(step.Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") &&
+					!containsString(step.Actions, "agent-team job advance squ-610")
 			case explainedJob.JobID == "squ-614" && step.ID == "review":
 				manualGate = step.State == "waiting" && step.Gate == job.StepGateManual &&
-					containsString(step.Actions, "agent-team job approve squ-614 --step review") &&
-					containsString(step.Actions, "agent-team job reject squ-614 --step review")
+					containsString(step.Actions, "agent-team pipeline approve ticket_to_pr --step review --dry-run --dispatch --preview-routes") &&
+					containsString(step.Actions, "agent-team pipeline reject ticket_to_pr --step review --dry-run") &&
+					!containsString(step.Actions, "agent-team job approve squ-614 --step review") &&
+					!containsString(step.Actions, "agent-team job reject squ-614 --step review")
 			case explainedJob.JobID == "squ-611" && step.ID == "implement":
-				failedImplement = step.State == "failed" && containsString(step.Actions, "agent-team job retry squ-611 --dry-run --dispatch")
+				failedImplement = step.State == "failed" &&
+					containsString(step.Actions, "agent-team pipeline retry ticket_to_pr --step implement --dry-run --dispatch --preview-routes") &&
+					!containsString(step.Actions, "agent-team job retry squ-611 --dry-run --dispatch")
 			}
 		}
 	}
@@ -1218,9 +1224,14 @@ target = "manager"
 	if err := explainText.Execute(); err != nil {
 		t.Fatalf("pipeline explain text: %v\nstderr=%s", err, explainTextErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "Jobs:", "Steps:", "squ-610", "review", "agent-team job advance squ-610", "agent-team job approve squ-614 --step review", "agent-team job reject squ-614 --step review"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "Jobs:", "Steps:", "squ-610", "review", "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "agent-team pipeline approve ticket_to_pr --step review --dry-run --dispatch --preview-routes", "agent-team pipeline reject ticket_to_pr --step review --dry-run"} {
 		if !strings.Contains(explainTextOut.String(), want) {
 			t.Fatalf("pipeline explain text missing %q:\n%s", want, explainTextOut.String())
+		}
+	}
+	for _, unwanted := range []string{"agent-team job advance squ-610", "agent-team job approve squ-614 --step review", "agent-team job reject squ-614 --step review"} {
+		if strings.Contains(explainTextOut.String(), unwanted) {
+			t.Fatalf("pipeline explain text included unscoped action %q:\n%s", unwanted, explainTextOut.String())
 		}
 	}
 

@@ -568,7 +568,9 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if containsString(explainRows[0].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
 		!containsString(explainRows[0].Actions, "agent-team team advance delivery --dry-run --preview-routes") ||
-		!containsString(explainRows[0].Jobs[0].Actions, "agent-team job advance squ-801") {
+		!containsString(explainRows[0].Jobs[0].Actions, "agent-team team advance delivery --dry-run --preview-routes") ||
+		containsString(explainRows[0].Jobs[0].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
+		containsString(explainRows[0].Jobs[0].Actions, "agent-team job advance squ-801") {
 		t.Fatalf("team explain actions = %+v job actions=%+v", explainRows[0].Actions, explainRows[0].Jobs[0].Actions)
 	}
 
@@ -580,9 +582,14 @@ since = "2026-06-18T12:00:00Z"
 	if err := explainText.Execute(); err != nil {
 		t.Fatalf("team explain text: %v\nstderr=%s", err, explainTextErr.String())
 	}
-	for _, want := range []string{"Pipeline: ticket_to_pr", "squ-801", "agent-team team advance delivery --dry-run --preview-routes", "agent-team job advance squ-801"} {
+	for _, want := range []string{"Pipeline: ticket_to_pr", "squ-801", "agent-team team advance delivery --dry-run --preview-routes"} {
 		if !strings.Contains(explainTextOut.String(), want) {
 			t.Fatalf("team explain text missing %q:\n%s", want, explainTextOut.String())
+		}
+	}
+	for _, unwanted := range []string{"agent-team pipeline advance ticket_to_pr --dry-run --preview-routes", "agent-team job advance squ-801"} {
+		if strings.Contains(explainTextOut.String(), unwanted) {
+			t.Fatalf("team explain text included unscoped action %q:\n%s", unwanted, explainTextOut.String())
 		}
 	}
 	if strings.Contains(explainTextOut.String(), "oth-801") {

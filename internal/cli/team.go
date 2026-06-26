@@ -8800,10 +8800,86 @@ func teamPipelineExplain(team *topology.Team, rows []pipelineExplainRow) []pipel
 			scoped := row
 			scoped.Actions = teamPipelineActions(team.Name, row.Status)
 			scoped.Status.Actions = append([]string(nil), scoped.Actions...)
+			scoped.Jobs = scopeTeamExplainJobs(team.Name, row.Pipeline, scoped.Jobs)
 			out = append(out, scoped)
 		}
 	}
 	return out
+}
+
+func scopeTeamExplainJobs(teamName, pipeline string, jobs []jobExplainResult) []jobExplainResult {
+	if len(jobs) == 0 {
+		return jobs
+	}
+	out := make([]jobExplainResult, len(jobs))
+	for idx, explained := range jobs {
+		out[idx] = scopeTeamExplainResultActions(teamName, pipeline, explained)
+	}
+	return out
+}
+
+func scopeTeamExplainResultActions(teamName, pipeline string, explained jobExplainResult) jobExplainResult {
+	teamName = strings.TrimSpace(teamName)
+	pipeline = strings.TrimSpace(pipeline)
+	jobID := strings.TrimSpace(explained.JobID)
+	if teamName == "" || pipeline == "" || jobID == "" {
+		return explained
+	}
+	explained.Actions = scopeTeamExplainActionList(teamName, pipeline, jobID, explained.Next.StepID, explained.Actions)
+	explained.Next.Actions = scopeTeamExplainActionList(teamName, pipeline, jobID, explained.Next.StepID, explained.Next.Actions)
+	if len(explained.Steps) > 0 {
+		steps := make([]jobExplainStep, len(explained.Steps))
+		copy(steps, explained.Steps)
+		explained.Steps = steps
+		for idx := range explained.Steps {
+			explained.Steps[idx].Actions = scopeTeamExplainActionList(teamName, pipeline, jobID, explained.Steps[idx].ID, explained.Steps[idx].Actions)
+		}
+	}
+	return explained
+}
+
+func scopeTeamExplainActionList(teamName, pipeline, jobID, stepID string, actions []string) []string {
+	if len(actions) == 0 {
+		return actions
+	}
+	out := make([]string, len(actions))
+	for idx, action := range actions {
+		out[idx] = scopeTeamExplainAction(teamName, pipeline, jobID, stepID, action)
+	}
+	return out
+}
+
+func scopeTeamExplainAction(teamName, pipeline, jobID, stepID, action string) string {
+	action = scopePipelineExplainAction(pipeline, jobID, stepID, action)
+	if action == fmt.Sprintf("agent-team pipeline advance %s --dry-run --preview-routes", pipeline) {
+		return fmt.Sprintf("agent-team team advance %s --dry-run --preview-routes", teamName)
+	}
+	if action == fmt.Sprintf("agent-team pipeline advance %s --all-ready-steps --dry-run --preview-routes", pipeline) {
+		return fmt.Sprintf("agent-team team advance %s --all-ready-steps --dry-run --preview-routes", teamName)
+	}
+	stepID = strings.TrimSpace(stepID)
+	if stepID != "" && action == fmt.Sprintf("agent-team pipeline retry %s --step %s --dry-run --dispatch --preview-routes", pipeline, stepID) {
+		return fmt.Sprintf("agent-team team retry %s --step %s --dry-run --dispatch --preview-routes", teamName, stepID)
+	}
+	if action == fmt.Sprintf("agent-team pipeline retry %s --dry-run --dispatch --preview-routes", pipeline) {
+		return fmt.Sprintf("agent-team team retry %s --dry-run --dispatch --preview-routes", teamName)
+	}
+	if stepID != "" && action == fmt.Sprintf("agent-team pipeline approve %s --step %s --dry-run --dispatch --preview-routes", pipeline, stepID) {
+		return fmt.Sprintf("agent-team team approve %s --step %s --dry-run --dispatch --preview-routes", teamName, stepID)
+	}
+	if stepID != "" && action == fmt.Sprintf("agent-team pipeline reject %s --step %s --dry-run", pipeline, stepID) {
+		return fmt.Sprintf("agent-team team reject %s --step %s --dry-run", teamName, stepID)
+	}
+	if action == fmt.Sprintf("agent-team pipeline release %s --dry-run", pipeline) {
+		return fmt.Sprintf("agent-team team release %s --dry-run", teamName)
+	}
+	if stepID != "" && action == fmt.Sprintf("agent-team pipeline unblock %s --step %s <answer...> --dry-run", pipeline, stepID) {
+		return fmt.Sprintf("agent-team team unblock %s --step %s <answer...> --dry-run", teamName, stepID)
+	}
+	if action == fmt.Sprintf("agent-team pipeline unblock %s <answer...> --dry-run", pipeline) {
+		return fmt.Sprintf("agent-team team unblock %s <answer...> --dry-run", teamName)
+	}
+	return action
 }
 
 func teamPipelineActions(teamName string, row pipelineStatusRow) []string {
