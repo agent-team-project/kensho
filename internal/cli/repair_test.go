@@ -534,11 +534,15 @@ func TestRepairRetryPipelinesDispatchesAndAudits(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
+	retryMessageFile := filepath.Join(target, "repair-retry-message.txt")
+	if err := os.WriteFile(retryMessageFile, []byte("repair approved by operator from file\n"), 0o644); err != nil {
+		t.Fatalf("write retry message: %v", err)
+	}
 	cmd.SetArgs([]string{
 		"repair",
 		"--target", target,
 		"--retry-pipelines",
-		"--retry-message", "repair approved by operator",
+		"--retry-message-file", retryMessageFile,
 		"--skip-queue",
 		"--skip-tick",
 		"--workspace", "repo",
@@ -571,7 +575,7 @@ func TestRepairRetryPipelinesDispatchesAndAudits(t *testing.T) {
 	}
 	var sawRetry bool
 	for _, event := range events {
-		if event.Type == "reopened" && event.Message == "repair approved by operator" && event.Data["step"] == "implement" {
+		if event.Type == "reopened" && event.Message == "repair approved by operator from file" && event.Data["step"] == "implement" {
 			sawRetry = true
 			break
 		}
@@ -669,13 +673,17 @@ timeout = "1h"
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
+	timeoutMessageFile := filepath.Join(root, "repair-timeout-message.txt")
+	if err := os.WriteFile(timeoutMessageFile, []byte("repair timeout approved from file\n"), 0o644); err != nil {
+		t.Fatalf("write timeout message: %v", err)
+	}
 	apply.SetArgs([]string{
 		"repair",
 		"--target", root,
 		"--timeout-pipelines",
 		"--timeout-pipeline", "ticket_to_pr",
 		"--timeout-target-agent", "worker",
-		"--timeout-message", "repair timeout approved",
+		"--timeout-message-file", timeoutMessageFile,
 		"--skip-daemon",
 		"--skip-queue",
 		"--skip-tick",
@@ -695,7 +703,7 @@ timeout = "1h"
 	if err != nil {
 		t.Fatalf("read updated job: %v", err)
 	}
-	if updated.Status != job.StatusFailed || updated.Steps[0].Status != job.StatusFailed || updated.Steps[0].Instance != "" || updated.LastStatus != "repair timeout approved" {
+	if updated.Status != job.StatusFailed || updated.Steps[0].Status != job.StatusFailed || updated.Steps[0].Instance != "" || updated.LastStatus != "repair timeout approved from file" {
 		t.Fatalf("updated job = %+v", updated)
 	}
 	otherUpdated, err := job.Read(teamDir, "oth-820")
@@ -1155,6 +1163,11 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			want: "--retry-message requires --retry-pipelines",
 		},
 		{
+			name: "retry message file without retry pipelines",
+			args: []string{"repair", "--retry-message-file", "incident.txt"},
+			want: "--retry-message-file requires --retry-pipelines",
+		},
+		{
 			name: "retry step without retry pipelines",
 			args: []string{"repair", "--retry-step", "review"},
 			want: "--retry-step requires --retry-pipelines",
@@ -1178,6 +1191,11 @@ func TestRepairRejectsInvalidFlagCombinations(t *testing.T) {
 			name: "timeout pipeline without timeout mode",
 			args: []string{"repair", "--timeout-pipeline", "ticket_to_pr"},
 			want: "--timeout-pipeline requires --timeout-pipelines or --timeout-jobs",
+		},
+		{
+			name: "timeout message file without timeout mode",
+			args: []string{"repair", "--timeout-message-file", "incident.txt"},
+			want: "--timeout-message-file requires --timeout-pipelines or --timeout-jobs",
 		},
 		{
 			name: "timeout target without timeout mode",

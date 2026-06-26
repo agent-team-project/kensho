@@ -147,6 +147,17 @@ func newSendCmd() *cobra.Command {
 }
 
 func sendMessageBody(flagValue, fileValue string, positional []string) (string, error) {
+	return messageBodyWithFlagNames(flagValue, fileValue, positional, "--message", "--message-file")
+}
+
+func optionalMessageBodyWithFlagNames(flagValue, fileValue string, positional []string, flagName, fileFlagName string) (string, error) {
+	if strings.TrimSpace(flagValue) == "" && strings.TrimSpace(fileValue) == "" && len(positional) == 0 {
+		return "", nil
+	}
+	return messageBodyWithFlagNames(flagValue, fileValue, positional, flagName, fileFlagName)
+}
+
+func messageBodyWithFlagNames(flagValue, fileValue string, positional []string, flagName, fileFlagName string) (string, error) {
 	sources := 0
 	if strings.TrimSpace(flagValue) != "" {
 		sources++
@@ -161,12 +172,12 @@ func sendMessageBody(flagValue, fileValue string, positional []string) (string, 
 		return "", fmt.Errorf("message body is required")
 	}
 	if sources > 1 {
-		return "", fmt.Errorf("provide message text using only one of positional args, --message, or --message-file")
+		return "", fmt.Errorf("provide message text using only one of positional args, %s, or %s", flagName, fileFlagName)
 	}
 	var body string
 	switch {
 	case strings.TrimSpace(fileValue) != "":
-		data, err := readSendMessageFile(fileValue)
+		data, err := readMessageFile(fileValue, fileFlagName)
 		if err != nil {
 			return "", err
 		}
@@ -183,17 +194,17 @@ func sendMessageBody(flagValue, fileValue string, positional []string) (string, 
 	return body, nil
 }
 
-func readSendMessageFile(fileValue string) ([]byte, error) {
+func readMessageFile(fileValue, fileFlagName string) ([]byte, error) {
 	if strings.TrimSpace(fileValue) == "-" {
 		body, err := io.ReadAll(sendMessageInput)
 		if err != nil {
-			return nil, fmt.Errorf("--message-file -: %w", err)
+			return nil, fmt.Errorf("%s -: %w", fileFlagName, err)
 		}
 		return body, nil
 	}
 	body, err := os.ReadFile(filepath.Clean(fileValue))
 	if err != nil {
-		return nil, fmt.Errorf("--message-file: %w", err)
+		return nil, fmt.Errorf("%s: %w", fileFlagName, err)
 	}
 	return body, nil
 }

@@ -1965,13 +1965,17 @@ pipelines = ["ticket_to_pr"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
+	timeoutMessageFile := filepath.Join(root, "team-repair-timeout-message.txt")
+	if err := os.WriteFile(timeoutMessageFile, []byte("team repair timeout approved from file\n"), 0o644); err != nil {
+		t.Fatalf("write timeout message: %v", err)
+	}
 	cmd.SetArgs([]string{
 		"team", "repair", "delivery",
 		"--repo", root,
 		"--timeout-pipelines",
 		"--timeout-pipeline", "ticket_to_pr",
 		"--timeout-target-agent", "worker",
-		"--timeout-message", "team repair timeout approved",
+		"--timeout-message-file", timeoutMessageFile,
 		"--skip-daemon",
 		"--skip-queue",
 		"--skip-tick",
@@ -1991,7 +1995,7 @@ pipelines = ["ticket_to_pr"]
 	if err != nil {
 		t.Fatalf("read owned job: %v", err)
 	}
-	if owned.Status != job.StatusFailed || owned.LastStatus != "team repair timeout approved" || owned.Steps[0].Instance != "" {
+	if owned.Status != job.StatusFailed || owned.LastStatus != "team repair timeout approved from file" || owned.Steps[0].Instance != "" {
 		t.Fatalf("owned job = %+v", owned)
 	}
 	unowned, err := job.Read(teamDir, "oth-830")
@@ -7515,12 +7519,17 @@ instances = ["other"]
 	retryPreviewOut, retryPreviewErr := &bytes.Buffer{}, &bytes.Buffer{}
 	retryPreview.SetOut(retryPreviewOut)
 	retryPreview.SetErr(retryPreviewErr)
+	retryMessageFile := filepath.Join(root, "team-repair-retry-message.txt")
+	if err := os.WriteFile(retryMessageFile, []byte("team repair retry from file\n"), 0o644); err != nil {
+		t.Fatalf("write retry message: %v", err)
+	}
 	retryPreview.SetArgs([]string{
 		"team", "repair", "delivery",
 		"--repo", root,
 		"--dry-run",
 		"--retry-pipelines",
 		"--retry-pipeline", "ticket_to_pr",
+		"--retry-message-file", retryMessageFile,
 		"--preview-routes",
 		"--skip-daemon",
 		"--skip-queue",
@@ -7619,6 +7628,11 @@ func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
 			want: "--retry-message requires --retry-pipelines",
 		},
 		{
+			name: "retry message file without retry pipelines",
+			args: []string{"team", "repair", "delivery", "--retry-message-file", "incident.txt"},
+			want: "--retry-message-file requires --retry-pipelines",
+		},
+		{
 			name: "retry step without retry pipelines",
 			args: []string{"team", "repair", "delivery", "--retry-step", "review"},
 			want: "--retry-step requires --retry-pipelines",
@@ -7642,6 +7656,11 @@ func TestTeamRepairRejectsInvalidFormatFlags(t *testing.T) {
 			name: "timeout pipeline without timeout mode",
 			args: []string{"team", "repair", "delivery", "--timeout-pipeline", "ticket_to_pr"},
 			want: "--timeout-pipeline requires --timeout-pipelines or --timeout-jobs",
+		},
+		{
+			name: "timeout message file without timeout mode",
+			args: []string{"team", "repair", "delivery", "--timeout-message-file", "incident.txt"},
+			want: "--timeout-message-file requires --timeout-pipelines or --timeout-jobs",
 		},
 		{
 			name: "timeout target without timeout mode",

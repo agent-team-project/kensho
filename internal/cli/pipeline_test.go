@@ -4627,6 +4627,7 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 	[[pipelines.ticket_to_pr.steps]]
 	id = "implement"
 	target = "worker"
+	timeout = "1h"
 
 	[pipelines.ops_review]
 	trigger.event = "ops.created"
@@ -4665,6 +4666,18 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 			UpdatedAt:  now,
 			Steps: []job.Step{
 				{ID: "audit", Target: "worker", Status: job.StatusFailed, Instance: "worker-ops-921"},
+			},
+		},
+		{
+			ID:        "squ-922",
+			Ticket:    "SQU-922",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Minute),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-922", StartedAt: now.Add(-90 * time.Minute), Timeout: "1h0m0s"},
 			},
 		},
 	} {
@@ -4709,11 +4722,22 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
+	retryMessageFile := filepath.Join(root, "pipeline-repair-retry.txt")
+	if err := os.WriteFile(retryMessageFile, []byte("pipeline repair retry from file\n"), 0o644); err != nil {
+		t.Fatalf("write retry message: %v", err)
+	}
+	timeoutMessageFile := filepath.Join(root, "pipeline-repair-timeout.txt")
+	if err := os.WriteFile(timeoutMessageFile, []byte("pipeline repair timeout from file\n"), 0o644); err != nil {
+		t.Fatalf("write timeout message: %v", err)
+	}
 	dry.SetArgs([]string{
 		"pipeline", "repair", "ticket_to_pr",
 		"--repo", root,
 		"--dry-run",
+		"--timeout-pipelines",
+		"--timeout-message-file", timeoutMessageFile,
 		"--retry-pipelines",
+		"--retry-message-file", retryMessageFile,
 		"--preview-routes",
 		"--skip-daemon",
 		"--runtime", "codex",
@@ -4732,6 +4756,13 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 	}
 	if result.Queue.Action != "would_retry" || len(result.Queue.Results) != 1 || result.Queue.Results[0].ID != "q-pipeline-repair" {
 		t.Fatalf("pipeline repair queue = %+v", result.Queue)
+	}
+	if result.PipelineTimeout.Action != "would_fail" || len(result.PipelineTimeout.Results) != 1 {
+		t.Fatalf("pipeline repair timeout = %+v", result.PipelineTimeout)
+	}
+	timeoutRow := result.PipelineTimeout.Results[0]
+	if timeoutRow.JobID != "squ-922" || timeoutRow.Message != "pipeline repair timeout from file" {
+		t.Fatalf("pipeline repair timeout row = %+v", timeoutRow)
 	}
 	if result.PipelineRetry.Action != "would_dispatch" || len(result.PipelineRetry.Results) != 1 {
 		t.Fatalf("pipeline repair retry = %+v", result.PipelineRetry)
@@ -4756,6 +4787,13 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 	}
 	if unchanged.Status != job.StatusFailed || unchanged.Steps[0].Status != job.StatusFailed || unchanged.Steps[0].Instance != "worker-squ-921" {
 		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+	unchangedRunning, err := job.Read(teamDir, "squ-922")
+	if err != nil {
+		t.Fatalf("read unchanged running job: %v", err)
+	}
+	if unchangedRunning.Status != job.StatusRunning || unchangedRunning.Steps[0].Instance != "worker-squ-922" {
+		t.Fatalf("dry-run mutated running job = %+v", unchangedRunning)
 	}
 }
 
@@ -6240,9 +6278,11 @@ func TestPipelineRepairValidation(t *testing.T) {
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--retry-pipelines", "--skip-daemon"}, "--retry-pipelines requires daemon access"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--timeout-jobs", "--timeout-pipelines"}, "--timeout-jobs cannot be combined with --timeout-pipelines"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--timeout-message", "incident"}, "--timeout-message requires --timeout-pipelines or --timeout-jobs"},
+		{[]string{"pipeline", "repair", "ticket_to_pr", "--timeout-message-file", "incident.txt"}, "--timeout-message-file requires --timeout-pipelines or --timeout-jobs"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--timeout-step", "review"}, "--timeout-step requires --timeout-pipelines or --timeout-jobs"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--timeout-target-agent", "worker"}, "--timeout-target-agent requires --timeout-pipelines or --timeout-jobs"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--retry-message", "incident"}, "--retry-message requires --retry-pipelines"},
+		{[]string{"pipeline", "repair", "ticket_to_pr", "--retry-message-file", "incident.txt"}, "--retry-message-file requires --retry-pipelines"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--retry-step", "review"}, "--retry-step requires --retry-pipelines"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--retry-force"}, "--retry-force requires --retry-pipelines"},
 		{[]string{"pipeline", "repair", "ticket_to_pr", "--format", "{{.Pipeline}}", "--json"}, "--format cannot be combined with --json"},

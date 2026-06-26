@@ -2600,29 +2600,31 @@ func newPipelineTimeoutCmd() *cobra.Command {
 
 func newPipelineRepairCmd() *cobra.Command {
 	var (
-		repo             string
-		workspace        string
-		runtimeKind      string
-		runtimeBin       string
-		limit            int
-		dryRun           bool
-		previewRoutes    bool
-		jsonOut          bool
-		format           string
-		skipDaemon       bool
-		skipQueue        bool
-		skipAdvance      bool
-		timeoutJobs      bool
-		timeoutPipelines bool
-		retryPipelines   bool
-		allReadySteps    bool
-		timeoutStep      string
-		timeoutMessage   string
-		timeoutTarget    string
-		retryStep        string
-		retryMessage     string
-		retryForce       bool
-		readyTimeout     time.Duration
+		repo               string
+		workspace          string
+		runtimeKind        string
+		runtimeBin         string
+		limit              int
+		dryRun             bool
+		previewRoutes      bool
+		jsonOut            bool
+		format             string
+		skipDaemon         bool
+		skipQueue          bool
+		skipAdvance        bool
+		timeoutJobs        bool
+		timeoutPipelines   bool
+		retryPipelines     bool
+		allReadySteps      bool
+		timeoutStep        string
+		timeoutMessage     string
+		timeoutMessageFile string
+		timeoutTarget      string
+		retryStep          string
+		retryMessage       string
+		retryMessageFile   string
+		retryForce         bool
+		readyTimeout       time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -2656,6 +2658,10 @@ func newPipelineRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline repair: --timeout-message requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(timeoutMessageFile) != "" && !timeoutPipelines && !timeoutJobs {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline repair: --timeout-message-file requires --timeout-pipelines or --timeout-jobs.")
+				return exitErr(2)
+			}
 			if strings.TrimSpace(timeoutStep) != "" && !timeoutPipelines && !timeoutJobs {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline repair: --timeout-step requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
@@ -2666,6 +2672,10 @@ func newPipelineRepairCmd() *cobra.Command {
 			}
 			if strings.TrimSpace(retryMessage) != "" && !retryPipelines {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline repair: --retry-message requires --retry-pipelines.")
+				return exitErr(2)
+			}
+			if strings.TrimSpace(retryMessageFile) != "" && !retryPipelines {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline repair: --retry-message-file requires --retry-pipelines.")
 				return exitErr(2)
 			}
 			if strings.TrimSpace(retryStep) != "" && !retryPipelines {
@@ -2681,6 +2691,16 @@ func newPipelineRepairCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			tmpl, err := parseRepairFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline repair: %v\n", err)
+				return exitErr(2)
+			}
+			resolvedTimeoutMessage, err := optionalMessageBodyWithFlagNames(timeoutMessage, timeoutMessageFile, nil, "--timeout-message", "--timeout-message-file")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline repair: %v\n", err)
+				return exitErr(2)
+			}
+			resolvedRetryMessage, err := optionalMessageBodyWithFlagNames(retryMessage, retryMessageFile, nil, "--retry-message", "--retry-message-file")
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline repair: %v\n", err)
 				return exitErr(2)
@@ -2703,10 +2723,10 @@ func newPipelineRepairCmd() *cobra.Command {
 				RetryPipelines:   retryPipelines,
 				AllReadySteps:    allReadySteps,
 				TimeoutStep:      timeoutStep,
-				TimeoutMessage:   timeoutMessage,
+				TimeoutMessage:   resolvedTimeoutMessage,
 				TimeoutTarget:    timeoutTarget,
 				RetryStep:        retryStep,
-				RetryMessage:     retryMessage,
+				RetryMessage:     resolvedRetryMessage,
 				RetryForce:       retryForce,
 				ReadyTimeout:     readyTimeout,
 			})
@@ -2735,9 +2755,11 @@ func newPipelineRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step during the scoped repair advance.")
 	cmd.Flags().StringVar(&timeoutStep, "timeout-step", "", "With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.")
 	cmd.Flags().StringVar(&timeoutMessage, "timeout-message", "", "Audit message to record when pipeline timeout repair marks stale work failed.")
+	cmd.Flags().StringVar(&timeoutMessageFile, "timeout-message-file", "", "Read pipeline timeout repair audit message from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&timeoutTarget, "timeout-target-agent", "", "With --timeout-jobs or --timeout-pipelines, mark only stale work targeting this agent.")
 	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed pipeline steps.")
+	cmd.Flags().StringVar(&retryMessageFile, "retry-message-file", "", "Read pipeline retry repair audit message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&retryForce, "retry-force", false, "With --retry-pipelines, ignore step max_attempts caps for explicit pipeline repair retry.")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
 	return cmd

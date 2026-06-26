@@ -17,35 +17,37 @@ import (
 
 func newRepairCmd() *cobra.Command {
 	var (
-		target           string
-		workspace        string
-		runtimeKind      string
-		runtimeBin       string
-		limit            int
-		dryRun           bool
-		previewRoutes    bool
-		jsonOut          bool
-		format           string
-		skipDaemon       bool
-		skipQueue        bool
-		skipTick         bool
-		includeJobs      bool
-		timeoutJobs      bool
-		timeoutPipelines bool
-		retryPipelines   bool
-		allReadySteps    bool
-		timeoutStep      string
-		timeoutMessage   string
-		timeoutPipeline  string
-		timeoutTarget    string
-		retryPipeline    string
-		retryStep        string
-		retryMessage     string
-		retryForce       bool
-		untilIdle        bool
-		readyTimeout     time.Duration
-		interval         time.Duration
-		maxCycles        int
+		target             string
+		workspace          string
+		runtimeKind        string
+		runtimeBin         string
+		limit              int
+		dryRun             bool
+		previewRoutes      bool
+		jsonOut            bool
+		format             string
+		skipDaemon         bool
+		skipQueue          bool
+		skipTick           bool
+		includeJobs        bool
+		timeoutJobs        bool
+		timeoutPipelines   bool
+		retryPipelines     bool
+		allReadySteps      bool
+		timeoutStep        string
+		timeoutMessage     string
+		timeoutMessageFile string
+		timeoutPipeline    string
+		timeoutTarget      string
+		retryPipeline      string
+		retryStep          string
+		retryMessage       string
+		retryMessageFile   string
+		retryForce         bool
+		untilIdle          bool
+		readyTimeout       time.Duration
+		interval           time.Duration
+		maxCycles          int
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -99,6 +101,10 @@ func newRepairCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-message requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(timeoutMessageFile) != "" && !timeoutPipelines && !timeoutJobs {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-message-file requires --timeout-pipelines or --timeout-jobs.")
+				return exitErr(2)
+			}
 			if strings.TrimSpace(timeoutStep) != "" && !timeoutPipelines && !timeoutJobs {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --timeout-step requires --timeout-pipelines or --timeout-jobs.")
 				return exitErr(2)
@@ -113,6 +119,10 @@ func newRepairCmd() *cobra.Command {
 			}
 			if strings.TrimSpace(retryMessage) != "" && !retryPipelines {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --retry-message requires --retry-pipelines.")
+				return exitErr(2)
+			}
+			if strings.TrimSpace(retryMessageFile) != "" && !retryPipelines {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team repair: --retry-message-file requires --retry-pipelines.")
 				return exitErr(2)
 			}
 			if strings.TrimSpace(retryStep) != "" && !retryPipelines {
@@ -136,6 +146,16 @@ func newRepairCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team repair: %v\n", err)
 				return exitErr(2)
 			}
+			resolvedTimeoutMessage, err := optionalMessageBodyWithFlagNames(timeoutMessage, timeoutMessageFile, nil, "--timeout-message", "--timeout-message-file")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team repair: %v\n", err)
+				return exitErr(2)
+			}
+			resolvedRetryMessage, err := optionalMessageBodyWithFlagNames(retryMessage, retryMessageFile, nil, "--retry-message", "--retry-message-file")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team repair: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -155,12 +175,12 @@ func newRepairCmd() *cobra.Command {
 				RetryPipelines:   retryPipelines,
 				AllReadySteps:    allReadySteps,
 				TimeoutStep:      timeoutStep,
-				TimeoutMessage:   timeoutMessage,
+				TimeoutMessage:   resolvedTimeoutMessage,
 				TimeoutPipeline:  timeoutPipeline,
 				TimeoutTarget:    timeoutTarget,
 				RetryPipeline:    retryPipeline,
 				RetryStep:        retryStep,
-				RetryMessage:     retryMessage,
+				RetryMessage:     resolvedRetryMessage,
 				RetryForce:       retryForce,
 				UntilIdle:        untilIdle,
 				ReadyTimeout:     readyTimeout,
@@ -194,11 +214,13 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step during the repair tick.")
 	cmd.Flags().StringVar(&timeoutStep, "timeout-step", "", "With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.")
 	cmd.Flags().StringVar(&timeoutMessage, "timeout-message", "", "Audit message to record when timeout repair marks stale work failed.")
+	cmd.Flags().StringVar(&timeoutMessageFile, "timeout-message-file", "", "Read timeout repair audit message from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&timeoutPipeline, "timeout-pipeline", "", "With --timeout-jobs or --timeout-pipelines, mark only stale work owned by this pipeline.")
 	cmd.Flags().StringVar(&timeoutTarget, "timeout-target-agent", "", "With --timeout-jobs or --timeout-pipelines, mark only stale work targeting this agent.")
 	cmd.Flags().StringVar(&retryPipeline, "retry-pipeline", "", "With --retry-pipelines, retry only failed jobs owned by this pipeline.")
 	cmd.Flags().StringVar(&retryStep, "retry-step", "", "With --retry-pipelines, retry only failed jobs whose next failed step has this id.")
 	cmd.Flags().StringVar(&retryMessage, "retry-message", "", "Audit message to record when --retry-pipelines resets failed steps.")
+	cmd.Flags().StringVar(&retryMessageFile, "retry-message-file", "", "Read retry repair audit message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&retryForce, "retry-force", false, "With --retry-pipelines, ignore step max_attempts caps for explicit repair retry.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run maintenance ticks until no immediate queue, schedule, or pipeline work remains.")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")

@@ -3626,6 +3626,7 @@ Flags:
       --repo string                   Repo root containing .agent_team. (default "<repo>")
       --retry-force                   With --retry-pipelines, ignore step max_attempts caps for explicit pipeline repair retry.
       --retry-message string          Audit message to record when --retry-pipelines resets failed pipeline steps.
+      --retry-message-file string     Read pipeline retry repair audit message from a file, or '-' for stdin.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the scoped advance.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
       --runtime string                Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.
@@ -3635,6 +3636,7 @@ Flags:
       --skip-queue                    Do not retry pipeline-owned dead-letter queue items.
       --timeout-jobs                  Mark stale running pipeline job work failed before retrying failed steps.
       --timeout-message string        Audit message to record when pipeline timeout repair marks stale work failed.
+      --timeout-message-file string   Read pipeline timeout repair audit message from a file, or '-' for stdin.
       --timeout-pipelines             Mark stale running pipeline steps failed before retrying failed steps.
       --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
       --timeout-target-agent string   With --timeout-jobs or --timeout-pipelines, mark only stale work targeting this agent.
@@ -4407,6 +4409,7 @@ Flags:
       --ready-timeout duration        Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --retry-force                   With --retry-pipelines, ignore step max_attempts caps for explicit repair retry.
       --retry-message string          Audit message to record when --retry-pipelines resets failed steps.
+      --retry-message-file string     Read retry repair audit message from a file, or '-' for stdin.
       --retry-pipeline string         With --retry-pipelines, retry only failed jobs owned by this pipeline.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the maintenance tick.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
@@ -4418,6 +4421,7 @@ Flags:
       --target string                 Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout-jobs                  Mark stale running durable job work failed before retrying failed pipeline steps.
       --timeout-message string        Audit message to record when timeout repair marks stale work failed.
+      --timeout-message-file string   Read timeout repair audit message from a file, or '-' for stdin.
       --timeout-pipeline string       With --timeout-jobs or --timeout-pipelines, mark only stale work owned by this pipeline.
       --timeout-pipelines             Mark stale running pipeline steps failed before retrying failed pipeline steps.
       --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running steps with this id failed.
@@ -6164,6 +6168,7 @@ Flags:
       --repo string                   Repo root containing .agent_team. (default "<repo>")
       --retry-force                   With --retry-pipelines, ignore step max_attempts caps for explicit team repair retry.
       --retry-message string          Audit message to record when --retry-pipelines resets failed team steps.
+      --retry-message-file string     Read team retry repair audit message from a file, or '-' for stdin.
       --retry-pipeline string         With --retry-pipelines, retry only failed team jobs owned by this pipeline.
       --retry-pipelines               Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --retry-step string             With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
@@ -6174,6 +6179,7 @@ Flags:
       --skip-tick                     Do not run a scoped team tick after queue retry.
       --timeout-jobs                  Mark stale running team job work failed before retrying failed pipeline steps.
       --timeout-message string        Audit message to record when team timeout repair marks stale work failed.
+      --timeout-message-file string   Read team timeout repair audit message from a file, or '-' for stdin.
       --timeout-pipeline string       With --timeout-jobs or --timeout-pipelines, mark only stale team work owned by this pipeline.
       --timeout-pipelines             Mark stale running team pipeline steps failed before retrying failed pipeline steps.
       --timeout-step string           With --timeout-jobs or --timeout-pipelines, mark only stale running team steps with this id failed.
