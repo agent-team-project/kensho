@@ -52,8 +52,8 @@ Docker-like views keep `stale` for old `status.toml` files and expose stale
 runtime metadata separately as `runtime_stale`. Their `--unhealthy` filters
 include crashed rows, status-stale rows, and runtime-stale rows, so
 `agent-team ps --unhealthy --json`, `agent-team health --unhealthy --json`,
-`agent-team stats --unhealthy`, and `agent-team logs --list --unhealthy` all
-surface missing recorded PIDs consistently.
+`agent-team stats --unhealthy`, `agent-team logs --list --unhealthy`, and
+`agent-team events --unhealthy` all surface missing recorded PIDs consistently.
 
 Team scoped:
 

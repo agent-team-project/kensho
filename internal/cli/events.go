@@ -135,7 +135,7 @@ func newEventsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show events for instances whose status.toml is currently stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show events for instances that are currently crashed or stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show events for instances that are currently crashed, status-stale, or runtime-stale.")
 	cmd.Flags().StringVar(&sinceRaw, "since", "", "Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	return cmd
 }

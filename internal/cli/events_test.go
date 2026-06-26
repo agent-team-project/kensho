@@ -821,6 +821,49 @@ description = "fresh"
 	}
 }
 
+func TestEventsUnhealthyFilterIncludesRuntimeStaleWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, StartedAt: now},
+		{Instance: "runtime-stale", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+		if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+			TS:       now,
+			Action:   "dispatch",
+			Instance: meta.Instance,
+			Agent:    meta.Agent,
+			Status:   meta.Status,
+			Message:  meta.Instance,
+		}); err != nil {
+			t.Fatalf("append event %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"events",
+		"--unhealthy",
+		"--format", "{{.Instance}}",
+		"--target", tmp,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("events --unhealthy runtime-stale fallback: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "runtime-stale\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
 func TestEventsLatestHonorsPhaseFilterWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -933,6 +976,51 @@ description = "fresh"
 		t.Fatalf("events --latest --unhealthy fallback: %v\nstderr=%s", err, stderr.String())
 	}
 	if got, want := stdout.String(), "stale-new\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestEventsLatestHonorsRuntimeStaleUnhealthyFilterWhenDaemonStopped(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "crashed-old", Agent: "worker", Status: daemon.StatusCrashed, StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "runtime-stale-new", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-30 * time.Minute)},
+		{Instance: "fresh-newer", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, StartedAt: now.Add(-5 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+		if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+			TS:       now,
+			Action:   "dispatch",
+			Instance: meta.Instance,
+			Agent:    meta.Agent,
+			Status:   meta.Status,
+			Message:  meta.Instance,
+		}); err != nil {
+			t.Fatalf("append event %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"events",
+		"--latest",
+		"--unhealthy",
+		"--format", "{{.Instance}}",
+		"--target", tmp,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("events --latest --unhealthy runtime-stale fallback: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := stdout.String(), "runtime-stale-new\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

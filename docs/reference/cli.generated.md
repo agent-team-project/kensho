@@ -842,7 +842,7 @@ Flags:
       --summary            Summarize matching events by action, status, agent, and instance.
       --tail int           Show only the last N events before returning or following (0 = all). With non-following filters, N applies after filtering.
       --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy          Only show events for instances that are currently crashed or stale.
+      --unhealthy          Only show events for instances that are currently crashed, status-stale, or runtime-stale.
 ```
 
 Inherited Flags:

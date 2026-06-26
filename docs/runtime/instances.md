@@ -120,7 +120,7 @@ Most instance commands share selection flags:
 | `--status <status>` | Filter lifecycle status |
 | `--phase <phase>` | Filter status-file work phase |
 | `--stale` | Filter stale non-idle work |
-| `--unhealthy` | Filter blocked/stale/crashed/problem rows |
+| `--unhealthy` | Filter crashed, status-stale, or runtime-stale rows |
 | `--latest` | Select latest matching row |
 | `--last N` | Select N latest matching rows |
 
