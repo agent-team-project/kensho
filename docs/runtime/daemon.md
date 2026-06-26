@@ -62,10 +62,11 @@ If a runtime process was started outside `agent-team` but should be visible in
 the same operator views, adopt its live PID:
 
 ```sh
+agent-team adopt manager --pid 12345 --workspace "$PWD" --agent manager
 agent-team runtime adopt manager --pid 12345 --workspace "$PWD" --agent manager
 agent-team daemon adopt manager --pid 12345 --workspace "$PWD" --agent manager
 agent-team daemon adopt worker-squ-42 --pid 12346 --agent worker --job squ-42 --ticket SQU-42 --runtime codex
-agent-team daemon adopt manager --pid 12345 --dry-run --json
+agent-team adopt manager --pid 12345 --dry-run --json
 ```
 
 When the instance name is declared in `instances.toml`, `--agent` is inferred.
@@ -79,8 +80,8 @@ with the adopted instance and running status, then appends an `adopted` job
 audit event. Dry-runs include the planned job update in JSON without writing
 metadata or the job file.
 
-`agent-team runtime adopt` is the same operation exposed from the runtime
-operator namespace.
+`agent-team runtime adopt` and `agent-team daemon adopt` expose the same
+operation from narrower operator namespaces.
 
 The daemon did not spawn adopted processes, so it cannot wait on their final
 exit. A later `agent-team daemon reconcile`, `agent-team health`, or

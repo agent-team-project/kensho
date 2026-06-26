@@ -317,6 +317,33 @@ func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	}
 }
 
+func TestAdoptShortcutDryRunDoesNotWriteMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"adopt", "external-worker", "--repo", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("adopt shortcut --dry-run: %v", err)
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode adopt shortcut dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || !result.Changed || result.Metadata == nil || !result.Metadata.Adopted {
+		t.Fatalf("dry-run result = %+v", result)
+	}
+	if result.Metadata.Instance != "external-worker" || result.Metadata.Agent != "worker" {
+		t.Fatalf("adopt shortcut metadata = %+v", result.Metadata)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(filepath.Join(tmp, ".agent_team")), "external-worker"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata should not exist after dry-run: %v", err)
+	}
+}
+
 func TestDaemonAdoptUpdatesOwningJob(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

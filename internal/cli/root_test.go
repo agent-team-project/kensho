@@ -115,6 +115,11 @@ func TestRepoHelpDistinguishesLegacyTargetFromAgentTarget(t *testing.T) {
 			args: []string{"job", "create", "--help"},
 			want: []string{"--repo string", repoFlagHelp, "--target string", "Target agent that should own this job."},
 		},
+		{
+			name: "adopt shortcut repo",
+			args: []string{"adopt", "--help"},
+			want: []string{"--repo string", repoFlagHelp},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()

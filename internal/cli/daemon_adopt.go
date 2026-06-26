@@ -47,24 +47,40 @@ type daemonAdoptResult struct {
 }
 
 func newDaemonAdoptCmd() *cobra.Command {
-	return newAdoptExternalProcessCmd(
-		"Adopt a live external process into daemon metadata.",
-		"Adopt a live external process by writing daemon runtime metadata for it. "+
-			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. "+
+	return newAdoptExternalProcessCmd(adoptExternalProcessCommandConfig{
+		Short: "Adopt a live external process into daemon metadata.",
+		Long: "Adopt a live external process by writing daemon runtime metadata for it. " +
+			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. " +
 			"The daemon cannot wait on an adopted process it did not spawn, so later exits are observed by daemon reconcile.",
-	)
+	})
+}
+
+func newAdoptCmd() *cobra.Command {
+	return newAdoptExternalProcessCmd(adoptExternalProcessCommandConfig{
+		Short: "Adopt a live external runtime process.",
+		Long: "Adopt a live external runtime process by writing daemon runtime metadata for it. " +
+			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. " +
+			"This is a shorter alias for `agent-team runtime adopt`.",
+		RepoFlag: true,
+	})
 }
 
 func newRuntimeAdoptCmd() *cobra.Command {
-	return newAdoptExternalProcessCmd(
-		"Adopt a live external runtime process.",
-		"Adopt a live external runtime process by writing daemon runtime metadata for it. "+
-			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. "+
+	return newAdoptExternalProcessCmd(adoptExternalProcessCommandConfig{
+		Short: "Adopt a live external runtime process.",
+		Long: "Adopt a live external runtime process by writing daemon runtime metadata for it. " +
+			"Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. " +
 			"Use this when a Claude or Codex process was started outside agent-team but should be tracked by the repo daemon.",
-	)
+	})
 }
 
-func newAdoptExternalProcessCmd(short, long string) *cobra.Command {
+type adoptExternalProcessCommandConfig struct {
+	Short    string
+	Long     string
+	RepoFlag bool
+}
+
+func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Command {
 	var (
 		target        string
 		agent         string
@@ -87,8 +103,8 @@ func newAdoptExternalProcessCmd(short, long string) *cobra.Command {
 	cwd, _ := filepath.Abs(".")
 	cmd := &cobra.Command{
 		Use:   "adopt <instance>",
-		Short: short,
-		Long:  long,
+		Short: cfg.Short,
+		Long:  cfg.Long,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			label := daemonAdoptCommandLabel(cmd)
@@ -121,7 +137,11 @@ func newAdoptExternalProcessCmd(short, long string) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	if cfg.RepoFlag {
+		cmd.Flags().StringVar(&target, "repo", cwd, repoFlagHelp)
+	} else {
+		cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	}
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent name for the adopted instance. Inferred from instances.toml when omitted.")
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace path for the adopted process. Defaults to the repo root.")

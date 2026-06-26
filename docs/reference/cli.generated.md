@@ -27,6 +27,7 @@ Persistent Flags:
 
 Subcommands:
 
+- `agent-team adopt` - Adopt a live external runtime process.
 - `agent-team attach` - Open an interactive runtime session against a daemon-managed persistent instance.
 - `agent-team channel` - Manage daemon-managed pub/sub channels.
 - `agent-team channels` - List all pub/sub channels (alias for `channel ls`).
@@ -77,6 +78,38 @@ Subcommands:
 - `agent-team upgrade` - Check or apply a template upgrade using the repo&#39;s template lock.
 - `agent-team wait` - Wait for daemon-managed instances to reach a lifecycle condition.
 - `agent-team watch` - Watch the combined health, instance, and resource monitor.
+
+## `agent-team adopt`
+
+Adopt a live external runtime process.
+
+Adopt a live external runtime process by writing daemon runtime metadata for it. Adopted processes become visible to ps, inspect, monitor, stop, and reconcile. This is a shorter alias for `agent-team runtime adopt`.
+
+```text
+agent-team adopt <instance> [flags]
+```
+
+Flags:
+
+```text
+      --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
+      --branch string        Branch name to record on the adopted metadata.
+      --dry-run              Preview adoption without writing metadata.
+      --force                Replace existing live metadata for the instance.
+      --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
+      --job string           Owning job id to record on the adopted metadata.
+      --json                 Emit machine-readable JSON.
+      --log-path string      Runtime log path, if the external process already writes to one.
+      --pid int              Live process PID to adopt.
+      --pr string            PR URL to record on the adopted metadata.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime-bin string   Runtime binary or wrapper used by the adopted process.
+      --session-id string    Runtime session id, when known and resumable.
+      --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --ticket string        Ticket id to record on the adopted metadata.
+      --workspace string     Workspace path for the adopted process. Defaults to the repo root.
+```
 
 ## `agent-team attach`
 
