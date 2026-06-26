@@ -199,7 +199,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 	c.Flags().BoolVar(&keep, "keep", false, "Keep the temporary rendered repo for inspection.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit smoke results as JSON.")
 	c.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail doctor when the companion agent-teamd binary is not discoverable.")
-	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary is not discoverable.")
+	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary or pipeline/team step runtime defaults are not discoverable.")
 	c.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail doctor when rendered template provenance does not resolve cleanly.")
 	return c
 }
@@ -261,11 +261,11 @@ func runTemplateSmoke(cmd *cobra.Command, ref string, sets []string, opts templa
 	result.Doctor = doctor
 	result.addStep(doctorStep)
 
-	pipelineDoctor, pipelineStep := runTemplateSmokePipelineDoctor(teamDir)
+	pipelineDoctor, pipelineStep := runTemplateSmokePipelineDoctor(teamDir, opts.StrictRuntime)
 	result.PipelineDoctor = pipelineDoctor
 	result.addStep(pipelineStep)
 
-	teamDoctor, teamStep := runTemplateSmokeTeamDoctor(teamDir)
+	teamDoctor, teamStep := runTemplateSmokeTeamDoctor(teamDir, opts.StrictRuntime)
 	result.TeamDoctor = teamDoctor
 	result.addStep(teamStep)
 
@@ -306,14 +306,20 @@ func runTemplateSmokeDoctor(target string, opts templateSmokeOptions) (*doctorRe
 	return &result, templateSmokeStep{Name: "doctor", OK: err == nil && result.OK, Error: smokeStepError(err, firstDoctorProblem(result.Problems, stderr.String()))}
 }
 
-func runTemplateSmokePipelineDoctor(teamDir string) (*pipelineDoctorResult, templateSmokeStep) {
+func runTemplateSmokePipelineDoctor(teamDir string, strictRuntime bool) (*pipelineDoctorResult, templateSmokeStep) {
 	result, err := collectPipelineDoctor(teamDir, "")
+	if strictRuntime {
+		promotePipelineDoctorRuntimeWarnings(result)
+	}
 	ok := err == nil && result != nil && result.OK
 	return result, templateSmokeStep{Name: "pipeline doctor", OK: ok, Error: smokeStepError(err, firstPipelineProblem(result))}
 }
 
-func runTemplateSmokeTeamDoctor(teamDir string) (*allTeamDoctorResult, templateSmokeStep) {
+func runTemplateSmokeTeamDoctor(teamDir string, strictRuntime bool) (*allTeamDoctorResult, templateSmokeStep) {
 	result, err := collectAllTeamDoctor(teamDir)
+	if strictRuntime {
+		promoteAllTeamDoctorRuntimeWarnings(result)
+	}
 	ok := err == nil && result != nil && result.OK
 	return result, templateSmokeStep{Name: "team doctor", OK: ok, Error: smokeStepError(err, firstTeamProblem(result))}
 }

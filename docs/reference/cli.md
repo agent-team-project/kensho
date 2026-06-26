@@ -17,7 +17,7 @@ as the output directory instead.
 | `agent-team template show [ref]` | Show a template manifest |
 | `agent-team template pull <ref>` | Cache a template |
 | `agent-team template rm <ref>` | Remove a cached template |
-| `agent-team template smoke [ref]` | Render a template in a temp repo and validate it |
+| `agent-team template smoke [ref]` | Render a template in a temp repo and validate it; add `--strict-runtime` for CI runtime checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check|--apply` | Compare current template lock to target or apply clean template changes |
 | `agent-team doctor` | Validate local layout, runtime availability, and workflow runtime defaults |

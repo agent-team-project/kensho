@@ -329,7 +329,7 @@ agent-team template ls                          # list bundled + cached template
 agent-team template show [<ref>]                # print manifest (default: bundled)
 agent-team template pull <ref> [--as <n>]       # copy a local template or clone a git ref into the cache
 agent-team template rm <ref>                    # remove a cached template
-agent-team template smoke [<ref>] [--set k=v]... [--keep] [--json]
+agent-team template smoke [<ref>] [--set k=v]... [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--json]
                                                 # init a template into a temp repo and run doctor/pipeline/team validation
 agent-team template run <ref> <agent> [--target <dir>] [--keep] [--runtime claude|codex] [--runtime-bin <path>] [--last-message] [--set k=v]... [-p "..."|--prompt-file <path|->]
                                                 # one-shot: init into a (temp)dir + spawn the agent

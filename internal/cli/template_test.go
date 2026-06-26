@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
 func TestTemplateShow_Bundled(t *testing.T) {
@@ -202,6 +204,116 @@ func TestTemplateSmokeMissingRequiredParameters(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.FromSlash(result.Target)); !os.IsNotExist(err) {
 		t.Fatalf("failed smoke target should be removed, stat err=%v target=%s", err, result.Target)
+	}
+}
+
+func TestTemplateSmokeStrictRuntimePromotesNestedDoctorWarnings(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		switch bin {
+		case "claude":
+			return "/usr/local/bin/claude", nil
+		case "missing-codex":
+			return "", exec.ErrNotFound
+		default:
+			t.Fatalf("unexpected runtime lookup for %q", bin)
+			return "", exec.ErrNotFound
+		}
+	})
+	oldFind := findAgentTeamd
+	findAgentTeamd = func() (string, error) {
+		return "/usr/local/bin/agent-teamd", nil
+	}
+	defer func() { findAgentTeamd = oldFind }()
+
+	tmplDir := t.TempDir()
+	writeTinyTemplateFiles(t, tmplDir, "runtime-smoke", "0.0.1", map[string]string{
+		"config.toml": `[team]
+pm_tool = "none"
+`,
+		"agents/worker/agent.md": `---
+description: Worker.
+---
+
+Worker prompt.
+`,
+		"instances.toml": `
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+runtime = "codex"
+runtime_bin = "missing-codex"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`,
+	})
+
+	nonStrict := NewRootCmd()
+	nonStrictOut, nonStrictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nonStrict.SetOut(nonStrictOut)
+	nonStrict.SetErr(nonStrictErr)
+	nonStrict.SetArgs([]string{"template", "smoke", tmplDir, "--json"})
+	if err := nonStrict.Execute(); err != nil {
+		t.Fatalf("template smoke warning-only runtime defaults should not fail: %v\nstdout=%s\nstderr=%s", err, nonStrictOut.String(), nonStrictErr.String())
+	}
+	var nonStrictResult templateSmokeResult
+	if err := json.Unmarshal(nonStrictOut.Bytes(), &nonStrictResult); err != nil {
+		t.Fatalf("decode non-strict smoke json: %v\nbody=%s", err, nonStrictOut.String())
+	}
+	if !nonStrictResult.OK || nonStrictResult.PipelineDoctor == nil || !nonStrictResult.PipelineDoctor.OK || nonStrictResult.TeamDoctor == nil || !nonStrictResult.TeamDoctor.OK {
+		t.Fatalf("non-strict smoke result = %+v", nonStrictResult)
+	}
+	if !hasPipelineDoctorFinding(nonStrictResult.PipelineDoctor.Warnings, "step_runtime_unavailable") ||
+		!hasTeamDoctorFinding(nonStrictResult.TeamDoctor.Warnings, "step_runtime_unavailable") {
+		t.Fatalf("non-strict smoke did not preserve runtime warnings: pipeline=%+v team=%+v", nonStrictResult.PipelineDoctor, nonStrictResult.TeamDoctor)
+	}
+	if nonStrictErr.Len() != 0 {
+		t.Fatalf("template smoke --json should not write warnings to stderr: %s", nonStrictErr.String())
+	}
+
+	strict := NewRootCmd()
+	strictOut, strictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	strict.SetOut(strictOut)
+	strict.SetErr(strictErr)
+	strict.SetArgs([]string{"template", "smoke", tmplDir, "--strict-runtime", "--json"})
+	err := strict.Execute()
+	if err == nil {
+		t.Fatal("expected strict template smoke to fail on missing step runtime")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("strict smoke err = %v, want exit 1", err)
+	}
+	var strictResult templateSmokeResult
+	if err := json.Unmarshal(strictOut.Bytes(), &strictResult); err != nil {
+		t.Fatalf("decode strict smoke json: %v\nbody=%s", err, strictOut.String())
+	}
+	if strictResult.OK || strictResult.PipelineDoctor == nil || strictResult.PipelineDoctor.OK || strictResult.TeamDoctor == nil || strictResult.TeamDoctor.OK {
+		t.Fatalf("strict smoke result = %+v", strictResult)
+	}
+	if !hasPipelineDoctorFinding(strictResult.PipelineDoctor.Problems, "step_runtime_unavailable") ||
+		!hasTeamDoctorFinding(strictResult.TeamDoctor.Problems, "step_runtime_unavailable") {
+		t.Fatalf("strict smoke did not promote nested runtime warnings: pipeline=%+v team=%+v", strictResult.PipelineDoctor, strictResult.TeamDoctor)
+	}
+	if hasPipelineDoctorFinding(strictResult.PipelineDoctor.Warnings, "step_runtime_unavailable") ||
+		hasTeamDoctorFinding(strictResult.TeamDoctor.Warnings, "step_runtime_unavailable") {
+		t.Fatalf("strict smoke left nested runtime warnings unpromoted: pipeline=%+v team=%+v", strictResult.PipelineDoctor, strictResult.TeamDoctor)
+	}
+	if strictErr.Len() != 0 {
+		t.Fatalf("template smoke --json should not write strict problems to stderr: %s", strictErr.String())
 	}
 }
 
