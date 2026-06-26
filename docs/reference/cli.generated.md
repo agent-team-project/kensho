@@ -3034,19 +3034,20 @@ agent-team pipeline approve <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                  Approve manual gates across all pipelines.
-      --dispatch             Dispatch each approved manual gate immediately.
-      --dry-run              Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --format string        Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                 Emit approval results as JSON.
-      --limit int            Maximum manual gates to approve (0 = no limit).
-      --message string       Status message recorded on each approved job.
-      --preview-routes       With --dry-run --dispatch, include route and payload previews.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
-      --step string          Approve only manual gates whose next blocked step has this id.
-      --workspace string     Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --all                   Approve manual gates across all pipelines.
+      --dispatch              Dispatch each approved manual gate immediately.
+      --dry-run               Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --format string         Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                  Emit approval results as JSON.
+      --limit int             Maximum manual gates to approve (0 = no limit).
+      --message string        Status message recorded on each approved job.
+      --message-file string   Read approval message from a file, or '-' for stdin.
+      --preview-routes        With --dry-run --dispatch, include route and payload previews.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
+      --step string           Approve only manual gates whose next blocked step has this id.
+      --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline cancel`
@@ -3566,14 +3567,15 @@ agent-team pipeline reject <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all              Reject manual gates across all pipelines.
-      --dry-run          Preview manual gate rejections without writing job state.
-      --format string    Render each rejection result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json             Emit rejection results as JSON.
-      --limit int        Maximum manual gates to reject (0 = no limit).
-      --message string   Status message recorded on each rejected job.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --step string      Reject only manual gates whose next blocked step has this id.
+      --all                   Reject manual gates across all pipelines.
+      --dry-run               Preview manual gate rejections without writing job state.
+      --format string         Render each rejection result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                  Emit rejection results as JSON.
+      --limit int             Maximum manual gates to reject (0 = no limit).
+      --message string        Status message recorded on each rejected job.
+      --message-file string   Read rejection reason from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --step string           Reject only manual gates whose next blocked step has this id.
 ```
 
 ## `agent-team pipeline release`
@@ -5338,18 +5340,19 @@ agent-team team approve <team> [flags]
 Flags:
 
 ```text
-      --dispatch             Dispatch each approved manual gate immediately.
-      --dry-run              Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --format string        Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                 Emit approval results as JSON.
-      --limit int            Approve at most this many manual gates; 0 means no limit.
-      --message string       Status message recorded on each approved team job.
-      --preview-routes       With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for --dispatch. Overrides env and repo config.
-      --step string          Approve only manual gates whose next blocked step has this id.
-      --workspace string     Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
+      --dispatch              Dispatch each approved manual gate immediately.
+      --dry-run               Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --format string         Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                  Emit approval results as JSON.
+      --limit int             Approve at most this many manual gates; 0 means no limit.
+      --message string        Status message recorded on each approved team job.
+      --message-file string   Read approval message from a file, or '-' for stdin.
+      --preview-routes        With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
+      --step string           Approve only manual gates whose next blocked step has this id.
+      --workspace string      Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team cancel`
@@ -6097,13 +6100,14 @@ agent-team team reject <team> [flags]
 Flags:
 
 ```text
-      --dry-run          Preview manual gate rejections without writing job state.
-      --format string    Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json             Emit rejection results as JSON.
-      --limit int        Reject at most this many manual gates; 0 means no limit.
-      --message string   Status message recorded on each rejected team job.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --step string      Reject only manual gates whose next blocked step has this id.
+      --dry-run               Preview manual gate rejections without writing job state.
+      --format string         Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                  Emit rejection results as JSON.
+      --limit int             Reject at most this many manual gates; 0 means no limit.
+      --message string        Status message recorded on each rejected team job.
+      --message-file string   Read rejection reason from a file, or '-' for stdin.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --step string           Reject only manual gates whose next blocked step has this id.
 ```
 
 ## `agent-team team release`

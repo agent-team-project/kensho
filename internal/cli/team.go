@@ -1385,6 +1385,7 @@ func newTeamApproveCmd() *cobra.Command {
 		dispatchNow   bool
 		step          string
 		message       string
+		messageFile   string
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -1415,6 +1416,11 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(2)
 			}
+			approvalMessage, err := optionalSendMessageBody(message, messageFile, nil)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -1424,7 +1430,7 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(1)
 			}
-			results, err := approveTeamPipelineManualGates(cmd, teamDir, team, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, dispatchNow, dryRun, previewRoutes)
+			results, err := approveTeamPipelineManualGates(cmd, teamDir, team, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, approvalMessage, limit, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				if errors.Is(err, errDaemonNotRunning) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: daemon is not running — start it with `agent-team start`, or use --dry-run without --dispatch.")
@@ -1444,6 +1450,7 @@ func newTeamApproveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch each approved manual gate immediately.")
 	cmd.Flags().StringVar(&step, "step", "", "Approve only manual gates whose next blocked step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each approved team job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read approval message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit approval results as JSON.")
@@ -1453,13 +1460,14 @@ func newTeamApproveCmd() *cobra.Command {
 
 func newTeamRejectCmd() *cobra.Command {
 	var (
-		repo    string
-		limit   int
-		step    string
-		message string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo        string
+		limit       int
+		step        string
+		message     string
+		messageFile string
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1482,6 +1490,11 @@ func newTeamRejectCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team reject: %v\n", err)
 				return exitErr(2)
 			}
+			rejectionMessage, err := optionalSendMessageBody(message, messageFile, nil)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team reject: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -1491,7 +1504,7 @@ func newTeamRejectCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team reject: %v\n", err)
 				return exitErr(1)
 			}
-			results, err := rejectTeamPipelineManualGates(teamDir, team, step, message, limit, dryRun)
+			results, err := rejectTeamPipelineManualGates(teamDir, team, step, rejectionMessage, limit, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team reject: %v\n", err)
 				return exitErr(1)
@@ -1503,6 +1516,7 @@ func newTeamRejectCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Reject at most this many manual gates; 0 means no limit.")
 	cmd.Flags().StringVar(&step, "step", "", "Reject only manual gates whose next blocked step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each rejected team job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read rejection reason from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate rejections without writing job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit rejection results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")

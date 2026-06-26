@@ -1575,6 +1575,7 @@ func newPipelineApproveCmd() *cobra.Command {
 		runtimeBin    string
 		step          string
 		message       string
+		messageFile   string
 		dryRun        bool
 		previewRoutes bool
 		jsonOut       bool
@@ -1621,11 +1622,16 @@ func newPipelineApproveCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline approve: pipeline name is required.")
 				return exitErr(2)
 			}
+			approvalMessage, err := optionalSendMessageBody(message, messageFile, nil)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			results, err := approvePipelineManualGates(cmd, teamDir, pipelineName, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, message, limit, dispatchNow, dryRun, previewRoutes)
+			results, err := approvePipelineManualGates(cmd, teamDir, pipelineName, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, step, approvalMessage, limit, dispatchNow, dryRun, previewRoutes)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
 				return exitErr(1)
@@ -1642,6 +1648,7 @@ func newPipelineApproveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().StringVar(&step, "step", "", "Approve only manual gates whose next blocked step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each approved job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read approval message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include route and payload previews.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit approval results as JSON.")
@@ -1651,14 +1658,15 @@ func newPipelineApproveCmd() *cobra.Command {
 
 func newPipelineRejectCmd() *cobra.Command {
 	var (
-		repo    string
-		all     bool
-		limit   int
-		step    string
-		message string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo        string
+		all         bool
+		limit       int
+		step        string
+		message     string
+		messageFile string
+		dryRun      bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1697,11 +1705,16 @@ func newPipelineRejectCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline reject: pipeline name is required.")
 				return exitErr(2)
 			}
+			rejectionMessage, err := optionalSendMessageBody(message, messageFile, nil)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline reject: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
-			results, err := rejectPipelineManualGates(teamDir, pipelineName, step, message, limit, dryRun)
+			results, err := rejectPipelineManualGates(teamDir, pipelineName, step, rejectionMessage, limit, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline reject: %v\n", err)
 				return exitErr(1)
@@ -1714,6 +1727,7 @@ func newPipelineRejectCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum manual gates to reject (0 = no limit).")
 	cmd.Flags().StringVar(&step, "step", "", "Reject only manual gates whose next blocked step has this id.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each rejected job.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read rejection reason from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate rejections without writing job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit rejection results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each rejection result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")

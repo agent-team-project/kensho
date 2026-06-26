@@ -2278,12 +2278,16 @@ pipelines = ["ticket_to_pr"]
 	if len(statusRows) != 1 || statusRows[0].Pipeline != "ticket_to_pr" || statusRows[0].ManualGates != 1 || !containsString(statusRows[0].Actions, "agent-team team approve delivery --dry-run --dispatch --preview-routes") {
 		t.Fatalf("team pipeline status = %+v", statusRows)
 	}
+	approvalFile := filepath.Join(root, "team-approval.txt")
+	if err := os.WriteFile(approvalFile, []byte("delivery manual approval from file\n"), 0o644); err != nil {
+		t.Fatalf("write team approval file: %v", err)
+	}
 
 	run := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(out)
 	run.SetErr(stderr)
-	run.SetArgs([]string{"team", "approve", "delivery", "--repo", root, "--message", "delivery manual approval", "--json"})
+	run.SetArgs([]string{"team", "approve", "delivery", "--repo", root, "--message-file", approvalFile, "--json"})
 	if err := run.Execute(); err != nil {
 		t.Fatalf("team approve: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2291,7 +2295,7 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("decode team approve: %v\nbody=%s", err, out.String())
 	}
-	if len(rows) != 1 || rows[0].JobID != "squ-930" || rows[0].Action != "approved" || rows[0].Message != "delivery manual approval" {
+	if len(rows) != 1 || rows[0].JobID != "squ-930" || rows[0].Action != "approved" || rows[0].Message != "delivery manual approval from file" {
 		t.Fatalf("team approve rows = %+v", rows)
 	}
 	delivery, err := job.Read(teamDir, "squ-930")
@@ -2414,12 +2418,16 @@ pipelines = ["ticket_to_pr"]
 	if unchanged.Status != job.StatusBlocked || unchanged.Steps[1].Status != job.StatusBlocked {
 		t.Fatalf("dry-run mutated delivery job = %+v", unchanged)
 	}
+	rejectionFile := filepath.Join(root, "team-rejection.txt")
+	if err := os.WriteFile(rejectionFile, []byte("delivery manual rejection from file\n"), 0o644); err != nil {
+		t.Fatalf("write team rejection file: %v", err)
+	}
 
 	run := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	run.SetOut(out)
 	run.SetErr(stderr)
-	run.SetArgs([]string{"team", "reject", "delivery", "--repo", root, "--message", "delivery manual rejection", "--json"})
+	run.SetArgs([]string{"team", "reject", "delivery", "--repo", root, "--message-file", rejectionFile, "--json"})
 	if err := run.Execute(); err != nil {
 		t.Fatalf("team reject: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2427,7 +2435,7 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("decode team reject: %v\nbody=%s", err, out.String())
 	}
-	if len(rows) != 1 || rows[0].JobID != "squ-932" || rows[0].Action != "rejected" || rows[0].Message != "delivery manual rejection" {
+	if len(rows) != 1 || rows[0].JobID != "squ-932" || rows[0].Action != "rejected" || rows[0].Message != "delivery manual rejection from file" {
 		t.Fatalf("team reject rows = %+v", rows)
 	}
 	delivery, err := job.Read(teamDir, "squ-932")

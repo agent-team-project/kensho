@@ -2690,23 +2690,27 @@ gate = "manual"
 	if unchanged.Steps[1].Status != job.StatusBlocked {
 		t.Fatalf("dry-run mutated manual gate = %+v", unchanged.Steps[1])
 	}
+	approvalFile := filepath.Join(root, "approval.txt")
+	if err := os.WriteFile(approvalFile, []byte("manual review approved from file\n"), 0o644); err != nil {
+		t.Fatalf("write approval file: %v", err)
+	}
 
 	approve := NewRootCmd()
 	approveOut, approveErr := &bytes.Buffer{}, &bytes.Buffer{}
 	approve.SetOut(approveOut)
 	approve.SetErr(approveErr)
-	approve.SetArgs([]string{"pipeline", "approve", "ticket_to_pr", "--repo", root, "--message", "manual review approved", "--format", "{{.JobID}} {{.Action}} {{.StepID}} {{.Message}}"})
+	approve.SetArgs([]string{"pipeline", "approve", "ticket_to_pr", "--repo", root, "--message-file", approvalFile, "--format", "{{.JobID}} {{.Action}} {{.StepID}} {{.Message}}"})
 	if err := approve.Execute(); err != nil {
 		t.Fatalf("pipeline approve: %v\nstderr=%s", err, approveErr.String())
 	}
-	if got := approveOut.String(); got != "squ-902 approved review manual review approved\n" {
+	if got := approveOut.String(); got != "squ-902 approved review manual review approved from file\n" {
 		t.Fatalf("approve format = %q", got)
 	}
 	updated, err := job.Read(teamDir, "squ-902")
 	if err != nil {
 		t.Fatalf("read approved job: %v", err)
 	}
-	if updated.Status != job.StatusQueued || updated.Steps[1].Status != job.StatusQueued || updated.LastStatus != "manual review approved" {
+	if updated.Status != job.StatusQueued || updated.Steps[1].Status != job.StatusQueued || updated.LastStatus != "manual review approved from file" {
 		t.Fatalf("approved job = %+v", updated)
 	}
 }
@@ -2871,30 +2875,34 @@ gate = "manual"
 	if unchanged.Status != job.StatusRunning || unchanged.Steps[1].Status != job.StatusBlocked {
 		t.Fatalf("dry-run mutated manual gate = %+v", unchanged)
 	}
+	rejectionFile := filepath.Join(root, "rejection.txt")
+	if err := os.WriteFile(rejectionFile, []byte("manual batch rejected from file\n"), 0o644); err != nil {
+		t.Fatalf("write rejection file: %v", err)
+	}
 
 	reject := NewRootCmd()
 	rejectOut, rejectErr := &bytes.Buffer{}, &bytes.Buffer{}
 	reject.SetOut(rejectOut)
 	reject.SetErr(rejectErr)
-	reject.SetArgs([]string{"pipeline", "reject", "ticket_to_pr", "--repo", root, "--message", "manual batch rejected", "--format", "{{.JobID}} {{.Action}} {{.StepID}} {{.Message}}"})
+	reject.SetArgs([]string{"pipeline", "reject", "ticket_to_pr", "--repo", root, "--message-file", rejectionFile, "--format", "{{.JobID}} {{.Action}} {{.StepID}} {{.Message}}"})
 	if err := reject.Execute(); err != nil {
 		t.Fatalf("pipeline reject: %v\nstderr=%s", err, rejectErr.String())
 	}
-	if got := rejectOut.String(); got != "squ-904 rejected review manual batch rejected\n" {
+	if got := rejectOut.String(); got != "squ-904 rejected review manual batch rejected from file\n" {
 		t.Fatalf("reject format = %q", got)
 	}
 	rejected, err := job.Read(teamDir, "squ-904")
 	if err != nil {
 		t.Fatalf("read rejected job: %v", err)
 	}
-	if rejected.Status != job.StatusFailed || rejected.Steps[1].Status != job.StatusFailed || rejected.LastEvent != "manual_gate_rejected" || rejected.LastStatus != "manual batch rejected" {
+	if rejected.Status != job.StatusFailed || rejected.Steps[1].Status != job.StatusFailed || rejected.LastEvent != "manual_gate_rejected" || rejected.LastStatus != "manual batch rejected from file" {
 		t.Fatalf("rejected job = %+v", rejected)
 	}
 	events, err := job.ListEvents(teamDir, "squ-904")
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	if len(events) == 0 || events[len(events)-1].Type != "manual_gate_rejected" || events[len(events)-1].Message != "manual batch rejected" {
+	if len(events) == 0 || events[len(events)-1].Type != "manual_gate_rejected" || events[len(events)-1].Message != "manual batch rejected from file" {
 		t.Fatalf("reject events = %+v", events)
 	}
 }
