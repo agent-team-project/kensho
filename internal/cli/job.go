@@ -3872,6 +3872,7 @@ func newJobStepCmd() *cobra.Command {
 		worktree    string
 		advance     bool
 		skip        bool
+		force       bool
 		workspace   string
 		runtimeKind string
 		runtimeBin  string
@@ -3909,6 +3910,10 @@ func newJobStepCmd() *cobra.Command {
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
 				return err
+			}
+			if err := validateJobStepRunningOwner(j, args[1], stepStatus, instance, force); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
+				return exitErr(2)
 			}
 			if err := updateJobStep(j, args[1], stepStatus, jobStepUpdate{
 				Message:  message,
@@ -3967,6 +3972,7 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path to record on the job.")
 	cmd.Flags().BoolVar(&advance, "advance", false, "After marking the step done, dispatch the next ready step.")
 	cmd.Flags().BoolVar(&skip, "skip", false, "Mark this step as intentionally skipped; stored as done so dependent steps can continue.")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow marking a step running without an owning instance.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for an advanced step: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
@@ -5438,6 +5444,7 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, n
 		item.StepID = next.Step.ID
 		item.StepTarget = next.Step.Target
 	}
+	item.Instance = activeJobInstanceForTriage(j, next)
 	item.StepState = next.State
 	addTriageReason := func(reason, severity string) {
 		for _, existing := range item.Reasons {
@@ -5459,7 +5466,7 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, n
 			addTriageReason("cleanup_ready", "info")
 		}
 	case job.StatusRunning:
-		if strings.TrimSpace(j.Instance) == "" {
+		if strings.TrimSpace(item.Instance) == "" {
 			addTriageReason("running_without_instance", "warning")
 		}
 		if staleAfter > 0 && !j.UpdatedAt.IsZero() && j.UpdatedAt.Before(now.Add(-staleAfter)) {
@@ -5501,6 +5508,22 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, n
 	}
 	item.Actions = actionsForJobTriageItem(item)
 	return item, true
+}
+
+func activeJobInstanceForTriage(j *job.Job, next jobNextResult) string {
+	if j == nil {
+		return ""
+	}
+	if instance := strings.TrimSpace(j.Instance); instance != "" {
+		return instance
+	}
+	if next.Step != nil && next.Step.Status == job.StatusRunning {
+		return strings.TrimSpace(next.Step.Instance)
+	}
+	if step := firstJobStepWithStatus(j, job.StatusRunning); step != nil {
+		return strings.TrimSpace(step.Instance)
+	}
+	return ""
 }
 
 func maxJobTriageSeverity(left, right string) string {
@@ -7766,6 +7789,20 @@ type jobQueueReconcileResult struct {
 	Message    string     `json:"message,omitempty"`
 	Changed    bool       `json:"changed"`
 	DryRun     bool       `json:"dry_run,omitempty"`
+}
+
+func validateJobStepRunningOwner(j *job.Job, stepID string, status job.Status, instance string, force bool) error {
+	if status != job.StatusRunning || force {
+		return nil
+	}
+	idx := jobStepIndex(j, stepID)
+	if idx == -1 {
+		return nil
+	}
+	if strings.TrimSpace(instance) != "" || strings.TrimSpace(j.Steps[idx].Instance) != "" {
+		return nil
+	}
+	return fmt.Errorf("status running requires --instance for step %q; pass --force to record an ownerless running step", stepID)
 }
 
 type jobEventReconcileResult struct {

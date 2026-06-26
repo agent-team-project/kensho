@@ -2697,6 +2697,7 @@ Flags:
       --advance              After marking the step done, dispatch the next ready step.
       --branch string        Branch name to record on the job.
       --dry-run              Preview the step update and optional advance dispatch without writing job or daemon state.
+  -f, --force                Allow marking a step running without an owning instance.
       --format string        Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
       --instance string      Instance that owns or completed this step.
       --json                 Emit the updated job or advance result as JSON.

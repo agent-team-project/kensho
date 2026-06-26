@@ -3055,6 +3055,54 @@ func TestJobTimeoutRejectsInvalidArgs(t *testing.T) {
 	}
 }
 
+func TestJobTriageUsesRunningPipelineStepInstance(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-48 * time.Hour)
+	j := mustNewJob(t, "SQU-209", "manager")
+	j.Status = job.StatusRunning
+	j.Pipeline = "ticket_triage"
+	j.UpdatedAt = old
+	j.Steps = []job.Step{
+		{ID: "triage", Target: "ticket-manager", Status: job.StatusDone, StartedAt: old, FinishedAt: old.Add(time.Hour)},
+		{ID: "review", Target: "manager", Instance: "manager-review", Status: job.StatusRunning, After: []string{"triage"}, StartedAt: old.Add(time.Hour)},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job triage: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot jobTriageSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode triage json: %v\nbody=%s", err, out.String())
+	}
+	if len(snapshot.Attention) != 1 {
+		t.Fatalf("attention = %+v", snapshot.Attention)
+	}
+	item := snapshot.Attention[0]
+	if item.JobID != "squ-209" || item.Instance != "manager-review" || item.StepID != "review" {
+		t.Fatalf("triage item = %+v", item)
+	}
+	if containsString(item.Reasons, "running_without_instance") {
+		t.Fatalf("triage reasons included ownerless warning: %+v", item.Reasons)
+	}
+	if !containsString(item.Reasons, "stale_running") {
+		t.Fatalf("triage reasons = %+v", item.Reasons)
+	}
+	if containsString(item.Actions, "agent-team job adopt squ-209 --pid <pid> --dry-run") {
+		t.Fatalf("triage actions included adoption hint: %+v", item.Actions)
+	}
+}
+
 func TestJobTriageIncludesBlockedStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -8314,6 +8362,97 @@ func TestJobStepDoneAdvanceDispatchesNextStep(t *testing.T) {
 	}
 	if stepUpdated.Status != job.StatusBlocked || stepUpdated.Steps[0].Status != job.StatusBlocked {
 		t.Fatalf("step-only updated = %+v", stepUpdated)
+	}
+}
+
+func TestJobStepRunningRequiresInstance(t *testing.T) {
+	target, _, cleanup := setupIntakePipelineRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-223",
+		Ticket:    "SQU-223",
+		Target:    "worker",
+		Kickoff:   "SQU-223: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	refused := NewRootCmd()
+	refusedOut, refusedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	refused.SetOut(refusedOut)
+	refused.SetErr(refusedErr)
+	refused.SetArgs([]string{"job", "step", "squ-223", "implement", "--status", "running", "--repo", target})
+	err := refused.Execute()
+	if err == nil {
+		t.Fatalf("job step ownerless running succeeded: stdout=%s", refusedOut.String())
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("expected exit 2, got %v", err)
+	}
+	if !strings.Contains(refusedErr.String(), "status running requires --instance") {
+		t.Fatalf("refused stderr = %q", refusedErr.String())
+	}
+	unchanged, err := job.Read(teamDir, "squ-223")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Steps[0].Status != job.StatusBlocked || unchanged.Steps[0].Instance != "" {
+		t.Fatalf("ownerless refusal mutated job = %+v", unchanged.Steps[0])
+	}
+
+	withInstance := NewRootCmd()
+	withInstanceOut, withInstanceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	withInstance.SetOut(withInstanceOut)
+	withInstance.SetErr(withInstanceErr)
+	withInstance.SetArgs([]string{"job", "step", "squ-223", "implement", "--status", "running", "--instance", "worker-squ-223-implement", "--repo", target, "--json"})
+	if err := withInstance.Execute(); err != nil {
+		t.Fatalf("job step running with instance: %v\nstderr=%s", err, withInstanceErr.String())
+	}
+	var updated job.Job
+	if err := json.Unmarshal(withInstanceOut.Bytes(), &updated); err != nil {
+		t.Fatalf("decode updated job: %v\nbody=%s", err, withInstanceOut.String())
+	}
+	if updated.Steps[0].Status != job.StatusRunning || updated.Steps[0].Instance != "worker-squ-223-implement" {
+		t.Fatalf("updated step = %+v", updated.Steps[0])
+	}
+
+	forcedJob := &job.Job{
+		ID:        "squ-223-force",
+		Ticket:    "SQU-223-FORCE",
+		Target:    "worker",
+		Kickoff:   "SQU-223-FORCE: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked},
+		},
+	}
+	if err := job.Write(teamDir, forcedJob); err != nil {
+		t.Fatalf("write forced job: %v", err)
+	}
+	forced := NewRootCmd()
+	forcedOut, forcedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	forced.SetOut(forcedOut)
+	forced.SetErr(forcedErr)
+	forced.SetArgs([]string{"job", "step", "squ-223-force", "implement", "--status", "running", "--force", "--repo", target, "--format", "{{.ID}} {{.Status}} {{(index .Steps 0).Status}}"})
+	if err := forced.Execute(); err != nil {
+		t.Fatalf("job step running forced: %v\nstderr=%s", err, forcedErr.String())
+	}
+	if got := forcedOut.String(); got != "squ-223-force running running\n" {
+		t.Fatalf("forced output = %q", got)
 	}
 }
 
