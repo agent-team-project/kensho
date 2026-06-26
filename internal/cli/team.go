@@ -175,10 +175,11 @@ func newTeamGraphCmd() *cobra.Command {
 
 func newTeamDoctorCmd() *cobra.Command {
 	var (
-		repo    string
-		all     bool
-		jsonOut bool
-		format  string
+		repo          string
+		all           bool
+		strictRuntime bool
+		jsonOut       bool
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -215,6 +216,9 @@ func newTeamDoctorCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team doctor: %v\n", err)
 					return exitErr(1)
 				}
+				if strictRuntime {
+					promoteAllTeamDoctorRuntimeWarnings(result)
+				}
 				return renderAllTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 			}
 			result, err := collectTeamDoctor(teamDir, args[0])
@@ -222,11 +226,15 @@ func newTeamDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team doctor: %v\n", err)
 				return exitErr(1)
 			}
+			if strictRuntime {
+				promoteTeamDoctorRuntimeWarnings(result)
+			}
 			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all declared teams.")
+	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when a team-owned step runtime default cannot be resolved or is not discoverable.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
@@ -429,6 +437,53 @@ func collectAllTeamDoctor(teamDir string) (*allTeamDoctorResult, error) {
 	}
 	result.OK = len(result.Problems) == 0
 	return result, nil
+}
+
+func promoteTeamDoctorRuntimeWarnings(result *teamDoctorResult) {
+	if result == nil {
+		return
+	}
+	result.Problems, result.Warnings = promoteTeamRuntimeFindings(result.Problems, result.Warnings)
+	result.OK = len(result.Problems) == 0
+}
+
+func promoteAllTeamDoctorRuntimeWarnings(result *allTeamDoctorResult) {
+	if result == nil {
+		return
+	}
+	result.Problems = nil
+	result.Warnings = nil
+	for i := range result.Teams {
+		promoteTeamDoctorRuntimeWarnings(&result.Teams[i])
+		result.Problems = append(result.Problems, result.Teams[i].Problems...)
+		result.Warnings = append(result.Warnings, result.Teams[i].Warnings...)
+	}
+	result.OK = len(result.Problems) == 0
+}
+
+func promoteTeamRuntimeFindings(problems, warnings []teamDoctorFinding) ([]teamDoctorFinding, []teamDoctorFinding) {
+	if len(warnings) == 0 {
+		return problems, warnings
+	}
+	nextProblems := append([]teamDoctorFinding(nil), problems...)
+	nextWarnings := make([]teamDoctorFinding, 0, len(warnings))
+	for _, warning := range warnings {
+		if teamRuntimeFindingIsStrict(warning) {
+			nextProblems = append(nextProblems, warning)
+			continue
+		}
+		nextWarnings = append(nextWarnings, warning)
+	}
+	return nextProblems, nextWarnings
+}
+
+func teamRuntimeFindingIsStrict(finding teamDoctorFinding) bool {
+	switch strings.TrimSpace(finding.Code) {
+	case "step_runtime_invalid", "step_runtime_unavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 func doctorTeam(top *topology.Topology, team *topology.Team, teamDir string) *teamDoctorResult {

@@ -3126,10 +3126,11 @@ agent-team pipeline doctor [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all             Validate all pipelines. This is the default when no pipeline is passed.
-      --format string   Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
-      --json            Emit pipeline doctor findings as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --all              Validate all pipelines. This is the default when no pipeline is passed.
+      --format string    Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
+      --json             Emit pipeline doctor findings as JSON.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --strict-runtime   Fail when a step-declared runtime default cannot be resolved or is not discoverable.
 ```
 
 ## `agent-team pipeline events`
@@ -5469,10 +5470,11 @@ agent-team team doctor <team>|--all [flags]
 Flags:
 
 ```text
-      --all             Validate all declared teams.
-      --format string   Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
-      --json            Emit team doctor findings as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --all              Validate all declared teams.
+      --format string    Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
+      --json             Emit team doctor findings as JSON.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --strict-runtime   Fail when a team-owned step runtime default cannot be resolved or is not discoverable.
 ```
 
 ## `agent-team team down`

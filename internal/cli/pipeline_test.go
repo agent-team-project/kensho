@@ -479,6 +479,33 @@ runtime_bin = "missing-codex"
 	if !strings.Contains(textErr.String(), `runtime "codex" with binary "missing-codex"`) {
 		t.Fatalf("doctor text stderr = %q", textErr.String())
 	}
+
+	strict := NewRootCmd()
+	strictOut, strictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	strict.SetOut(strictOut)
+	strict.SetErr(strictErr)
+	strict.SetArgs([]string{"pipeline", "doctor", "ticket_to_pr", "--repo", root, "--strict-runtime", "--json"})
+	err := strict.Execute()
+	if err == nil {
+		t.Fatal("pipeline doctor strict runtime unexpectedly succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("strict err = %v, want exit 1", err)
+	}
+	var strictResult pipelineDoctorResult
+	if err := json.Unmarshal(strictOut.Bytes(), &strictResult); err != nil {
+		t.Fatalf("decode strict pipeline doctor json: %v\nbody=%s", err, strictOut.String())
+	}
+	if strictResult.OK || !hasPipelineDoctorFinding(strictResult.Problems, "step_runtime_unavailable") || len(strictResult.Warnings) != 0 {
+		t.Fatalf("strict doctor result = %+v", strictResult)
+	}
+	if len(strictResult.Pipelines) != 1 || strictResult.Pipelines[0].OK || !hasPipelineDoctorFinding(strictResult.Pipelines[0].Problems, "step_runtime_unavailable") || len(strictResult.Pipelines[0].Warnings) != 0 {
+		t.Fatalf("strict pipeline result = %+v", strictResult.Pipelines)
+	}
+	if strictErr.Len() != 0 {
+		t.Fatalf("strict stderr = %q", strictErr.String())
+	}
 }
 
 func TestPipelineDoctorFindsWorkflowProblems(t *testing.T) {

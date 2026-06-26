@@ -181,10 +181,11 @@ func newPipelineGraphCmd() *cobra.Command {
 
 func newPipelineDoctorCmd() *cobra.Command {
 	var (
-		repo    string
-		all     bool
-		jsonOut bool
-		format  string
+		repo          string
+		all           bool
+		strictRuntime bool
+		jsonOut       bool
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -228,11 +229,15 @@ func newPipelineDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline doctor: %v\n", err)
 				return exitErr(1)
 			}
+			if strictRuntime {
+				promotePipelineDoctorRuntimeWarnings(result)
+			}
 			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when a step-declared runtime default cannot be resolved or is not discoverable.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
@@ -3590,6 +3595,44 @@ func collectPipelineDoctor(teamDir, pipelineName string) (*pipelineDoctorResult,
 	}
 	result.OK = len(result.Problems) == 0
 	return result, nil
+}
+
+func promotePipelineDoctorRuntimeWarnings(result *pipelineDoctorResult) {
+	if result == nil {
+		return
+	}
+	result.Problems, result.Warnings = promotePipelineRuntimeFindings(result.Problems, result.Warnings)
+	for i := range result.Pipelines {
+		pipeline := &result.Pipelines[i]
+		pipeline.Problems, pipeline.Warnings = promotePipelineRuntimeFindings(pipeline.Problems, pipeline.Warnings)
+		pipeline.OK = len(pipeline.Problems) == 0
+	}
+	result.OK = len(result.Problems) == 0
+}
+
+func promotePipelineRuntimeFindings(problems, warnings []pipelineDoctorFinding) ([]pipelineDoctorFinding, []pipelineDoctorFinding) {
+	if len(warnings) == 0 {
+		return problems, warnings
+	}
+	nextProblems := append([]pipelineDoctorFinding(nil), problems...)
+	nextWarnings := make([]pipelineDoctorFinding, 0, len(warnings))
+	for _, warning := range warnings {
+		if pipelineRuntimeFindingIsStrict(warning) {
+			nextProblems = append(nextProblems, warning)
+			continue
+		}
+		nextWarnings = append(nextWarnings, warning)
+	}
+	return nextProblems, nextWarnings
+}
+
+func pipelineRuntimeFindingIsStrict(finding pipelineDoctorFinding) bool {
+	switch strings.TrimSpace(finding.Code) {
+	case "step_runtime_invalid", "step_runtime_unavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 func doctorPipeline(top *topology.Topology, pipeline *topology.Pipeline, teamDir string) pipelineDoctorPipeline {

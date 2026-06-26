@@ -161,7 +161,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team pipeline ls` | List pipeline declarations |
 | `agent-team pipeline show <pipeline>` | Show one declaration |
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
-| `agent-team pipeline doctor --all` | Validate workflows |
+| `agent-team pipeline doctor --all` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts workspace and runtime overrides |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/quarantine counts; sort rows and cap output with `--limit` |
 | `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
@@ -194,6 +194,7 @@ Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queu
 | `agent-team team ls` | List teams |
 | `agent-team team show <team>` | Show team declaration |
 | `agent-team team graph <team>` | Render team-owned instance, schedule, and pipeline wiring |
+| `agent-team team doctor --all` | Validate team-owned workflow wiring; add `--strict-runtime` to fail on unavailable step runtime defaults |
 | `agent-team team overview <team>` | Scoped operator overview |
 | `agent-team team health <team>` | Scoped health |
 | `agent-team team runtime resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--action`/`--runtime-stale`/`--unhealthy` or summarize with `--summary` |

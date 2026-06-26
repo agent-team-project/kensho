@@ -3525,6 +3525,56 @@ pipelines = ["ticket_to_pr"]
 	if !strings.Contains(textErr.String(), `runtime "codex" with binary "missing-codex"`) {
 		t.Fatalf("team doctor text stderr = %q", textErr.String())
 	}
+
+	strict := NewRootCmd()
+	strictOut, strictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	strict.SetOut(strictOut)
+	strict.SetErr(strictErr)
+	strict.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--strict-runtime", "--json"})
+	err := strict.Execute()
+	if err == nil {
+		t.Fatal("team doctor strict runtime unexpectedly succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("strict err = %v, want exit 1", err)
+	}
+	var strictResult teamDoctorResult
+	if err := json.Unmarshal(strictOut.Bytes(), &strictResult); err != nil {
+		t.Fatalf("decode strict team doctor json: %v\nbody=%s", err, strictOut.String())
+	}
+	if strictResult.OK || !hasTeamDoctorFinding(strictResult.Problems, "step_runtime_unavailable") || len(strictResult.Warnings) != 0 {
+		t.Fatalf("strict team doctor result = %+v", strictResult)
+	}
+	if strictErr.Len() != 0 {
+		t.Fatalf("strict stderr = %q", strictErr.String())
+	}
+
+	strictAll := NewRootCmd()
+	strictAllOut, strictAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	strictAll.SetOut(strictAllOut)
+	strictAll.SetErr(strictAllErr)
+	strictAll.SetArgs([]string{"team", "doctor", "--all", "--repo", root, "--strict-runtime", "--json"})
+	err = strictAll.Execute()
+	if err == nil {
+		t.Fatal("team doctor --all strict runtime unexpectedly succeeded")
+	}
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("strict all err = %v, want exit 1", err)
+	}
+	var strictAllResult allTeamDoctorResult
+	if err := json.Unmarshal(strictAllOut.Bytes(), &strictAllResult); err != nil {
+		t.Fatalf("decode strict all team doctor json: %v\nbody=%s", err, strictAllOut.String())
+	}
+	if strictAllResult.OK || !hasTeamDoctorFindingForTeam(strictAllResult.Problems, "delivery", "step_runtime_unavailable") || len(strictAllResult.Warnings) != 0 {
+		t.Fatalf("strict all team doctor result = %+v", strictAllResult)
+	}
+	if len(strictAllResult.Teams) != 1 || strictAllResult.Teams[0].OK || !hasTeamDoctorFinding(strictAllResult.Teams[0].Problems, "step_runtime_unavailable") || len(strictAllResult.Teams[0].Warnings) != 0 {
+		t.Fatalf("strict all nested teams = %+v", strictAllResult.Teams)
+	}
+	if strictAllErr.Len() != 0 {
+		t.Fatalf("strict all stderr = %q", strictAllErr.String())
+	}
 }
 
 func TestTeamRunCreatesPipelineJob(t *testing.T) {
