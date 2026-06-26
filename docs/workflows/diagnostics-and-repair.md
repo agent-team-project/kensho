@@ -36,11 +36,11 @@ JSON output includes both `actions` (the compatibility list of command
 strings) and `action_details` with a command, source, reason, and team scope
 where applicable.
 
-When daemon metadata contains crashed instances, overview includes runtime
-counts and suggests `agent-team runtime resume-plan --status crashed` or a
-team-scoped `agent-team team runtime resume-plan <team> --status crashed`. Add
-`--action start|attach|resume|logs` when you only want one recovery class,
-`--stale` to isolate recorded running PIDs that are no longer live, or
+When daemon metadata contains crashed instances or stale recorded running PIDs,
+overview includes runtime counts and suggests `agent-team runtime resume-plan
+--status crashed`, `agent-team runtime resume-plan --stale`, or the matching
+team-scoped `agent-team team runtime resume-plan <team> ...` command. Add
+`--action start|attach|resume|logs` when you only want one recovery class, or
 `--summary --json` when dashboards need counts instead of full commands.
 Resume-plan also probes positive recorded PIDs for `running` metadata; stale
 rows are marked in JSON/text and counted in summaries before recommending the

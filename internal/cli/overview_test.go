@@ -235,6 +235,80 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
+	root := writeOverviewRuntimeFixture(t)
+	teamDir := filepath.Join(root, ".agent_team")
+	oldPIDLiveCheck := daemon.PidLiveCheck
+	daemon.PidLiveCheck = func(pid int) bool {
+		return pid != 4242
+	}
+	t.Cleanup(func() {
+		daemon.PidLiveCheck = oldPIDLiveCheck
+	})
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-902", Agent: "worker", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "team-stale-session", StartedAt: now.Add(-15 * time.Minute)},
+		{Instance: "support-stale", Agent: "support", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "foreign-stale-session", StartedAt: now.Add(-10 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview stale runtime json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview stale runtime: %v\nbody=%s", err, out.String())
+	}
+	if overview.Runtime.StaleRunning != 2 || !stringSliceContains(overview.Runtime.StaleInstances, "support-stale") || !stringSliceContains(overview.Runtime.StaleInstances, "worker-squ-902") {
+		t.Fatalf("runtime stale summary = %+v", overview.Runtime)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team runtime resume-plan --stale") {
+		t.Fatalf("actions missing stale runtime resume plan: %+v", overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team runtime resume-plan --stale"); !ok || detail.Source != "runtime" || detail.Reason != "stale=2" {
+		t.Fatalf("stale runtime action detail = %+v ok=%v", detail, ok)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview stale runtime text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "stale_running=2") {
+		t.Fatalf("overview stale runtime text missing count:\n%s", textOut.String())
+	}
+
+	team := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	team.SetOut(teamOut)
+	team.SetErr(teamErr)
+	team.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--json"})
+	if err := team.Execute(); err != nil {
+		t.Fatalf("team overview stale runtime json: %v\nstderr=%s", err, teamErr.String())
+	}
+	var teamOverview overviewResult
+	if err := json.Unmarshal(teamOut.Bytes(), &teamOverview); err != nil {
+		t.Fatalf("decode team overview stale runtime: %v\nbody=%s", err, teamOut.String())
+	}
+	if teamOverview.Runtime.StaleRunning != 1 || !stringSliceContains(teamOverview.Actions, "agent-team team runtime resume-plan delivery --stale") {
+		t.Fatalf("team stale runtime summary = %+v actions=%+v", teamOverview.Runtime, teamOverview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(teamOverview.ActionDetails, "agent-team team runtime resume-plan delivery --stale"); !ok || detail.Team != "delivery" || detail.Source != "runtime" || detail.Reason != "stale=1" {
+		t.Fatalf("team stale runtime action detail = %+v ok=%v", detail, ok)
+	}
+}
+
 func TestOverviewTextRendersOperatorSummary(t *testing.T) {
 	root := writeOverviewAttentionFixture(t)
 

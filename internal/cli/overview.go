@@ -195,7 +195,9 @@ type overviewRuntimeSummary struct {
 	Exited           int      `json:"exited"`
 	Crashed          int      `json:"crashed"`
 	Unknown          int      `json:"unknown"`
+	StaleRunning     int      `json:"stale_running,omitempty"`
 	CrashedInstances []string `json:"crashed_instances,omitempty"`
+	StaleInstances   []string `json:"stale_instances,omitempty"`
 }
 
 type overviewPipelineSummary struct {
@@ -493,8 +495,15 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata) overviewRuntimeSummar
 		default:
 			out.Unknown++
 		}
+		if runtimeResumeMetadataIsStale(meta) {
+			out.StaleRunning++
+			if strings.TrimSpace(meta.Instance) != "" {
+				out.StaleInstances = append(out.StaleInstances, meta.Instance)
+			}
+		}
 	}
 	sort.Strings(out.CrashedInstances)
+	sort.Strings(out.StaleInstances)
 	return out
 }
 
@@ -594,6 +603,9 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 	}
 	if out.Runtime.Crashed > 0 {
 		add(overviewRuntimeResumePlanAction(out.Runtime, teamName), "runtime", fmt.Sprintf("crashed=%d", out.Runtime.Crashed))
+	}
+	if out.Runtime.StaleRunning > 0 {
+		add(overviewRuntimeStaleResumePlanAction(teamName), "runtime", fmt.Sprintf("stale=%d", out.Runtime.StaleRunning))
 	}
 	if health != nil {
 		for _, issue := range health.Issues {
@@ -900,6 +912,13 @@ func overviewRuntimeResumePlanAction(_ overviewRuntimeSummary, teamName string) 
 	return "agent-team runtime resume-plan --status crashed"
 }
 
+func overviewRuntimeStaleResumePlanAction(teamName string) string {
+	if teamName != "" {
+		return fmt.Sprintf("agent-team team runtime resume-plan %s --stale", teamName)
+	}
+	return "agent-team runtime resume-plan --stale"
+}
+
 func overviewHasQueueSectionError(out *overviewResult) bool {
 	if out == nil {
 		return false
@@ -1048,13 +1067,14 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 			result.Topology.PipelineProblems+result.Topology.TeamProblems,
 			result.Topology.PipelineWarnings+result.Topology.TeamWarnings)
 	}
-	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d\n",
+	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale_running=%d\n",
 		result.Runtime.Total,
 		result.Runtime.Running,
 		result.Runtime.Stopped,
 		result.Runtime.Exited,
 		result.Runtime.Crashed,
-		result.Runtime.Unknown)
+		result.Runtime.Unknown,
+		result.Runtime.StaleRunning)
 	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d attention=%d cleanup_ready=%d expired_holds=%d stale_running=%d ready_steps=%d status_changes=%d\n",
 		result.Jobs.Summary.Total,
 		result.Jobs.Summary.Queued,

@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/daemon"
 )
 
 func TestNextCommandReportsRecommendedActions(t *testing.T) {
@@ -317,6 +320,65 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	}
 	if len(teamResult.ActionDetails) != 1 || teamResult.ActionDetails[0].Team != "delivery" || teamResult.ActionDetails[0].Source != "runtime" || teamResult.ActionDetails[0].Reason != "crashed=2" {
 		t.Fatalf("team runtime filtered details = %+v", teamResult.ActionDetails)
+	}
+}
+
+func TestNextCommandFiltersStaleRuntimeSource(t *testing.T) {
+	root := writeOverviewRuntimeFixture(t)
+	teamDir := filepath.Join(root, ".agent_team")
+	oldPIDLiveCheck := daemon.PidLiveCheck
+	daemon.PidLiveCheck = func(pid int) bool {
+		return pid != 4242
+	}
+	t.Cleanup(func() {
+		daemon.PidLiveCheck = oldPIDLiveCheck
+	})
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-902", Agent: "worker", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "team-stale-session", StartedAt: now.Add(-15 * time.Minute)},
+		{Instance: "support-stale", Agent: "support", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "foreign-stale-session", StartedAt: now.Add(-10 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--reason", "stale", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next stale runtime filtered json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode stale runtime next json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team runtime resume-plan --stale" {
+		t.Fatalf("stale runtime filtered result = %+v", result)
+	}
+	if len(result.ActionDetails) != 1 || result.ActionDetails[0].Source != "runtime" || result.ActionDetails[0].Reason != "stale=2" {
+		t.Fatalf("stale runtime filtered details = %+v", result.ActionDetails)
+	}
+
+	team := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	team.SetOut(teamOut)
+	team.SetErr(teamErr)
+	team.SetArgs([]string{"team", "next", "delivery", "--repo", root, "--source", "runtime", "--reason", "stale", "--json"})
+	if err := team.Execute(); err != nil {
+		t.Fatalf("team next stale runtime filtered json: %v\nstderr=%s", err, teamErr.String())
+	}
+	var teamResult nextActionResult
+	if err := json.Unmarshal(teamOut.Bytes(), &teamResult); err != nil {
+		t.Fatalf("decode team stale runtime next json: %v\nbody=%s", err, teamOut.String())
+	}
+	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team team runtime resume-plan delivery --stale" {
+		t.Fatalf("team stale runtime filtered result = %+v", teamResult)
+	}
+	if len(teamResult.ActionDetails) != 1 || teamResult.ActionDetails[0].Team != "delivery" || teamResult.ActionDetails[0].Source != "runtime" || teamResult.ActionDetails[0].Reason != "stale=1" {
+		t.Fatalf("team stale runtime filtered details = %+v", teamResult.ActionDetails)
 	}
 }
 

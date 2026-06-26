@@ -230,9 +230,9 @@ agent-team team runtime resume-plan delivery --status crashed
 agent-team team runtime resume-plan delivery --stale --summary
 ```
 
-`agent-team overview` also summarizes runtime metadata and links crashed
-instances to `runtime resume-plan`; `agent-team team overview <team>` and
-`agent-team team next <team> --source runtime` use
+`agent-team overview` also summarizes runtime metadata and links crashed or
+stale-running instances to `runtime resume-plan`; `agent-team team overview <team>`
+and `agent-team team next <team> --source runtime` use
 `agent-team team runtime resume-plan <team>` for team-scoped recovery.
 
 The command reads `.agent_team/daemon/*/meta.json` directly and prints the
