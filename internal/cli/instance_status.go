@@ -54,6 +54,7 @@ type instanceRow struct {
 	Age           string
 	Summary       string
 	Stale         bool
+	RuntimeStale  bool
 	HasFile       bool   // false → row was inferred from the empty state dir
 	Lifecycle     string // daemon-reported (running/stopped/exited/crashed); empty when no daemon
 	Runtime       string

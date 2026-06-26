@@ -2654,7 +2654,7 @@ func newTeamLogsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for team instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed or stale team instances.")
+	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed, status-stale, or runtime-stale team instances.")
 	cmd.Flags().BoolVar(&lastMsg, "last-message", false, "Show clean final Codex response sidecars instead of raw runtime logs.")
 	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise when printing raw team logs.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
@@ -2839,7 +2839,7 @@ func newTeamSendCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to team-owned instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to team-owned instances that are crashed or stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to team-owned instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.")
@@ -3090,7 +3090,7 @@ func newTeamWaitCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Wait for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Wait for team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Wait for team-owned instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Wait for team-owned instances that are crashed or stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Wait for team-owned instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().StringVar(&untilRaw, "until", string(waitUntilRunning), "Lifecycle condition to wait for: running, terminal, stopped, exited, crashed, or removed.")
 	cmd.Flags().StringSliceVar(&untilPhases, "until-phase", nil, "Work phase condition to wait for: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait (0 = no timeout).")
@@ -3184,7 +3184,7 @@ func newTeamPruneCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only remove finished team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only remove finished team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only remove finished team-owned instances whose non-idle work phase has stale status telemetry.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only remove finished team-owned instances that are crashed or stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only remove finished team-owned instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview finished team-owned instances that would be pruned without deleting state or daemon metadata.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune finished team-owned instances whose terminal timestamp is older than this duration (for example 24h).")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
@@ -3355,7 +3355,7 @@ func newTeamStatsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show team-owned instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or stale team-owned instances.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale team-owned instances.")
 	return cmd
 }
 
@@ -4737,7 +4737,7 @@ func newTeamMonitorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort instance rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited.")
 	cmd.Flags().StringVar(&statsSortBy, "stats-sort", "name", "Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show team-owned instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or stale team-owned instances.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale team-owned instances.")
 	cmd.Flags().IntVar(&eventTail, "events", 0, "Include the last N matching team lifecycle events in the full monitor (0 = omit).")
 	cmd.Flags().StringSliceVar(&eventActions, "event-action", nil, "With --events, only show lifecycle events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&eventSince, "since", "", "With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
@@ -8355,7 +8355,7 @@ func teamStatusActionsWithOptions(top *topology.Topology, team *topology.Team, s
 	if snapshot.Queue.Pending > 0 {
 		add(fmt.Sprintf("agent-team team queue %s --state pending", team.Name))
 	}
-	if snapshot.InstanceSummary.Crashed > 0 || snapshot.InstanceSummary.Stale > 0 {
+	if snapshot.InstanceSummary.Unhealthy > 0 {
 		add(fmt.Sprintf("agent-team team events %s --tail 20", team.Name))
 		add(fmt.Sprintf("agent-team team logs %s --latest", team.Name))
 	}
@@ -8611,7 +8611,7 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool, t
 	if snapshot.Team.Description != "" {
 		fmt.Fprintf(w, "Description: %s\n", snapshot.Team.Description)
 	}
-	fmt.Fprintf(w, "instances: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale=%d\n",
+	fmt.Fprintf(w, "instances: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale=%d runtime_stale=%d unhealthy=%d\n",
 		snapshot.InstanceSummary.Total,
 		snapshot.InstanceSummary.Running,
 		snapshot.InstanceSummary.Stopped,
@@ -8619,6 +8619,8 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool, t
 		snapshot.InstanceSummary.Crashed,
 		snapshot.InstanceSummary.Unknown,
 		snapshot.InstanceSummary.Stale,
+		snapshot.InstanceSummary.RuntimeStale,
+		snapshot.InstanceSummary.Unhealthy,
 	)
 	renderJobSummary(w, snapshot.JobSummary)
 	fmt.Fprintln(w, queueSummaryLine(snapshot.Queue))

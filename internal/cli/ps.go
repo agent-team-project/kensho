@@ -157,7 +157,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&latest, "latest", "l", false, "Show only the most recently started instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show only the N most recently started instances after other filters (0 = all).")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or stale instances.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Instance}} {{.Status}}'.")
 	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -349,16 +349,18 @@ func runPsFormatWatchWithClear(ctx context.Context, w io.Writer, teamDir string,
 }
 
 type psSummaryJSON struct {
-	Total     int            `json:"total"`
-	Running   int            `json:"running"`
-	Stopped   int            `json:"stopped"`
-	Exited    int            `json:"exited"`
-	Crashed   int            `json:"crashed"`
-	Unknown   int            `json:"unknown"`
-	Stale     int            `json:"stale"`
-	HasStatus int            `json:"has_status"`
-	Phases    map[string]int `json:"phases"`
-	Runtimes  map[string]int `json:"runtimes"`
+	Total        int            `json:"total"`
+	Running      int            `json:"running"`
+	Stopped      int            `json:"stopped"`
+	Exited       int            `json:"exited"`
+	Crashed      int            `json:"crashed"`
+	Unknown      int            `json:"unknown"`
+	Stale        int            `json:"stale"`
+	RuntimeStale int            `json:"runtime_stale"`
+	Unhealthy    int            `json:"unhealthy"`
+	HasStatus    int            `json:"has_status"`
+	Phases       map[string]int `json:"phases"`
+	Runtimes     map[string]int `json:"runtimes"`
 }
 
 func psSummaryRows(rows []instanceRow) psSummaryJSON {
@@ -380,6 +382,12 @@ func psSummaryRows(rows []instanceRow) psSummaryJSON {
 		if row.Stale {
 			out.Stale++
 		}
+		if row.RuntimeStale {
+			out.RuntimeStale++
+		}
+		if psRowUnhealthy(row) {
+			out.Unhealthy++
+		}
 		if row.HasFile {
 			out.HasStatus++
 		}
@@ -398,6 +406,8 @@ func renderPsSummary(w io.Writer, summary psSummaryJSON) error {
 	fmt.Fprintf(tw, "crashed\t%d\n", summary.Crashed)
 	fmt.Fprintf(tw, "unknown\t%d\n", summary.Unknown)
 	fmt.Fprintf(tw, "stale\t%d\n", summary.Stale)
+	fmt.Fprintf(tw, "runtime_stale\t%d\n", summary.RuntimeStale)
+	fmt.Fprintf(tw, "unhealthy\t%d\n", summary.Unhealthy)
 	fmt.Fprintf(tw, "has_status\t%d\n", summary.HasStatus)
 	fmt.Fprintf(tw, "total\t%d\n", summary.Total)
 	if err := tw.Flush(); err != nil {
@@ -633,7 +643,7 @@ func filterPsRows(rows []instanceRow, opts psOptions) []instanceRow {
 }
 
 func psRowUnhealthy(row instanceRow) bool {
-	return psStatusKey(row) == string(daemon.StatusCrashed) || row.Stale
+	return psStatusKey(row) == string(daemon.StatusCrashed) || row.Stale || row.RuntimeStale
 }
 
 func collectFilteredPsRows(teamDir string, now time.Time, opts psOptions) ([]instanceRow, error) {
@@ -800,6 +810,7 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 		rows[idx].Lifecycle = metadataStatusKey(m)
 		rows[idx].Runtime = m.Runtime
 		rows[idx].RuntimeBinary = m.RuntimeBinary
+		rows[idx].RuntimeStale = runtimeResumeMetadataIsStale(m)
 		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
 		rows[idx].Ticket = firstNonEmpty(rows[idx].Ticket, m.Ticket)
 		rows[idx].Branch = firstNonEmpty(rows[idx].Branch, m.Branch)
@@ -829,6 +840,8 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 		life := r.Lifecycle
 		if life == "" {
 			life = "—"
+		} else if r.RuntimeStale {
+			life += " (stale pid)"
 		}
 		pid := "—"
 		if r.PID > 0 {
@@ -855,6 +868,8 @@ type psJSONRow struct {
 	PR            string `json:"pr,omitempty"`
 	Workspace     string `json:"workspace,omitempty"`
 	Stale         bool   `json:"stale"`
+	RuntimeStale  bool   `json:"runtime_stale,omitempty"`
+	Unhealthy     bool   `json:"unhealthy,omitempty"`
 	HasStatus     bool   `json:"has_status"`
 	PID           int    `json:"pid,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
@@ -880,6 +895,8 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 			PR:            r.PR,
 			Workspace:     filepath.ToSlash(r.Workspace),
 			Stale:         r.Stale,
+			RuntimeStale:  r.RuntimeStale,
+			Unhealthy:     psRowUnhealthy(r),
 			HasStatus:     r.HasFile,
 			PID:           r.PID,
 		}
@@ -914,6 +931,7 @@ func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool) instanceRow 
 		Lifecycle:     metadataStatusKey(m),
 		Runtime:       m.Runtime,
 		RuntimeBinary: m.RuntimeBinary,
+		RuntimeStale:  runtimeResumeMetadataIsStale(m),
 		Job:           m.Job,
 		Ticket:        m.Ticket,
 		Branch:        m.Branch,

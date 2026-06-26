@@ -108,7 +108,7 @@ Flags:
       --status strings    Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Log compatibility mode: show only the last N lines before following (0 or all = all). (default "50")
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy         Log compatibility mode: only attach to crashed or stale instances.
+      --unhealthy         Log compatibility mode: only attach to crashed, status-stale, or runtime-stale instances.
 ```
 
 Inherited Flags:
@@ -881,7 +881,7 @@ Flags:
       --strict-topology     Treat running daemon-known instances not declared in instances.toml as unhealthy.
       --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration    Maximum time to wait with --wait (0 = no timeout).
-      --unhealthy           Only check crashed or stale instances. Daemon health remains global.
+      --unhealthy           Only check crashed, status-stale, or runtime-stale instances. Daemon health remains global.
       --wait                Poll until the fleet is healthy, then exit.
   -w, --watch               Refresh health until interrupted.
 ```
@@ -964,7 +964,7 @@ Flags:
       --stale              Only inspect instances whose status.toml is stale.
       --status strings     Only inspect instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy          Only inspect crashed or stale instances.
+      --unhealthy          Only inspect crashed, status-stale, or runtime-stale instances.
 ```
 
 Inherited Flags:
@@ -1021,7 +1021,7 @@ Flags:
       --summary                 Show aggregate action counts instead of per-instance rows.
       --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).
-      --unhealthy               Only stop instances that are crashed or stale.
+      --unhealthy               Only stop instances that are crashed, status-stale, or runtime-stale.
       --wait                    Wait for stopped instances to reach a terminal state.
       --wait-timeout duration   Maximum time to wait for terminal state with --wait. Defaults to --timeout when unset; set 0 explicitly for no wait timeout.
 ```
@@ -1100,7 +1100,7 @@ Flags:
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
       --summary           Show aggregate removal counts instead of per-instance rows.
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy         Remove only daemon-known instances that are crashed or stale.
+      --unhealthy         Remove only daemon-known instances that are crashed, status-stale, or runtime-stale.
 ```
 
 Inherited Flags:
@@ -1157,7 +1157,7 @@ Flags:
       --tail string        With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration   Maximum time to wait with --wait (0 = no timeout).
-      --unhealthy          Only start or resume instances that are crashed or stale.
+      --unhealthy          Only start or resume instances that are crashed, status-stale, or runtime-stale.
       --wait               Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.
 ```
 
@@ -2772,7 +2772,7 @@ Flags:
       --summary                 Show aggregate action counts instead of per-instance rows.
       --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before SIGKILL escalation. (default 2s)
-      --unhealthy               Only force-stop instances that are crashed or stale.
+      --unhealthy               Only force-stop instances that are crashed, status-stale, or runtime-stale.
       --wait                    Wait for killed instances to reach a terminal state.
       --wait-timeout duration   Maximum time to wait for terminal state with --wait. Defaults to --timeout when unset; set 0 explicitly for no wait timeout.
 ```
@@ -2814,7 +2814,7 @@ Flags:
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy         Only show logs for crashed or stale instances.
+      --unhealthy         Only show logs for crashed, status-stale, or runtime-stale instances.
 ```
 
 Inherited Flags:
@@ -2863,7 +2863,7 @@ Flags:
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Show compact non-failing fleet health and optional plan summaries instead of the full monitor.
       --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy              Only show crashed or stale instances.
+      --unhealthy              Only show crashed, status-stale, or runtime-stale instances.
   -w, --watch                  Refresh the monitor snapshot until interrupted.
 ```
 
@@ -3250,7 +3250,7 @@ Flags:
       --stale             Only show logs for pipeline instances whose status.toml is stale.
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --unhealthy         Only show logs for crashed or stale pipeline instances.
+      --unhealthy         Only show logs for crashed, status-stale, or runtime-stale pipeline instances.
 ```
 
 ## `agent-team pipeline ls`
@@ -3724,7 +3724,7 @@ Flags:
       --runtime strings       Send to pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to pipeline-owned instances whose status.toml is stale.
       --status strings        Send to pipeline-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --unhealthy             Send to pipeline-owned instances that are crashed or stale.
+      --unhealthy             Send to pipeline-owned instances that are crashed, status-stale, or runtime-stale.
 ```
 
 ## `agent-team pipeline show`
@@ -3913,7 +3913,7 @@ Flags:
       --status strings        Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
       --summary               Show aggregate removal counts instead of per-instance rows.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy             Only remove finished instances that are crashed or stale.
+      --unhealthy             Only remove finished instances that are crashed, status-stale, or runtime-stale.
 ```
 
 Inherited Flags:
@@ -3954,7 +3954,7 @@ Flags:
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show lifecycle counts instead of instance rows.
       --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy           Only show crashed or stale instances.
+      --unhealthy           Only show crashed, status-stale, or runtime-stale instances.
   -w, --watch               Refresh the process table until interrupted.
 ```
 
@@ -4436,7 +4436,7 @@ Flags:
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Maximum time to wait for each running instance to stop before resuming (0 = daemon default).
-      --unhealthy                Only restart or resume instances that are crashed or stale.
+      --unhealthy                Only restart or resume instances that are crashed, status-stale, or runtime-stale.
       --wait                     Wait for selected instances to become healthy after restarting. With no scoped selection, waits for the fleet.
       --wait-timeout duration    Maximum time to wait for health with --wait (0 = no timeout).
 ```
@@ -4476,7 +4476,7 @@ Flags:
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
       --summary           Show aggregate removal counts instead of per-instance rows.
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy         Remove only daemon-known instances that are crashed or stale.
+      --unhealthy         Remove only daemon-known instances that are crashed, status-stale, or runtime-stale.
 ```
 
 Inherited Flags:
@@ -4932,7 +4932,7 @@ Flags:
       --stale                 Send to daemon-known instances whose status.toml is stale.
       --status strings        Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy             Send to daemon-known instances that are crashed or stale.
+      --unhealthy             Send to daemon-known instances that are crashed, status-stale, or runtime-stale.
 ```
 
 Inherited Flags:
@@ -5031,7 +5031,7 @@ Flags:
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
-      --unhealthy                Only start or resume instances that are crashed or stale.
+      --unhealthy                Only start or resume instances that are crashed, status-stale, or runtime-stale.
       --wait                     Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.
 ```
 
@@ -5072,7 +5072,7 @@ Flags:
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show aggregate CPU, memory, and RSS totals instead of instance rows.
       --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy           Only show crashed or stale instances.
+      --unhealthy           Only show crashed, status-stale, or runtime-stale instances.
   -w, --watch               Refresh stats until interrupted.
 ```
 
@@ -5115,7 +5115,7 @@ Flags:
       --strict-topology        With --summary, treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Show a compact non-failing fleet health summary instead of the full instance table.
       --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy              Only show crashed or stale instances.
+      --unhealthy              Only show crashed, status-stale, or runtime-stale instances.
   -w, --watch                  Refresh daemon health and instance table until interrupted.
 ```
 
@@ -5157,7 +5157,7 @@ Flags:
       --summary                 Show aggregate action counts instead of per-instance rows.
       --target string           Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).
-      --unhealthy               Only stop instances that are crashed or stale.
+      --unhealthy               Only stop instances that are crashed, status-stale, or runtime-stale.
       --wait                    Wait for stopped instances to reach a terminal state.
       --wait-timeout duration   Maximum time to wait for terminal state with --wait. Defaults to --timeout when unset; set 0 explicitly for no wait timeout.
 ```
@@ -5607,7 +5607,7 @@ Flags:
       --stale             Only show logs for team instances whose status.toml is stale.
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
-      --unhealthy         Only show logs for crashed or stale team instances.
+      --unhealthy         Only show logs for crashed, status-stale, or runtime-stale team instances.
 ```
 
 ## `agent-team team ls`
@@ -5662,7 +5662,7 @@ Flags:
       --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
       --status strings         Only show team-owned lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras            With --plan, preview running team-agent extras as stop actions.
-      --unhealthy              Only show crashed or stale team-owned instances.
+      --unhealthy              Only show crashed, status-stale, or runtime-stale team-owned instances.
   -w, --watch                  Refresh the team monitor snapshot until interrupted.
 ```
 
@@ -5778,7 +5778,7 @@ Flags:
       --stale                 Only remove finished team-owned instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished team-owned instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
       --summary               Show aggregate removal counts instead of per-instance rows.
-      --unhealthy             Only remove finished team-owned instances that are crashed or stale.
+      --unhealthy             Only remove finished team-owned instances that are crashed, status-stale, or runtime-stale.
 ```
 
 ## `agent-team team ps`
@@ -6303,7 +6303,7 @@ Flags:
       --runtime strings       Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --stale                 Send to team-owned instances whose status.toml is stale.
       --status strings        Send to team-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
-      --unhealthy             Send to team-owned instances that are crashed or stale.
+      --unhealthy             Send to team-owned instances that are crashed, status-stale, or runtime-stale.
 ```
 
 ## `agent-team team show`
@@ -6391,7 +6391,7 @@ Flags:
       --stale               Only show team-owned instances whose status.toml is stale.
       --status strings      Only show team-owned lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show aggregate CPU, memory, and RSS totals instead of team instance rows.
-      --unhealthy           Only show crashed or stale team-owned instances.
+      --unhealthy           Only show crashed, status-stale, or runtime-stale team-owned instances.
   -w, --watch               Refresh team stats until interrupted.
 ```
 
@@ -6578,7 +6578,7 @@ Flags:
       --status strings        Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary               Show aggregate final status and phase counts instead of per-instance rows.
       --timeout duration      Maximum time to wait (0 = no timeout).
-      --unhealthy             Wait for team-owned instances that are crashed or stale.
+      --unhealthy             Wait for team-owned instances that are crashed, status-stale, or runtime-stale.
       --until string          Lifecycle condition to wait for: running, terminal, stopped, exited, crashed, or removed. (default "running")
       --until-phase strings   Work phase condition to wait for: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
 ```
@@ -6940,7 +6940,7 @@ Flags:
       --summary               Show aggregate final status and phase counts instead of per-instance rows.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --timeout duration      Maximum time to wait (0 = no timeout).
-      --unhealthy             Wait for daemon-known instances that are crashed or stale.
+      --unhealthy             Wait for daemon-known instances that are crashed, status-stale, or runtime-stale.
       --until string          Lifecycle condition to wait for: terminal, running, stopped, exited, crashed, or removed. (default "terminal")
       --until-phase strings   Work phase condition to wait for: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
 ```
@@ -6991,7 +6991,7 @@ Flags:
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
       --summary                Watch compact non-failing fleet health and optional plan summaries instead of the full monitor.
       --target string          Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --unhealthy              Only show crashed or stale instances.
+      --unhealthy              Only show crashed, status-stale, or runtime-stale instances.
 ```
 
 Inherited Flags:

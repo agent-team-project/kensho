@@ -508,6 +508,54 @@ description = "waiting"
 	}
 }
 
+func TestPsUnhealthyJSONIncludesRuntimeStaleRows(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
+		{Instance: "runtime-stale", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"ps", "--unhealthy", "--summary", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("ps --unhealthy --summary --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var summary psSummaryJSON
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatalf("decode ps summary json: %v\nbody=%s", err, stdout.String())
+	}
+	if summary.Total != 1 || summary.RuntimeStale != 1 || summary.Unhealthy != 1 || summary.Stale != 0 {
+		t.Fatalf("summary = %+v, want one runtime-stale unhealthy row", summary)
+	}
+
+	cmd = NewRootCmd()
+	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"ps", "--unhealthy", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("ps --unhealthy --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []psJSONRow
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("decode ps rows json: %v\nbody=%s", err, stdout.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "runtime-stale" || !rows[0].RuntimeStale || !rows[0].Unhealthy || rows[0].Stale {
+		t.Fatalf("rows = %+v, want one runtime-stale unhealthy row", rows)
+	}
+}
+
 func TestPsFiltersRowsByInstanceAndCommaSeparatedValues(t *testing.T) {
 	opts, err := newPsOptionsWithInstances([]string{"running, unknown"}, nil, nil, []string{"manager,worker-c"}, false)
 	if err != nil {

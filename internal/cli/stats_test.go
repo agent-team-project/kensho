@@ -782,6 +782,32 @@ func TestStatsFiltersByUnhealthy(t *testing.T) {
 	}
 }
 
+func TestStatsFiltersByUnhealthyIncludesRuntimeStale(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	lister := &fakeInstanceLister{snapshots: [][]*daemon.Metadata{{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now.Add(-3 * time.Minute)},
+		{Instance: "runtime-stale", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-10 * time.Minute)},
+	}}}
+	opts := statsOptions{Unhealthy: true}
+
+	rows, err := collectStatsRows(lister, nil, opts, now, func(pid int) (processStats, error) {
+		if pid == os.Getpid() {
+			return processStats{CPUPercent: 1, MemoryPercent: 0.1, RSSKiB: 1024}, nil
+		}
+		return processStats{}, os.ErrProcessDone
+	})
+	if err != nil {
+		t.Fatalf("collectStatsRows: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Instance != "runtime-stale" || !rows[0].RuntimeStale || !statsRowUnhealthy(rows[0]) || rows[0].Stale {
+		t.Fatalf("rows = %+v, want one runtime-stale unhealthy row", rows)
+	}
+	summary := summarizeStatsRows(rows)
+	if summary.Total != 1 || summary.RuntimeStale != 1 || summary.Unhealthy != 1 || summary.Stale != 0 {
+		t.Fatalf("summary = %+v, want one runtime-stale unhealthy row", summary)
+	}
+}
+
 func TestStatsCommandRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

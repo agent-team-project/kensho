@@ -649,7 +649,7 @@ func newInstanceRmCmd() *cobra.Command {
 	c.Flags().BoolVar(&latest, "latest", false, "Remove the most recently started daemon-known instance after other filters.")
 	c.Flags().IntVarP(&last, "last", "n", 0, "Remove the N most recently started daemon-known instances after other filters (0 = all).")
 	c.Flags().BoolVar(&staleOnly, "stale", false, "Remove only daemon-known instances whose non-idle work phase has stale status telemetry.")
-	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Remove only daemon-known instances that are crashed or stale.")
+	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Remove only daemon-known instances that are crashed, status-stale, or runtime-stale.")
 	c.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.")
@@ -1284,7 +1284,7 @@ func newInstanceUpCmd() *cobra.Command {
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Only start or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only start or resume instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	c.Flags().BoolVar(&staleOnly, "stale", false, "Only start or resume instances whose status.toml is stale.")
-	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only start or resume instances that are crashed or stale.")
+	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only start or resume instances that are crashed, status-stale, or runtime-stale.")
 	c.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.")
 	c.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview planned start/resume actions without changing daemon state.")
@@ -2346,11 +2346,15 @@ func filterLifecycleTargetsByUnhealthy(targets []lifecycleTarget, unhealthyOnly 
 	}
 	out := make([]lifecycleTarget, 0, len(targets))
 	for _, target := range targets {
-		if lifecycleTargetStatusKey(target) == string(daemon.StatusCrashed) || staleInstances[target.name] {
+		if lifecycleTargetStatusKey(target) == string(daemon.StatusCrashed) || staleInstances[target.name] || lifecycleTargetRuntimeStale(target) {
 			out = append(out, target)
 		}
 	}
 	return out
+}
+
+func lifecycleTargetRuntimeStale(target lifecycleTarget) bool {
+	return runtimeResumeMetadataIsStale(target.meta)
 }
 
 func lifecycleTargetStatusKey(target lifecycleTarget) string {
@@ -2493,7 +2497,7 @@ func newInstanceDownCmd() *cobra.Command {
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Stop daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	c.Flags().BoolVar(&staleOnly, "stale", false, "Only stop instances whose status.toml is stale.")
-	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only stop instances that are crashed or stale.")
+	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only stop instances that are crashed, status-stale, or runtime-stale.")
 	c.Flags().BoolVarP(&force, "force", "f", false, "Escalate to SIGKILL if an instance does not stop within --timeout.")
 	c.Flags().BoolVar(&wait, "wait", false, "Wait for stopped instances to reach a terminal state.")
 	c.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).")

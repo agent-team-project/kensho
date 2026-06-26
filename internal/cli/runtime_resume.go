@@ -366,6 +366,9 @@ func runtimeResumeMetadataIsStale(meta *daemon.Metadata) bool {
 	if meta == nil || meta.Status != daemon.StatusRunning {
 		return false
 	}
+	if strings.TrimSpace(meta.Runtime) == "" && strings.TrimSpace(meta.RuntimeBinary) == "" {
+		return false
+	}
 	return meta.PID > 0 && !daemon.PidLiveCheck(meta.PID)
 }
 

@@ -135,7 +135,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to daemon-known instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to daemon-known instances that are crashed or stale.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to daemon-known instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -475,7 +475,7 @@ func selectSendTargets(client sendClient, opts sendOptions) ([]string, error) {
 		if opts.Stale && !opts.StaleByInstance[meta.Instance] {
 			continue
 		}
-		if opts.Unhealthy && sendStatusKey(meta) != string(daemon.StatusCrashed) && !opts.StaleByInstance[meta.Instance] {
+		if opts.Unhealthy && sendStatusKey(meta) != string(daemon.StatusCrashed) && !opts.StaleByInstance[meta.Instance] && !runtimeResumeMetadataIsStale(meta) {
 			continue
 		}
 		filtered = append(filtered, meta)

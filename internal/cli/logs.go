@@ -131,7 +131,7 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show logs for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed or stale instances.")
+	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
@@ -439,6 +439,8 @@ type logListRow struct {
 	Status        string `json:"status,omitempty"`
 	Phase         string `json:"phase,omitempty"`
 	Stale         bool   `json:"stale,omitempty"`
+	RuntimeStale  bool   `json:"runtime_stale,omitempty"`
+	Unhealthy     bool   `json:"unhealthy,omitempty"`
 	PID           int    `json:"pid,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
 	LogPath       string `json:"log_path"`
@@ -810,6 +812,7 @@ func logListRowsFromMetadata(teamDir string, metas []*daemon.Metadata) ([]logLis
 	rows := make([]logListRow, 0, len(metas))
 	for _, meta := range metas {
 		logPath := logPathForMetadata(teamDir, meta)
+		runtimeStale := runtimeResumeMetadataIsStale(meta)
 		row := logListRow{
 			Instance:      meta.Instance,
 			Agent:         meta.Agent,
@@ -818,6 +821,8 @@ func logListRowsFromMetadata(teamDir string, metas []*daemon.Metadata) ([]logLis
 			Status:        metadataStatusKey(meta),
 			Phase:         statsPhaseKey(phaseByInstance[meta.Instance]),
 			Stale:         staleInstances[meta.Instance],
+			RuntimeStale:  runtimeStale,
+			Unhealthy:     metadataStatusKey(meta) == string(daemon.StatusCrashed) || staleInstances[meta.Instance] || runtimeStale,
 			PID:           meta.PID,
 			LogPath:       displayPathFromTeamDir(teamDir, logPath),
 			path:          logPath,
@@ -930,7 +935,7 @@ func logRowPhaseKey(row logListRow) string {
 }
 
 func logRowUnhealthy(row logListRow) bool {
-	return row.Status == string(daemon.StatusCrashed) || row.Stale
+	return row.Status == string(daemon.StatusCrashed) || row.Stale || row.RuntimeStale
 }
 
 func filterLogListRowsSince(rows []logListRow, since *time.Time) []logListRow {
@@ -972,7 +977,7 @@ func renderLogList(w io.Writer, rows []logListRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "INSTANCE\tAGENT\tSTATUS\tPHASE\tSTALE\tSIZE\tLOG")
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tSTATUS\tPHASE\tSTALE\tRUNTIME_STALE\tSIZE\tLOG")
 	for _, row := range rows {
 		size := "-"
 		if row.Exists {
@@ -982,7 +987,11 @@ func renderLogList(w io.Writer, rows []logListRow) {
 		if row.Stale {
 			stale = "yes"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.Instance, row.Agent, row.Status, logRowPhaseKey(row), stale, size, row.LogPath)
+		runtimeStale := "—"
+		if row.RuntimeStale {
+			runtimeStale = "yes"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.Instance, row.Agent, row.Status, logRowPhaseKey(row), stale, runtimeStale, size, row.LogPath)
 	}
 	_ = tw.Flush()
 }
@@ -999,35 +1008,39 @@ func parseLogListFormat(format string) (*template.Template, error) {
 }
 
 type logListFormatRow struct {
-	Instance   string
-	Agent      string
-	Status     string
-	Phase      string
-	Stale      bool
-	PID        int
-	LogPath    string
-	Exists     bool
-	SizeBytes  int64
-	Size       string
-	ModifiedAt string
-	StartedAt  string
+	Instance     string
+	Agent        string
+	Status       string
+	Phase        string
+	Stale        bool
+	RuntimeStale bool
+	Unhealthy    bool
+	PID          int
+	LogPath      string
+	Exists       bool
+	SizeBytes    int64
+	Size         string
+	ModifiedAt   string
+	StartedAt    string
 }
 
 func renderLogListFormat(w io.Writer, rows []logListRow, tmpl *template.Template) error {
 	for _, row := range rows {
 		formatRow := logListFormatRow{
-			Instance:   row.Instance,
-			Agent:      row.Agent,
-			Status:     row.Status,
-			Phase:      row.Phase,
-			Stale:      row.Stale,
-			PID:        row.PID,
-			LogPath:    row.LogPath,
-			Exists:     row.Exists,
-			SizeBytes:  row.SizeBytes,
-			Size:       "-",
-			ModifiedAt: row.ModifiedAt,
-			StartedAt:  row.StartedAt,
+			Instance:     row.Instance,
+			Agent:        row.Agent,
+			Status:       row.Status,
+			Phase:        row.Phase,
+			Stale:        row.Stale,
+			RuntimeStale: row.RuntimeStale,
+			Unhealthy:    logRowUnhealthy(row),
+			PID:          row.PID,
+			LogPath:      row.LogPath,
+			Exists:       row.Exists,
+			SizeBytes:    row.SizeBytes,
+			Size:         "-",
+			ModifiedAt:   row.ModifiedAt,
+			StartedAt:    row.StartedAt,
 		}
 		if row.Exists {
 			formatRow.Size = formatLogSize(row.SizeBytes)

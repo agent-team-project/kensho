@@ -48,6 +48,12 @@ Resume-plan also probes positive recorded PIDs for `running` metadata; stale
 rows are marked in JSON/text, unhealthy totals count crashed plus stale-running
 rows, and summaries expose both counts before recommending the right start,
 resume, or log fallback.
+Docker-like views keep `stale` for old `status.toml` files and expose stale
+runtime metadata separately as `runtime_stale`. Their `--unhealthy` filters
+include crashed rows, status-stale rows, and runtime-stale rows, so
+`agent-team ps --unhealthy --json`, `agent-team health --unhealthy --json`,
+`agent-team stats --unhealthy`, and `agent-team logs --list --unhealthy` all
+surface missing recorded PIDs consistently.
 
 Team scoped:
 
@@ -215,6 +221,7 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Unsure what is wrong | `agent-team overview` |
 | Need exact next commands | `agent-team next` |
 | CI wants pass/fail | `agent-team health --jobs` |
+| Need only unhealthy instance rows | `agent-team ps --unhealthy --json` |
 | Need handoff artifact | `agent-team snapshot --output diagnostics.json` |
 | Need one workflow handoff artifact | `agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json` |
 | Need before/after artifact comparison | `agent-team snapshot diff before.json after.json` |

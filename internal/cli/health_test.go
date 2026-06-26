@@ -1411,6 +1411,52 @@ description = "fresh work"
 	}
 }
 
+func TestHealthCommandUnhealthyIncludesRuntimeStaleIssue(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
+		{Instance: "runtime-stale", Agent: "worker", Job: "SQU-88", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--unhealthy", "--json", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1 from daemon-down health\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health json: %v\nbody=%s", err, stdout.String())
+	}
+	if len(body.Instances) != 1 || body.Instances[0].Instance != "runtime-stale" || !body.Instances[0].RuntimeStale || !body.Instances[0].Unhealthy {
+		t.Fatalf("instances = %+v, want one runtime-stale unhealthy row", body.Instances)
+	}
+	if body.Summary.Total != 1 || body.Summary.RuntimeStale != 1 || body.Summary.Unhealthy != 1 || body.Summary.Stale != 0 {
+		t.Fatalf("summary = %+v, want one runtime-stale unhealthy row", body.Summary)
+	}
+	for _, issue := range body.Issues {
+		if issue.Code == "runtime_stale" && issue.Instance == "runtime-stale" {
+			if !containsString(issue.Actions, "agent-team job resume-plan squ-88 --stale") {
+				t.Fatalf("runtime stale actions = %+v, want job resume-plan action", issue.Actions)
+			}
+			return
+		}
+	}
+	t.Fatalf("issues = %+v, missing runtime_stale issue", body.Issues)
+}
+
 func healthInstanceNames(rows []healthInstance) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {

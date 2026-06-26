@@ -163,7 +163,7 @@ func newHealthCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only check instances with this name. Daemon health remains global. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only check instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only check crashed or stale instances. Daemon health remains global.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only check crashed, status-stale, or runtime-stale instances. Daemon health remains global.")
 	cmd.Flags().BoolVar(&strictTopology, "strict-topology", false, "Treat running daemon-known instances not declared in instances.toml as unhealthy.")
 	cmd.Flags().BoolVar(&includeJobs, "jobs", false, "Include durable job triage and status-file previews; treat jobs needing attention as unhealthy.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch or --wait.")
@@ -238,12 +238,14 @@ type healthIssue struct {
 }
 
 type healthInstance struct {
-	Instance string `json:"instance"`
-	Agent    string `json:"agent"`
-	Status   string `json:"status"`
-	Phase    string `json:"phase"`
-	Stale    bool   `json:"stale"`
-	PID      int    `json:"pid,omitempty"`
+	Instance     string `json:"instance"`
+	Agent        string `json:"agent"`
+	Status       string `json:"status"`
+	Phase        string `json:"phase"`
+	Stale        bool   `json:"stale"`
+	RuntimeStale bool   `json:"runtime_stale,omitempty"`
+	Unhealthy    bool   `json:"unhealthy,omitempty"`
+	PID          int    `json:"pid,omitempty"`
 }
 
 func runHealthWatch(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, jsonOut bool, opts healthOptions) error {
@@ -447,12 +449,14 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 	}
 	for _, row := range rows {
 		result.Instances = append(result.Instances, healthInstance{
-			Instance: row.Instance,
-			Agent:    row.Agent,
-			Status:   psStatusKey(row),
-			Phase:    psPhaseKey(row),
-			Stale:    row.Stale,
-			PID:      row.PID,
+			Instance:     row.Instance,
+			Agent:        row.Agent,
+			Status:       psStatusKey(row),
+			Phase:        psPhaseKey(row),
+			Stale:        row.Stale,
+			RuntimeStale: row.RuntimeStale,
+			Unhealthy:    psRowUnhealthy(row),
+			PID:          row.PID,
 		})
 		if row.Lifecycle == string(daemon.StatusCrashed) {
 			result.addIssueWithSeverityAndActions(
@@ -468,6 +472,18 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 		}
 		if row.Stale {
 			result.addIssue("status_stale", row.Instance, psStatusKey(row), psPhaseKey(row), fmt.Sprintf("instance %q status is stale", row.Instance))
+		}
+		if row.RuntimeStale {
+			result.addIssueWithSeverityAndActions(
+				"runtime_stale",
+				"error",
+				row.Instance,
+				job.NormalizeID(row.Job),
+				psStatusKey(row),
+				psPhaseKey(row),
+				fmt.Sprintf("instance %q metadata says running but PID %d is not live", row.Instance, row.PID),
+				runtimeStaleHealthActions(row),
+			)
 		}
 	}
 
@@ -1042,6 +1058,16 @@ func crashedInstanceHealthActions(row instanceRow) []string {
 	return []string{"agent-team runtime resume-plan --status crashed"}
 }
 
+func runtimeStaleHealthActions(row instanceRow) []string {
+	if id := job.NormalizeID(row.Job); id != "" {
+		return []string{fmt.Sprintf("agent-team job resume-plan %s --stale", id)}
+	}
+	if instance := strings.TrimSpace(row.Instance); instance != "" {
+		return []string{fmt.Sprintf("agent-team runtime resume-plan %s --stale", instance)}
+	}
+	return []string{"agent-team runtime resume-plan --stale"}
+}
+
 func (r *healthResult) addIssue(code, instance, status, phase, message string) {
 	r.addIssueWithSeverity(code, "error", instance, "", status, phase, message)
 }
@@ -1103,13 +1129,15 @@ func renderHealth(w io.Writer, result *healthResult) {
 		fmt.Fprintf(w, "declared: %d persistent, %d running, %d missing\n",
 			result.Declared.Persistent, result.Declared.Running, result.Declared.Missing)
 	}
-	fmt.Fprintf(w, "instances: %d total, %d running, %d stopped, %d exited, %d crashed, %d stale\n",
+	fmt.Fprintf(w, "instances: %d total, %d running, %d stopped, %d exited, %d crashed, %d stale, %d runtime_stale, %d unhealthy\n",
 		result.Summary.Total,
 		result.Summary.Running,
 		result.Summary.Stopped,
 		result.Summary.Exited,
 		result.Summary.Crashed,
 		result.Summary.Stale,
+		result.Summary.RuntimeStale,
+		result.Summary.Unhealthy,
 	)
 	if result.Queue.Total > 0 || result.Queue.Quarantined > 0 {
 		fmt.Fprintln(w, queueSummaryLine(result.Queue))

@@ -162,7 +162,7 @@ func newStatsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show instances with this name. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or stale instances.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale instances.")
 	return cmd
 }
 
@@ -214,6 +214,7 @@ type statsRow struct {
 	Status         string
 	Phase          string
 	Stale          bool
+	RuntimeStale   bool
 	PID            int
 	Age            string
 	CPUPercent     float64
@@ -231,6 +232,8 @@ type statsJSONRow struct {
 	Status        string   `json:"status"`
 	Phase         string   `json:"phase,omitempty"`
 	Stale         bool     `json:"stale,omitempty"`
+	RuntimeStale  bool     `json:"runtime_stale,omitempty"`
+	Unhealthy     bool     `json:"unhealthy,omitempty"`
 	PID           int      `json:"pid,omitempty"`
 	Age           string   `json:"age,omitempty"`
 	CPUPercent    *float64 `json:"cpu_percent,omitempty"`
@@ -248,6 +251,8 @@ type statsFormatRow struct {
 	Status        string
 	Phase         string
 	Stale         bool
+	RuntimeStale  bool
+	Unhealthy     bool
 	PID           int
 	Age           string
 	CPUPercent    string
@@ -268,6 +273,8 @@ type statsSummaryJSON struct {
 	Measured      int            `json:"measured"`
 	Errors        int            `json:"errors"`
 	Stale         int            `json:"stale"`
+	RuntimeStale  int            `json:"runtime_stale"`
+	Unhealthy     int            `json:"unhealthy"`
 	CPUPercent    float64        `json:"cpu_percent"`
 	MemoryPercent float64        `json:"memory_percent"`
 	RSSBytes      int64          `json:"rss_bytes"`
@@ -621,6 +628,7 @@ func collectStatsRows(lister instanceLister, names []string, opts statsOptions, 
 			Status:        metadataStatusKey(meta),
 			Phase:         statsMetaPhase(opts, meta.Instance),
 			Stale:         statsMetaStale(opts, meta.Instance),
+			RuntimeStale:  runtimeResumeMetadataIsStale(meta),
 			PID:           meta.PID,
 			Age:           startedAge(meta.StartedAt, now),
 		}
@@ -724,7 +732,7 @@ func sortStatsRows(rows []statsRow, mode statsSortMode) {
 }
 
 func statsRowUnhealthy(row statsRow) bool {
-	return row.Status == string(daemon.StatusCrashed) || row.Stale
+	return row.Status == string(daemon.StatusCrashed) || row.Stale || row.RuntimeStale
 }
 
 func statsOptionsMatchesMeta(opts statsOptions, meta *daemon.Metadata) bool {
@@ -797,7 +805,7 @@ func statsMetaStale(opts statsOptions, instance string) bool {
 }
 
 func statsMetaUnhealthy(opts statsOptions, meta *daemon.Metadata) bool {
-	return metadataStatusKey(meta) == string(daemon.StatusCrashed) || statsMetaStale(opts, meta.Instance)
+	return metadataStatusKey(meta) == string(daemon.StatusCrashed) || statsMetaStale(opts, meta.Instance) || runtimeResumeMetadataIsStale(meta)
 }
 
 func statsPhaseKey(raw string) string {
@@ -823,7 +831,7 @@ func renderStatsTable(w io.Writer, rows []statsRow, empty string) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "INSTANCE\tAGENT\tSTATUS\tPHASE\tSTALE\tPID\tCPU%\tMEM%\tRSS\tAGE")
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tSTATUS\tPHASE\tSTALE\tRUNTIME_STALE\tPID\tCPU%\tMEM%\tRSS\tAGE")
 	for _, row := range rows {
 		pid := "—"
 		if row.PID > 0 {
@@ -839,8 +847,12 @@ func renderStatsTable(w io.Writer, rows []statsRow, empty string) error {
 		if row.Stale {
 			stale = "yes"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			row.Instance, row.Agent, row.Status, statsPhaseKey(row.Phase), stale, pid, cpu, mem, rss, row.Age)
+		runtimeStale := "—"
+		if row.RuntimeStale {
+			runtimeStale = "yes"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.Instance, row.Agent, row.Status, statsPhaseKey(row.Phase), stale, runtimeStale, pid, cpu, mem, rss, row.Age)
 	}
 	return tw.Flush()
 }
@@ -867,6 +879,12 @@ func summarizeStatsRows(rows []statsRow) statsSummaryJSON {
 		if row.Stale {
 			out.Stale++
 		}
+		if row.RuntimeStale {
+			out.RuntimeStale++
+		}
+		if statsRowUnhealthy(row) {
+			out.Unhealthy++
+		}
 		if row.StatsAvailable {
 			out.Measured++
 			out.CPUPercent += row.CPUPercent
@@ -881,7 +899,7 @@ func summarizeStatsRows(rows []statsRow) statsSummaryJSON {
 
 func renderStatsSummary(w io.Writer, summary statsSummaryJSON) error {
 	fmt.Fprintf(w,
-		"instances: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale=%d measured=%d errors=%d cpu=%.1f%% mem=%.1f%% rss=%s\n",
+		"instances: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale=%d runtime_stale=%d unhealthy=%d measured=%d errors=%d cpu=%.1f%% mem=%.1f%% rss=%s\n",
 		summary.Total,
 		summary.Running,
 		summary.Stopped,
@@ -889,6 +907,8 @@ func renderStatsSummary(w io.Writer, summary statsSummaryJSON) error {
 		summary.Crashed,
 		summary.Unknown,
 		summary.Stale,
+		summary.RuntimeStale,
+		summary.Unhealthy,
 		summary.Measured,
 		summary.Errors,
 		summary.CPUPercent,
@@ -914,6 +934,8 @@ func statsJSONRows(rows []statsRow) []statsJSONRow {
 			Status:        row.Status,
 			Phase:         row.Phase,
 			Stale:         row.Stale,
+			RuntimeStale:  row.RuntimeStale,
+			Unhealthy:     statsRowUnhealthy(row),
 			PID:           row.PID,
 			Age:           row.Age,
 			Error:         row.Error,
@@ -942,6 +964,8 @@ func statsFormatRows(rows []statsRow) []statsFormatRow {
 			Status:        row.Status,
 			Phase:         row.Phase,
 			Stale:         row.Stale,
+			RuntimeStale:  row.RuntimeStale,
+			Unhealthy:     statsRowUnhealthy(row),
 			PID:           row.PID,
 			Age:           row.Age,
 			Error:         row.Error,

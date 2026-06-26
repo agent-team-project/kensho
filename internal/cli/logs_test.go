@@ -1076,6 +1076,39 @@ description = "fresh"
 	}
 }
 
+func TestLogsListJSONUnhealthyIncludesRuntimeStale(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
+		{Instance: "runtime-stale", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+		writeChildLogForTest(t, root, meta.Instance, meta.Instance+"\n")
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"logs", "--list", "--unhealthy", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("logs --list --unhealthy --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []logListRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode logs list unhealthy: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "runtime-stale" || !rows[0].RuntimeStale || !rows[0].Unhealthy || rows[0].Stale {
+		t.Fatalf("rows = %+v, want one runtime-stale unhealthy row", rows)
+	}
+}
+
 func TestLogsListTableIncludesPhaseAndStale(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

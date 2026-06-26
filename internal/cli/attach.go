@@ -115,7 +115,7 @@ func newAttachCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Log compatibility mode: only attach to instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Log compatibility mode: only attach to instances whose status.toml is stale.")
-	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Log compatibility mode: only attach to crashed or stale instances.")
+	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Log compatibility mode: only attach to crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().StringVar(&tail, "tail", "50", "Log compatibility mode: show only the last N lines before following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Log compatibility mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Log compatibility mode with --no-follow: only print log lines matching this regular expression.")
