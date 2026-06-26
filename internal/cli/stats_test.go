@@ -210,6 +210,30 @@ func TestStatsSortByStale(t *testing.T) {
 	}
 }
 
+func TestStatsSortByRuntimeStale(t *testing.T) {
+	sortMode, err := parseStatsSort("runtime-stale")
+	if err != nil {
+		t.Fatalf("parseStatsSort runtime-stale: %v", err)
+	}
+	aliasMode, err := parseStatsSortFlag("runtime_stale", "--stats-sort")
+	if err != nil {
+		t.Fatalf("parseStatsSortFlag runtime_stale: %v", err)
+	}
+	if aliasMode != sortMode {
+		t.Fatalf("runtime_stale alias = %q, want %q", aliasMode, sortMode)
+	}
+	rows := []statsRow{
+		{Instance: "fresh", Status: "running"},
+		{Instance: "status-stale", Status: "running", Stale: true},
+		{Instance: "runtime-b", Status: "running", RuntimeStale: true},
+		{Instance: "runtime-a", Status: "running", RuntimeStale: true},
+	}
+	sortStatsRows(rows, sortMode)
+	if got := rows[0].Instance + "," + rows[1].Instance + "," + rows[2].Instance + "," + rows[3].Instance; got != "runtime-a,runtime-b,fresh,status-stale" {
+		t.Fatalf("runtime-stale-sorted rows = %s, want runtime-a,runtime-b,fresh,status-stale", got)
+	}
+}
+
 func TestStatsSortByUnhealthy(t *testing.T) {
 	rows := []statsRow{
 		{Instance: "fresh", Status: "running"},

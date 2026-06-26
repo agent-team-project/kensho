@@ -642,6 +642,32 @@ func TestPsSortRowsByStaleFirst(t *testing.T) {
 	}
 }
 
+func TestPsSortRowsByRuntimeStaleFirst(t *testing.T) {
+	sortMode, err := parsePsSort("runtime-stale")
+	if err != nil {
+		t.Fatalf("parsePsSort runtime-stale: %v", err)
+	}
+	aliasMode, err := parsePsSort("runtime_stale")
+	if err != nil {
+		t.Fatalf("parsePsSort runtime_stale: %v", err)
+	}
+	if aliasMode != sortMode {
+		t.Fatalf("runtime_stale alias = %q, want %q", aliasMode, sortMode)
+	}
+	rows := []instanceRow{
+		{Instance: "fresh", Agent: "worker", Lifecycle: string(daemon.StatusRunning)},
+		{Instance: "status-stale", Agent: "manager", Lifecycle: string(daemon.StatusRunning), Stale: true},
+		{Instance: "runtime-b", Agent: "worker", Lifecycle: string(daemon.StatusRunning), RuntimeStale: true},
+		{Instance: "runtime-a", Agent: "manager", Lifecycle: string(daemon.StatusRunning), RuntimeStale: true},
+	}
+	sortPsRows(rows, sortMode)
+	got := []string{rows[0].Instance, rows[1].Instance, rows[2].Instance, rows[3].Instance}
+	want := []string{"runtime-a", "runtime-b", "fresh", "status-stale"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("runtime-stale sort = %v, want %v", got, want)
+	}
+}
+
 func TestPsSortRowsByUnhealthyFirst(t *testing.T) {
 	sortMode, err := parsePsSort("unhealthy")
 	if err != nil {

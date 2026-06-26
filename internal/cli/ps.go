@@ -162,7 +162,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Instance}} {{.Status}}'.")
-	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited.")
+	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show instances for this runtime: claude or codex. Can repeat or comma-separate.")
@@ -459,15 +459,16 @@ type psOptions struct {
 type psSortMode string
 
 const (
-	psSortName      psSortMode = "name"
-	psSortStatus    psSortMode = "status"
-	psSortAgent     psSortMode = "agent"
-	psSortPhase     psSortMode = "phase"
-	psSortStale     psSortMode = "stale"
-	psSortUnhealthy psSortMode = "unhealthy"
-	psSortStarted   psSortMode = "started"
-	psSortStopped   psSortMode = "stopped"
-	psSortExited    psSortMode = "exited"
+	psSortName         psSortMode = "name"
+	psSortStatus       psSortMode = "status"
+	psSortAgent        psSortMode = "agent"
+	psSortPhase        psSortMode = "phase"
+	psSortStale        psSortMode = "stale"
+	psSortRuntimeStale psSortMode = "runtime-stale"
+	psSortUnhealthy    psSortMode = "unhealthy"
+	psSortStarted      psSortMode = "started"
+	psSortStopped      psSortMode = "stopped"
+	psSortExited       psSortMode = "exited"
 )
 
 func parsePsSort(raw string) (psSortMode, error) {
@@ -482,6 +483,8 @@ func parsePsSort(raw string) (psSortMode, error) {
 		return psSortPhase, nil
 	case "stale":
 		return psSortStale, nil
+	case "runtime-stale", "runtime_stale", "runtimestale":
+		return psSortRuntimeStale, nil
 	case "unhealthy", "health":
 		return psSortUnhealthy, nil
 	case "started", "start", "created":
@@ -491,7 +494,7 @@ func parsePsSort(raw string) (psSortMode, error) {
 	case "exited", "exit":
 		return psSortExited, nil
 	default:
-		return "", fmt.Errorf("unknown --sort %q (want name, status, agent, phase, stale, unhealthy, started, stopped, or exited)", raw)
+		return "", fmt.Errorf("unknown --sort %q (want name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited)", raw)
 	}
 }
 
@@ -709,6 +712,10 @@ func sortPsRows(rows []instanceRow, mode psSortMode) {
 		case psSortStale:
 			if a.Stale != b.Stale {
 				return a.Stale
+			}
+		case psSortRuntimeStale:
+			if a.RuntimeStale != b.RuntimeStale {
+				return a.RuntimeStale
 			}
 		case psSortUnhealthy:
 			if psRowUnhealthy(a) != psRowUnhealthy(b) {

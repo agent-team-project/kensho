@@ -156,7 +156,7 @@ func newStatsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON. With --watch, writes one JSON array per refresh.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate CPU, memory, and RSS totals instead of instance rows.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.Instance}} {{.CPUPercent}} {{.RSS}}'.")
-	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy.")
+	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show instances for this runtime: claude or codex. Can repeat or comma-separate.")
@@ -191,15 +191,16 @@ type statsOptions struct {
 type statsSortMode string
 
 const (
-	statsSortName      statsSortMode = "name"
-	statsSortCPU       statsSortMode = "cpu"
-	statsSortMemory    statsSortMode = "mem"
-	statsSortRSS       statsSortMode = "rss"
-	statsSortStatus    statsSortMode = "status"
-	statsSortAgent     statsSortMode = "agent"
-	statsSortPhase     statsSortMode = "phase"
-	statsSortStale     statsSortMode = "stale"
-	statsSortUnhealthy statsSortMode = "unhealthy"
+	statsSortName         statsSortMode = "name"
+	statsSortCPU          statsSortMode = "cpu"
+	statsSortMemory       statsSortMode = "mem"
+	statsSortRSS          statsSortMode = "rss"
+	statsSortStatus       statsSortMode = "status"
+	statsSortAgent        statsSortMode = "agent"
+	statsSortPhase        statsSortMode = "phase"
+	statsSortStale        statsSortMode = "stale"
+	statsSortRuntimeStale statsSortMode = "runtime-stale"
+	statsSortUnhealthy    statsSortMode = "unhealthy"
 )
 
 type processStats struct {
@@ -411,10 +412,12 @@ func parseStatsSortFlag(raw, flagName string) (statsSortMode, error) {
 		return statsSortPhase, nil
 	case "stale":
 		return statsSortStale, nil
+	case "runtime-stale", "runtime_stale", "runtimestale":
+		return statsSortRuntimeStale, nil
 	case "unhealthy", "health":
 		return statsSortUnhealthy, nil
 	default:
-		return "", fmt.Errorf("unknown %s %q (want name, cpu, mem, rss, status, agent, phase, stale, or unhealthy)", flagName, raw)
+		return "", fmt.Errorf("unknown %s %q (want name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy)", flagName, raw)
 	}
 }
 
@@ -725,6 +728,10 @@ func sortStatsRows(rows []statsRow, mode statsSortMode) {
 		case statsSortStale:
 			if a.Stale != b.Stale {
 				return a.Stale
+			}
+		case statsSortRuntimeStale:
+			if a.RuntimeStale != b.RuntimeStale {
+				return a.RuntimeStale
 			}
 		case statsSortUnhealthy:
 			if statsRowUnhealthy(a) != statsRowUnhealthy(b) {

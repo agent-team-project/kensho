@@ -2866,9 +2866,9 @@ Flags:
       --runtime-stale          Only show running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming declared schedule state.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string            Sort instance rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited. (default "name")
+      --sort string            Sort instance rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale                  Only show instances whose status.toml is stale.
-      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
+      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --status strings         Only show lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras            With --plan, preview running topology extras as stop actions.
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
@@ -3969,7 +3969,7 @@ Flags:
   -q, --quiet               Only print matching instance names.
       --runtime strings     Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale       Only show running instances whose recorded runtime PID is no longer live.
-      --sort string         Sort rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited. (default "name")
+      --sort string         Sort rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale               Only show instances whose status.toml is stale.
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show lifecycle counts instead of instance rows.
@@ -5093,7 +5093,7 @@ Flags:
       --phase strings       Only show instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --runtime strings     Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale       Only show running instances whose recorded runtime PID is no longer live.
-      --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
+      --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show instances whose status.toml is stale.
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show aggregate CPU, memory, and RSS totals instead of instance rows.
@@ -5692,9 +5692,9 @@ Flags:
       --runtime-stale          Only show team-owned running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming team schedules.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string            Sort instance rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited. (default "name")
+      --sort string            Sort instance rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale                  Only show team-owned instances whose status.toml is stale.
-      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
+      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --status strings         Only show team-owned lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras            With --plan, preview running team-agent extras as stop actions.
       --unhealthy              Only show crashed, status-stale, or runtime-stale team-owned instances.
@@ -6427,7 +6427,7 @@ Flags:
       --repo string         Repo root containing .agent_team. (default "<repo>")
       --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale       Only show team-owned running instances whose recorded runtime PID is no longer live.
-      --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
+      --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show team-owned instances whose status.toml is stale.
       --status strings      Only show team-owned lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show aggregate CPU, memory, and RSS totals instead of team instance rows.
@@ -7027,9 +7027,9 @@ Flags:
       --runtime-stale          Only show running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming declared schedule state.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string            Sort instance rows by name, status, agent, phase, stale, unhealthy, started, stopped, or exited. (default "name")
+      --sort string            Sort instance rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale                  Only show instances whose status.toml is stale.
-      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, or unhealthy. (default "name")
+      --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --status strings         Only show lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras            With --plan, preview running topology extras as stop actions.
       --strict-topology        Treat running daemon-known instances not declared in instances.toml as unhealthy.
