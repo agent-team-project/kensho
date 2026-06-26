@@ -65,6 +65,12 @@ The match DSL is intentionally simple:
 - OR list: `match.project = ["platform", "infra"]`
 - AND across keys: multiple `match.<key>` entries
 
+Intake emits normalized event names. Linear ticket webhooks become `ticket.*`
+events such as `ticket.created`, and GitHub pull-request webhooks become
+`pr.*` events such as `pr.merged`. Legacy trigger names `ticket_webhook` and
+`pr_webhook` are still accepted as aliases; when they match normalized intake,
+`match.event` receives the suffix (`created`, `merged`, and so on).
+
 ## Schedules
 
 Schedules publish `schedule` events.

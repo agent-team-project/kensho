@@ -521,6 +521,94 @@ func TestResolve_TicketWebhookRouting(t *testing.T) {
 	}
 }
 
+func TestResolve_TicketWebhookAliasMatchesNormalizedIntakeEvents(t *testing.T) {
+	top, err := Parse([]byte(sampleTOML))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	matched := top.Resolve("ticket.created", map[string]any{
+		"project": "Platform",
+	})
+	if len(matched) != 1 || matched[0].Name != "tm-platform" {
+		t.Fatalf("expected ticket.created to match tm-platform legacy trigger, got %v", names(matched))
+	}
+	matched = top.Resolve("ticket.updated", map[string]any{
+		"project": "Platform",
+	})
+	if len(matched) != 1 || matched[0].Name != "tm-platform" {
+		t.Fatalf("expected ticket.updated to match tm-platform legacy trigger, got %v", names(matched))
+	}
+	matched = top.Resolve("ticket.commented", map[string]any{
+		"project": "Platform",
+	})
+	if len(matched) != 0 {
+		t.Fatalf("ticket.commented should miss legacy event filter, got %v", names(matched))
+	}
+	matched = top.Resolve("ticket.created", map[string]any{
+		"project": "Mobile",
+	})
+	if len(matched) != 1 || matched[0].Name != "tm-mobile" {
+		t.Fatalf("expected ticket.created to match tm-mobile legacy trigger, got %v", names(matched))
+	}
+}
+
+func TestResolve_PRWebhookAliasMatchesNormalizedIntakeEvents(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.pr-reviewer]
+agent = "manager"
+
+[[instances.pr-reviewer.triggers]]
+event = "pr_webhook"
+match.repository = "jamesaud/agent-team"
+match.event = ["opened", "merged"]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	matched := top.Resolve("pr.opened", map[string]any{
+		"repository": "jamesaud/agent-team",
+	})
+	if len(matched) != 1 || matched[0].Name != "pr-reviewer" {
+		t.Fatalf("expected pr.opened to match legacy trigger, got %v", names(matched))
+	}
+	matched = top.Resolve("pr.merged", map[string]any{
+		"repository": "jamesaud/agent-team",
+	})
+	if len(matched) != 1 || matched[0].Name != "pr-reviewer" {
+		t.Fatalf("expected pr.merged to match legacy trigger, got %v", names(matched))
+	}
+	matched = top.Resolve("pr.closed", map[string]any{
+		"repository": "jamesaud/agent-team",
+	})
+	if len(matched) != 0 {
+		t.Fatalf("pr.closed should miss legacy event filter, got %v", names(matched))
+	}
+}
+
+func TestResolvePipelines_WebhookAliasMatchesNormalizedIntakeEvents(t *testing.T) {
+	top, err := Parse([]byte(`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket_webhook"
+trigger.match.project = "Core"
+trigger.match.event = "created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
+	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
+		t.Fatalf("expected normalized ticket event to match legacy pipeline trigger, got %+v", matched)
+	}
+	matched = top.ResolvePipelines("ticket.updated", map[string]any{"project": "Core"})
+	if len(matched) != 0 {
+		t.Fatalf("ticket.updated should miss legacy pipeline event filter, got %+v", matched)
+	}
+}
+
 func TestResolve_UserInvocationMatchesAny(t *testing.T) {
 	top, err := Parse([]byte(sampleTOML))
 	if err != nil {

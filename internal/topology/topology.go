@@ -24,10 +24,10 @@ const FileName = "instances.toml"
 // the field is omitted. Persistent instances ignore replicas.
 const DefaultReplicas = 1
 
-// Event types recognised by the daemon's resolver. Webhook types
-// (`ticket_webhook`, `pr_webhook`) are accepted by the parser but not yet
-// produced by any daemon source — they're declared in topology.md and reserved
-// here so consumer-authored `instances.toml` files don't fail validation.
+// Event types recognised by the daemon's resolver. Webhook aliases
+// (`ticket_webhook`, `pr_webhook`) remain supported for older topology files;
+// normalized intake events (`ticket.created`, `pr.merged`, etc.) match those
+// aliases with the event suffix exposed to trigger matchers as `event`.
 const (
 	EventUserInvocation = "user_invocation"
 	EventAgentDispatch  = "agent.dispatch"
@@ -195,10 +195,11 @@ func (t *Topology) Resolve(eventType string, payload map[string]any) []*Instance
 	var matched []*Instance
 	for _, inst := range t.SortedInstances() {
 		for _, trig := range inst.Triggers {
-			if trig.Event != eventType {
+			matches, matchPayload := triggerMatchesEvent(trig, eventType, payload)
+			if !matches {
 				continue
 			}
-			if trig.Matches(payload) {
+			if trig.Matches(matchPayload) {
 				matched = append(matched, inst)
 				break
 			}
@@ -214,14 +215,55 @@ func (t *Topology) ResolvePipelines(eventType string, payload map[string]any) []
 	}
 	var matched []*Pipeline
 	for _, p := range t.SortedPipelines() {
-		if p.Trigger == nil || p.Trigger.Event != eventType {
+		matches, matchPayload := triggerMatchesEvent(p.Trigger, eventType, payload)
+		if !matches {
 			continue
 		}
-		if p.Trigger.Matches(payload) {
+		if p.Trigger.Matches(matchPayload) {
 			matched = append(matched, p)
 		}
 	}
 	return matched
+}
+
+func triggerMatchesEvent(trigger *Trigger, eventType string, payload map[string]any) (bool, map[string]any) {
+	if trigger == nil {
+		return false, payload
+	}
+	if trigger.Event == eventType {
+		return true, payload
+	}
+	switch trigger.Event {
+	case EventTicketWebhook:
+		if suffix, ok := normalizedEventSuffix(eventType, "ticket."); ok {
+			return true, payloadWithEventSuffix(payload, suffix)
+		}
+	case EventPRWebhook:
+		if suffix, ok := normalizedEventSuffix(eventType, "pr."); ok {
+			return true, payloadWithEventSuffix(payload, suffix)
+		}
+	}
+	return false, payload
+}
+
+func normalizedEventSuffix(eventType, prefix string) (string, bool) {
+	if !strings.HasPrefix(eventType, prefix) {
+		return "", false
+	}
+	suffix := strings.TrimPrefix(eventType, prefix)
+	return suffix, suffix != ""
+}
+
+func payloadWithEventSuffix(payload map[string]any, suffix string) map[string]any {
+	if _, ok := payload["event"]; ok {
+		return payload
+	}
+	out := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		out[key] = value
+	}
+	out["event"] = suffix
+	return out
 }
 
 // SortedInstances returns the instances ordered by name for deterministic

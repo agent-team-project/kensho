@@ -103,7 +103,7 @@ Examples:
 
 - `agent.dispatch`
 - `ticket.created`
-- `github.pr.opened`
+- `pr.opened`
 - `schedule`
 
 The daemon resolves events against `instances.toml` triggers. Matching persistent instances receive mailbox messages. Matching ephemeral instances spawn a new worker instance or queue when capacity is exhausted.

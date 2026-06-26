@@ -44,12 +44,14 @@ Event types in v1.2:
 |---|---|---|
 | `user_invocation` | `agent-team run <name>` from a human session | name, optional kickoff prompt |
 | `agent.dispatch` | One instance dispatching another (e.g. manager → worker) via the orchestrator API | source instance, target name, kickoff |
-| `ticket_webhook` | Linear webhook | event type (created/updated/commented), ticket fields (project, label, state, assignee) |
-| `pr_webhook` | GitHub webhook | event type (opened/review-requested/review-submitted/check-failed), PR metadata |
+| `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | Linear intake | ticket fields (project, label, state, assignee) |
+| `pr.opened`, `pr.review_requested`, `pr.commented`, `pr.merged`, etc. | GitHub intake | PR metadata |
+| `ticket_webhook`, `pr_webhook` | Legacy topology aliases | match the corresponding normalized intake family; `match.event` receives the suffix |
 | `schedule` | Fixed-interval timer in the daemon | schedule name plus optional payload |
 | `channel.message` | Subscribed channel receives a publish (see future channels work) | channel name, message body |
 
-Each event source is its own ticket; v1.2 launch likely starts with `user_invocation` + `agent.dispatch` + `schedule` (the simplest three). Webhook sources require an HTTP listener and authn, which can come in v1.3.
+Each event source is its own ticket; current intake commands normalize provider
+webhooks into these topology events before publishing them to the daemon.
 
 ## Schema (`instances.toml`)
 
@@ -363,7 +365,7 @@ The orchestrator daemon (see [`orchestrator.md`](./orchestrator.md)) gains:
 
 ```
 POST /event
-    { "type": "ticket_webhook", "payload": { "project": "Platform", "event": "created", ... } }
+    { "type": "ticket.created", "payload": { "project": "Platform", ... } }
     → { "matched": [<instance-names>], "dispatched": [{instance_id, started_at}, ...] }
 
 GET /topology
@@ -447,18 +449,23 @@ worker         worker          —         yes (3)    agent.dispatch (target=wor
 
 ### Event flowing through
 
-A Linear ticket lands in the Platform project. The webhook hits the daemon:
+A Linear ticket lands in the Platform project. Intake normalizes the provider
+payload and publishes a topology event:
 
 ```
 POST /event
-    { "type": "ticket_webhook",
-      "payload": { "project": "Platform", "event": "created", "id": "PLAT-42", ... } }
+    { "type": "ticket.created",
+      "payload": { "project": "Platform", "ticket": "PLAT-42", ... } }
 
 → { "matched": ["tm-platform"],
     "dispatched": [{ "instance_id": "...", "started_at": "..." }] }
 ```
 
-`tm-platform` wakes up (it's persistent — already running, the daemon `SendMessage`s it the event payload), reads the ticket, files / triages / etc. against its declared `linear.project_id = 3d07030a-...`. `tm-mobile` is unaffected.
+`tm-platform` still matches because `ticket_webhook` is a legacy alias for the
+normalized `ticket.*` family. It wakes up (it's persistent — already running,
+the daemon `SendMessage`s it the event payload), reads the ticket, files /
+triages / etc. against its declared `linear.project_id = 3d07030a-...`.
+`tm-mobile` is unaffected.
 
 If the manager later dispatches a worker via `assign-worker`:
 
@@ -508,7 +515,11 @@ Stopping tm-mobile ... ✓ (state preserved at .agent_team/state/tm-mobile/)
 
 5. **Topology hot-reload.** `agent-team instance reload` re-parses `instances.toml` and applies diffs (start newly-declared, stop newly-undeclared, restart changed). Implementation has a tricky case: a running instance whose declared config changed — graceful restart, or wait for current work to drain? Defer the policy to v1.2 PR; default likely "warn, don't auto-restart, require explicit `instance restart <name>`."
 
-6. **Webhook auth & delivery.** When `ticket_webhook` and `pr_webhook` event sources come online (likely v1.3), the daemon needs an HTTPS listener with auth (HMAC verification per provider) and a public URL (ngrok-style tunnel for local dev, real DNS for hosted). Out of scope here; flagged for the webhook ticket.
+6. **Webhook auth & delivery.** Provider intake now normalizes Linear and
+GitHub events before publishing topology events. Hosted deployments still need
+a production-grade listener, auth (HMAC verification per provider), replay
+windows, and a public URL (ngrok-style tunnel for local dev, real DNS for
+hosted).
 
 ## Relationship to other docs
 

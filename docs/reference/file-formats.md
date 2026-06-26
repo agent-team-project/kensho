@@ -109,6 +109,11 @@ instances = ["manager", "worker"]
 pipelines = ["ticket_to_pr"]
 ```
 
+Normalized intake events use names like `ticket.created`, `ticket.updated`,
+`pr.opened`, and `pr.merged`. Older topology files may still use
+`ticket_webhook` or `pr_webhook`; those trigger names match the corresponding
+normalized events, with the suffix available as `match.event`.
+
 ## Job TOML
 
 Jobs live at `.agent_team/jobs/<job-id>.toml`.
