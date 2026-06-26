@@ -5295,7 +5295,7 @@ Inherited Flags:
 
 Capture a read-only orchestration diagnostic report.
 
-Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.
+Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, inbox, schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.
 
 ```text
 agent-team snapshot [flags]
@@ -5327,7 +5327,7 @@ Subcommands:
 
 Compare two saved diagnostic snapshots.
 
-Compare two saved global, team, or pipeline diagnostic snapshot JSON files and summarize instance, job, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.
+Compare two saved global, team, or pipeline diagnostic snapshot JSON files and summarize instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.
 
 ```text
 agent-team snapshot diff <before.json> <after.json> [flags]
@@ -5338,7 +5338,7 @@ Flags:
 ```text
       --exit-code         Exit with status 1 when snapshots differ.
       --json              Emit snapshot diff as JSON.
-      --section strings   Only compare sections: instances, jobs, pipelines, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
+      --section strings   Only compare sections: instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
 ```
 
 Inherited Flags:
@@ -6766,7 +6766,7 @@ Flags:
 
 Capture a team-scoped diagnostic report.
 
-Capture a read-only diagnostic report scoped to one declared team. It includes team health, plan, instances, jobs, job status preview, queue, schedule, runtime, and lifecycle event state.
+Capture a read-only diagnostic report scoped to one declared team. It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, and lifecycle event state.
 
 ```text
 agent-team team snapshot <team> [flags]

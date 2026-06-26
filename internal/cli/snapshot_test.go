@@ -92,6 +92,14 @@ branch = "worker-squ-501"
 	}); err != nil {
 		t.Fatalf("append intake delivery: %v", err)
 	}
+	if err := daemon.AppendMessage(daemon.DaemonRoot(teamDir), "manager", &daemon.Message{
+		ID:   "msg-snapshot",
+		From: "tester",
+		Body: "snapshot inbox secret",
+		TS:   now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("append inbox message: %v", err)
+	}
 	if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), &daemon.LifecycleEvent{
 		TS:       now,
 		Action:   "dispatch",
@@ -147,6 +155,15 @@ branch = "worker-squ-501"
 	}
 	if len(snapshot.QueueQuarantine) != 1 || snapshot.QueueQuarantine[0].ID != "q-snapshot-quarantined" || !snapshot.QueueQuarantine[0].Restorable || snapshot.QueueQuarantine[0].Job != "squ-501" {
 		t.Fatalf("queue quarantine = %+v", snapshot.QueueQuarantine)
+	}
+	if snapshot.InboxSummary == nil || snapshot.InboxSummary.Total != 1 || snapshot.InboxSummary.Unread != 1 || snapshot.InboxSummary.UnreadInstances != 1 {
+		t.Fatalf("inbox summary = %+v", snapshot.InboxSummary)
+	}
+	if snapshot.Overview == nil || snapshot.Overview.Inbox.Unread != 1 {
+		t.Fatalf("overview inbox = %+v", snapshot.Overview)
+	}
+	if len(snapshot.Inbox) != 1 || snapshot.Inbox[0].Instance != "manager" || snapshot.Inbox[0].LatestID != "msg-snapshot" || snapshot.Inbox[0].LatestBody != snapshotRedactedValue {
+		t.Fatalf("snapshot inbox = %+v", snapshot.Inbox)
 	}
 	if snapshot.Queue[0].Payload["target"] != "worker" || snapshot.Queue[0].Payload["access_token"] != snapshotRedactedValue {
 		t.Fatalf("redacted payload = %+v", snapshot.Queue[0].Payload)
@@ -259,6 +276,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			{ID: "squ-801", Status: "running", Pipeline: "ticket_to_pr", Target: "worker"},
 			{ID: "squ-802", Status: "blocked", Pipeline: "ticket_to_pr", Target: "worker"},
 		},
+		Inbox: []snapshotDiffInbox{
+			{Instance: "manager", Agent: "manager", Status: "running", Total: 1, Unread: 1, LatestID: "msg-1", LatestFrom: "tester", LatestTS: "2026-06-18T11:59:00Z"},
+		},
 		Queue: []snapshotDiffQueueItem{
 			{ID: "q-1", State: "pending"},
 		},
@@ -303,6 +323,10 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		Jobs: []snapshotDiffJob{
 			{ID: "squ-801", Status: "done", Pipeline: "ticket_to_pr", Target: "worker"},
 			{ID: "squ-803", Status: "queued", Pipeline: "ticket_to_pr", Target: "manager"},
+		},
+		Inbox: []snapshotDiffInbox{
+			{Instance: "manager", Agent: "manager", Status: "running", Total: 2, Unread: 0, Cursor: "msg-2", LatestID: "msg-2", LatestFrom: "worker", LatestTS: "2026-06-18T12:04:00Z"},
+			{Instance: "worker-squ-803", Agent: "worker", Status: "running", Total: 1, Unread: 1, LatestID: "msg-3", LatestFrom: "manager", LatestTS: "2026-06-18T12:05:00Z"},
 		},
 		Queue: []snapshotDiffQueueItem{
 			{ID: "q-1", State: "dead"},
@@ -365,6 +389,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Instances.Added != 1 || result.Summary.Instances.Changed != 1 {
 		t.Fatalf("instance counters = %+v", result.Summary.Instances)
 	}
+	if result.Summary.Inbox.Added != 1 || result.Summary.Inbox.Changed != 1 {
+		t.Fatalf("inbox counters = %+v", result.Summary.Inbox)
+	}
 	if result.Summary.Queue.Added != 1 || result.Summary.Queue.Changed != 1 {
 		t.Fatalf("queue counters = %+v", result.Summary.Queue)
 	}
@@ -391,6 +418,8 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "instances", "reviewer-squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "instances", "worker-squ-801", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "inbox", "manager", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "inbox", "worker-squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "queue_quarantine", "dead/q-dead.json", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "schedules", "declared/delivery_due", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "intake", "duplicate/github/github-delivery-1", "changed") ||
@@ -414,6 +443,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
 		"pipelines:",
+		"inbox: added=1 removed=0 changed=1",
 		"queue: added=1 removed=0 changed=1",
 		"queue_quarantine: added=1 removed=0 changed=1",
 		"schedules: added=0 removed=0 changed=2",
@@ -475,6 +505,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	for _, change := range queueOnlyResult.Changes {
 		if change.Section != "queue" {
 			t.Fatalf("queue-only diff included %q change: %+v", change.Section, queueOnlyResult.Changes)
+		}
+	}
+
+	inboxOnly := NewRootCmd()
+	inboxOnlyOut, inboxOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	inboxOnly.SetOut(inboxOnlyOut)
+	inboxOnly.SetErr(inboxOnlyErr)
+	inboxOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "inbox", "--json"})
+	if err := inboxOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff inbox section: %v\nstderr=%s", err, inboxOnlyErr.String())
+	}
+	var inboxOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(inboxOnlyOut.Bytes(), &inboxOnlyResult); err != nil {
+		t.Fatalf("decode inbox-only snapshot diff: %v\nbody=%s", err, inboxOnlyOut.String())
+	}
+	if inboxOnlyResult.Summary.TotalChanges != 2 || inboxOnlyResult.Summary.Inbox.Added != 1 || inboxOnlyResult.Summary.Inbox.Changed != 1 || inboxOnlyResult.Summary.Queue.Added != 0 {
+		t.Fatalf("inbox-only diff summary = %+v", inboxOnlyResult.Summary)
+	}
+	for _, change := range inboxOnlyResult.Changes {
+		if change.Section != "inbox" {
+			t.Fatalf("inbox-only diff included %q change: %+v", change.Section, inboxOnlyResult.Changes)
 		}
 	}
 
@@ -664,6 +715,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 			}},
 		},
 		QueueSummary: &queueSummary{Total: 1, Pending: 1, Quarantined: 1, QuarantineRestorable: 1},
+		InboxSummary: &overviewInboxSummary{Instances: 2, Total: 3, Unread: 1, UnreadInstances: 1},
 		IntakeSummary: &overviewIntakeSummary{
 			Deliveries: 1,
 			Errors:     1,
@@ -679,7 +731,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 stale_running_steps=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "intake: deliveries=1 errors=1 recovered=0 replayable=1 duplicate_request_ids=1"} {
+	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 stale_running_steps=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=2 total=3 unread=1 unread_instances=1", "intake: deliveries=1 errors=1 recovered=0 replayable=1 duplicate_request_ids=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
@@ -807,6 +859,14 @@ func TestSnapshotNoRedactPreservesPayloadSecrets(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append intake delivery: %v", err)
 	}
+	if err := daemon.AppendMessage(daemon.DaemonRoot(teamDir), "manager", &daemon.Message{
+		ID:   "msg-raw",
+		From: "tester",
+		Body: "raw inbox body",
+		TS:   now,
+	}); err != nil {
+		t.Fatalf("append inbox message: %v", err)
+	}
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -828,6 +888,9 @@ func TestSnapshotNoRedactPreservesPayloadSecrets(t *testing.T) {
 	}
 	if len(snapshot.Intake) != 1 || snapshot.Intake[0].Payload["api_key"] != "raw-intake-key" {
 		t.Fatalf("intake payload = %+v", snapshot.Intake)
+	}
+	if len(snapshot.Inbox) != 1 || snapshot.Inbox[0].LatestBody != "raw inbox body" {
+		t.Fatalf("inbox body = %+v", snapshot.Inbox)
 	}
 }
 

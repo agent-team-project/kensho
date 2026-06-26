@@ -35,7 +35,7 @@ func newSnapshotCmd() *cobra.Command {
 		Use:   "snapshot",
 		Short: "Capture a read-only orchestration diagnostic report.",
 		Long: "Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, " +
-			"schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.",
+			"inbox, schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -129,6 +129,8 @@ type snapshotResult struct {
 	Queue            []*daemon.QueueItem        `json:"queue,omitempty"`
 	QueueSummary     *queueSummary              `json:"queue_summary,omitempty"`
 	QueueQuarantine  []queueQuarantineItem      `json:"queue_quarantine,omitempty"`
+	Inbox            []inboxSummaryRow          `json:"inbox,omitempty"`
+	InboxSummary     *overviewInboxSummary      `json:"inbox_summary,omitempty"`
 	Schedules        []scheduleInfo             `json:"schedules,omitempty"`
 	ScheduleNext     []scheduleInfo             `json:"schedule_next,omitempty"`
 	Intake           []intakeDelivery           `json:"intake,omitempty"`
@@ -228,6 +230,12 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 	} else {
 		out.QueueQuarantine = quarantine
 		applyQueueQuarantineSummary(ensureSnapshotQueueSummary(out, now), quarantine)
+	}
+	if inbox, summary, err := collectSnapshotInbox(teamDir, nil, nil); err != nil {
+		out.addError("inbox", err)
+	} else {
+		out.Inbox = inbox
+		out.InboxSummary = &summary
 	}
 	if schedules, err := loadScheduleInfos(teamDir); err != nil {
 		out.addError("schedules", err)
@@ -360,6 +368,12 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 	} else {
 		out.TeamDoctor = teamDoctor
 	}
+	if inbox, summary, err := collectSnapshotInbox(teamDir, top, team); err != nil {
+		out.addError("inbox", err)
+	} else {
+		out.Inbox = inbox
+		out.InboxSummary = &summary
+	}
 	if schedules, err := loadScheduleInfos(teamDir); err != nil {
 		out.addError("schedules", err)
 	} else {
@@ -382,6 +396,22 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		redactSnapshotResult(out)
 	}
 	return out, nil
+}
+
+func collectSnapshotInbox(teamDir string, top *topology.Topology, team *topology.Team) ([]inboxSummaryRow, overviewInboxSummary, error) {
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	instances, metaByInstance, err := listInboxInstances(daemonRoot)
+	if err != nil {
+		return nil, overviewInboxSummary{}, err
+	}
+	if team != nil {
+		instances = filterInboxInstancesForTeam(top, team, instances, metaByInstance)
+	}
+	rows, err := collectInboxSummaryRows(daemonRoot, instances, metaByInstance, false)
+	if err != nil {
+		return nil, overviewInboxSummary{}, err
+	}
+	return rows, overviewInboxFromRows(rows), nil
 }
 
 func ensureSnapshotQueueSummary(snapshot *snapshotResult, now time.Time) *queueSummary {
@@ -602,6 +632,11 @@ func redactSnapshotResult(snapshot *snapshotResult) {
 	for i := range snapshot.Intake {
 		snapshot.Intake[i].Payload = redactSnapshotMap(snapshot.Intake[i].Payload)
 	}
+	for i := range snapshot.Inbox {
+		if snapshot.Inbox[i].LatestBody != "" {
+			snapshot.Inbox[i].LatestBody = snapshotRedactedValue
+		}
+	}
 	for i := range snapshot.PipelineAdvance {
 		redactSnapshotPipelineAdvance(&snapshot.PipelineAdvance[i])
 	}
@@ -796,6 +831,13 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintln(w, queueSummaryLine(*snapshot.QueueSummary))
+	}
+	if snapshot.InboxSummary != nil {
+		fmt.Fprintf(w, "inbox: instances=%d total=%d unread=%d unread_instances=%d\n",
+			snapshot.InboxSummary.Instances,
+			snapshot.InboxSummary.Total,
+			snapshot.InboxSummary.Unread,
+			snapshot.InboxSummary.UnreadInstances)
 	}
 	fmt.Fprintf(w, "schedules: declared=%d upcoming=%d\n", len(snapshot.Schedules), len(snapshot.ScheduleNext))
 	if snapshot.IntakeSummary != nil {

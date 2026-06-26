@@ -541,6 +541,10 @@ func collectOverviewInbox(teamDir string, top *topology.Topology, team *topology
 	if err != nil {
 		return overviewInboxSummary{}, err
 	}
+	return overviewInboxFromRows(rows), nil
+}
+
+func overviewInboxFromRows(rows []inboxSummaryRow) overviewInboxSummary {
 	out := overviewInboxSummary{Instances: len(rows)}
 	for _, row := range rows {
 		out.Total += row.Total
@@ -551,7 +555,7 @@ func collectOverviewInbox(teamDir string, top *topology.Topology, team *topology
 		}
 	}
 	sort.Strings(out.UnreadNames)
-	return out, nil
+	return out
 }
 
 func countJobTriageReason(items []jobTriageItem, reason string) int {

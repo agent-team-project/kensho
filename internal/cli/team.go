@@ -3711,7 +3711,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <team>",
 		Short: "Capture a team-scoped diagnostic report.",
 		Long: "Capture a read-only diagnostic report scoped to one declared team. " +
-			"It includes team health, plan, instances, jobs, job status preview, queue, schedule, runtime, and lifecycle event state.",
+			"It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, and lifecycle event state.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {

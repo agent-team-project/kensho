@@ -75,7 +75,7 @@ Messages are stored locally so they can be inspected or delivered even when a ru
 - `inbox show <instance>` lists message IDs, senders, unread state, and bodies.
 - `inbox ack <instance> <message-id>` advances the cursor through one message; `--all` marks every current message read. Use `--dry-run` before changing the cursor.
 
-`overview`, `team overview`, `next`, and `team next` include unread inbox counts and actions. Use `next --source inbox --reason unread` when a script or operator view should focus only on unread mailbox work.
+`overview`, `team overview`, `next`, and `team next` include unread inbox counts and actions. `snapshot` and `team snapshot` also include inbox summaries for handoff artifacts; latest message bodies are redacted unless `--no-redact` is used. Use `next --source inbox --reason unread` when a script or operator view should focus only on unread mailbox work.
 
 ## Channels
 

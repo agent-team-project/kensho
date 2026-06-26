@@ -127,13 +127,14 @@ agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json
 agent-team team snapshot delivery --output delivery-diagnostics.json
 agent-team snapshot diff before-repair.json after-repair.json
 agent-team snapshot diff before-repair.json after-repair.json --section instances
+agent-team snapshot diff before-repair.json after-repair.json --section inbox
 agent-team snapshot diff before-repair.json after-repair.json --section queue
 agent-team snapshot diff before-repair.json after-repair.json --section queue_quarantine
 agent-team snapshot diff before-repair.json after-repair.json --section intake
 agent-team snapshot diff before-repair.json after-repair.json --exit-code
 ```
 
-Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section instances`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference. Intake diffs include both delivery rows and duplicate request-id groups.
+Snapshots are redacted by default and are designed for debugging or handoff. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section instances`, `--section inbox`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference. Inbox diffs compare instance-level mailbox counts, unread cursors, and latest-message identity; intake diffs include both delivery rows and duplicate request-id groups.
 
 They include:
 
@@ -149,6 +150,7 @@ They include:
 - pipeline explain step diagnostics
 - ready pipeline advance previews
 - team doctor findings
+- inbox summaries
 - queue items
 - queue quarantine inventory
 - schedules
@@ -229,6 +231,7 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need one workflow handoff artifact | `agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json` |
 | Need before/after artifact comparison | `agent-team snapshot diff before.json after.json` |
 | Need focused instance drift comparison | `agent-team snapshot diff before.json after.json --section instances` |
+| Need focused inbox drift comparison | `agent-team snapshot diff before.json after.json --section inbox` |
 | Need focused queue drift comparison | `agent-team snapshot diff before.json after.json --section queue` |
 | Need focused quarantine drift comparison | `agent-team snapshot diff before.json after.json --section queue_quarantine` |
 | Need focused intake drift comparison | `agent-team snapshot diff before.json after.json --section intake` |

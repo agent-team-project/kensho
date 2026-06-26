@@ -6782,6 +6782,16 @@ branch = "other-oth-701"
 			t.Fatalf("write queue item %s: %v", item.ID, err)
 		}
 	}
+	for _, target := range []string{"manager", "other-oth-701"} {
+		if err := daemon.AppendMessage(daemon.DaemonRoot(teamDir), target, &daemon.Message{
+			ID:   "msg-" + target,
+			From: "tester",
+			Body: "team snapshot inbox secret for " + target,
+			TS:   now.Add(-5 * time.Minute),
+		}); err != nil {
+			t.Fatalf("append inbox message %s: %v", target, err)
+		}
+	}
 	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
 		ID:         "q-delivery-quarantined",
 		EventType:  "agent.dispatch",
@@ -6849,6 +6859,12 @@ branch = "other-oth-701"
 	if len(snapshot.QueueQuarantine) != 1 || snapshot.QueueQuarantine[0].ID != "q-delivery-quarantined" || snapshot.QueueQuarantine[0].Job != "squ-701" {
 		t.Fatalf("snapshot queue quarantine = %+v", snapshot.QueueQuarantine)
 	}
+	if snapshot.InboxSummary == nil || snapshot.InboxSummary.Total != 1 || snapshot.InboxSummary.Unread != 1 || snapshot.InboxSummary.UnreadInstances != 1 {
+		t.Fatalf("snapshot inbox summary = %+v", snapshot.InboxSummary)
+	}
+	if len(snapshot.Inbox) != 1 || snapshot.Inbox[0].Instance != "manager" || snapshot.Inbox[0].LatestBody != snapshotRedactedValue {
+		t.Fatalf("snapshot inbox = %+v", snapshot.Inbox)
+	}
 	if snapshot.Queue[0].Payload["access_token"] != snapshotRedactedValue {
 		t.Fatalf("queue payload not redacted: %+v", snapshot.Queue[0].Payload)
 	}
@@ -6880,7 +6896,7 @@ branch = "other-oth-701"
 		t.Fatalf("snapshot events = %v\nbody=%s", got, out.String())
 	}
 	body := out.String()
-	for _, leak := range []string{"platform_due", "platform_work", "oth-701", "q-platform-snapshot", "q-platform-quarantined", "platform worker", "platform-secret"} {
+	for _, leak := range []string{"platform_due", "platform_work", "oth-701", "q-platform-snapshot", "q-platform-quarantined", "platform worker", "platform-secret", "team snapshot inbox secret"} {
 		if strings.Contains(body, leak) {
 			t.Fatalf("team snapshot json leaked %q:\n%s", leak, body)
 		}
@@ -6895,12 +6911,12 @@ branch = "other-oth-701"
 		t.Fatalf("team snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
 	textBody := textOut.String()
-	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1", "pipeline explain: pipelines=1 jobs=1 steps=1", "team doctor: problems=0 warnings=1", "events: 0"} {
+	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=1 total=1 unread=1 unread_instances=1", "pipeline status: pipelines=1", "pipeline explain: pipelines=1 jobs=1 steps=1", "team doctor: problems=0 warnings=1", "events: 0"} {
 		if !strings.Contains(textBody, want) {
 			t.Fatalf("team snapshot text missing %q:\n%s", want, textBody)
 		}
 	}
-	for _, leak := range []string{"platform_due", "platform_work", "oth-701", "q-platform-snapshot", "q-platform-quarantined"} {
+	for _, leak := range []string{"platform_due", "platform_work", "oth-701", "q-platform-snapshot", "q-platform-quarantined", "team snapshot inbox secret"} {
 		if strings.Contains(textBody, leak) {
 			t.Fatalf("team snapshot text leaked %q:\n%s", leak, textBody)
 		}
