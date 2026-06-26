@@ -363,7 +363,7 @@ func runRepair(cmd *cobra.Command, target, teamDir string, opts repairOptions) (
 		if err != nil {
 			return nil, err
 		}
-		retries, err := queueRetryAllResults(teamDir, filters, opts.Limit, opts.DryRun)
+		retries, err := queueRetryAllResults(teamDir, filters, "state", opts.Limit, opts.DryRun)
 		if err != nil {
 			return nil, err
 		}

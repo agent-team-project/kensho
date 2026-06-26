@@ -4644,6 +4644,82 @@ target = "worker"
 	}
 }
 
+func TestPipelineQueueRetryAllSortsBeforeLimit(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-902",
+		Ticket:    "SQU-902",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	queueRoot := daemon.DaemonRoot(teamDir)
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:             "q-pipeline-low-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-902-low",
+			Payload:        map[string]any{"job_id": "squ-902", "ticket": "SQU-902"},
+			Attempts:       1,
+			LastError:      "first failure",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-pipeline-high-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-902-high",
+			Payload:        map[string]any{"job_id": "squ-902", "ticket": "SQU-902"},
+			Attempts:       6,
+			LastError:      "repeated failure",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now.Add(-30 * time.Minute),
+			DeadLetteredAt: now.Add(-30 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(queueRoot, item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "queue", "retry", "ticket_to_pr", "--repo", root, "--all", "--sort", "attempts", "--limit", "1", "--dry-run", "--format", "{{.ID}} {{.Action}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline queue retry sort/limit: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "q-pipeline-high-attempts would_retry"; got != want {
+		t.Fatalf("pipeline queue retry sort/limit output = %q, want %q", got, want)
+	}
+}
+
 func TestPipelineQueuePruneFiltersByEventAndJob(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

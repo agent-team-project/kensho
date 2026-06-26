@@ -1733,6 +1733,57 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	}
 }
 
+func TestQueueRetryAllSortsBeforeLimit(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:             "q-low-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-130",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-130"},
+			Attempts:       1,
+			LastError:      "first failure",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-high-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-131",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-131"},
+			Attempts:       7,
+			LastError:      "repeated failure",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now.Add(-30 * time.Minute),
+			DeadLetteredAt: now.Add(-30 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"queue", "retry", "--target", tmp, "--all", "--sort", "attempts", "--limit", "1", "--dry-run", "--format", "{{.ID}} {{.Action}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("queue retry sort/limit: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "q-high-attempts would_retry"; got != want {
+		t.Fatalf("queue retry sort/limit output = %q, want %q", got, want)
+	}
+}
+
 func TestQueuePruneLocal(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

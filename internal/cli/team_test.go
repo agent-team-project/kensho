@@ -5831,6 +5831,65 @@ instances = ["other"]
 	}
 }
 
+func TestTeamQueueDropAllSortsBeforeLimit(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[teams.delivery]
+instances = ["worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:             "q-team-low-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-720-low",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-720"},
+			Attempts:       1,
+			LastError:      "first failure",
+			QueuedAt:       now.Add(-3 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+			DeadLetteredAt: now.Add(-2 * time.Hour),
+		},
+		{
+			ID:             "q-team-high-attempts",
+			State:          daemon.QueueStateDead,
+			EventType:      "agent.dispatch",
+			Instance:       "worker",
+			InstanceID:     "worker-squ-720-high",
+			Payload:        map[string]any{"target": "worker", "ticket": "SQU-720"},
+			Attempts:       8,
+			LastError:      "repeated failure",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now.Add(-30 * time.Minute),
+			DeadLetteredAt: now.Add(-30 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "queue", "drop", "delivery", "--repo", root, "--all", "--sort", "attempts", "--limit", "1", "--dry-run", "--format", "{{.ID}} {{.Action}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team queue drop sort/limit: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "q-team-high-attempts would_drop"; got != want {
+		t.Fatalf("team queue drop sort/limit output = %q, want %q", got, want)
+	}
+}
+
 func TestTeamQueuePruneScopesItems(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

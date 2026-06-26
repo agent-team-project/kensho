@@ -1164,6 +1164,7 @@ func newPipelineQueueRetryCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
 		limit       int
 	)
 	cwd, _ := os.Getwd()
@@ -1195,6 +1196,11 @@ func newPipelineQueueRetryCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue retry: --limit must be >= 0.")
 					return exitErr(2)
 				}
+				sortMode, err := parseQueueListSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue retry: %v\n", err)
+					return exitErr(2)
+				}
 				effectiveState := strings.TrimSpace(stateFilter)
 				if effectiveState == "" {
 					effectiveState = daemon.QueueStateDead
@@ -1207,14 +1213,14 @@ func newPipelineQueueRetryCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue retry: %v\n", err)
 					return exitErr(2)
 				}
-				return runPipelineQueueRetryAll(cmd.OutOrStdout(), teamDir, args[0], filters, limit, dryRun, jsonOut, tmpl)
+				return runPipelineQueueRetryAll(cmd.OutOrStdout(), teamDir, args[0], filters, sortMode, limit, dryRun, jsonOut, tmpl)
 			}
 			if len(args) != 2 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue retry: requires <pipeline> and one id unless --all is set.")
 				return exitErr(2)
 			}
-			if stateFilter != "" || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue retry: --state, --event-type, --job, --runtime, --ready, and --limit require --all.")
+			if stateFilter != "" || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue retry: --state, --event-type, --job, --runtime, --ready, --sort, and --limit require --all.")
 				return exitErr(2)
 			}
 			item, err := readPipelineQueueItem(cmd, teamDir, args[0], args[1], "retry")
@@ -1238,6 +1244,7 @@ func newPipelineQueueRetryCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only retry pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
@@ -1254,6 +1261,7 @@ func newPipelineQueueDropCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
 		limit       int
 	)
 	cwd, _ := os.Getwd()
@@ -1285,6 +1293,11 @@ func newPipelineQueueDropCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue drop: --limit must be >= 0.")
 					return exitErr(2)
 				}
+				sortMode, err := parseQueueListSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue drop: %v\n", err)
+					return exitErr(2)
+				}
 				effectiveState := strings.TrimSpace(stateFilter)
 				if effectiveState == "" {
 					effectiveState = daemon.QueueStateDead
@@ -1297,14 +1310,14 @@ func newPipelineQueueDropCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue drop: %v\n", err)
 					return exitErr(2)
 				}
-				return runPipelineQueueDropAll(cmd.OutOrStdout(), teamDir, args[0], filters, limit, dryRun, jsonOut, tmpl)
+				return runPipelineQueueDropAll(cmd.OutOrStdout(), teamDir, args[0], filters, sortMode, limit, dryRun, jsonOut, tmpl)
 			}
 			if len(args) != 2 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue drop: requires <pipeline> and one id unless --all is set.")
 				return exitErr(2)
 			}
-			if stateFilter != "" || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue drop: --state, --event-type, --job, --runtime, --ready, and --limit require --all.")
+			if stateFilter != "" || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue drop: --state, --event-type, --job, --runtime, --ready, --sort, and --limit require --all.")
 				return exitErr(2)
 			}
 			item, err := readPipelineQueueItem(cmd, teamDir, args[0], args[1], "drop")
@@ -1328,6 +1341,7 @@ func newPipelineQueueDropCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
@@ -4671,33 +4685,29 @@ func runPipelineQueueSummaryWatch(ctx context.Context, w io.Writer, teamDir, pip
 	}
 }
 
-func runPipelineQueueRetryAll(w io.Writer, teamDir, pipeline string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
-	results, err := pipelineQueueRetryResults(teamDir, pipeline, filters, limit, dryRun)
+func runPipelineQueueRetryAll(w io.Writer, teamDir, pipeline string, filters queueListFilters, sortMode string, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+	results, err := pipelineQueueRetryResults(teamDir, pipeline, filters, sortMode, limit, dryRun)
 	if err != nil {
 		return err
 	}
 	return renderQueueRetryResults(w, results, jsonOut, tmpl)
 }
 
-func pipelineQueueRetryResults(teamDir, pipeline string, filters queueListFilters, limit int, dryRun bool) ([]queueRetryResult, error) {
+func pipelineQueueRetryResults(teamDir, pipeline string, filters queueListFilters, sortMode string, limit int, dryRun bool) ([]queueRetryResult, error) {
 	matches, err := collectPipelineQueueItems(teamDir, pipeline, filters, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
-	if limit > 0 && len(matches) > limit {
-		matches = matches[:limit]
-	}
+	matches = prepareQueueActionMatches(matches, sortMode, limit, queueRuntimeMap(teamDir))
 	return retryQueueItemMatches(teamDir, matches, dryRun)
 }
 
-func runPipelineQueueDropAll(w io.Writer, teamDir, pipeline string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+func runPipelineQueueDropAll(w io.Writer, teamDir, pipeline string, filters queueListFilters, sortMode string, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
 	matches, err := collectPipelineQueueItems(teamDir, pipeline, filters, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	if limit > 0 && len(matches) > limit {
-		matches = matches[:limit]
-	}
+	matches = prepareQueueActionMatches(matches, sortMode, limit, queueRuntimeMap(teamDir))
 	results, err := dropQueueItemMatches(teamDir, matches, dryRun)
 	if err != nil {
 		return err
@@ -5805,7 +5815,7 @@ func runPipelineRepair(cmd *cobra.Command, repo, teamDir, pipeline string, opts 
 		if err != nil {
 			return nil, err
 		}
-		retries, err := pipelineQueueRetryResults(teamDir, pipeline, filters, opts.Limit, opts.DryRun)
+		retries, err := pipelineQueueRetryResults(teamDir, pipeline, filters, "state", opts.Limit, opts.DryRun)
 		if err != nil {
 			return nil, err
 		}

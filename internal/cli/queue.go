@@ -181,6 +181,7 @@ func newQueueDropCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
 		limit       int
 	)
 	cwd, _ := os.Getwd()
@@ -212,6 +213,11 @@ func newQueueDropCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --limit must be >= 0.")
 					return exitErr(2)
 				}
+				sortMode, err := parseQueueListSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drop: %v\n", err)
+					return exitErr(2)
+				}
 				effectiveState := strings.TrimSpace(stateFilter)
 				if effectiveState == "" {
 					effectiveState = daemon.QueueStateDead
@@ -224,14 +230,14 @@ func newQueueDropCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue drop: %v\n", err)
 					return exitErr(2)
 				}
-				return runQueueDropAll(cmd.OutOrStdout(), teamDir, filters, limit, dryRun, jsonOut, tmpl)
+				return runQueueDropAll(cmd.OutOrStdout(), teamDir, filters, sortMode, limit, dryRun, jsonOut, tmpl)
 			}
 			if len(args) != 1 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: requires one id unless --all is set.")
 				return exitErr(2)
 			}
-			if stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --state, --instance, --event-type, --job, --runtime, --ready, and --limit require --all.")
+			if stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --state, --instance, --event-type, --job, --runtime, --ready, --sort, and --limit require --all.")
 				return exitErr(2)
 			}
 			id := args[0]
@@ -299,6 +305,7 @@ func newQueueDropCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only drop pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
@@ -316,6 +323,7 @@ func newQueueRetryCmd() *cobra.Command {
 		jobs        []string
 		runtimes    []string
 		readyOnly   bool
+		sortBy      string
 		limit       int
 	)
 	cwd, _ := os.Getwd()
@@ -347,6 +355,11 @@ func newQueueRetryCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --limit must be >= 0.")
 					return exitErr(2)
 				}
+				sortMode, err := parseQueueListSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue retry: %v\n", err)
+					return exitErr(2)
+				}
 				effectiveState := strings.TrimSpace(stateFilter)
 				if effectiveState == "" {
 					effectiveState = daemon.QueueStateDead
@@ -359,14 +372,14 @@ func newQueueRetryCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue retry: %v\n", err)
 					return exitErr(2)
 				}
-				return runQueueRetryAll(cmd.OutOrStdout(), teamDir, filters, limit, dryRun, jsonOut, tmpl)
+				return runQueueRetryAll(cmd.OutOrStdout(), teamDir, filters, sortMode, limit, dryRun, jsonOut, tmpl)
 			}
 			if len(args) != 1 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: requires one id unless --all is set.")
 				return exitErr(2)
 			}
-			if stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || limit > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --state, --instance, --event-type, --job, --runtime, --ready, and --limit require --all.")
+			if stateFilter != "" || len(instances) > 0 || len(eventTypes) > 0 || len(jobs) > 0 || len(runtimes) > 0 || readyOnly || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --state, --instance, --event-type, --job, --runtime, --ready, --sort, and --limit require --all.")
 				return exitErr(2)
 			}
 			id := args[0]
@@ -456,6 +469,7 @@ func newQueueRetryCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "With --all, only retry pending queue items whose next retry is due now.")
+	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching queue items; 0 means no limit.")
 	return cmd
 }
@@ -866,6 +880,11 @@ func limitQueueItems(items []*daemon.QueueItem, limit int) []*daemon.QueueItem {
 	return items[:limit]
 }
 
+func prepareQueueActionMatches(items []*daemon.QueueItem, sortMode string, limit int, runtimeByInstance map[string]string) []*daemon.QueueItem {
+	sortQueueItems(items, sortMode, runtimeByInstance)
+	return limitQueueItems(items, limit)
+}
+
 func queueItemSortJobID(item *daemon.QueueItem) string {
 	if item == nil {
 		return ""
@@ -1107,15 +1126,14 @@ func pruneQueueItemMatches(teamDir string, items []*daemon.QueueItem, dryRun boo
 	return results, nil
 }
 
-func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+func runQueueDropAll(w io.Writer, teamDir string, filters queueListFilters, sortMode string, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
 	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return err
 	}
-	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()))
-	if limit > 0 && len(matches) > limit {
-		matches = matches[:limit]
-	}
+	runtimeByInstance := queueRuntimeMap(teamDir)
+	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()).withRuntimeByInstance(runtimeByInstance))
+	matches = prepareQueueActionMatches(matches, sortMode, limit, runtimeByInstance)
 	results, err := dropQueueItemMatches(teamDir, matches, dryRun)
 	if err != nil {
 		return err
@@ -1159,23 +1177,22 @@ func dropQueueItemMatches(teamDir string, matches []*daemon.QueueItem, dryRun bo
 	return results, nil
 }
 
-func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
-	results, err := queueRetryAllResults(teamDir, filters, limit, dryRun)
+func runQueueRetryAll(w io.Writer, teamDir string, filters queueListFilters, sortMode string, limit int, dryRun, jsonOut bool, tmpl *template.Template) error {
+	results, err := queueRetryAllResults(teamDir, filters, sortMode, limit, dryRun)
 	if err != nil {
 		return err
 	}
 	return renderQueueRetryResults(w, results, jsonOut, tmpl)
 }
 
-func queueRetryAllResults(teamDir string, filters queueListFilters, limit int, dryRun bool) ([]queueRetryResult, error) {
+func queueRetryAllResults(teamDir string, filters queueListFilters, sortMode string, limit int, dryRun bool) ([]queueRetryResult, error) {
 	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
 	}
-	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()))
-	if limit > 0 && len(matches) > limit {
-		matches = matches[:limit]
-	}
+	runtimeByInstance := queueRuntimeMap(teamDir)
+	matches := filterQueueItems(items, filters.withNow(time.Now().UTC()).withRuntimeByInstance(runtimeByInstance))
+	matches = prepareQueueActionMatches(matches, sortMode, limit, runtimeByInstance)
 	return retryQueueItemMatches(teamDir, matches, dryRun)
 }
 

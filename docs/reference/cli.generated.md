@@ -2094,6 +2094,7 @@ Flags:
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
@@ -2236,6 +2237,7 @@ Flags:
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
@@ -3381,6 +3383,7 @@ Flags:
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
@@ -3526,6 +3529,7 @@ Flags:
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
@@ -4110,6 +4114,7 @@ Flags:
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
@@ -4347,6 +4352,7 @@ Flags:
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
@@ -5938,6 +5944,7 @@ Flags:
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
@@ -6083,6 +6090,7 @@ Flags:
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
 
