@@ -68,8 +68,8 @@ agent-team job retry squ-42 --dispatch
 If the queue has a dead entry:
 
 ```sh
-agent-team job queue retry squ-42 --all --dry-run
-agent-team job queue retry squ-42 --all
+agent-team job queue retry squ-42 --all --sort attempts --limit 10 --dry-run
+agent-team job queue retry squ-42 --all --sort attempts --limit 10
 ```
 
 ## Close and Cleanup

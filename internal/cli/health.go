@@ -582,11 +582,11 @@ func addQueueHealth(result *healthResult, teamDir string, now time.Time) error {
 }
 
 func queueDeadLetterHealthActions(teamDir string, items []*daemon.QueueItem) []string {
-	retry := "agent-team queue retry --all"
+	retry := globalQueueRetryAllRecoveryAction(false)
 	if id := singleDeadQueueJobID(teamDir, items); id != "" {
-		retry = fmt.Sprintf("agent-team job queue retry %s --all", id)
+		retry = jobQueueRetryAllRecoveryAction(id, false)
 	} else if pipelineName := singleDeadQueuePipeline(teamDir, items); pipelineName != "" {
-		retry = fmt.Sprintf("agent-team pipeline queue retry %s --all", pipelineName)
+		retry = pipelineQueueRetryAllRecoveryAction(pipelineName, false)
 	}
 	return []string{retry, "agent-team repair --skip-tick"}
 }

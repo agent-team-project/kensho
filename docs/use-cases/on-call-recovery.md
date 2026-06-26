@@ -38,15 +38,15 @@ agent-team job unblock squ-42 "The dependency is available; continue."
 
 ```sh
 agent-team job queue squ-42 --state dead
-agent-team job queue retry squ-42 --all --dry-run
-agent-team job queue retry squ-42 --all
+agent-team job queue retry squ-42 --all --sort attempts --limit 10 --dry-run
+agent-team job queue retry squ-42 --all --sort attempts --limit 10
 ```
 
 If ownership is ambiguous:
 
 ```sh
 agent-team queue ls --state dead
-agent-team queue retry --all --dry-run
+agent-team queue retry --all --sort attempts --limit 10 --dry-run
 ```
 
 ## If Pipeline Steps Failed

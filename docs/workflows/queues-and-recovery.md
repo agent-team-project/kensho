@@ -76,12 +76,12 @@ agent-team team queue show delivery <id>
 Preview retries:
 
 ```sh
-agent-team queue retry --all --dry-run
-agent-team queue retry --all --runtime codex --dry-run
-agent-team job queue retry squ-42 --all --dry-run
-agent-team job queue retry squ-42 --all --runtime codex --dry-run
-agent-team team queue retry delivery --all --job SQU-42 --dry-run
-agent-team team queue retry delivery --all --runtime codex --dry-run
+agent-team queue retry --all --sort attempts --limit 10 --dry-run
+agent-team queue retry --all --runtime codex --sort attempts --limit 10 --dry-run
+agent-team job queue retry squ-42 --all --sort attempts --limit 10 --dry-run
+agent-team job queue retry squ-42 --all --runtime codex --sort attempts --limit 10 --dry-run
+agent-team team queue retry delivery --all --job SQU-42 --sort attempts --limit 10 --dry-run
+agent-team team queue retry delivery --all --runtime codex --sort attempts --limit 10 --dry-run
 ```
 
 Apply retries:
@@ -206,7 +206,7 @@ agent-team overview
 2. If it reports dead queue items, preview scoped retries:
 
 ```sh
-agent-team job queue retry squ-42 --all --dry-run
+agent-team job queue retry squ-42 --all --sort attempts --limit 10 --dry-run
 ```
 
 3. If it reports quarantined files, inspect first:

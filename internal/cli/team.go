@@ -8361,10 +8361,10 @@ func teamQueueActions(teamName string, jobs []*job.Job, items []*daemon.QueueIte
 	}
 	if len(ids) == 1 {
 		for id := range ids {
-			return []string{fmt.Sprintf("agent-team team queue retry %s --all --job %s", teamName, id)}
+			return []string{teamJobQueueRetryAllRecoveryAction(teamName, id, false)}
 		}
 	}
-	return []string{fmt.Sprintf("agent-team team queue retry %s --all", teamName)}
+	return []string{teamQueueRetryAllRecoveryAction(teamName, false)}
 }
 
 func teamPipelineStatus(team *topology.Team, rows []pipelineStatusRow) []pipelineStatusRow {
@@ -8437,7 +8437,7 @@ func teamPipelineActions(teamName string, row pipelineStatusRow) []string {
 	}
 	if row.QueueDead > 0 {
 		actions = append(actions, fmt.Sprintf("agent-team team queue %s --state dead --summary", teamName))
-		actions = append(actions, fmt.Sprintf("agent-team team queue retry %s --all --dry-run", teamName))
+		actions = append(actions, teamQueueRetryAllRecoveryAction(teamName, true))
 	}
 	if row.QueueQuarantined > 0 {
 		actions = append(actions, fmt.Sprintf("agent-team team queue quarantine %s", teamName))

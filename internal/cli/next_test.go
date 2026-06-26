@@ -64,13 +64,13 @@ func TestNextCommandCanScopeToTeam(t *testing.T) {
 		"next: attention",
 		"team: delivery",
 		"agent-team team repair delivery --dry-run --jobs",
-		"agent-team team queue retry delivery --all --job squ-700 --dry-run",
+		"agent-team team queue retry delivery --all --job squ-700 --sort attempts --limit 10 --dry-run",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("next team output missing %q:\n%s", want, out.String())
 		}
 	}
-	if strings.Contains(out.String(), "agent-team team queue retry delivery --all --dry-run") {
+	if strings.Contains(out.String(), "agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("next team output should prefer job-filtered retry:\n%s", out.String())
 	}
 }
@@ -120,12 +120,12 @@ func TestTeamNextCommandReportsScopedActions(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team next text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"next: attention", "team: delivery", "agent-team team queue retry delivery --all --job squ-700 --dry-run"} {
+	for _, want := range []string{"next: attention", "team: delivery", "agent-team team queue retry delivery --all --job squ-700 --sort attempts --limit 10 --dry-run"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team next text missing %q:\n%s", want, textOut.String())
 		}
 	}
-	if strings.Contains(textOut.String(), "agent-team team queue retry delivery --all --dry-run") {
+	if strings.Contains(textOut.String(), "agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("team next text should prefer job-filtered retry:\n%s", textOut.String())
 	}
 }
@@ -142,7 +142,7 @@ func TestNextCommandDetailsTextIncludesSourceAndReason(t *testing.T) {
 		t.Fatalf("next details text: %v\nstderr=%s", err, stderr.String())
 	}
 	for _, want := range []string{
-		"[queue/queue_dead_letter] agent-team job queue retry squ-700 --all --dry-run",
+		"[queue/queue_dead_letter] agent-team job queue retry squ-700 --all --sort attempts --limit 10 --dry-run",
 		"[queue/queue_dead_letter] agent-team repair --skip-tick --dry-run",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -161,7 +161,7 @@ func TestNextCommandDetailsTextIncludesSourceAndReason(t *testing.T) {
 	if !strings.Contains(teamOut.String(), "team: delivery") {
 		t.Fatalf("team next details output missing team header:\n%s", teamOut.String())
 	}
-	if !strings.Contains(teamOut.String(), "[queue/queue_dead_letter] agent-team team queue retry delivery --all --job squ-700 --dry-run") {
+	if !strings.Contains(teamOut.String(), "[queue/queue_dead_letter] agent-team team queue retry delivery --all --job squ-700 --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("team next details output missing queue retry detail:\n%s", teamOut.String())
 	}
 }
@@ -215,7 +215,7 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode filtered next json: %v\nbody=%s", err, out.String())
 	}
-	if len(result.Actions) != 2 || !stringSliceContains(result.Actions, "agent-team job queue retry squ-700 --all --dry-run") || !stringSliceContains(result.Actions, "agent-team repair --skip-tick --dry-run") || result.TotalActions != 2 || result.HiddenActions != 0 {
+	if len(result.Actions) != 2 || !stringSliceContains(result.Actions, "agent-team job queue retry squ-700 --all --sort attempts --limit 10 --dry-run") || !stringSliceContains(result.Actions, "agent-team repair --skip-tick --dry-run") || result.TotalActions != 2 || result.HiddenActions != 0 {
 		t.Fatalf("filtered result = %+v", result)
 	}
 	if len(result.ActionDetails) != 2 {

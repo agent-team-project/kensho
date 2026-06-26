@@ -60,7 +60,7 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair text dry-run: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"ISSUE", "queue_dead_letter", "agent-team queue retry --all; agent-team repair --skip-tick"} {
+	for _, want := range []string{"ISSUE", "queue_dead_letter", "agent-team queue retry --all --sort attempts --limit 10; agent-team repair --skip-tick"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("repair text missing %q:\n%s", want, textOut.String())
 		}

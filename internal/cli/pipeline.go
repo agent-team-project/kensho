@@ -4105,7 +4105,7 @@ func finalizePipelineStatusRow(row *pipelineStatusRow) {
 	}
 	if row.QueueDead > 0 {
 		actions = append(actions, fmt.Sprintf("agent-team pipeline queue %s --state dead --summary", row.Pipeline))
-		actions = append(actions, fmt.Sprintf("agent-team pipeline queue retry %s --all --dry-run", row.Pipeline))
+		actions = append(actions, pipelineQueueRetryAllRecoveryAction(row.Pipeline, true))
 	}
 	if row.QueueQuarantined > 0 {
 		actions = append(actions, fmt.Sprintf("agent-team pipeline queue quarantine %s", row.Pipeline))

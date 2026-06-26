@@ -5581,7 +5581,7 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 		if len(item.QueueIDs) == 1 {
 			add(fmt.Sprintf("agent-team job queue retry %s %s", item.JobID, item.QueueIDs[0]))
 		} else {
-			add(fmt.Sprintf("agent-team job queue retry %s --all", item.JobID))
+			add(jobQueueRetryAllRecoveryAction(item.JobID, false))
 		}
 	}
 	if stringSliceContains(item.Reasons, "queue_quarantined") {

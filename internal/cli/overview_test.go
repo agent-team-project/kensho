@@ -56,7 +56,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 		"agent-team repair --dry-run --jobs",
 		"agent-team daemon start",
 		"agent-team sync --dry-run",
-		"agent-team job queue retry squ-700 --all --dry-run",
+		"agent-team job queue retry squ-700 --all --sort attempts --limit 10 --dry-run",
 		"agent-team job queue quarantine squ-700",
 		"agent-team job triage",
 		"agent-team schedule fire --dry-run --preview-triggers",
@@ -69,7 +69,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	if len(overview.ActionDetails) != len(overview.Actions) {
 		t.Fatalf("action details = %+v, want one detail per action", overview.ActionDetails)
 	}
-	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team job queue retry squ-700 --all --dry-run"); !ok || detail.Source != "queue" || detail.Reason != "queue_dead_letter" {
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team job queue retry squ-700 --all --sort attempts --limit 10 --dry-run"); !ok || detail.Source != "queue" || detail.Reason != "queue_dead_letter" {
 		t.Fatalf("queue retry detail = %+v, ok=%v", detail, ok)
 	}
 	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team drain"); !ok || detail.Source != "overview" || !strings.HasPrefix(detail.Reason, "drainable_work=") {
@@ -731,7 +731,7 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	for _, want := range []string{
 		"agent-team team repair delivery --dry-run --jobs",
 		"agent-team team sync delivery --dry-run",
-		"agent-team team queue retry delivery --all --job squ-700 --dry-run",
+		"agent-team team queue retry delivery --all --job squ-700 --sort attempts --limit 10 --dry-run",
 		"agent-team team queue quarantine delivery",
 		"agent-team team triage delivery",
 		"agent-team team advance delivery --dry-run --preview-routes",
@@ -745,7 +745,7 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team team advance delivery --dry-run --preview-routes"); !ok || detail.Team != "delivery" || detail.Source != "pipelines" || detail.Reason == "" {
 		t.Fatalf("team advance detail = %+v, ok=%v", detail, ok)
 	}
-	if stringSliceContains(overview.Actions, "agent-team team queue retry delivery --all --dry-run") {
+	if stringSliceContains(overview.Actions, "agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("team actions should prefer job-filtered retry: %+v", overview.Actions)
 	}
 }
@@ -912,7 +912,7 @@ func TestOverviewStateReportsAttentionForFailures(t *testing.T) {
 	if overview.OK || overview.State != "attention" {
 		t.Fatalf("overview state = ok:%v state:%q", overview.OK, overview.State)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team queue retry --all --dry-run") {
+	if !stringSliceContains(overview.Actions, "agent-team queue retry --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("actions = %+v", overview.Actions)
 	}
 }

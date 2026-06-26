@@ -64,7 +64,7 @@ agent-team team repair delivery --dry-run --jobs
 
 ```sh
 agent-team team queue delivery --state dead
-agent-team team queue retry delivery --all --job SQU-42 --dry-run
+agent-team team queue retry delivery --all --job SQU-42 --sort attempts --limit 10 --dry-run
 agent-team team queue quarantine delivery --restorable
 ```
 

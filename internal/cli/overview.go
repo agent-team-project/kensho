@@ -812,9 +812,9 @@ func overviewQueueDeadRetryAction(health *healthResult, teamName string) string 
 		}
 	}
 	if teamName != "" {
-		return fmt.Sprintf("agent-team team queue retry %s --all --dry-run", teamName)
+		return teamQueueRetryAllRecoveryAction(teamName, true)
 	}
-	return "agent-team queue retry --all --dry-run"
+	return globalQueueRetryAllRecoveryAction(true)
 }
 
 func overviewQueueRetryDryRunAction(action, teamName string) string {
@@ -824,11 +824,13 @@ func overviewQueueRetryDryRunAction(action, teamName string) string {
 	}
 	switch {
 	case strings.HasPrefix(action, "agent-team job queue retry "):
-		return appendDryRunFlag(action)
+		return queueRetryRecoveryDryRunAction(action)
+	case strings.HasPrefix(action, "agent-team pipeline queue retry "):
+		return queueRetryRecoveryDryRunAction(action)
 	case teamName != "" && strings.HasPrefix(action, fmt.Sprintf("agent-team team queue retry %s ", teamName)):
-		return appendDryRunFlag(action)
-	case teamName == "" && action == "agent-team queue retry --all":
-		return appendDryRunFlag(action)
+		return queueRetryRecoveryDryRunAction(action)
+	case teamName == "" && strings.HasPrefix(action, "agent-team queue retry "):
+		return queueRetryRecoveryDryRunAction(action)
 	default:
 		return ""
 	}
@@ -845,6 +847,9 @@ func overviewIssueAction(action string) string {
 	action = strings.TrimSpace(action)
 	if action == "" {
 		return ""
+	}
+	if isQueueRetryAction(action) {
+		return queueRetryRecoveryDryRunAction(action)
 	}
 	if overviewIssueActionPrefersDryRun(action) {
 		return appendDryRunFlag(action)
@@ -878,6 +883,8 @@ func overviewIssueActionPrefersDryRun(action string) bool {
 	case action == "agent-team queue retry" || strings.HasPrefix(action, "agent-team queue retry "):
 		return true
 	case strings.HasPrefix(action, "agent-team job queue retry "):
+		return true
+	case strings.HasPrefix(action, "agent-team pipeline queue retry "):
 		return true
 	case strings.HasPrefix(action, "agent-team team queue retry "):
 		return true

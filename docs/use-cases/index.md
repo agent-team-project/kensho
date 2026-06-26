@@ -41,7 +41,7 @@ Example:
 ```sh
 agent-team overview
 agent-team job show squ-42 --events all
-agent-team job queue retry squ-42 --all --dry-run
-agent-team job queue retry squ-42 --all
+agent-team job queue retry squ-42 --all --sort attempts --limit 10 --dry-run
+agent-team job queue retry squ-42 --all --sort attempts --limit 10
 agent-team job show squ-42
 ```

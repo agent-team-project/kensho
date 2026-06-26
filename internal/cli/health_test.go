@@ -596,7 +596,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	var sawQueueIssue bool
 	for _, issue := range body.Issues {
 		if issue.Code == "queue_dead_letter" {
-			if !containsString(issue.Actions, "agent-team queue retry --all") || !containsString(issue.Actions, "agent-team repair --skip-tick") {
+			if !containsString(issue.Actions, "agent-team queue retry --all --sort attempts --limit 10") || !containsString(issue.Actions, "agent-team repair --skip-tick") {
 				t.Fatalf("queue issue actions = %+v", issue.Actions)
 			}
 			sawQueueIssue = true
@@ -615,7 +615,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
-	for _, want := range []string{"queue_dead_letter", "action=agent-team queue retry --all; agent-team repair --skip-tick"} {
+	for _, want := range []string{"queue_dead_letter", "action=agent-team queue retry --all --sort attempts --limit 10; agent-team repair --skip-tick"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
 		}
@@ -676,7 +676,7 @@ func TestHealthCommandReportsJobScopedQueueDeadLetterAction(t *testing.T) {
 	if queueIssue == nil {
 		t.Fatalf("issues = %+v, missing queue_dead_letter", body.Issues)
 	}
-	if !containsString(queueIssue.Actions, "agent-team job queue retry squ-91 --all") || containsString(queueIssue.Actions, "agent-team queue retry --all") {
+	if !containsString(queueIssue.Actions, "agent-team job queue retry squ-91 --all --sort attempts --limit 10") || containsString(queueIssue.Actions, "agent-team queue retry --all --sort attempts --limit 10") {
 		t.Fatalf("queue issue actions = %+v", queueIssue.Actions)
 	}
 
@@ -688,7 +688,7 @@ func TestHealthCommandReportsJobScopedQueueDeadLetterAction(t *testing.T) {
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
-	for _, want := range []string{"queue_dead_letter", "action=agent-team job queue retry squ-91 --all; agent-team repair --skip-tick"} {
+	for _, want := range []string{"queue_dead_letter", "action=agent-team job queue retry squ-91 --all --sort attempts --limit 10; agent-team repair --skip-tick"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("health text missing %q:\n%s", want, textOut.String())
 		}
@@ -891,7 +891,7 @@ target = "worker"
 	if deadIssue == nil || quarantineIssue == nil {
 		t.Fatalf("issues = %+v, want queue dead and quarantine issues", body.Issues)
 	}
-	if !containsString(deadIssue.Actions, "agent-team pipeline queue retry ticket_to_pr --all") || containsString(deadIssue.Actions, "agent-team queue retry --all") || containsString(deadIssue.Actions, "agent-team job queue retry") {
+	if !containsString(deadIssue.Actions, "agent-team pipeline queue retry ticket_to_pr --all --sort attempts --limit 10") || containsString(deadIssue.Actions, "agent-team queue retry --all --sort attempts --limit 10") || containsString(deadIssue.Actions, "agent-team job queue retry") {
 		t.Fatalf("dead issue actions = %+v", deadIssue.Actions)
 	}
 	for _, want := range []string{

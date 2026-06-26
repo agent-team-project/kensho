@@ -140,7 +140,7 @@ Teams are an operator scoping construct. They make it possible to run:
 ```sh
 agent-team team overview delivery
 agent-team team tick delivery --dry-run
-agent-team team queue retry delivery --all --job SQU-42
+agent-team team queue retry delivery --all --job SQU-42 --sort attempts --limit 10
 agent-team team snapshot delivery --output delivery-diagnostics.json
 ```
 

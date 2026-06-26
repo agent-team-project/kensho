@@ -459,7 +459,7 @@ since = "2026-06-18T12:00:00Z"
 	}
 	for _, want := range []string{
 		"agent-team team queue delivery --state dead --summary",
-		"agent-team team queue retry delivery --all --dry-run",
+		"agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run",
 		"agent-team team queue quarantine delivery",
 		"agent-team team queue quarantine delivery --restorable",
 		"agent-team team snapshot delivery --json",
@@ -752,7 +752,7 @@ since = "2026-06-18T12:00:00Z"
 	if !containsString(snapshot.Actions, "agent-team team sync delivery --wait") {
 		t.Fatalf("actions missing team sync hint: %+v", snapshot.Actions)
 	}
-	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all --job squ-801 --dry-run") {
+	if !containsString(snapshot.Actions, "agent-team team queue retry delivery --all --job squ-801 --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("actions missing team queue retry hint: %+v", snapshot.Actions)
 	}
 	if containsString(snapshot.Actions, "agent-team team queue retry delivery --all") {
@@ -773,7 +773,7 @@ since = "2026-06-18T12:00:00Z"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("team status text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all --job squ-801 --dry-run", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team team advance delivery --dry-run --preview-routes"} {
+	for _, want := range []string{"Team: delivery", "instances: total=3", "jobs: total=1", "queue: total=1 pending=0 dead=1 delayed=0 attempts=3 quarantined=1 restorable=1 unrestorable=0", "pipeline status: pipelines=1 jobs=1 ready_steps=1", "Actions:", "agent-team team sync delivery --wait", "agent-team team queue retry delivery --all --job squ-801 --sort attempts --limit 10 --dry-run", "agent-team team queue quarantine delivery", "agent-team team queue quarantine delivery --restorable", "agent-team team advance delivery --dry-run --preview-routes"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("team status text missing %q:\n%s", want, textOut.String())
 		}
@@ -8360,7 +8360,7 @@ pipelines = ["ticket_to_pr"]
 			containsString(issue.Actions, "agent-team team repair delivery --retry-pipelines --dry-run --preview-routes") {
 			sawScopedPipelineAction = true
 		}
-		if issue.Code == "queue_dead_letter" && containsString(issue.Actions, "agent-team team queue retry delivery --all --job squ-901") {
+		if issue.Code == "queue_dead_letter" && containsString(issue.Actions, "agent-team team queue retry delivery --all --job squ-901 --sort attempts --limit 10") {
 			sawScopedQueueAction = true
 		}
 		if issue.Code == "queue_quarantined" && containsString(issue.Actions, "agent-team team queue quarantine delivery") && containsString(issue.Actions, "agent-team team queue quarantine delivery --restorable") && containsString(issue.Actions, "agent-team team snapshot delivery --json") {
@@ -8436,7 +8436,7 @@ pipelines = ["ticket_to_pr"]
 func TestScopeTeamHealthIssueActions(t *testing.T) {
 	result := &healthResult{Issues: []healthIssue{
 		{Code: "declared_missing", Actions: []string{"agent-team sync --dry-run", "agent-team daemon start"}},
-		{Code: "queue_dead_letter", Actions: []string{"agent-team queue retry --all --dry-run"}},
+		{Code: "queue_dead_letter", Actions: []string{"agent-team queue retry --all --sort attempts --limit 10 --dry-run"}},
 		{Code: "instance_crashed", Actions: []string{"agent-team runtime resume-plan worker-squ-1 --status crashed"}},
 		{Code: "instance_crashed", Actions: []string{"agent-team job resume-plan squ-1 --status crashed"}},
 	}}
@@ -8444,7 +8444,7 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 	if got := result.Issues[0].Actions; !containsString(got, "agent-team team sync delivery --dry-run") || containsString(got, "agent-team sync --dry-run") || !containsString(got, "agent-team daemon start") {
 		t.Fatalf("declared actions = %+v", got)
 	}
-	if got := result.Issues[1].Actions; !containsString(got, "agent-team queue retry --all --dry-run") {
+	if got := result.Issues[1].Actions; !containsString(got, "agent-team queue retry --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("queue actions changed unexpectedly: %+v", got)
 	}
 	if got := result.Issues[2].Actions; !containsString(got, "agent-team team runtime resume-plan delivery --status crashed") || containsString(got, "agent-team runtime resume-plan worker-squ-1 --status crashed") {

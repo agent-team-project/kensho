@@ -2254,7 +2254,7 @@ pipelines = ["ticket_to_pr"]
 	}
 	for _, want := range []string{
 		"agent-team pipeline queue ticket_to_pr --state dead --summary",
-		"agent-team pipeline queue retry ticket_to_pr --all --dry-run",
+		"agent-team pipeline queue retry ticket_to_pr --all --sort attempts --limit 10 --dry-run",
 		"agent-team pipeline queue quarantine ticket_to_pr",
 		"agent-team pipeline queue quarantine ticket_to_pr --unrestorable",
 		"agent-team pipeline queue quarantine ticket_to_pr --restorable",
@@ -2292,7 +2292,7 @@ pipelines = ["ticket_to_pr"]
 	}
 	for _, want := range []string{
 		"queue_dead=1|agent-team pipeline queue ticket_to_pr --state dead --summary",
-		"queue_dead=1|agent-team pipeline queue retry ticket_to_pr --all --dry-run",
+		"queue_dead=1|agent-team pipeline queue retry ticket_to_pr --all --sort attempts --limit 10 --dry-run",
 		"queue_quarantined=2|agent-team pipeline queue quarantine ticket_to_pr",
 		"queue_pending=1|agent-team pipeline queue ticket_to_pr --state pending",
 	} {
@@ -2311,7 +2311,7 @@ pipelines = ["ticket_to_pr"]
 	}
 	for _, want := range []string{
 		"queue_dead=1|agent-team team queue delivery --state dead --summary",
-		"queue_dead=1|agent-team team queue retry delivery --all --dry-run",
+		"queue_dead=1|agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run",
 		"queue_quarantined=2|agent-team team queue quarantine delivery",
 		"queue_pending=1|agent-team team queue delivery --state pending",
 	} {
