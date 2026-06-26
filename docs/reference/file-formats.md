@@ -96,10 +96,14 @@ trigger.event = "ticket.created"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
+workspace = "worktree"
+runtime = "codex"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
 target = "manager"
+workspace = "repo"
+runtime = "claude"
 after = ["implement"]
 gate = "pr"
 optional = true
@@ -139,11 +143,15 @@ updated_at = "2026-06-22T10:15:00Z"
 [[steps]]
 id = "implement"
 target = "worker"
+workspace = "worktree"
+runtime = "codex"
 status = "running"
 
 [[steps]]
 id = "review"
 target = "manager"
+workspace = "repo"
+runtime = "claude"
 status = "blocked"
 after = ["implement"]
 gate = "pr"

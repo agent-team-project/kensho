@@ -64,6 +64,8 @@ type Step struct {
 	Instructions string    `toml:"instructions,omitempty"`
 	Target       string    `toml:"target"`
 	Workspace    string    `toml:"workspace,omitempty"`
+	Runtime      string    `toml:"runtime,omitempty"`
+	RuntimeBin   string    `toml:"runtime_bin,omitempty"`
 	Status       Status    `toml:"status"`
 	Instance     string    `toml:"instance,omitempty"`
 	After        []string  `toml:"after,omitempty"`
@@ -255,6 +257,9 @@ func Validate(j *Job) error {
 		if !ValidStepWorkspace(step.Workspace) {
 			return fmt.Errorf("steps[%d]: workspace must be auto, worktree, or repo", i)
 		}
+		if !ValidStepRuntime(step.Runtime) {
+			return fmt.Errorf("steps[%d]: runtime must be claude or codex", i)
+		}
 		if !ValidStatus(step.Status) {
 			return fmt.Errorf("steps[%d]: unknown status %q", i, step.Status)
 		}
@@ -281,6 +286,16 @@ func Validate(j *Job) error {
 		}
 	}
 	return nil
+}
+
+// ValidStepRuntime reports whether a step runtime override is supported.
+func ValidStepRuntime(runtime string) bool {
+	switch strings.TrimSpace(runtime) {
+	case "", "claude", "codex":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidStepWorkspace reports whether a step workspace override is supported.

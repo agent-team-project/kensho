@@ -219,6 +219,15 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err != nil {
 		t.Fatalf("Validate rejected valid step workspace: %v", err)
 	}
+	j.Steps[0].Runtime = "llama"
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid step runtime")
+	}
+	j.Steps[0].Runtime = "codex"
+	j.Steps[0].RuntimeBin = "codex-dev"
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected valid step runtime: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

@@ -1053,6 +1053,8 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			Instructions: step.Instructions,
 			Target:       step.Target,
 			Workspace:    step.Workspace,
+			Runtime:      step.Runtime,
+			RuntimeBin:   step.RuntimeBin,
 			Status:       status,
 			After:        append([]string(nil), step.After...),
 			Gate:         step.Gate,
@@ -6184,6 +6186,8 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.Instructions = next.Step.Instructions
 		row.Target = next.Step.Target
 		row.Workspace = next.Step.Workspace
+		row.Runtime = next.Step.Runtime
+		row.RuntimeBin = next.Step.RuntimeBin
 		row.StepStatus = next.Step.Status
 		row.Instance = next.Step.Instance
 		row.Gate = next.Step.Gate
@@ -6265,14 +6269,14 @@ func renderJobReadyTable(w io.Writer, rows []jobReadyRow) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tLABEL\tTARGET\tWORKSPACE\tPIPELINE\tOPTIONAL\tWAITING_FOR\tUPDATED\tACTION")
+	fmt.Fprintln(tw, "JOB\tSTATE\tSTEP\tLABEL\tTARGET\tWORKSPACE\tRUNTIME\tPIPELINE\tOPTIONAL\tWAITING_FOR\tUPDATED\tACTION")
 	for _, row := range rows {
 		waiting := "-"
 		if len(row.WaitingFor) > 0 {
 			waiting = strings.Join(row.WaitingFor, ",")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Label), emptyDash(row.Target), emptyDash(row.Workspace), emptyDash(row.Pipeline), yesNo(row.Optional), waiting, row.UpdatedAt.Format(time.RFC3339), emptyDash(strings.Join(row.Actions, "; ")))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.JobID, row.State, emptyDash(row.StepID), emptyDash(row.Label), emptyDash(row.Target), emptyDash(row.Workspace), emptyDash(formatStepRuntime(row.Runtime, row.RuntimeBin)), emptyDash(row.Pipeline), yesNo(row.Optional), waiting, row.UpdatedAt.Format(time.RFC3339), emptyDash(strings.Join(row.Actions, "; ")))
 	}
 	_ = tw.Flush()
 }
@@ -7827,6 +7831,8 @@ type jobExplainNext struct {
 	Instructions string     `json:"instructions,omitempty"`
 	Target       string     `json:"target,omitempty"`
 	Workspace    string     `json:"workspace,omitempty"`
+	Runtime      string     `json:"runtime,omitempty"`
+	RuntimeBin   string     `json:"runtime_bin,omitempty"`
 	Status       job.Status `json:"status,omitempty"`
 	Instance     string     `json:"instance,omitempty"`
 	WaitingFor   []string   `json:"waiting_for,omitempty"`
@@ -7841,6 +7847,8 @@ type jobExplainStep struct {
 	Instructions string     `json:"instructions,omitempty"`
 	Target       string     `json:"target"`
 	Workspace    string     `json:"workspace,omitempty"`
+	Runtime      string     `json:"runtime,omitempty"`
+	RuntimeBin   string     `json:"runtime_bin,omitempty"`
 	Status       job.Status `json:"status"`
 	State        string     `json:"state"`
 	Ready        bool       `json:"ready,omitempty"`
@@ -7873,6 +7881,8 @@ type jobReadyRow struct {
 	Instructions       string     `json:"instructions,omitempty"`
 	Target             string     `json:"target,omitempty"`
 	Workspace          string     `json:"workspace,omitempty"`
+	Runtime            string     `json:"runtime,omitempty"`
+	RuntimeBin         string     `json:"runtime_bin,omitempty"`
 	StepStatus         job.Status `json:"step_status,omitempty"`
 	Instance           string     `json:"instance,omitempty"`
 	Gate               string     `json:"gate,omitempty"`
@@ -8016,7 +8026,7 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = stepID
-	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
+	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
 		return nil, exitErr(2)
 	}
@@ -8234,6 +8244,8 @@ func explainJobPipeline(j *job.Job) jobExplainResult {
 			Instructions: step.Instructions,
 			Target:       step.Target,
 			Workspace:    step.Workspace,
+			Runtime:      step.Runtime,
+			RuntimeBin:   step.RuntimeBin,
 			Status:       step.Status,
 			Ready:        ready[step.ID],
 			Instance:     step.Instance,
@@ -8271,6 +8283,8 @@ func jobExplainNextFromResult(next jobNextResult) jobExplainNext {
 		out.Instructions = next.Step.Instructions
 		out.Target = next.Step.Target
 		out.Workspace = next.Step.Workspace
+		out.Runtime = next.Step.Runtime
+		out.RuntimeBin = next.Step.RuntimeBin
 		out.Status = next.Step.Status
 		out.Instance = next.Step.Instance
 	}
@@ -8786,8 +8800,8 @@ func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *tem
 		actions = strings.Join(res.Actions, "; ")
 	}
 	attempts := formatJobStepAttempts(res.Step.Attempts, res.Step.MaxAttempts)
-	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s workspace=%s instance=%s after=%s gate=%s%s attempts=%s waiting_for=%s actions=%s\n",
-		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Workspace), emptyDash(res.Step.Instance), after, gate, optional, attempts, waiting, actions)
+	fmt.Fprintf(w, "Job: %s next step=%s state=%s status=%s target=%s workspace=%s runtime=%s instance=%s after=%s gate=%s%s attempts=%s waiting_for=%s actions=%s\n",
+		res.JobID, res.Step.ID, res.State, res.Step.Status, res.Step.Target, emptyDash(res.Step.Workspace), emptyDash(formatStepRuntime(res.Step.Runtime, res.Step.RuntimeBin)), emptyDash(res.Step.Instance), after, gate, optional, attempts, waiting, actions)
 	return nil
 }
 
@@ -8823,17 +8837,18 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	} else {
 		fmt.Fprintln(w, "Steps:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tLABEL\tTARGET\tWORKSPACE\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tATTEMPTS\tWAITING_FOR\tACTION")
+		fmt.Fprintln(tw, "ID\tLABEL\tTARGET\tWORKSPACE\tRUNTIME\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tATTEMPTS\tWAITING_FOR\tACTION")
 		for _, step := range res.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				step.ID,
 				emptyDash(step.Label),
 				emptyDash(step.Target),
 				emptyDash(step.Workspace),
+				emptyDash(formatStepRuntime(step.Runtime, step.RuntimeBin)),
 				step.Status,
 				emptyDash(step.State),
 				emptyDash(step.Instance),
@@ -9545,7 +9560,7 @@ func previewJobStepDispatch(teamDir string, j *job.Job, step *job.Step, workspac
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = step.ID
-	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
+	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		return nil, err
 	}
 	dispatch, err := previewDispatchPayload(teamDir, step.Target, requestedName, payload)
@@ -9566,6 +9581,28 @@ func workspaceForJobStep(step *job.Step, requested string) string {
 		}
 	}
 	return requested
+}
+
+func runtimeSelectionForJobStep(step *job.Step, requested runtimeSelection) runtimeSelection {
+	if strings.TrimSpace(requested.Kind) != "" || strings.TrimSpace(requested.Binary) != "" {
+		return requested
+	}
+	if step == nil {
+		return requested
+	}
+	return runtimeSelection{Kind: strings.TrimSpace(step.Runtime), Binary: strings.TrimSpace(step.RuntimeBin)}
+}
+
+func formatStepRuntime(kind, binary string) string {
+	kind = strings.TrimSpace(kind)
+	binary = strings.TrimSpace(binary)
+	if kind == "" {
+		return ""
+	}
+	if binary != "" {
+		return kind + ":" + binary
+	}
+	return kind
 }
 
 func renderJobAdvancePreview(w io.Writer, preview *jobAdvancePreview, jsonOut bool, tmpl *template.Template) error {
@@ -10035,6 +10072,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 			}
 			if strings.TrimSpace(step.Workspace) != "" {
 				parts = append(parts, "workspace="+strings.TrimSpace(step.Workspace))
+			}
+			if runtime := formatStepRuntime(step.Runtime, step.RuntimeBin); runtime != "" {
+				parts = append(parts, "runtime_default="+runtime)
 			}
 			if strings.TrimSpace(step.Label) != "" {
 				parts = append(parts, fmt.Sprintf("label=%q", strings.TrimSpace(step.Label)))

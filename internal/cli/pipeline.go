@@ -3174,6 +3174,8 @@ type pipelineStepInfo struct {
 	Instructions string   `json:"instructions,omitempty"`
 	Target       string   `json:"target"`
 	Workspace    string   `json:"workspace,omitempty"`
+	Runtime      string   `json:"runtime,omitempty"`
+	RuntimeBin   string   `json:"runtime_bin,omitempty"`
 	After        []string `json:"after,omitempty"`
 	Gate         string   `json:"gate,omitempty"`
 	Optional     bool     `json:"optional,omitempty"`
@@ -3196,6 +3198,8 @@ type pipelineGraphNode struct {
 	Instructions string   `json:"instructions,omitempty"`
 	Target       string   `json:"target,omitempty"`
 	Workspace    string   `json:"workspace,omitempty"`
+	Runtime      string   `json:"runtime,omitempty"`
+	RuntimeBin   string   `json:"runtime_bin,omitempty"`
 	After        []string `json:"after,omitempty"`
 	Gate         string   `json:"gate,omitempty"`
 	Optional     bool     `json:"optional,omitempty"`
@@ -3511,6 +3515,8 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			Instructions: strings.TrimSpace(step.Instructions),
 			Target:       strings.TrimSpace(step.Target),
 			Workspace:    strings.TrimSpace(step.Workspace),
+			Runtime:      strings.TrimSpace(step.Runtime),
+			RuntimeBin:   strings.TrimSpace(step.RuntimeBin),
 			After:        trimStringSlice(step.After),
 			Gate:         strings.TrimSpace(step.Gate),
 			Optional:     step.Optional,
@@ -3806,6 +3812,8 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 			Instructions: step.Instructions,
 			Target:       step.Target,
 			Workspace:    step.Workspace,
+			Runtime:      step.Runtime,
+			RuntimeBin:   step.RuntimeBin,
 			After:        append([]string(nil), step.After...),
 			Gate:         step.Gate,
 			Optional:     step.Optional,
@@ -6202,7 +6210,11 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		if step.Workspace != "" {
 			workspace = " workspace=" + step.Workspace
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s\n", step.ID, step.Target, after, workspace, label, description, instructions, gate, optional, timeout, maxAttempts)
+		runtime := ""
+		if formatted := formatStepRuntime(step.Runtime, step.RuntimeBin); formatted != "" {
+			runtime = " runtime=" + formatted
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s\n", step.ID, step.Target, after, workspace, runtime, label, description, instructions, gate, optional, timeout, maxAttempts)
 	}
 	return nil
 }
@@ -6292,11 +6304,15 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Workspace != "" {
 			workspace = " workspace=" + node.Workspace
 		}
+		runtime := ""
+		if formatted := formatStepRuntime(node.Runtime, node.RuntimeBin); formatted != "" {
+			runtime = " runtime=" + formatted
+		}
 		missing := ""
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, workspace, label, description, instructions, gate, optional, timeout, maxAttempts, routes, missing)
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, workspace, runtime, label, description, instructions, gate, optional, timeout, maxAttempts, routes, missing)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -6362,6 +6378,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.Workspace != "" {
 		parts = append(parts, "workspace: "+node.Workspace)
+	}
+	if runtime := formatStepRuntime(node.Runtime, node.RuntimeBin); runtime != "" {
+		parts = append(parts, "runtime: "+runtime)
 	}
 	if len(node.Routes) > 0 {
 		parts = append(parts, "routes: "+strings.Join(node.Routes, ","))
@@ -6527,14 +6546,18 @@ func summarisePipelineInfoSteps(steps []pipelineStepInfo) string {
 		if step.Workspace != "" {
 			workspace = " workspace=" + step.Workspace
 		}
+		runtime := ""
+		if formatted := formatStepRuntime(step.Runtime, step.RuntimeBin); formatted != "" {
+			runtime = " runtime=" + formatted
+		}
 		label := ""
 		if step.Label != "" {
 			label = fmt.Sprintf(" label=%q", step.Label)
 		}
 		if len(step.After) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s%s%s after=%s%s%s%s%s", step.ID, step.Target, workspace, label, strings.Join(step.After, ","), gate, optional, timeout, maxAttempts))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s after=%s%s%s%s%s", step.ID, step.Target, workspace, runtime, label, strings.Join(step.After, ","), gate, optional, timeout, maxAttempts))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s%s%s%s", step.ID, step.Target, workspace, label, gate, optional, timeout, maxAttempts))
+			parts = append(parts, fmt.Sprintf("%s:%s%s%s%s%s%s%s%s", step.ID, step.Target, workspace, runtime, label, gate, optional, timeout, maxAttempts))
 		}
 	}
 	return strings.Join(parts, " -> ")

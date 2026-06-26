@@ -146,6 +146,8 @@ description = "Review implementation and prepare PR handoff."
 instructions = "Review the worker branch and decide whether PR follow-up is ready."
 target = "manager"
 workspace = "repo"
+runtime = "codex"
+runtime_bin = "codex-dev"
 after = ["implement"]
 gate = "pr"
 optional = true
@@ -162,7 +164,7 @@ max_attempts = 2
 	if p.Trigger.Event != "ticket.created" || p.Trigger.Match["project"].Single != "Core" {
 		t.Fatalf("trigger = %+v", p.Trigger)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
+	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
@@ -225,6 +227,27 @@ workspace = "scratch"
 		t.Fatal("expected invalid workspace error")
 	}
 	if !strings.Contains(err.Error(), "workspace must be auto, worktree, or repo") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParse_PipelineRejectsInvalidRuntime(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+runtime = "llama"
+`))
+	if err == nil {
+		t.Fatal("expected invalid runtime error")
+	}
+	if !strings.Contains(err.Error(), "runtime must be claude or codex") {
 		t.Fatalf("error = %v", err)
 	}
 }

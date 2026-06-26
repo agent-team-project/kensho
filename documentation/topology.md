@@ -112,12 +112,16 @@ id     = "implement"
 label  = "Implementation"
 instructions = "Implement the ticket with tests and summarize the branch state."
 target = "worker"
+workspace = "worktree"
+runtime = "codex"
 
 [[pipelines.ticket_to_pr.steps]]
 id     = "review"
 label  = "Review"
 description = "Check the branch and request PR follow-up."
 target = "manager"
+workspace = "repo"
+runtime = "claude"
 after  = ["implement"]
 gate   = "manual"
 max_attempts = 2
@@ -157,6 +161,9 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |
 | `steps[].instructions` | no | empty | Step-specific runtime instructions appended to the job kickoff when this step dispatches. |
 | `steps[].target` | yes | — | Dispatch target. The target should resolve through an `agent.dispatch` trigger. |
+| `steps[].workspace` | no | auto | Dispatch workspace default for this stage. Supported values: `"auto"`, `"worktree"`, or `"repo"`. Operator `--workspace` flags override it. |
+| `steps[].runtime` | no | repo default | Dispatch runtime default for this stage. Supported values: `"claude"` or `"codex"`. Operator `--runtime` flags override it. |
+| `steps[].runtime_bin` | no | runtime default | Runtime binary or wrapper default for this stage. Operator `--runtime-bin` flags override it. |
 | `steps[].after` | no | empty | Step dependency or list of dependencies. All referenced steps must be done before this step is ready. |
 | `steps[].gate` | no | empty | Set to `"manual"` to require operator approval before the step can dispatch, even after dependencies are done. Approve with `agent-team job step <job-id> <step-id> --status queued`. |
 | `steps[].optional` | no | `false` | If `true`, a failed step does not block downstream dependencies. |

@@ -100,6 +100,8 @@ type PipelineStep struct {
 	Instructions string
 	Target       string
 	Workspace    string
+	Runtime      string
+	RuntimeBin   string
 	After        []string
 	Gate         string
 	Optional     bool
@@ -703,6 +705,14 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
+		runtime, err := parseStepRuntime(body["runtime"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		runtimeBin, err := parseStepText(body["runtime_bin"], "runtime_bin")
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
 		label, err := parseStepText(body["label"], "label")
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
@@ -735,7 +745,7 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Workspace: workspace, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -757,6 +767,23 @@ func parseStepText(raw any, field string) (string, error) {
 		return "", fmt.Errorf("%s must be a non-empty string", field)
 	}
 	return value, nil
+}
+
+func parseStepRuntime(raw any) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	value = strings.ToLower(strings.TrimSpace(value))
+	if !ok || value == "" {
+		return "", fmt.Errorf("runtime must be a non-empty string")
+	}
+	switch value {
+	case "claude", "codex":
+		return value, nil
+	default:
+		return "", fmt.Errorf("runtime must be claude or codex")
+	}
 }
 
 func parseStepWorkspace(raw any) (string, error) {
