@@ -3463,7 +3463,10 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	previewOut, previewErr := &bytes.Buffer{}, &bytes.Buffer{}
 	previewCmd.SetOut(previewOut)
 	previewCmd.SetErr(previewErr)
-	previewCmd.SetArgs([]string{"team", "run", "delivery", "SQU-811", "--repo", root, "--kickoff", "ship it", "--dry-run", "--json"})
+	oldInput := sendMessageInput
+	sendMessageInput = strings.NewReader("ship it from stdin\n")
+	defer func() { sendMessageInput = oldInput }()
+	previewCmd.SetArgs([]string{"team", "run", "delivery", "SQU-811", "--repo", root, "--kickoff-file", "-", "--dry-run", "--json"})
 	if err := previewCmd.Execute(); err != nil {
 		t.Fatalf("team run dry-run: %v\nstderr=%s", err, previewErr.String())
 	}
@@ -3473,6 +3476,9 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	}
 	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-811" || preview.Job.Pipeline != "ticket_to_pr" || preview.Job.Target != "worker" {
 		t.Fatalf("preview = %+v", preview)
+	}
+	if preview.Job.Kickoff != "SQU-811: ship it from stdin" {
+		t.Fatalf("preview kickoff = %q", preview.Job.Kickoff)
 	}
 	if len(preview.Job.Steps) != 2 || preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[1].ID != "review" {
 		t.Fatalf("preview steps = %+v", preview.Job.Steps)

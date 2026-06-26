@@ -5264,6 +5264,10 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)
 	teamDir := filepath.Join(root, ".agent_team")
+	kickoffPath := filepath.Join(root, "kickoff.txt")
+	if err := os.WriteFile(kickoffPath, []byte("run pipeline from file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -5272,7 +5276,7 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	cmd.SetArgs([]string{
 		"pipeline", "run", "ticket_to_pr", "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline",
 		"--repo", root,
-		"--kickoff", "run pipeline",
+		"--kickoff-file", kickoffPath,
 		"--json",
 	})
 	if err := cmd.Execute(); err != nil {
@@ -5284,6 +5288,9 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	}
 	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 2 {
 		t.Fatalf("created job = %+v", created)
+	}
+	if created.Kickoff != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline: run pipeline from file" {
+		t.Fatalf("created kickoff = %q", created.Kickoff)
 	}
 	if created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline" {
 		t.Fatalf("created ticket_url = %q", created.TicketURL)

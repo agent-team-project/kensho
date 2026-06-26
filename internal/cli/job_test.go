@@ -184,6 +184,38 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobCreateKickoffFileFromStdin(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	oldInput := sendMessageInput
+	sendMessageInput = strings.NewReader("implement from stdin\n")
+	defer func() { sendMessageInput = oldInput }()
+
+	create := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(out)
+	create.SetErr(stderr)
+	create.SetArgs([]string{"job", "create", "SQU-99", "--repo", tmp, "--kickoff-file", "-", "--json"})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("job create kickoff stdin: %v\nstderr=%s", err, stderr.String())
+	}
+	var created job.Job
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
+		t.Fatalf("decode job create kickoff stdin: %v\nbody=%s", err, out.String())
+	}
+	if created.ID != "squ-99" || created.Kickoff != "SQU-99: implement from stdin" {
+		t.Fatalf("created job = %+v", created)
+	}
+	persisted, err := job.Read(filepath.Join(tmp, ".agent_team"), "squ-99")
+	if err != nil {
+		t.Fatalf("read persisted job: %v", err)
+	}
+	if persisted.Kickoff != "SQU-99: implement from stdin" {
+		t.Fatalf("persisted kickoff = %q", persisted.Kickoff)
+	}
+}
+
 func TestJobCloseRecordsMessage(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

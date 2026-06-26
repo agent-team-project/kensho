@@ -47,6 +47,25 @@ func TestDispatchKickoffSources(t *testing.T) {
 	if err != nil || got != "SQU-42: already included" {
 		t.Fatalf("flag kickoff = %q err=%v, want unchanged", got, err)
 	}
+	kickoffFile := filepath.Join(t.TempDir(), "kickoff.txt")
+	if err := os.WriteFile(kickoffFile, []byte("file kickoff\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = dispatchKickoff("SQU-42", "", kickoffFile, nil)
+	if err != nil || got != "SQU-42: file kickoff" {
+		t.Fatalf("file kickoff = %q err=%v, want ticket prefix", got, err)
+	}
+	oldInput := sendMessageInput
+	sendMessageInput = strings.NewReader("stdin kickoff\n")
+	defer func() { sendMessageInput = oldInput }()
+	got, err = dispatchKickoff("SQU-42", "", "-", nil)
+	if err != nil || got != "SQU-42: stdin kickoff" {
+		t.Fatalf("stdin kickoff = %q err=%v, want ticket prefix", got, err)
+	}
+	_, err = dispatchKickoff("SQU-42", "", filepath.Join(t.TempDir(), "missing.txt"), nil)
+	if err == nil || !strings.Contains(err.Error(), "--kickoff-file:") {
+		t.Fatalf("missing kickoff file err=%v, want --kickoff-file prefix", err)
+	}
 	_, err = dispatchKickoff("SQU-42", "flag", "", []string{"positional"})
 	if err == nil || !strings.Contains(err.Error(), "only one") {
 		t.Fatalf("conflicting kickoff sources err=%v, want conflict", err)

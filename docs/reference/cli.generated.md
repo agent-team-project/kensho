@@ -649,7 +649,7 @@ Flags:
       --format string         Render the event outcome or dry-run preview with a Go template.
       --json                  Emit the daemon event outcome as JSON.
       --kickoff string        Kickoff text for the dispatched agent.
-      --kickoff-file string   Read kickoff text from a file.
+      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
       --name string           Requested instance name (default: <target>-<ticket-slug>).
       --runtime string        Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for the dispatched instance. Overrides env and repo config.
@@ -1799,7 +1799,7 @@ Flags:
       --instance string       Instance name that owns the job (default set during dispatch).
       --json                  Emit the job as JSON.
       --kickoff string        Kickoff text for the target agent.
-      --kickoff-file string   Read kickoff text from a file.
+      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
       --pipeline string       Create this job from a declared pipeline in instances.toml.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
@@ -3719,7 +3719,7 @@ Flags:
       --id string             Override the normalized job id (default: ticket slug).
       --json                  Emit the created job or advance result as JSON.
       --kickoff string        Kickoff text for the first pipeline step.
-      --kickoff-file string   Read kickoff text from a file.
+      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
@@ -6270,7 +6270,7 @@ Flags:
       --id string             Override the normalized job id (default: ticket slug).
       --json                  Emit the created job or advance result as JSON.
       --kickoff string        Kickoff text for the first pipeline step.
-      --kickoff-file string   Read kickoff text from a file.
+      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
       --pipeline string       Team pipeline to use when the team declares more than one.
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
