@@ -1353,6 +1353,7 @@ func newJobWaitCmd() *cobra.Command {
 func newJobStartCmd() *cobra.Command {
 	var (
 		repo         string
+		stepID       string
 		wait         bool
 		timeout      time.Duration
 		readyTimeout time.Duration
@@ -1372,7 +1373,7 @@ func newJobStartCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job start: %v\n", err)
 				return exitErr(2)
 			}
-			return runJobInstanceUp(cmd, repo, args[0], instanceUpOptions{
+			return runJobInstanceUp(cmd, repo, args[0], stepID, instanceUpOptions{
 				Wait:    wait,
 				Timeout: timeout,
 				DryRun:  dryRun,
@@ -1383,6 +1384,7 @@ func newJobStartCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to become healthy after starting or resuming.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
@@ -2135,6 +2137,7 @@ func renderJobAttachDryRunHints(w io.Writer, teamDir string, j *job.Job, instanc
 func newJobStopCmd() *cobra.Command {
 	var (
 		repo        string
+		stepID      string
 		force       bool
 		wait        bool
 		timeout     time.Duration
@@ -2156,7 +2159,7 @@ func newJobStopCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job stop: %v\n", err)
 				return exitErr(2)
 			}
-			return runJobInstanceDown(cmd, repo, args[0], instanceDownOptions{
+			return runJobInstanceDown(cmd, repo, args[0], stepID, instanceDownOptions{
 				Force:          force,
 				Wait:           wait,
 				Timeout:        timeout,
@@ -2171,6 +2174,7 @@ func newJobStopCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Escalate to SIGKILL if the owning instance does not stop within --timeout.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline.")
@@ -2186,6 +2190,7 @@ func newJobStopCmd() *cobra.Command {
 func newJobKillCmd() *cobra.Command {
 	var (
 		repo        string
+		stepID      string
 		timeout     time.Duration
 		wait        bool
 		waitTimeout time.Duration
@@ -2206,7 +2211,7 @@ func newJobKillCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job kill: %v\n", err)
 				return exitErr(2)
 			}
-			return runJobInstanceDown(cmd, repo, args[0], instanceDownOptions{
+			return runJobInstanceDown(cmd, repo, args[0], stepID, instanceDownOptions{
 				Force:          true,
 				Wait:           wait,
 				Timeout:        timeout,
@@ -2222,6 +2227,7 @@ func newJobKillCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Second, "Grace before SIGKILL escalation.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the owning instance to reach a terminal state.")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
@@ -2310,6 +2316,7 @@ func jobCloseMessage(status, message, messageFile string, positional []string) (
 func newJobCancelCmd() *cobra.Command {
 	var (
 		repo           string
+		stepID         string
 		actor          string
 		message        string
 		messageFile    string
@@ -2349,6 +2356,10 @@ func newJobCancelCmd() *cobra.Command {
 					return exitErr(2)
 				}
 			}
+			if strings.TrimSpace(stepID) != "" && !stopInstance && !killInstance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --step requires --stop or --kill.")
+				return exitErr(2)
+			}
 			if dryRun && wait {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --dry-run cannot be combined with --wait.")
 				return exitErr(2)
@@ -2367,20 +2378,33 @@ func newJobCancelCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if (stopInstance || killInstance) && strings.TrimSpace(j.Instance) == "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cancel: job %q has no owning instance; omit --stop/--kill to cancel only the job file.\n", j.ID)
-				return exitErr(2)
+			selection := jobInstanceSelection{Instance: strings.TrimSpace(j.Instance)}
+			if stopInstance || killInstance {
+				var err error
+				selection, err = selectJobOwningInstance(j, stepID)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cancel: %v\n", err)
+					return exitErr(2)
+				}
+				if strings.TrimSpace(selection.Instance) == "" {
+					printMissingJobInstanceError(cmd.ErrOrStderr(), "cancel", j, selection.StepID, "omit --stop/--kill to cancel only the job file, or dispatch/adopt it first")
+					return exitErr(2)
+				}
 			}
 			repoRoot := filepath.Dir(teamDir)
 			cancelled := *j
+			cancelled.Steps = append([]job.Step(nil), j.Steps...)
 			applyJobCancelUpdate(&cancelled, reason)
+			if strings.TrimSpace(selection.StepID) != "" {
+				applySelectedJobStepStatus(&cancelled, selection.StepID, job.StatusFailed, cancelled.UpdatedAt)
+			}
 			result := jobCancelResult{
 				DryRun:  dryRun,
 				Job:     &cancelled,
 				Message: reason,
 			}
 			if stopInstance || killInstance {
-				actions, err := runJobCancelInstanceAction(cmd, repoRoot, j.Instance, jobCancelInstanceOptions{
+				actions, err := runJobCancelInstanceAction(cmd, repoRoot, selection.Instance, jobCancelInstanceOptions{
 					Stop:           stopInstance,
 					Kill:           killInstance,
 					Wait:           wait,
@@ -2403,8 +2427,13 @@ func newJobCancelCmd() *cobra.Command {
 				"status":  string(j.Status),
 				"message": reason,
 			}
-			if strings.TrimSpace(j.Instance) != "" {
+			if strings.TrimSpace(selection.Instance) != "" {
+				data["instance"] = strings.TrimSpace(selection.Instance)
+			} else if strings.TrimSpace(j.Instance) != "" {
 				data["instance"] = strings.TrimSpace(j.Instance)
+			}
+			if strings.TrimSpace(selection.StepID) != "" {
+				data["step"] = strings.TrimSpace(selection.StepID)
 			}
 			if len(result.InstanceActions) > 0 {
 				data["instance_action"] = result.InstanceActions[0].Action
@@ -2421,6 +2450,7 @@ func newJobCancelCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance when combined with --stop or --kill.")
 	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the cancellation audit event.")
 	cmd.Flags().StringVar(&message, "message", "", "Cancellation reason recorded on the job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read cancellation reason from a file, or '-' for stdin.")
@@ -6577,7 +6607,7 @@ func parseJobReopenStatus(raw string) (job.Status, error) {
 	}
 }
 
-func runJobInstanceUp(cmd *cobra.Command, repo, id string, opts instanceUpOptions, readyTimeout time.Duration) error {
+func runJobInstanceUp(cmd *cobra.Command, repo, id, stepID string, opts instanceUpOptions, readyTimeout time.Duration) error {
 	if readyTimeout < 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job start: --ready-timeout must be >= 0.")
 		return exitErr(2)
@@ -6586,9 +6616,14 @@ func runJobInstanceUp(cmd *cobra.Command, repo, id string, opts instanceUpOption
 	if err != nil {
 		return err
 	}
-	instance := strings.TrimSpace(j.Instance)
+	selection, err := selectJobOwningInstance(j, stepID)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job start: %v\n", err)
+		return exitErr(2)
+	}
+	instance := strings.TrimSpace(selection.Instance)
 	if instance == "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job start: job %q has no owning instance; dispatch it first.\n", j.ID)
+		printMissingJobInstanceError(cmd.ErrOrStderr(), "start", j, selection.StepID, "dispatch or adopt it first")
 		return exitErr(2)
 	}
 	repoRoot := filepath.Dir(teamDir)
@@ -6603,32 +6638,42 @@ func runJobInstanceUp(cmd *cobra.Command, repo, id string, opts instanceUpOption
 	if opts.DryRun {
 		return nil
 	}
-	applyJobInstanceUpUpdate(j)
-	return writeJobWithAudit(teamDir, j, "", "cli", "", nil)
+	applyJobInstanceUpUpdate(j, selection)
+	return writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection))
 }
 
-func applyJobInstanceUpUpdate(j *job.Job) {
+func applyJobInstanceUpUpdate(j *job.Job, selection jobInstanceSelection) {
 	now := time.Now().UTC()
 	if j.Status != job.StatusDone {
 		j.Status = job.StatusRunning
 	}
+	if strings.TrimSpace(selection.StepID) != "" {
+		applySelectedJobStepStatus(j, selection.StepID, job.StatusRunning, now)
+	}
 	j.LastEvent = "instance_start"
-	if strings.TrimSpace(j.Instance) != "" {
-		j.LastStatus = "start " + j.Instance
+	if strings.TrimSpace(selection.Instance) != "" {
+		j.LastStatus = "start " + strings.TrimSpace(selection.Instance)
+	} else if strings.TrimSpace(j.Instance) != "" {
+		j.LastStatus = "start " + strings.TrimSpace(j.Instance)
 	} else {
 		j.LastStatus = "start"
 	}
 	j.UpdatedAt = now
 }
 
-func runJobInstanceDown(cmd *cobra.Command, repo, id string, opts instanceDownOptions, nextStatus job.Status) error {
+func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instanceDownOptions, nextStatus job.Status) error {
 	teamDir, j, err := readJobAndTeamDir(cmd, repo, id)
 	if err != nil {
 		return err
 	}
-	instance := strings.TrimSpace(j.Instance)
+	selection, err := selectJobOwningInstance(j, stepID)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job %s: %v\n", downAction(opts), err)
+		return exitErr(2)
+	}
+	instance := strings.TrimSpace(selection.Instance)
 	if instance == "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job %s: job %q has no owning instance; dispatch it first.\n", downAction(opts), j.ID)
+		printMissingJobInstanceError(cmd.ErrOrStderr(), downAction(opts), j, selection.StepID, "dispatch or adopt it first")
 		return exitErr(2)
 	}
 	if err := runInstanceDownWithOptions(cmd, filepath.Dir(teamDir), []string{instance}, opts); err != nil {
@@ -6637,11 +6682,11 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id string, opts instanceDownOp
 	if opts.DryRun {
 		return nil
 	}
-	applyJobInstanceDownUpdate(j, downAction(opts), nextStatus)
-	return writeJobWithAudit(teamDir, j, "", "cli", "", nil)
+	applyJobInstanceDownUpdate(j, selection, downAction(opts), nextStatus)
+	return writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection))
 }
 
-func applyJobInstanceDownUpdate(j *job.Job, action string, nextStatus job.Status) {
+func applyJobInstanceDownUpdate(j *job.Job, selection jobInstanceSelection, action string, nextStatus job.Status) {
 	now := time.Now().UTC()
 	if nextStatus == job.StatusFailed {
 		if j.Status != job.StatusDone {
@@ -6653,13 +6698,66 @@ func applyJobInstanceDownUpdate(j *job.Job, action string, nextStatus job.Status
 			j.Status = nextStatus
 		}
 	}
+	if strings.TrimSpace(selection.StepID) != "" {
+		applySelectedJobStepStatus(j, selection.StepID, nextStatus, now)
+	}
 	j.LastEvent = "instance_" + action
-	if strings.TrimSpace(j.Instance) != "" {
-		j.LastStatus = action + " " + j.Instance
+	if strings.TrimSpace(selection.Instance) != "" {
+		j.LastStatus = action + " " + strings.TrimSpace(selection.Instance)
+	} else if strings.TrimSpace(j.Instance) != "" {
+		j.LastStatus = action + " " + strings.TrimSpace(j.Instance)
 	} else {
 		j.LastStatus = action
 	}
 	j.UpdatedAt = now
+}
+
+func applySelectedJobStepStatus(j *job.Job, stepID string, status job.Status, now time.Time) {
+	if j == nil {
+		return
+	}
+	idx := jobStepIndex(j, strings.TrimSpace(stepID))
+	if idx < 0 {
+		return
+	}
+	step := &j.Steps[idx]
+	switch status {
+	case job.StatusRunning:
+		if step.Status != job.StatusDone {
+			step.Status = job.StatusRunning
+			if step.StartedAt.IsZero() {
+				step.StartedAt = now
+			}
+			step.FinishedAt = time.Time{}
+		}
+	case job.StatusBlocked:
+		switch step.Status {
+		case job.StatusQueued, job.StatusRunning:
+			step.Status = job.StatusBlocked
+		}
+	case job.StatusFailed:
+		if step.Status != job.StatusDone {
+			step.Status = job.StatusFailed
+			if step.StartedAt.IsZero() {
+				step.StartedAt = now
+			}
+			step.FinishedAt = now
+		}
+	}
+}
+
+func jobInstanceSelectionAuditData(selection jobInstanceSelection) map[string]string {
+	data := map[string]string{}
+	if instance := strings.TrimSpace(selection.Instance); instance != "" {
+		data["instance"] = instance
+	}
+	if stepID := strings.TrimSpace(selection.StepID); stepID != "" {
+		data["step"] = stepID
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return data
 }
 
 func filteredJobs(teamDir string, filters jobListFilters) ([]*job.Job, error) {

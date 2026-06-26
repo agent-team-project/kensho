@@ -1836,6 +1836,7 @@ Flags:
       --message-file string     Read cancellation reason from a file, or '-' for stdin.
       --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after stopping or killing.
+      --step string             Use this pipeline step's owning instance when combined with --stop or --kill.
       --stop                    Gracefully stop the owning instance before recording the cancellation.
       --timeout duration        Grace before --kill escalation, or wait deadline when used with --wait and no --wait-timeout.
       --wait                    Wait for the owning instance to reach a terminal state when --stop or --kill is set.
@@ -2019,6 +2020,7 @@ Flags:
   -q, --quiet                   Suppress non-error output and use only the exit code.
       --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after killing.
+      --step string             Use this pipeline step's owning instance.
       --timeout duration        Grace before SIGKILL escalation. (default 2s)
       --wait                    Wait for the owning instance to reach a terminal state.
       --wait-timeout duration   Maximum time to wait for terminal state with --wait.
@@ -2686,6 +2688,7 @@ Flags:
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --repo string              Repo root containing .agent_team. (default "<repo>")
+      --step string              Use this pipeline step's owning instance.
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
       --wait                     Wait for the owning instance to become healthy after starting or resuming.
 ```
@@ -2737,6 +2740,7 @@ Flags:
   -q, --quiet                   Suppress non-error output and use only the exit code.
       --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after stopping.
+      --step string             Use this pipeline step's owning instance.
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline.
       --wait                    Wait for the owning instance to reach a terminal state.
       --wait-timeout duration   Maximum time to wait for terminal state with --wait.

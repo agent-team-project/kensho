@@ -411,6 +411,76 @@ func TestJobCancelStopsOwningInstanceAndFailsJob(t *testing.T) {
 	}
 }
 
+func TestJobCancelStopsExplicitStepInstanceAndFailsStep(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-cancel-step-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-165-implement", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-165",
+		Ticket:   "SQU-165",
+		Target:   "manager",
+		Instance: "manager-squ-165",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-165-implement", StartedAt: now.Add(-time.Hour)},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "cancel", "squ-165", "--repo", tmp, "--message", "obsolete implementation", "--actor", "ops", "--step", "implement", "--stop", "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job cancel step --stop: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result jobCancelResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode cancel step result: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusFailed || result.Job.LastEvent != "cancelled" || result.Job.LastStatus != "obsolete implementation" {
+		t.Fatalf("cancel result job = %+v", result.Job)
+	}
+	if len(result.InstanceActions) != 1 || result.InstanceActions[0].Action != "stop" || result.InstanceActions[0].Instance != "worker-squ-165-implement" || result.InstanceActions[0].Status != "stopped" {
+		t.Fatalf("instance actions = %+v", result.InstanceActions)
+	}
+	updated, err := job.Read(teamDir, "squ-165")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	idx := jobStepIndex(updated, "implement")
+	if updated.Status != job.StatusFailed || updated.Instance != "manager-squ-165" || updated.LastEvent != "cancelled" || updated.LastStatus != "obsolete implementation" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if idx < 0 || updated.Steps[idx].Status != job.StatusFailed || updated.Steps[idx].FinishedAt.IsZero() {
+		t.Fatalf("updated step = %+v", updated.Steps)
+	}
+	events, err := job.ListEvents(teamDir, "squ-165")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "cancelled" || events[0].Actor != "ops" || events[0].Data["instance_action"] != "stop" || events[0].Data["instance"] != "worker-squ-165-implement" || events[0].Data["step"] != "implement" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobAdoptUsesJobDefaultsAndUpdatesJob(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -5870,6 +5940,81 @@ func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
 	}
 }
 
+func TestJobStartResumesExplicitStepInstanceAndMarksStepRunning(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-start-step-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-163-implement", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-163-implement")
+	t.Cleanup(func() {
+		meta, err := daemon.ReadMetadata(root, "worker-squ-163-implement")
+		if err == nil && meta.Status == daemon.StatusRunning {
+			stopAndWaitForTest(t, mgr, "worker-squ-163-implement")
+		}
+	})
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-163",
+		Ticket:   "SQU-163",
+		Target:   "manager",
+		Instance: "manager-squ-163",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusBlocked,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-163"},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, Instance: "worker-squ-163-implement", After: []string{"triage"}, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "start", "squ-163", "--repo", tmp, "--step", "implement", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job start step: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []lifecycleActionResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode start step json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "resume" || rows[0].Instance != "worker-squ-163-implement" || rows[0].Status != string(daemon.StatusRunning) {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-163")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	idx := jobStepIndex(updated, "implement")
+	if updated.Status != job.StatusRunning || updated.Instance != "manager-squ-163" || updated.LastEvent != "instance_start" || updated.LastStatus != "start worker-squ-163-implement" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if idx < 0 || updated.Steps[idx].Status != job.StatusRunning || !updated.Steps[idx].FinishedAt.IsZero() {
+		t.Fatalf("updated step = %+v", updated.Steps)
+	}
+	events, err := job.ListEvents(teamDir, "squ-163")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["instance"] != "worker-squ-163-implement" || events[0].Data["step"] != "implement" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobStopStopsOwningInstanceAndBlocksJob(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-stop-")
 	if err != nil {
@@ -5919,6 +6064,67 @@ func TestJobStopStopsOwningInstanceAndBlocksJob(t *testing.T) {
 	}
 	if updated.Status != job.StatusBlocked || updated.LastEvent != "instance_stop" || updated.LastStatus != "stop worker-squ-61" {
 		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobStopStopsExplicitStepInstanceAndBlocksStep(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-stop-step-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-161-implement", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-161",
+		Ticket:   "SQU-161",
+		Target:   "manager",
+		Instance: "manager-squ-161",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-161"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-161-implement", After: []string{"triage"}, StartedAt: now.Add(-time.Hour)},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "stop", "squ-161", "--repo", tmp, "--step", "implement", "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job stop step: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode stop step json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "stop" || rows[0].Instance != "worker-squ-161-implement" || rows[0].Status != "stopped" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-161")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	idx := jobStepIndex(updated, "implement")
+	if updated.Status != job.StatusBlocked || updated.Instance != "manager-squ-161" || updated.LastEvent != "instance_stop" || updated.LastStatus != "stop worker-squ-161-implement" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if idx < 0 || updated.Steps[idx].Status != job.StatusBlocked {
+		t.Fatalf("updated step = %+v", updated.Steps)
 	}
 }
 
@@ -5972,6 +6178,65 @@ func TestJobKillDryRunDoesNotMutateJob(t *testing.T) {
 		t.Fatalf("read job: %v", err)
 	}
 	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.UpdatedAt.Equal(original.UpdatedAt) {
+		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+}
+
+func TestJobKillDryRunUsesExplicitStepInstance(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-kill-step-dry-run-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-162-implement", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	defer stopAndWaitForTest(t, mgr, "worker-squ-162-implement")
+	now := time.Now().UTC()
+	original := &job.Job{
+		ID:       "squ-162",
+		Ticket:   "SQU-162",
+		Target:   "manager",
+		Instance: "manager-squ-162",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-162-implement", StartedAt: now.Add(-time.Hour)},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, original); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "kill", "squ-162", "--repo", tmp, "--step", "implement", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job kill step dry-run: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode kill step dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != "worker-squ-162-implement" || !rows[0].DryRun {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-162")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	idx := jobStepIndex(updated, "implement")
+	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.UpdatedAt.Equal(original.UpdatedAt) || idx < 0 || updated.Steps[idx].Status != job.StatusRunning {
 		t.Fatalf("dry-run mutated job = %+v", updated)
 	}
 }
