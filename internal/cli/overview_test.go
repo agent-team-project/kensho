@@ -80,6 +80,96 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsUnreadInboxActions(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	if err := daemon.AppendMessage(daemonRoot, "manager", &daemon.Message{
+		ID:   "msg-overview",
+		From: "tester",
+		Body: "please check in",
+	}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview unread inbox json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview unread inbox: %v\nbody=%s", err, out.String())
+	}
+	if overview.Inbox.Total != 1 || overview.Inbox.Unread != 1 || overview.Inbox.UnreadInstances != 1 || !stringSliceContains(overview.Inbox.UnreadNames, "manager") {
+		t.Fatalf("inbox summary = %+v", overview.Inbox)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team inbox ls --unread") {
+		t.Fatalf("actions missing inbox unread command: %+v", overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team inbox ls --unread"); !ok || detail.Source != "inbox" || detail.Reason != "unread=1" {
+		t.Fatalf("inbox detail = %+v, ok=%v", detail, ok)
+	}
+
+	next := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	next.SetOut(nextOut)
+	next.SetErr(nextErr)
+	next.SetArgs([]string{"next", "--target", root, "--source", "inbox", "--json"})
+	if err := next.Execute(); err != nil {
+		t.Fatalf("next unread inbox json: %v\nstderr=%s", err, nextErr.String())
+	}
+	var nextResult nextActionResult
+	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
+		t.Fatalf("decode next unread inbox: %v\nbody=%s", err, nextOut.String())
+	}
+	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team inbox ls --unread" {
+		t.Fatalf("next inbox actions = %+v", nextResult)
+	}
+}
+
+func TestTeamOverviewScopesUnreadInboxActions(t *testing.T) {
+	root := writeOverviewAttentionFixture(t)
+	teamDir := filepath.Join(root, ".agent_team")
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	for _, target := range []string{"manager", "outsider"} {
+		if err := daemon.AppendMessage(daemonRoot, target, &daemon.Message{
+			ID:   "msg-" + target,
+			From: "tester",
+			Body: "hello " + target,
+		}); err != nil {
+			t.Fatalf("append %s: %v", target, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team overview unread inbox: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode team overview unread inbox: %v\nbody=%s", err, out.String())
+	}
+	if overview.Inbox.Total != 1 || overview.Inbox.Unread != 1 || !stringSliceContains(overview.Inbox.UnreadNames, "manager") || stringSliceContains(overview.Inbox.UnreadNames, "outsider") {
+		t.Fatalf("team inbox summary = %+v", overview.Inbox)
+	}
+	action := "agent-team inbox ls --team delivery --unread"
+	if !stringSliceContains(overview.Actions, action) {
+		t.Fatalf("team actions missing inbox unread command: %+v", overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, action); !ok || detail.Team != "delivery" || detail.Source != "inbox" || detail.Reason != "unread=1" {
+		t.Fatalf("team inbox detail = %+v, ok=%v", detail, ok)
+	}
+}
+
 func TestOverviewRecommendsParallelReadyFanout(t *testing.T) {
 	root := writeOverviewParallelReadyFixture(t)
 

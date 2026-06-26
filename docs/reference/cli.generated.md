@@ -1074,6 +1074,7 @@ Flags:
       --format string   Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.
       --json            Emit machine-readable JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --team string     Only list inboxes owned by this declared team.
       --unread          Show only inboxes with unread messages.
 ```
 
@@ -3128,7 +3129,7 @@ Flags:
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
-      --source strings       Only show actions from this source: health, topology, runtime, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
+      --source strings       Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string          Scope recommendations to this declared team.
   -w, --watch                Refresh recommended actions until interrupted.
@@ -6055,7 +6056,7 @@ Flags:
       --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
-      --source strings       Only show actions from this source: health, topology, runtime, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
+      --source strings       Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
   -w, --watch                Refresh recommended actions until interrupted.
 ```
 

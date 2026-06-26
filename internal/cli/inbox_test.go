@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -162,6 +163,50 @@ func TestInboxAckMissingMessageReturnsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(stderr, `message id "missing" not found`) {
 		t.Fatalf("stderr = %q, want missing message hint", stderr)
+	}
+}
+
+func TestInboxLsTeamScopesUnreadSummaries(t *testing.T) {
+	tmp := t.TempDir()
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	instances := `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	for _, target := range []string{"manager", "worker-squ-1", "outsider"} {
+		if err := daemon.AppendMessage(root, target, &daemon.Message{
+			ID:   "msg-" + target,
+			From: "tester",
+			Body: "hello " + target,
+		}); err != nil {
+			t.Fatalf("append %s: %v", target, err)
+		}
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--target", tmp, "--team", "delivery", "--unread", "--json")
+	if err != nil {
+		t.Fatalf("inbox ls --team: %v\nstderr=%s", err, stderr)
+	}
+	var rows []inboxSummaryRow
+	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
+		t.Fatalf("decode team inbox rows: %v\nbody=%s", err, stdout)
+	}
+	if len(rows) != 2 || findInboxSummary(rows, "manager") == nil || findInboxSummary(rows, "worker-squ-1") == nil || findInboxSummary(rows, "outsider") != nil {
+		t.Fatalf("team inbox rows = %+v", rows)
 	}
 }
 

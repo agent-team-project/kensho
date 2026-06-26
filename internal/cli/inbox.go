@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +35,7 @@ func newInboxCmd() *cobra.Command {
 func newInboxLsCmd() *cobra.Command {
 	var (
 		target     string
+		teamName   string
 		unreadOnly bool
 		jsonOut    bool
 		format     string
@@ -57,6 +59,7 @@ func newInboxLsCmd() *cobra.Command {
 				return err
 			}
 			return runInboxLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, inboxListOptions{
+				TeamName:   teamName,
 				UnreadOnly: unreadOnly,
 				JSON:       jsonOut,
 				Format:     tmpl,
@@ -64,6 +67,7 @@ func newInboxLsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().StringVar(&teamName, "team", "", "Only list inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.")
@@ -174,6 +178,7 @@ func newInboxAckCmd() *cobra.Command {
 }
 
 type inboxListOptions struct {
+	TeamName   string
 	UnreadOnly bool
 	JSON       bool
 	Format     *template.Template
@@ -240,40 +245,16 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 	if err != nil {
 		return err
 	}
-	rows := make([]inboxSummaryRow, 0, len(instances))
-	for _, instance := range instances {
-		messages, err := daemon.ReadMessages(daemonRoot, instance)
+	if strings.TrimSpace(opts.TeamName) != "" {
+		top, team, err := loadTopologyTeam(teamDir, opts.TeamName)
 		if err != nil {
-			return fmt.Errorf("read inbox %s: %w", instance, err)
+			return err
 		}
-		cursor, err := daemon.ReadCursor(daemonRoot, instance)
-		if err != nil {
-			return fmt.Errorf("read inbox cursor %s: %w", instance, err)
-		}
-		row := inboxSummaryRow{
-			Instance:    instance,
-			Total:       len(messages),
-			Unread:      inboxUnreadCount(messages, cursor),
-			Cursor:      cursor,
-			HasMetadata: metaByInstance[instance] != nil,
-			MailboxPath: daemon.MailboxPath(daemonRoot, instance),
-			CursorPath:  daemon.MailboxCursorPath(daemonRoot, instance),
-		}
-		if meta := metaByInstance[instance]; meta != nil {
-			row.Agent = meta.Agent
-			row.Status = string(meta.Status)
-		}
-		if len(messages) > 0 {
-			latest := messages[len(messages)-1]
-			row.LatestID = latest.ID
-			row.LatestFrom = latest.From
-			row.LatestBody = latest.Body
-			row.LatestTS = latest.TS
-		}
-		if opts.UnreadOnly && row.Unread == 0 {
-			continue
-		}
-		rows = append(rows, row)
+		instances = filterInboxInstancesForTeam(top, team, instances, metaByInstance)
+	}
+	rows, err := collectInboxSummaryRows(daemonRoot, instances, metaByInstance, opts.UnreadOnly)
+	if err != nil {
+		return err
 	}
 	if opts.JSON {
 		return json.NewEncoder(stdout).Encode(rows)
@@ -306,6 +287,45 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 		)
 	}
 	return tw.Flush()
+}
+
+func collectInboxSummaryRows(daemonRoot string, instances []string, metaByInstance map[string]*daemon.Metadata, unreadOnly bool) ([]inboxSummaryRow, error) {
+	rows := make([]inboxSummaryRow, 0, len(instances))
+	for _, instance := range instances {
+		messages, err := daemon.ReadMessages(daemonRoot, instance)
+		if err != nil {
+			return nil, fmt.Errorf("read inbox %s: %w", instance, err)
+		}
+		cursor, err := daemon.ReadCursor(daemonRoot, instance)
+		if err != nil {
+			return nil, fmt.Errorf("read inbox cursor %s: %w", instance, err)
+		}
+		row := inboxSummaryRow{
+			Instance:    instance,
+			Total:       len(messages),
+			Unread:      inboxUnreadCount(messages, cursor),
+			Cursor:      cursor,
+			HasMetadata: metaByInstance[instance] != nil,
+			MailboxPath: daemon.MailboxPath(daemonRoot, instance),
+			CursorPath:  daemon.MailboxCursorPath(daemonRoot, instance),
+		}
+		if meta := metaByInstance[instance]; meta != nil {
+			row.Agent = meta.Agent
+			row.Status = string(meta.Status)
+		}
+		if len(messages) > 0 {
+			latest := messages[len(messages)-1]
+			row.LatestID = latest.ID
+			row.LatestFrom = latest.From
+			row.LatestBody = latest.Body
+			row.LatestTS = latest.TS
+		}
+		if unreadOnly && row.Unread == 0 {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inboxShowOptions) error {
@@ -475,6 +495,35 @@ func sortedInboxInstances(instances map[string]bool) []string {
 		out = append(out, instance)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func filterInboxInstancesForTeam(top *topology.Topology, team *topology.Team, instances []string, metaByInstance map[string]*daemon.Metadata) []string {
+	if top == nil || team == nil {
+		return nil
+	}
+	declared := stringSliceSet(team.Instances)
+	ephemeralOwners := map[string]bool{}
+	for _, name := range team.Instances {
+		if inst := top.Instances[name]; inst != nil && inst.Ephemeral {
+			ephemeralOwners[inst.Name] = true
+		}
+	}
+	out := make([]string, 0, len(instances))
+	for _, instance := range instances {
+		if declared[instance] {
+			out = append(out, instance)
+			continue
+		}
+		meta := metaByInstance[instance]
+		agent := ""
+		if meta != nil {
+			agent = meta.Agent
+		}
+		if owner, ok := declaredEphemeralOwner(top, instance, agent); ok && ephemeralOwners[owner.Name] {
+			out = append(out, instance)
+		}
+	}
 	return out
 }
 

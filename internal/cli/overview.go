@@ -149,6 +149,7 @@ type overviewResult struct {
 	Health        overviewHealthSummary   `json:"health"`
 	Topology      *topologySummary        `json:"topology,omitempty"`
 	Runtime       overviewRuntimeSummary  `json:"runtime"`
+	Inbox         overviewInboxSummary    `json:"inbox"`
 	Jobs          overviewJobSummary      `json:"jobs"`
 	Queue         queueSummary            `json:"queue"`
 	Pipelines     overviewPipelineSummary `json:"pipelines"`
@@ -198,6 +199,14 @@ type overviewRuntimeSummary struct {
 	StaleRunning     int      `json:"stale_running,omitempty"`
 	CrashedInstances []string `json:"crashed_instances,omitempty"`
 	StaleInstances   []string `json:"stale_instances,omitempty"`
+}
+
+type overviewInboxSummary struct {
+	Instances       int      `json:"instances"`
+	Total           int      `json:"total"`
+	Unread          int      `json:"unread"`
+	UnreadInstances int      `json:"unread_instances"`
+	UnreadNames     []string `json:"unread_names,omitempty"`
 }
 
 type overviewPipelineSummary struct {
@@ -264,6 +273,12 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 		out.addError("runtime", err)
 	} else {
 		out.Runtime = runtime
+	}
+
+	if inbox, err := collectOverviewInbox(teamDir, nil, nil); err != nil {
+		out.addError("inbox", err)
+	} else {
+		out.Inbox = inbox
 	}
 
 	if out.Jobs.Summary.Total == 0 && out.Jobs.Attention == 0 && out.Jobs.ReadySteps == 0 {
@@ -350,6 +365,12 @@ func collectTeamOverview(teamDir, name string, now time.Time, scheduleLimit int)
 		out.addError("runtime", err)
 	} else {
 		out.Runtime = runtime
+	}
+
+	if inbox, err := collectOverviewInbox(teamDir, top, team); err != nil {
+		out.addError("inbox", err)
+	} else {
+		out.Inbox = inbox
 	}
 
 	if out.Jobs.Summary.Total == 0 && out.Jobs.Attention == 0 && out.Jobs.ReadySteps == 0 {
@@ -507,6 +528,32 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata) overviewRuntimeSummar
 	return out
 }
 
+func collectOverviewInbox(teamDir string, top *topology.Topology, team *topology.Team) (overviewInboxSummary, error) {
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	instances, metaByInstance, err := listInboxInstances(daemonRoot)
+	if err != nil {
+		return overviewInboxSummary{}, err
+	}
+	if team != nil {
+		instances = filterInboxInstancesForTeam(top, team, instances, metaByInstance)
+	}
+	rows, err := collectInboxSummaryRows(daemonRoot, instances, metaByInstance, false)
+	if err != nil {
+		return overviewInboxSummary{}, err
+	}
+	out := overviewInboxSummary{Instances: len(rows)}
+	for _, row := range rows {
+		out.Total += row.Total
+		out.Unread += row.Unread
+		if row.Unread > 0 {
+			out.UnreadInstances++
+			out.UnreadNames = append(out.UnreadNames, row.Instance)
+		}
+	}
+	sort.Strings(out.UnreadNames)
+	return out, nil
+}
+
 func countJobTriageReason(items []jobTriageItem, reason string) int {
 	count := 0
 	for _, item := range items {
@@ -606,6 +653,13 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 	}
 	if out.Runtime.StaleRunning > 0 {
 		add(overviewRuntimeStaleResumePlanAction(teamName), "runtime", fmt.Sprintf("stale=%d", out.Runtime.StaleRunning))
+	}
+	if out.Inbox.Unread > 0 {
+		if teamName != "" {
+			add(fmt.Sprintf("agent-team inbox ls --team %s --unread", teamName), "inbox", fmt.Sprintf("unread=%d", out.Inbox.Unread))
+		} else {
+			add("agent-team inbox ls --unread", "inbox", fmt.Sprintf("unread=%d", out.Inbox.Unread))
+		}
 	}
 	if health != nil {
 		for _, issue := range health.Issues {
@@ -956,6 +1010,7 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 	return out.Queue.Dead == 0 &&
 		out.Queue.Pending <= out.Queue.Delayed &&
 		out.Queue.Quarantined == 0 &&
+		out.Inbox.Unread == 0 &&
 		out.Jobs.Attention == 0 &&
 		out.Jobs.ReadySteps == 0 &&
 		out.Jobs.StatusChanges == 0 &&
@@ -1082,6 +1137,11 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		result.Runtime.Crashed,
 		result.Runtime.Unknown,
 		result.Runtime.StaleRunning)
+	fmt.Fprintf(w, "inbox: instances=%d total=%d unread=%d unread_instances=%d\n",
+		result.Inbox.Instances,
+		result.Inbox.Total,
+		result.Inbox.Unread,
+		result.Inbox.UnreadInstances)
 	fmt.Fprintf(w, "jobs: total=%d queued=%d running=%d blocked=%d done=%d failed=%d attention=%d cleanup_ready=%d expired_holds=%d stale_running=%d ready_steps=%d status_changes=%d\n",
 		result.Jobs.Summary.Total,
 		result.Jobs.Summary.Queued,

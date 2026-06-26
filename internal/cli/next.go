@@ -94,7 +94,7 @@ func newNextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&teamName, "team", "", "Scope recommendations to this declared team.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
-	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
@@ -180,7 +180,7 @@ func newTeamNextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
-	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
@@ -288,7 +288,7 @@ func parseNextActionFilters(sourceRaw, reasonRaw []string) (nextActionFilters, e
 				continue
 			}
 			switch source {
-			case "health", "topology", "runtime", "queue", "jobs", "pipelines", "schedules", "intake", "section_errors", "overview":
+			case "health", "topology", "runtime", "inbox", "queue", "jobs", "pipelines", "schedules", "intake", "section_errors", "overview":
 				out.sources[source] = true
 			default:
 				return nextActionFilters{}, fmt.Errorf("unknown --source %q", raw)
