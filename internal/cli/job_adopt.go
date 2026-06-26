@@ -14,6 +14,7 @@ func newJobAdoptCmd() *cobra.Command {
 	var (
 		repo          string
 		instance      string
+		stepID        string
 		agent         string
 		pid           int
 		pidFile       string
@@ -51,12 +52,20 @@ func newJobAdoptCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			selectedStep, err := jobStepForAdoptionByID(j, stepID)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job adopt: %v\n", err)
+				return exitErr(2)
+			}
 			selectedInstance := strings.TrimSpace(instance)
+			if selectedInstance == "" {
+				selectedInstance = defaultJobAdoptInstanceForStep(j, selectedStep)
+			}
 			if selectedInstance == "" {
 				selectedInstance = strings.TrimSpace(j.Instance)
 			}
 			if selectedInstance == "" {
-				selectedInstance = defaultJobAdoptInstance(j)
+				selectedInstance = defaultJobAdoptInstanceForJob(j)
 			}
 			if selectedInstance == "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job adopt: --instance is required when it cannot be inferred from the job.")
@@ -65,7 +74,7 @@ func newJobAdoptCmd() *cobra.Command {
 			repoRoot := filepath.Dir(teamDir)
 			selectedAgent := strings.TrimSpace(agent)
 			if selectedAgent == "" {
-				selectedAgent = defaultJobAdoptAgent(j)
+				selectedAgent = defaultJobAdoptAgentForStep(j, selectedStep)
 			}
 			selectedWorkspace := strings.TrimSpace(workspace)
 			if selectedWorkspace == "" {
@@ -92,6 +101,7 @@ func newJobAdoptCmd() *cobra.Command {
 				SessionID:     sessionID,
 				StartedAt:     startedAt,
 				Job:           j.ID,
+				Step:          stepID,
 				Ticket:        j.Ticket,
 				Branch:        selectedBranch,
 				PR:            selectedPR,
@@ -104,7 +114,8 @@ func newJobAdoptCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that should own the job. Defaults to job or active step ownership.")
+	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that should own the job. Defaults to selected or active step ownership, then job ownership.")
+	cmd.Flags().StringVar(&stepID, "step", "", "Pipeline step id to mark as owned by the adopted process.")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent name for the adopted instance. Defaults to the job target.")
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")
 	cmd.Flags().StringVar(&pidFile, "pid-file", "", "Read the live process PID to adopt from this file. Cannot be combined with --pid.")
@@ -123,23 +134,25 @@ func newJobAdoptCmd() *cobra.Command {
 	return cmd
 }
 
-func defaultJobAdoptInstance(j *job.Job) string {
-	if j == nil {
+func defaultJobAdoptInstanceForStep(j *job.Job, step *job.Step) string {
+	if j == nil || step == nil {
 		return ""
 	}
-	if instance := strings.TrimSpace(j.Instance); instance != "" {
+	if instance := strings.TrimSpace(step.Instance); instance != "" {
 		return instance
 	}
-	if step := jobStepForAdoption(j); step != nil {
-		if instance := strings.TrimSpace(step.Instance); instance != "" {
-			return instance
-		}
-		target := job.NormalizeID(step.Target)
-		id := job.NormalizeID(j.ID)
-		stepID := job.NormalizeID(step.ID)
-		if target != "" && id != "" && stepID != "" {
-			return target + "-" + id + "-" + stepID
-		}
+	target := job.NormalizeID(step.Target)
+	id := job.NormalizeID(j.ID)
+	stepID := job.NormalizeID(step.ID)
+	if target == "" || id == "" || stepID == "" {
+		return ""
+	}
+	return target + "-" + id + "-" + stepID
+}
+
+func defaultJobAdoptInstanceForJob(j *job.Job) string {
+	if j == nil {
+		return ""
 	}
 	target := job.NormalizeID(j.Target)
 	id := job.NormalizeID(j.ID)
@@ -149,11 +162,11 @@ func defaultJobAdoptInstance(j *job.Job) string {
 	return target + "-" + id
 }
 
-func defaultJobAdoptAgent(j *job.Job) string {
+func defaultJobAdoptAgentForStep(j *job.Job, step *job.Step) string {
 	if j == nil {
 		return ""
 	}
-	if step := jobStepForAdoption(j); step != nil {
+	if step != nil {
 		if target := strings.TrimSpace(step.Target); target != "" {
 			return target
 		}

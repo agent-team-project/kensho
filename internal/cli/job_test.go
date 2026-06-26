@@ -467,6 +467,7 @@ func TestJobAdoptUsesActivePipelineStepDefaults(t *testing.T) {
 		ID:        "squ-168",
 		Ticket:    "SQU-168",
 		Target:    "manager",
+		Instance:  "manager-squ-168",
 		Status:    job.StatusRunning,
 		Pipeline:  "ticket_to_pr",
 		CreatedAt: now,
@@ -513,6 +514,95 @@ func TestJobAdoptUsesActivePipelineStepDefaults(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Data["step"] != "implement" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobAdoptUsesExplicitPipelineStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-169",
+		Ticket:    "SQU-169",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, StartedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "adopt", "squ-169", "--repo", tmp, "--step", "review", "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job adopt explicit step: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job adopt result: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Instance != "manager-squ-169-review" || result.Metadata.Agent != "manager" || result.Metadata.Job != "squ-169" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Instance != "manager-squ-169-review" || len(result.Job.Steps) != 2 {
+		t.Fatalf("job adopt result = %+v", result)
+	}
+	if result.Job.Steps[0].Instance != "" || result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "manager-squ-169-review" {
+		t.Fatalf("adopted steps = %+v", result.Job.Steps)
+	}
+	events, err := job.ListEvents(teamDir, "squ-169")
+	if err != nil {
+		t.Fatalf("job events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["step"] != "review" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobAdoptRejectsUnknownPipelineStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-170",
+		Ticket:    "SQU-170",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, StartedAt: now.Add(-30 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "adopt", "squ-170", "--repo", tmp, "--step", "review", "--pid", strconv.Itoa(os.Getpid())})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("job adopt unknown step succeeded: stdout=%s stderr=%s", out.String(), stderr.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("job adopt err = %v, want exit code 2", err)
+	}
+	if !strings.Contains(stderr.String(), `step "review" not found`) {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -3158,6 +3248,51 @@ func TestJobTriageUsesRunningPipelineStepInstance(t *testing.T) {
 	}
 	if containsString(item.Actions, "agent-team job adopt squ-209 --pid <pid> --dry-run") {
 		t.Fatalf("triage actions included adoption hint: %+v", item.Actions)
+	}
+}
+
+func TestJobTriageSuggestsStepScopedAdoptionForOwnerlessPipelineStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-48 * time.Hour)
+	j := mustNewJob(t, "SQU-210", "manager")
+	j.Status = job.StatusRunning
+	j.Pipeline = "ticket_triage"
+	j.UpdatedAt = old
+	j.Steps = []job.Step{
+		{ID: "triage", Target: "ticket-manager", Status: job.StatusDone, StartedAt: old, FinishedAt: old.Add(time.Hour)},
+		{ID: "implement", Target: "worker", Status: job.StatusRunning, After: []string{"triage"}, StartedAt: old.Add(time.Hour)},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--stale-after", "24h", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job triage: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot jobTriageSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode triage json: %v\nbody=%s", err, out.String())
+	}
+	if len(snapshot.Attention) != 1 {
+		t.Fatalf("attention = %+v", snapshot.Attention)
+	}
+	item := snapshot.Attention[0]
+	if item.JobID != "squ-210" || item.StepID != "implement" {
+		t.Fatalf("triage item = %+v", item)
+	}
+	if !containsString(item.Reasons, "running_without_instance") {
+		t.Fatalf("triage reasons = %+v", item.Reasons)
+	}
+	if !containsString(item.Actions, "agent-team job adopt squ-210 --step implement --pid <pid> --dry-run") {
+		t.Fatalf("triage actions = %+v", item.Actions)
 	}
 }
 

@@ -520,6 +520,64 @@ func TestDaemonAdoptUpdatesOwningPipelineStep(t *testing.T) {
 	}
 }
 
+func TestDaemonAdoptUsesExplicitPipelineStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-167",
+		Ticket:    "SQU-167",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, StartedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"daemon", "adopt", "manager-squ-167-review",
+		"--target", tmp,
+		"--pid", strconv.Itoa(os.Getpid()),
+		"--job", "squ-167",
+		"--step", "review",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt explicit step: %v", err)
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode daemon adopt explicit step json: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Agent != "manager" || result.Metadata.Instance != "manager-squ-167-review" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Instance != "manager-squ-167-review" || len(result.Job.Steps) != 2 {
+		t.Fatalf("adopt result = %+v", result)
+	}
+	if result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "manager-squ-167-review" {
+		t.Fatalf("adopted step = %+v", result.Job.Steps[1])
+	}
+	events, err := job.ListEvents(teamDir, "squ-167")
+	if err != nil {
+		t.Fatalf("job events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["step"] != "review" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestDaemonAdoptDryRunPreviewsOwningJobUpdate(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

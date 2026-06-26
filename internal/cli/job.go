@@ -5677,7 +5677,11 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 		add(fmt.Sprintf("agent-team job timeout %s --dry-run", item.JobID))
 	}
 	if stringSliceContains(item.Reasons, "running_without_instance") {
-		add(fmt.Sprintf("agent-team job adopt %s --pid <pid> --dry-run", item.JobID))
+		if stepID := strings.TrimSpace(item.StepID); stepID != "" {
+			add(fmt.Sprintf("agent-team job adopt %s --step %s --pid <pid> --dry-run", item.JobID, stepID))
+		} else {
+			add(fmt.Sprintf("agent-team job adopt %s --pid <pid> --dry-run", item.JobID))
+		}
 	}
 	if stringSliceContains(item.Reasons, "cleanup_ready") {
 		add(fmt.Sprintf("agent-team job cleanup %s --dry-run", item.JobID))

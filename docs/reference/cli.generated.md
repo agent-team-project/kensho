@@ -109,6 +109,7 @@ Flags:
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --step string          Pipeline step id to mark as owned by the adopted process. Requires --job.
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.
 ```
@@ -562,6 +563,7 @@ Flags:
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --step string          Pipeline step id to mark as owned by the adopted process. Requires --job.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.
@@ -1706,7 +1708,7 @@ Flags:
       --dry-run              Preview adoption without writing metadata or job state.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.
-      --instance string      Instance name that should own the job. Defaults to job or active step ownership.
+      --instance string      Instance name that should own the job. Defaults to selected or active step ownership, then job ownership.
       --json                 Emit machine-readable JSON.
       --log-path string      Runtime log path, if the external process already writes to one.
       --pid int              Live process PID to adopt.
@@ -1717,6 +1719,7 @@ Flags:
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --step string          Pipeline step id to mark as owned by the adopted process.
       --workspace string     Workspace path for the adopted process. Defaults to the job worktree, then repo root.
 ```
 
@@ -4789,6 +4792,7 @@ Flags:
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
+      --step string          Pipeline step id to mark as owned by the adopted process. Requires --job.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.

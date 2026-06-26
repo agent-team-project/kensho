@@ -28,6 +28,7 @@ type daemonAdoptOptions struct {
 	SessionID     string
 	StartedAt     string
 	Job           string
+	Step          string
 	Ticket        string
 	Branch        string
 	PR            string
@@ -95,6 +96,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 		sessionID     string
 		startedAt     string
 		jobID         string
+		stepID        string
 		ticket        string
 		branch        string
 		pr            string
@@ -131,6 +133,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 				SessionID:     sessionID,
 				StartedAt:     startedAt,
 				Job:           jobID,
+				Step:          stepID,
 				Ticket:        ticket,
 				Branch:        branch,
 				PR:            pr,
@@ -156,6 +159,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Runtime session id, when known and resumable.")
 	cmd.Flags().StringVar(&startedAt, "started-at", "", "Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.")
 	cmd.Flags().StringVar(&jobID, "job", "", "Owning job id to record on the adopted metadata.")
+	cmd.Flags().StringVar(&stepID, "step", "", "Pipeline step id to mark as owned by the adopted process. Requires --job.")
 	cmd.Flags().StringVar(&ticket, "ticket", "", "Ticket id to record on the adopted metadata.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name to record on the adopted metadata.")
 	cmd.Flags().StringVar(&pr, "pr", "", "PR URL to record on the adopted metadata.")
@@ -218,8 +222,12 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(opts.Step) != "" && job.IDFromInput(opts.Job) == "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --step requires --job.\n", label)
+		return exitErr(2)
+	}
 	repoRoot := filepath.Dir(teamDir)
-	jobDefaults, err := loadDaemonAdoptJobDefaults(teamDir, opts.Job)
+	jobDefaults, err := loadDaemonAdoptJobDefaults(teamDir, opts.Job, opts.Step)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 		return exitErr(1)
@@ -296,7 +304,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 		Metadata: meta,
 	}
 	if meta != nil {
-		result.Job, result.JobChanged, err = updateJobAfterDaemonAdopt(teamDir, meta, opts.DryRun, time.Now().UTC())
+		result.Job, result.JobChanged, err = updateJobAfterDaemonAdopt(teamDir, meta, opts.Step, opts.DryRun, time.Now().UTC())
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 			return exitErr(1)
@@ -320,7 +328,7 @@ type daemonAdoptJobDefaults struct {
 	Workspace string
 }
 
-func loadDaemonAdoptJobDefaults(teamDir, rawID string) (daemonAdoptJobDefaults, error) {
+func loadDaemonAdoptJobDefaults(teamDir, rawID, stepID string) (daemonAdoptJobDefaults, error) {
 	id := job.IDFromInput(rawID)
 	if id == "" {
 		return daemonAdoptJobDefaults{}, nil
@@ -332,8 +340,12 @@ func loadDaemonAdoptJobDefaults(teamDir, rawID string) (daemonAdoptJobDefaults, 
 		}
 		return daemonAdoptJobDefaults{}, err
 	}
+	step, err := jobStepForAdoptionByID(j, stepID)
+	if err != nil {
+		return daemonAdoptJobDefaults{}, err
+	}
 	return daemonAdoptJobDefaults{
-		Agent:     defaultJobAdoptAgent(j),
+		Agent:     defaultJobAdoptAgentForStep(j, step),
 		Ticket:    strings.TrimSpace(j.Ticket),
 		Branch:    strings.TrimSpace(j.Branch),
 		PR:        strings.TrimSpace(j.PR),
@@ -349,7 +361,7 @@ func adoptDefaultString(explicit, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun bool, now time.Time) (*job.Job, bool, error) {
+func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, stepID string, dryRun bool, now time.Time) (*job.Job, bool, error) {
 	if meta == nil {
 		return nil, false, nil
 	}
@@ -380,7 +392,10 @@ func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun boo
 	if j.Status != job.StatusDone {
 		j.Status = job.StatusRunning
 	}
-	adoptedStepID, adoptedStepChanged := applyDaemonAdoptToPipelineStep(j, strings.TrimSpace(meta.Instance), now)
+	adoptedStepID, adoptedStepChanged, err := applyDaemonAdoptToPipelineStep(j, strings.TrimSpace(meta.Instance), stepID, now)
+	if err != nil {
+		return nil, false, err
+	}
 	j.LastEvent = "adopted"
 	j.LastStatus = "adopted external process " + strings.TrimSpace(meta.Instance)
 	if now.IsZero() {
@@ -412,14 +427,17 @@ func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun boo
 	return j, true, nil
 }
 
-func applyDaemonAdoptToPipelineStep(j *job.Job, instance string, now time.Time) (string, bool) {
+func applyDaemonAdoptToPipelineStep(j *job.Job, instance string, stepID string, now time.Time) (string, bool, error) {
 	instance = strings.TrimSpace(instance)
 	if j == nil || instance == "" {
-		return "", false
+		return "", false, nil
 	}
-	step := jobStepForAdoption(j)
+	step, err := jobStepForAdoptionByID(j, stepID)
+	if err != nil {
+		return "", false, err
+	}
 	if step == nil {
-		return "", false
+		return "", false, nil
 	}
 	beforeStatus := step.Status
 	beforeInstance := strings.TrimSpace(step.Instance)
@@ -431,7 +449,7 @@ func applyDaemonAdoptToPipelineStep(j *job.Job, instance string, now time.Time) 
 	}
 	step.FinishedAt = time.Time{}
 	changed := beforeStatus != step.Status || beforeInstance != instance || !beforeStartedAt.Equal(step.StartedAt)
-	return step.ID, changed
+	return step.ID, changed, nil
 }
 
 func jobStepForAdoption(j *job.Job) *job.Step {
@@ -442,6 +460,18 @@ func jobStepForAdoption(j *job.Job) *job.Step {
 		return step
 	}
 	return nextReadyJobStep(j)
+}
+
+func jobStepForAdoptionByID(j *job.Job, stepID string) (*job.Step, error) {
+	stepID = strings.TrimSpace(stepID)
+	if stepID == "" {
+		return jobStepForAdoption(j), nil
+	}
+	idx := jobStepIndex(j, stepID)
+	if idx == -1 {
+		return nil, fmt.Errorf("step %q not found", stepID)
+	}
+	return &j.Steps[idx], nil
 }
 
 func inferDaemonAdoptAgent(teamDir, instance, explicit string) (string, error) {
