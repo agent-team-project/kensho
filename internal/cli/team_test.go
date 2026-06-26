@@ -1032,6 +1032,38 @@ func TestScopeTeamTriageActionsUsesTeamRecoveryCommands(t *testing.T) {
 			Reasons: []string{"failed"},
 			Actions: []string{"agent-team job retry squ-824 --dispatch"},
 		},
+		{
+			JobID:    "squ-825",
+			Reasons:  []string{"queue_dead"},
+			QueueIDs: []string{"q-dead-one"},
+			Actions:  []string{"agent-team job queue retry squ-825 q-dead-one"},
+		},
+		{
+			JobID:    "squ-826",
+			Reasons:  []string{"queue_dead"},
+			QueueIDs: []string{"q-dead-one", "q-dead-two"},
+			Actions:  []string{jobQueueRetryAllRecoveryAction("squ-826", false)},
+		},
+		{
+			JobID:                          "squ-827",
+			Reasons:                        []string{"queue_quarantined"},
+			QueueQuarantineRestorable:      1,
+			QueueQuarantineUnrestorable:    1,
+			QueueQuarantineRestorablePaths: []string{"quarantine/20260619T000000.000000000Z/dead/q.json"},
+			Actions: []string{
+				"agent-team job queue quarantine squ-827",
+				"agent-team job queue quarantine restore squ-827 quarantine/20260619T000000.000000000Z/dead/q.json --dry-run",
+				"agent-team job queue quarantine drop squ-827 --all --unrestorable --limit 10 --dry-run",
+			},
+		},
+		{
+			JobID:                     "squ-828",
+			Reasons:                   []string{"queue_quarantined"},
+			QueueQuarantineRestorable: 2,
+			Actions: []string{
+				"agent-team job queue quarantine restore squ-828 --all --limit 10 --dry-run",
+			},
+		},
 	}
 
 	scoped := scopeTeamTriageActions("delivery", items)
@@ -1054,6 +1086,32 @@ func TestScopeTeamTriageActionsUsesTeamRecoveryCommands(t *testing.T) {
 	if !containsString(scoped[4].Actions, "agent-team job retry squ-824 --dispatch") ||
 		containsString(scoped[4].Actions, "agent-team team retry delivery --dry-run --dispatch --preview-routes") {
 		t.Fatalf("standalone retry actions = %+v", scoped[4].Actions)
+	}
+	if !containsString(scoped[5].Actions, "agent-team team queue retry delivery q-dead-one") ||
+		containsString(scoped[5].Actions, "agent-team job queue retry squ-825 q-dead-one") {
+		t.Fatalf("single dead queue actions = %+v", scoped[5].Actions)
+	}
+	if !containsString(scoped[6].Actions, "agent-team team queue retry delivery --all --job squ-826 --sort attempts --limit 10") ||
+		containsString(scoped[6].Actions, "agent-team job queue retry squ-826 --all --sort attempts --limit 10") {
+		t.Fatalf("batch dead queue actions = %+v", scoped[6].Actions)
+	}
+	if !containsString(scoped[7].Actions, "agent-team team queue quarantine delivery --job squ-827") ||
+		!containsString(scoped[7].Actions, "agent-team team queue quarantine restore delivery quarantine/20260619T000000.000000000Z/dead/q.json --dry-run") ||
+		!containsString(scoped[7].Actions, "agent-team team queue quarantine drop delivery --all --job squ-827 --unrestorable --limit 10 --dry-run") {
+		t.Fatalf("quarantine actions = %+v", scoped[7].Actions)
+	}
+	for _, jobAction := range []string{
+		"agent-team job queue quarantine squ-827",
+		"agent-team job queue quarantine restore squ-827 quarantine/20260619T000000.000000000Z/dead/q.json --dry-run",
+		"agent-team job queue quarantine drop squ-827 --all --unrestorable --limit 10 --dry-run",
+	} {
+		if containsString(scoped[7].Actions, jobAction) {
+			t.Fatalf("quarantine actions should be team-scoped: %+v", scoped[7].Actions)
+		}
+	}
+	if !containsString(scoped[8].Actions, "agent-team team queue quarantine restore delivery --all --job squ-828 --limit 10 --dry-run") ||
+		containsString(scoped[8].Actions, "agent-team job queue quarantine restore squ-828 --all --limit 10 --dry-run") {
+		t.Fatalf("batch quarantine restore actions = %+v", scoped[8].Actions)
 	}
 }
 
