@@ -333,7 +333,7 @@ func loadDaemonAdoptJobDefaults(teamDir, rawID string) (daemonAdoptJobDefaults, 
 		return daemonAdoptJobDefaults{}, err
 	}
 	return daemonAdoptJobDefaults{
-		Agent:     strings.TrimSpace(j.Target),
+		Agent:     defaultJobAdoptAgent(j),
 		Ticket:    strings.TrimSpace(j.Ticket),
 		Branch:    strings.TrimSpace(j.Branch),
 		PR:        strings.TrimSpace(j.PR),
@@ -364,7 +364,7 @@ func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun boo
 		}
 		return nil, false, err
 	}
-	before := *j
+	before := cloneJobForEventReconcile(j)
 	if strings.TrimSpace(meta.Instance) != "" {
 		j.Instance = strings.TrimSpace(meta.Instance)
 	}
@@ -380,13 +380,14 @@ func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun boo
 	if j.Status != job.StatusDone {
 		j.Status = job.StatusRunning
 	}
+	adoptedStepID, adoptedStepChanged := applyDaemonAdoptToPipelineStep(j, strings.TrimSpace(meta.Instance), now)
 	j.LastEvent = "adopted"
 	j.LastStatus = "adopted external process " + strings.TrimSpace(meta.Instance)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	j.UpdatedAt = now.UTC()
-	changed := jobEventReconcileChanged(&before, j)
+	changed := jobEventReconcileChanged(before, j)
 	if !changed || dryRun {
 		return j, changed, nil
 	}
@@ -401,10 +402,46 @@ func updateJobAfterDaemonAdopt(teamDir string, meta *daemon.Metadata, dryRun boo
 	if strings.TrimSpace(meta.PR) != "" {
 		data["pr"] = strings.TrimSpace(meta.PR)
 	}
+	if adoptedStepID != "" {
+		data["step"] = adoptedStepID
+		data["step_changed"] = fmt.Sprint(adoptedStepChanged)
+	}
 	if err := writeJobWithAudit(teamDir, j, "adopted", "cli", j.LastStatus, data); err != nil {
 		return nil, false, err
 	}
 	return j, true, nil
+}
+
+func applyDaemonAdoptToPipelineStep(j *job.Job, instance string, now time.Time) (string, bool) {
+	instance = strings.TrimSpace(instance)
+	if j == nil || instance == "" {
+		return "", false
+	}
+	step := jobStepForAdoption(j)
+	if step == nil {
+		return "", false
+	}
+	beforeStatus := step.Status
+	beforeInstance := strings.TrimSpace(step.Instance)
+	beforeStartedAt := step.StartedAt
+	step.Status = job.StatusRunning
+	step.Instance = instance
+	if step.StartedAt.IsZero() {
+		step.StartedAt = now.UTC()
+	}
+	step.FinishedAt = time.Time{}
+	changed := beforeStatus != step.Status || beforeInstance != instance || !beforeStartedAt.Equal(step.StartedAt)
+	return step.ID, changed
+}
+
+func jobStepForAdoption(j *job.Job) *job.Step {
+	if j == nil || len(j.Steps) == 0 {
+		return nil
+	}
+	if step := firstJobStepWithStatus(j, job.StatusRunning); step != nil {
+		return step
+	}
+	return nextReadyJobStep(j)
 }
 
 func inferDaemonAdoptAgent(teamDir, instance, explicit string) (string, error) {

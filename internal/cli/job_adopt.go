@@ -65,7 +65,7 @@ func newJobAdoptCmd() *cobra.Command {
 			repoRoot := filepath.Dir(teamDir)
 			selectedAgent := strings.TrimSpace(agent)
 			if selectedAgent == "" {
-				selectedAgent = strings.TrimSpace(j.Target)
+				selectedAgent = defaultJobAdoptAgent(j)
 			}
 			selectedWorkspace := strings.TrimSpace(workspace)
 			if selectedWorkspace == "" {
@@ -104,7 +104,7 @@ func newJobAdoptCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that should own the job. Defaults to the job instance, then <target>-<job-id>.")
+	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that should own the job. Defaults to job or active step ownership.")
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent name for the adopted instance. Defaults to the job target.")
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")
 	cmd.Flags().StringVar(&pidFile, "pid-file", "", "Read the live process PID to adopt from this file. Cannot be combined with --pid.")
@@ -127,10 +127,36 @@ func defaultJobAdoptInstance(j *job.Job) string {
 	if j == nil {
 		return ""
 	}
+	if instance := strings.TrimSpace(j.Instance); instance != "" {
+		return instance
+	}
+	if step := jobStepForAdoption(j); step != nil {
+		if instance := strings.TrimSpace(step.Instance); instance != "" {
+			return instance
+		}
+		target := job.NormalizeID(step.Target)
+		id := job.NormalizeID(j.ID)
+		stepID := job.NormalizeID(step.ID)
+		if target != "" && id != "" && stepID != "" {
+			return target + "-" + id + "-" + stepID
+		}
+	}
 	target := job.NormalizeID(j.Target)
 	id := job.NormalizeID(j.ID)
 	if target == "" || id == "" {
 		return ""
 	}
 	return target + "-" + id
+}
+
+func defaultJobAdoptAgent(j *job.Job) string {
+	if j == nil {
+		return ""
+	}
+	if step := jobStepForAdoption(j); step != nil {
+		if target := strings.TrimSpace(step.Target); target != "" {
+			return target
+		}
+	}
+	return strings.TrimSpace(j.Target)
 }

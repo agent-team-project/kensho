@@ -1706,7 +1706,7 @@ Flags:
       --dry-run              Preview adoption without writing metadata or job state.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.
-      --instance string      Instance name that should own the job. Defaults to the job instance, then <target>-<job-id>.
+      --instance string      Instance name that should own the job. Defaults to job or active step ownership.
       --json                 Emit machine-readable JSON.
       --log-path string      Runtime log path, if the external process already writes to one.
       --pid int              Live process PID to adopt.

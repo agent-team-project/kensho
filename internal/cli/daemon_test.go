@@ -456,6 +456,70 @@ func TestDaemonAdoptUpdatesOwningJob(t *testing.T) {
 	}
 }
 
+func TestDaemonAdoptUpdatesOwningPipelineStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-166",
+		Ticket:    "SQU-166",
+		Target:    "manager",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "ticket-manager", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, After: []string{"triage"}, StartedAt: now.Add(-30 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{
+		"daemon", "adopt", "worker-squ-166-implement",
+		"--target", tmp,
+		"--pid", strconv.Itoa(os.Getpid()),
+		"--job", "squ-166",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt pipeline step: %v", err)
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode daemon adopt pipeline json: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Agent != "worker" || result.Metadata.Instance != "worker-squ-166-implement" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Instance != "worker-squ-166-implement" || len(result.Job.Steps) != 2 {
+		t.Fatalf("adopt result = %+v", result)
+	}
+	if result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "worker-squ-166-implement" {
+		t.Fatalf("adopted step = %+v", result.Job.Steps[1])
+	}
+	updated, err := job.Read(teamDir, "squ-166")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Instance != "worker-squ-166-implement" || updated.Steps[1].Instance != "worker-squ-166-implement" || updated.LastEvent != "adopted" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-166")
+	if err != nil {
+		t.Fatalf("job events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["step"] != "implement" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestDaemonAdoptDryRunPreviewsOwningJobUpdate(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

@@ -458,6 +458,64 @@ func TestJobAdoptUsesJobDefaultsAndUpdatesJob(t *testing.T) {
 	}
 }
 
+func TestJobAdoptUsesActivePipelineStepDefaults(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-168",
+		Ticket:    "SQU-168",
+		Target:    "manager",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "ticket-manager", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, After: []string{"triage"}, StartedAt: now.Add(-30 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "adopt", "squ-168", "--repo", tmp, "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job adopt pipeline step: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job adopt result: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Instance != "worker-squ-168-implement" || result.Metadata.Agent != "worker" || result.Metadata.Job != "squ-168" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Instance != "worker-squ-168-implement" || len(result.Job.Steps) != 2 {
+		t.Fatalf("job adopt result = %+v", result)
+	}
+	if result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "worker-squ-168-implement" {
+		t.Fatalf("adopted step result = %+v", result.Job.Steps[1])
+	}
+	updated, err := job.Read(teamDir, "squ-168")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Instance != "worker-squ-168-implement" || updated.Steps[1].Instance != "worker-squ-168-implement" || updated.LastEvent != "adopted" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-168")
+	if err != nil {
+		t.Fatalf("job events: %v", err)
+	}
+	if len(events) != 1 || events[0].Data["step"] != "implement" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestJobAdoptDryRunDoesNotMutateJobOrMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
