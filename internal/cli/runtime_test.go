@@ -746,7 +746,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
 		t.Fatalf("decode resume-plan summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if counts.Total != 2 || counts.Stale != 1 || counts.Actions["start"] != 1 || counts.Actions["attach"] != 1 {
+	if counts.Total != 2 || counts.Stale != 1 || counts.Unhealthy != 1 || counts.Actions["start"] != 1 || counts.Actions["attach"] != 1 {
 		t.Fatalf("resume-plan summary = %+v", counts)
 	}
 
@@ -774,7 +774,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	if err := json.Unmarshal(staleSummaryOut.Bytes(), &staleCounts); err != nil {
 		t.Fatalf("decode stale resume-plan summary: %v\nbody=%s", err, staleSummaryOut.String())
 	}
-	if staleCounts.Total != 1 || staleCounts.Stale != 1 || staleCounts.Actions["start"] != 1 {
+	if staleCounts.Total != 1 || staleCounts.Stale != 1 || staleCounts.Unhealthy != 1 || staleCounts.Actions["start"] != 1 {
 		t.Fatalf("stale resume-plan summary = %+v", staleCounts)
 	}
 
@@ -856,6 +856,22 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	}, "\n")
 	if got != want {
 		t.Fatalf("unhealthy resume-plan = %q, want %q", got, want)
+	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("runtime resume-plan unhealthy summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var counts runtimeResumeSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
+		t.Fatalf("decode unhealthy summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if counts.Total != 2 || counts.Unhealthy != 2 || counts.Stale != 1 || counts.Actions["logs"] != 1 || counts.Actions["start"] != 1 {
+		t.Fatalf("unhealthy summary = %+v", counts)
 	}
 }
 
@@ -1058,7 +1074,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
 		t.Fatalf("decode resume-plan summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if counts.Total != 4 || counts.Actions["attach"] != 1 || counts.Actions["logs"] != 1 || counts.Actions["resume"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 2 || counts.Runtimes["codex"] != 2 || counts.Statuses["running"] != 1 || counts.Statuses["crashed"] != 1 || counts.Statuses["exited"] != 1 || counts.Statuses["stopped"] != 1 || counts.ManagedResume != 2 || counts.CanManagedResume != 2 || counts.DirectResume != 3 {
+	if counts.Total != 4 || counts.Actions["attach"] != 1 || counts.Actions["logs"] != 1 || counts.Actions["resume"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 2 || counts.Runtimes["codex"] != 2 || counts.Statuses["running"] != 1 || counts.Statuses["crashed"] != 1 || counts.Statuses["exited"] != 1 || counts.Statuses["stopped"] != 1 || counts.ManagedResume != 2 || counts.CanManagedResume != 2 || counts.DirectResume != 3 || counts.Unhealthy != 1 {
 		t.Fatalf("resume-plan summary = %+v", counts)
 	}
 }

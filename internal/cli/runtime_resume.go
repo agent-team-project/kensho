@@ -50,6 +50,7 @@ type runtimeResumeSummary struct {
 	CanManagedResume int            `json:"can_managed_resume"`
 	DirectResume     int            `json:"direct_resume"`
 	Stale            int            `json:"stale"`
+	Unhealthy        int            `json:"unhealthy"`
 }
 
 func newRuntimeResumePlanCmd() *cobra.Command {
@@ -595,6 +596,9 @@ func summarizeRuntimeResumePlans(plans []runtimeResumePlan) runtimeResumeSummary
 		if plan.Stale {
 			out.Stale++
 		}
+		if runtimeResumePlanUnhealthy(plan) {
+			out.Unhealthy++
+		}
 	}
 	return out
 }
@@ -608,6 +612,7 @@ func renderRuntimeResumeSummary(w fmtWriter, summary runtimeResumeSummary) {
 	fmt.Fprintf(w, "can_managed_resume: %d\n", summary.CanManagedResume)
 	fmt.Fprintf(w, "direct_resume:      %d\n", summary.DirectResume)
 	fmt.Fprintf(w, "stale:              %d\n", summary.Stale)
+	fmt.Fprintf(w, "unhealthy:          %d\n", summary.Unhealthy)
 }
 
 func runtimeResumeCountMapText(counts map[string]int, preferred []string) string {

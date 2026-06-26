@@ -244,7 +244,8 @@ work unit. Use `--action start|attach|resume|logs` when scripts or operators
 only need one recovery class, add `--stale` to isolate recorded running PIDs
 that are no longer live, add `--unhealthy` to include both crashed and stale
 running metadata, and add `--summary` to count matching plans by recommended
-action, runtime, lifecycle status, and stale running metadata.
+action, runtime, lifecycle status, stale running metadata, and unhealthy
+metadata.
 When a positive recorded `running` PID is no longer live, resume-plan marks the
 row as `stale` and recommends the recovery path that can reconcile or resume it.
 

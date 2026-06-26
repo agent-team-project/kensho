@@ -45,8 +45,9 @@ metadata, `--action start|attach|resume|logs` when you only want one recovery
 class, or `--summary --json` when dashboards need counts instead of full
 commands.
 Resume-plan also probes positive recorded PIDs for `running` metadata; stale
-rows are marked in JSON/text and counted in summaries before recommending the
-right start, resume, or log fallback.
+rows are marked in JSON/text, unhealthy totals count crashed plus stale-running
+rows, and summaries expose both counts before recommending the right start,
+resume, or log fallback.
 
 Team scoped:
 
