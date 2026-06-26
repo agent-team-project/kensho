@@ -55,6 +55,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamUnblockCmd())
 	cmd.AddCommand(newTeamSkipCmd())
 	cmd.AddCommand(newTeamCancelCmd())
+	cmd.AddCommand(newTeamAdoptCmd())
 	cmd.AddCommand(newTeamRetryCmd())
 	cmd.AddCommand(newTeamTimeoutCmd())
 	cmd.AddCommand(newTeamQueueCmd())

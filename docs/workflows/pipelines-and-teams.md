@@ -198,6 +198,7 @@ agent-team team explain delivery --state failed
 agent-team team ready delivery
 agent-team team hold delivery "maintenance window"
 agent-team team release delivery
+agent-team team adopt delivery squ-42 --step review --pid 12345 --dry-run --json
 agent-team team advance delivery --dry-run --preview-routes
 agent-team team advance delivery --all-ready-steps --dry-run --preview-routes
 agent-team team approve delivery --dispatch --dry-run --preview-routes
@@ -225,6 +226,7 @@ agent-team team drain delivery --all-ready-steps --runtime codex
 agent-team team snapshot delivery --output delivery.json
 ```
 
+`team adopt <team> <job-id>` applies the same external-process adoption flow as `job adopt`, but first verifies the job belongs to the team through its declared pipelines or instance agents. Use it when recovery should stay inside a team boundary.
 `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`, but only for pipelines declared on that team. Use it when one team owns a job with independent stages that can run at the same time.
 Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team, and add `--target-agent` to expire only one team role's stale work. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop; add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode to keep repair inside one team-owned workflow or agent role.
 `team pipelines <team>` includes queue and quarantine counts for the team's workflows, and its actions use `team queue ...` recovery commands. `pipeline next <pipeline> --team <team>` renders the same scoped recovery commands when a multi-team operator wants one workflow's next actions without leaving the team boundary.

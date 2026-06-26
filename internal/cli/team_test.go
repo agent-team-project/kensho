@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -793,6 +794,149 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if got, want := statusFormatOut.String(), "delivery 3 1\n"; got != want {
 		t.Fatalf("team status format = %q, want %q", got, want)
+	}
+}
+
+func TestTeamAdoptUsesScopedJobDefaults(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-811",
+		Ticket:    "SQU-811",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, FinishedAt: now.Add(-10 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "adopt", "delivery", "squ-811", "--repo", root, "--step", "review", "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team adopt: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result daemonAdoptResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team adopt result: %v\nbody=%s", err, out.String())
+	}
+	if result.Metadata == nil || result.Metadata.Instance != "manager-squ-811-review" || result.Metadata.Agent != "manager" || result.Metadata.Job != "squ-811" {
+		t.Fatalf("metadata = %+v", result.Metadata)
+	}
+	if result.Job == nil || !result.JobChanged || result.Job.Pipeline != "ticket_to_pr" || result.Job.Instance != "manager-squ-811-review" {
+		t.Fatalf("team adopt result = %+v", result)
+	}
+	if len(result.Job.Steps) != 2 || result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "manager-squ-811-review" {
+		t.Fatalf("adopted steps = %+v", result.Job.Steps)
+	}
+}
+
+func TestTeamAdoptRejectsJobOutsideTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.platform-worker]
+agent = "platform-worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.platform_ops]
+trigger.event = "ticket.created"
+
+[[pipelines.platform_ops.steps]]
+id = "implement"
+target = "platform-worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+
+[teams.platform]
+instances = ["platform-worker"]
+pipelines = ["platform_ops"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "plt-811",
+		Ticket:    "PLT-811",
+		Target:    "platform-worker",
+		Status:    job.StatusQueued,
+		Pipeline:  "platform_ops",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "platform-worker", Status: job.StatusQueued},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "adopt", "delivery", "plt-811", "--repo", root, "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("team adopt outside team succeeded: stdout=%s stderr=%s", out.String(), stderr.String())
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("team adopt err = %v, want exit code 2", err)
+	}
+	if !strings.Contains(stderr.String(), `job "plt-811" is not owned by team "delivery"`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	unchanged, err := job.Read(teamDir, "plt-811")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.Instance != "" || unchanged.LastEvent != "" {
+		t.Fatalf("team adopt mutated wrong-team job = %+v", unchanged)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "platform-worker-plt-811-implement"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata should not exist after rejected adoption: %v", err)
 	}
 }
 

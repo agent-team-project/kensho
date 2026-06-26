@@ -224,6 +224,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team reject <team>` | Scoped manual-gate rejection |
 | `agent-team team skip <team> --step <id>` | Scoped intentional step skip |
 | `agent-team team cancel <team>` | Cancel non-terminal team pipeline jobs without stopping instances |
+| `agent-team team adopt <team> <job-id>` | Adopt a live external process for a job after verifying team ownership |
 | `agent-team team retry <team>` | Scoped failed-step retry, honoring step `max_attempts` caps; add `--force` for an explicit override |
 | `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
 | `agent-team team snapshot <team>` | Scoped diagnostic artifact |
