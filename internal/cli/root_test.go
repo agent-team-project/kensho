@@ -80,6 +80,7 @@ func TestPluralTopLevelAliasesDispatch(t *testing.T) {
 		name string
 		args []string
 	}{
+		{name: "agents", args: []string{"--repo", root, "agents", "ls", "--json"}},
 		{name: "jobs", args: []string{"--repo", root, "jobs", "ls", "--json"}},
 		{name: "pipelines", args: []string{"--repo", root, "pipelines", "ls", "--json"}},
 		{name: "queues", args: []string{"--repo", root, "queues", "ls", "--summary", "--json"}},

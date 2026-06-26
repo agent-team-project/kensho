@@ -20,6 +20,7 @@ as the output directory instead.
 | `agent-team template smoke [ref]` | Render a template in a temp repo and validate it; add `--strict-runtime` for CI runtime checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check|--apply` | Compare current template lock to target or apply clean template changes |
+| `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`; `agents` is a plural alias |
 | `agent-team doctor` | Validate local layout, runtime availability, and workflow runtime defaults |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 
@@ -70,7 +71,7 @@ Shortcuts:
 | `agent-team top` | `agent-team stats` |
 | `agent-team exec` | `agent-team attach` |
 
-Collection groups also accept natural plural aliases: `jobs`, `pipelines`, `queues`, `schedules`, and `teams`.
+Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelines`, `queues`, `schedules`, and `teams`.
 
 ## Topology and Convergence
 

@@ -28,6 +28,7 @@ Persistent Flags:
 Subcommands:
 
 - `agent-team adopt` - Adopt a live external runtime process.
+- `agent-team agent` - List and inspect runnable agent definitions.
 - `agent-team attach` - Open an interactive runtime session against a daemon-managed persistent instance.
 - `agent-team channel` - Manage daemon-managed pub/sub channels.
 - `agent-team channels` - List all pub/sub channels (alias for `channel ls`).
@@ -110,6 +111,61 @@ Flags:
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.
+```
+
+## `agent-team agent`
+
+List and inspect runnable agent definitions.
+
+List and inspect runnable agent definitions loaded from .agent_team/agents.
+
+```text
+agent-team agent
+```
+
+Aliases: `agents`
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team agent ls` - List runnable agent definitions.
+- `agent-team agent show` - Show one runnable agent definition.
+
+## `agent-team agent ls`
+
+List runnable agent definitions.
+
+```text
+agent-team agent ls [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render each agent with a Go template, e.g. '{{.Name}} {{len .Skills}}'.
+      --json            Emit agents as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team agent show`
+
+Show one runnable agent definition.
+
+```text
+agent-team agent show <agent> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the agent with a Go template, e.g. '{{.Name}} {{.Summary}}'.
+      --json            Emit the agent as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team attach`

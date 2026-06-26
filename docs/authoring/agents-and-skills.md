@@ -35,6 +35,21 @@ Supported frontmatter values are scalar and block-scalar fields needed by agent 
 
 `description` becomes the runtime-facing agent description.
 
+## Inspecting Installed Agents
+
+Use the CLI to inspect the definitions installed in a repo before launching one:
+
+```sh
+agent-team agent ls
+agent-team agent show worker
+```
+
+Both commands accept `--json` for automation and `--format` for shell-friendly output. The plural alias also works:
+
+```sh
+agent-team agents ls --format '{{.Name}} {{len .Skills}}'
+```
+
 ## Agent Config
 
 `config.toml` assigns shared skills:
