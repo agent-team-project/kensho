@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -3451,6 +3452,78 @@ pipelines = ["ticket_to_pr"]
 	}
 	if textOut.Len() != 0 || !strings.Contains(textErr.String(), "dependency cycle") {
 		t.Fatalf("team doctor text stdout=%q stderr=%q", textOut.String(), textErr.String())
+	}
+}
+
+func TestTeamDoctorIncludesPipelineRuntimeWarnings(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+runtime = "codex"
+runtime_bin = "missing-codex"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "missing-codex" {
+			t.Fatalf("look path bin = %q, want missing-codex", bin)
+		}
+		return "", exec.ErrNotFound
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team doctor json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result teamDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team doctor runtime warning: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || len(result.Problems) != 0 || len(result.Warnings) != 1 {
+		t.Fatalf("team doctor result = %+v", result)
+	}
+	got := result.Warnings[0]
+	if got.Code != "step_runtime_unavailable" || got.Team != "delivery" || got.Pipeline != "ticket_to_pr" || got.Step != "implement" || got.Runtime != "codex" || got.RuntimeBin != "missing-codex" {
+		t.Fatalf("runtime warning = %+v", got)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"team", "doctor", "delivery", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("team doctor text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "agent-team team doctor: OK (delivery)") {
+		t.Fatalf("team doctor text stdout = %q", textOut.String())
+	}
+	if !strings.Contains(textErr.String(), `runtime "codex" with binary "missing-codex"`) {
+		t.Fatalf("team doctor text stderr = %q", textErr.String())
 	}
 }
 
