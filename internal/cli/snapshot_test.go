@@ -312,6 +312,16 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 				{Instance: "worker", Agent: "worker", Kind: "on_demand", Status: "stopped", Phase: "idle", Action: "unsupported"},
 			},
 		},
+		Next: &nextActionResult{
+			OK:      false,
+			State:   "attention",
+			Actions: []string{"agent-team health --jobs", "agent-team sync --dry-run"},
+			ActionDetails: []operatorActionHint{
+				{Command: "agent-team health --jobs", Source: "health", Reason: "issues"},
+				{Command: "agent-team sync --dry-run", Source: "topology", Reason: "missing"},
+			},
+			TotalActions: 2,
+		},
 		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
 			Events:           intValuePtr(20),
 			IntakeDeliveries: intValuePtr(20),
@@ -398,6 +408,15 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 				{Instance: "manager", Agent: "manager", Kind: "persistent", Status: "running", Phase: "idle", Action: "keep"},
 				{Instance: "worker", Agent: "worker", Kind: "on_demand", Status: "stopped", Phase: "idle", Action: "on-demand"},
 			},
+		},
+		Next: &nextActionResult{
+			OK:      true,
+			State:   "ok",
+			Actions: []string{"agent-team snapshot --output diagnostics.json"},
+			ActionDetails: []operatorActionHint{
+				{Command: "agent-team snapshot --output diagnostics.json", Source: "snapshot", Reason: "handoff"},
+			},
+			TotalActions: 1,
 		},
 		Provenance: newSnapshotProvenance("agent-team team snapshot", "team", "delivery", snapshotProvenanceOptions{
 			Events:        intValuePtr(5),
@@ -487,6 +506,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Plan.Changed != 7 {
 		t.Fatalf("plan counters = %+v", result.Summary.Plan)
 	}
+	if result.Summary.Next.Added != 1 || result.Summary.Next.Removed != 2 || result.Summary.Next.Changed != 3 {
+		t.Fatalf("next counters = %+v", result.Summary.Next)
+	}
 	if result.Summary.Jobs.Added != 1 || result.Summary.Jobs.Removed != 1 || result.Summary.Jobs.Changed != 1 {
 		t.Fatalf("job counters = %+v", result.Summary.Jobs)
 	}
@@ -529,6 +551,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "health", "issues.code.daemon_down", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "plan", "daemon.running", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "plan", "instance.manager", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "next", "ok", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "next", "action/agent-team health --jobs", "removed") ||
+		!hasSnapshotDiffChange(result.Changes, "next", "action/agent-team snapshot --output diagnostics.json", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-802", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
@@ -561,6 +586,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"runtime: added=1 removed=0 changed=6",
 		"health: added=0 removed=2 changed=12",
 		"plan: added=0 removed=0 changed=7",
+		"next: added=1 removed=2 changed=3",
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
 		"pipelines:",
@@ -713,6 +739,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		}
 	}
 
+	nextOnly := NewRootCmd()
+	nextOnlyOut, nextOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextOnly.SetOut(nextOnlyOut)
+	nextOnly.SetErr(nextOnlyErr)
+	nextOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "next", "--json"})
+	if err := nextOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff next section: %v\nstderr=%s", err, nextOnlyErr.String())
+	}
+	var nextOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(nextOnlyOut.Bytes(), &nextOnlyResult); err != nil {
+		t.Fatalf("decode next-only snapshot diff: %v\nbody=%s", err, nextOnlyOut.String())
+	}
+	if nextOnlyResult.Summary.TotalChanges != 6 || nextOnlyResult.Summary.Next.Added != 1 || nextOnlyResult.Summary.Next.Removed != 2 || nextOnlyResult.Summary.Next.Changed != 3 || nextOnlyResult.Summary.Plan.Changed != 0 {
+		t.Fatalf("next-only diff summary = %+v", nextOnlyResult.Summary)
+	}
+	for _, change := range nextOnlyResult.Changes {
+		if change.Section != "next" {
+			t.Fatalf("next-only diff included %q change: %+v", change.Section, nextOnlyResult.Changes)
+		}
+	}
+
 	queueOnly := NewRootCmd()
 	queueOnlyOut, queueOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	queueOnly.SetOut(queueOnlyOut)
@@ -763,7 +810,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if err := invalidSection.Execute(); err == nil {
 		t.Fatalf("snapshot diff invalid section succeeded")
 	}
-	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git, runtime, health, plan") {
+	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git, runtime, health, plan, next") {
 		t.Fatalf("invalid section stderr = %q", invalidSectionErr.String())
 	}
 }
