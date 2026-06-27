@@ -60,6 +60,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineRetryCmd())
 	cmd.AddCommand(newPipelineTimeoutCmd())
 	cmd.AddCommand(newPipelineRepairCmd())
+	cmd.AddCommand(newPipelineDrainCmd())
 	cmd.AddCommand(newPipelineRunCmd())
 	return cmd
 }
@@ -3731,6 +3732,148 @@ func newPipelineRepairCmd() *cobra.Command {
 	return cmd
 }
 
+func newPipelineDrainCmd() *cobra.Command {
+	var (
+		repo          string
+		workspace     string
+		runtimeKind   string
+		runtimeBin    string
+		limit         int
+		skipDrain     bool
+		skipAdvance   bool
+		allReadySteps bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
+		jsonOut       bool
+		format        string
+		interval      time.Duration
+		maxCycles     int
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drain <pipeline>",
+		Short: "Run one pipeline's maintenance loop until idle.",
+		Long: "Run scoped pipeline maintenance cycles until no immediate pipeline-owned queue or ready-step work remains. " +
+			"Use pipeline repair for dead-letter retry, stale-work timeout, or failed-step retry.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if maxCycles <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --max-cycles must be > 0.")
+				return exitErr(2)
+			}
+			if wait && skipAdvance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: --wait requires pipeline advancement; remove --skip-advance.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: wait-related flags require --wait.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineDrainFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline drain: %v\n", err)
+				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline drain: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			result, err := runPipelineDrainUntilIdle(ctx, cmd, teamDir, args[0], workspace, limit, tickOptions{
+				SkipDrain:     skipDrain,
+				SkipAdvance:   skipAdvance,
+				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+			}, maxCycles, interval)
+			if err != nil {
+				var code ExitCode
+				if errors.As(err, &code) {
+					return err
+				}
+				if errors.Is(err, errDaemonNotRunning) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline drain: daemon is not running — start it with `agent-team start`, or use `agent-team pipeline advance --dry-run` to preview.")
+					return exitErr(2)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline drain: %v\n", err)
+				return exitErr(1)
+			}
+			if wait {
+				if err := waitForPipelineDrainResult(cmd, teamDir, result, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval); err != nil {
+					if err == context.Canceled {
+						return nil
+					}
+					return err
+				}
+			}
+			if err := renderPipelineDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
+				return err
+			}
+			if failOnFailed && pipelineDrainResultHasFailed(result) {
+				return exitErr(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip pipeline-owned queue drain work.")
+	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement work.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in each drain cycle.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After pipeline drain reaches idle, wait for jobs advanced during drain cycles to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any pipeline drain-advanced job resolves to failed.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline drain result with a Go template, e.g. '{{.Pipeline}} {{.CyclesRun}} {{.Idle}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Delay between drain cycles.")
+	cmd.Flags().IntVar(&maxCycles, "max-cycles", 20, "Stop after this many cycles if work keeps appearing.")
+	return cmd
+}
+
 func newPipelineHoldCmd() *cobra.Command {
 	var (
 		repo        string
@@ -4313,6 +4456,20 @@ type pipelineRepairResult struct {
 	PipelineRetry   repairPipelineRetryStep   `json:"pipeline_retry"`
 	Advance         pipelineRepairAdvanceStep `json:"advance"`
 	StatusAfter     []pipelineStatusRow       `json:"status_after,omitempty"`
+}
+
+type pipelineTickResult struct {
+	Pipeline  string     `json:"pipeline"`
+	CheckedAt string     `json:"checked_at"`
+	Tick      tickResult `json:"tick"`
+}
+
+type pipelineDrainResult struct {
+	Pipeline  string                `json:"pipeline"`
+	CyclesRun int                   `json:"cycles_run"`
+	Idle      bool                  `json:"idle"`
+	HitLimit  bool                  `json:"hit_limit,omitempty"`
+	Cycles    []*pipelineTickResult `json:"cycles"`
 }
 
 type pipelineRepairAdvanceStep struct {
@@ -8204,6 +8361,122 @@ func pipelineRepairResultHasFailed(result *pipelineRepairResult) bool {
 	return pipelineRetryResultsHaveFailed(result.PipelineRetry.Results) || pipelineAdvanceResultsHaveFailed(result.Advance.Results)
 }
 
+func runPipelineTick(cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, opts tickOptions) (*pipelineTickResult, error) {
+	pipeline = strings.TrimSpace(pipeline)
+	if _, err := loadPipelineInfo(teamDir, pipeline); err != nil {
+		return nil, err
+	}
+	result := &pipelineTickResult{
+		Pipeline:  pipeline,
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		Tick: tickResult{
+			DryRun: opts.DryRun,
+		},
+	}
+	if !opts.SkipDrain {
+		filters, err := parseQueueListFilters(daemon.QueueStatePending, nil, nil, nil, false, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		items, err := collectPipelineQueueItems(teamDir, pipeline, filters, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		ids := queueItemIDsFromPointers(items)
+		if len(ids) == 0 {
+			result.Tick.Queue = &daemon.QueueDrainResult{Outcomes: []daemon.EventOutcome{}}
+		} else {
+			client, err := newDaemonClient(teamDir)
+			if err != nil {
+				return nil, err
+			}
+			queue, err := client.QueueDrainScoped(false, ids)
+			if err != nil {
+				return nil, err
+			}
+			result.Tick.Queue = queue
+		}
+	}
+	if !opts.SkipAdvance {
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, opts.Runtime, limit, false, false, opts.AllReadySteps)
+		if err != nil {
+			return nil, err
+		}
+		result.Tick.Advance = advanced
+	}
+	return result, nil
+}
+
+func runPipelineDrainUntilIdle(ctx context.Context, cmd *cobra.Command, teamDir, pipeline, workspace string, limit int, opts tickOptions, maxCycles int, interval time.Duration) (*pipelineDrainResult, error) {
+	if maxCycles <= 0 {
+		maxCycles = 1
+	}
+	pipeline = strings.TrimSpace(pipeline)
+	result := &pipelineDrainResult{Pipeline: pipeline, Cycles: []*pipelineTickResult{}}
+	for cycle := 0; cycle < maxCycles; cycle++ {
+		if cycle > 0 && interval > 0 {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				result.CyclesRun = len(result.Cycles)
+				return result, nil
+			case <-timer.C:
+			}
+		}
+		tick, err := runPipelineTick(cmd, teamDir, pipeline, workspace, limit, opts)
+		if err != nil {
+			result.CyclesRun = len(result.Cycles)
+			return result, err
+		}
+		if result.Pipeline == "" {
+			result.Pipeline = tick.Pipeline
+		}
+		result.Cycles = append(result.Cycles, tick)
+		if pipelineTickResultIsIdle(tick) {
+			result.Idle = true
+			break
+		}
+	}
+	result.CyclesRun = len(result.Cycles)
+	result.HitLimit = !result.Idle && result.CyclesRun >= maxCycles
+	return result, nil
+}
+
+func pipelineTickResultIsIdle(result *pipelineTickResult) bool {
+	if result == nil {
+		return true
+	}
+	return tickResultIsIdle(&result.Tick)
+}
+
+func waitForPipelineDrainResult(cmd *cobra.Command, teamDir string, result *pipelineDrainResult, statuses map[job.Status]bool, events map[string]bool, timeout, interval time.Duration) error {
+	if result == nil {
+		return nil
+	}
+	for _, cycle := range result.Cycles {
+		if cycle == nil {
+			continue
+		}
+		if err := waitForTickResultAdvanceRows(cmd, teamDir, &cycle.Tick, statuses, events, timeout, interval, "agent-team pipeline drain"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pipelineDrainResultHasFailed(result *pipelineDrainResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, cycle := range result.Cycles {
+		if cycle != nil && tickResultAdvanceRowsHaveFailed(&cycle.Tick) {
+			return true
+		}
+	}
+	return false
+}
+
 func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, targetFilter, message string, limit int, dryRun bool, now time.Time, staleAfter time.Duration) ([]pipelineTimeoutResult, error) {
 	if j == nil {
 		return nil, nil
@@ -9011,6 +9284,81 @@ func pipelineStatusQueueSummary(row pipelineStatusRow) string {
 		return "-"
 	}
 	return strings.Join(parts, ",")
+}
+
+func parsePipelineDrainFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-drain-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderPipelineDrainResult(w io.Writer, result *pipelineDrainResult, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &pipelineDrainResult{Cycles: []*pipelineTickResult{}}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	for i, cycle := range result.Cycles {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintf(w, "Cycle %d:\n", i+1)
+		if err := renderPipelineTickResult(w, cycle); err != nil {
+			return err
+		}
+	}
+	if len(result.Cycles) > 0 {
+		fmt.Fprintln(w)
+	}
+	if result.Idle {
+		fmt.Fprintf(w, "pipeline drain: idle after %d cycle(s)\n", result.CyclesRun)
+	} else if result.HitLimit {
+		fmt.Fprintf(w, "pipeline drain: hit max cycles (%d) before idle\n", result.CyclesRun)
+	} else {
+		fmt.Fprintf(w, "pipeline drain: stopped after %d cycle(s)\n", result.CyclesRun)
+	}
+	return nil
+}
+
+func renderPipelineTickResult(w io.Writer, result *pipelineTickResult) error {
+	if result == nil {
+		result = &pipelineTickResult{}
+	}
+	fmt.Fprintf(w, "Pipeline: %s\n", result.Pipeline)
+	if result.CheckedAt != "" {
+		fmt.Fprintf(w, "Checked:  %s\n", result.CheckedAt)
+	}
+	if result.Tick.Queue != nil {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Queue:")
+		if err := renderQueueDrainResult(w, result.Tick.Queue, false, nil); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Queue: skipped")
+	}
+	if result.Tick.Advance != nil {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Pipeline advance:")
+		return renderPipelineAdvanceResults(w, result.Tick.Advance, false, nil)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Pipeline advance: skipped")
+	return nil
 }
 
 func renderPipelineRepairResult(w io.Writer, result *pipelineRepairResult, jsonOut bool, tmpl *template.Template) error {

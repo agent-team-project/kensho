@@ -199,6 +199,7 @@ agent-team team tick delivery --wait --wait-status running --wait-timeout 30s
 agent-team repair --until-idle
 agent-team drain --all-ready-steps --runtime codex
 agent-team drain --wait --wait-status running --wait-timeout 30s
+agent-team pipeline drain ticket_to_pr --wait --wait-status running --wait-timeout 30s
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --retry-pipelines --wait --wait-status running --wait-timeout 30s
 agent-team team drain delivery --wait --wait-status running --wait-timeout 30s
@@ -219,6 +220,8 @@ the daemon has no immediate schedule, queue, or pipeline work left.
 Add `--wait --wait-status running` when it should then wait for jobs advanced
 during those drain cycles to have live owners. Use `team drain <team> --wait
 --wait-status running` for the same bounded handoff inside one declared team.
+Use `pipeline drain <pipeline> --wait --wait-status running` when the finite
+drain should stay inside one workflow's queue and ready steps.
 Use `tick --wait --wait-status running` for one foreground maintenance cycle
 that should block until any pipeline jobs advanced by that cycle have live
 owners. Use `team tick <team> --wait --wait-status running` when that bounded
@@ -269,6 +272,7 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Failed pipeline steps across workflows | `agent-team repair --retry-pipelines --dry-run --preview-routes` |
 | Failed stage across jobs | `agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes` |
 | Capped failed stage after fix | `agent-team repair --retry-pipelines --retry-force --retry-step review --dry-run --preview-routes` |
+| One workflow pending queue/ready-step drain | `agent-team pipeline drain ticket_to_pr --wait --wait-status running --wait-timeout 30s` |
 | One stuck job | `agent-team job show <job-id> --events all` |
 | One team stuck | `agent-team team overview <team>` |
 | Worker blocked | `agent-team job unblock <job-id> <answer...>` |
