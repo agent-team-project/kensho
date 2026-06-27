@@ -5653,6 +5653,12 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		workspace     string
 		runtimeKind   string
 		runtimeBin    string
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
 		jsonOut       bool
 		format        string
 	)
@@ -5670,10 +5676,44 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --verify-pr requires --cleanup-merged.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if dryRun && wait {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if wait && !advance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --wait requires --advance.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: wait-related flags require --wait.")
+				return exitErr(2)
+			}
 			tmpl, err := parseJobFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
 				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -5741,13 +5781,23 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
+					if wait && advanceResult != nil && advanceResult.Job != nil {
+						waited, err := waitForJobCommand(cmd, teamDir, advanceResult.Job.ID, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team job reconcile github")
+						if err != nil {
+							if err == context.Canceled {
+								return nil
+							}
+							return err
+						}
+						refreshJobAdvanceResultAfterWait(advanceResult, waited)
+					}
 					if advanceResult != nil && advanceResult.Job != nil {
 						result.Job = advanceResult.Job
 					}
 				}
 			}
 			if jsonOut {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
 					Event          *intake.Event        `json:"event"`
 					Result         *job.ReconcileResult `json:"result"`
 					Cleanup        string               `json:"cleanup,omitempty"`
@@ -5755,10 +5805,22 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					Advance        *jobAdvanceResult    `json:"advance,omitempty"`
 					AdvancePreview *jobAdvancePreview   `json:"advance_preview,omitempty"`
 					DryRun         bool                 `json:"dry_run,omitempty"`
-				}{Event: ev, Result: result, Cleanup: cleanupSummary, CleanupPreview: cleanupPreview, Advance: advanceResult, AdvancePreview: advancePreview, DryRun: dryRun})
+				}{Event: ev, Result: result, Cleanup: cleanupSummary, CleanupPreview: cleanupPreview, Advance: advanceResult, AdvancePreview: advancePreview, DryRun: dryRun}); err != nil {
+					return err
+				}
+				if failOnFailed && result.Job != nil && result.Job.Status == job.StatusFailed {
+					return exitErr(1)
+				}
+				return nil
 			}
 			if tmpl != nil {
-				return renderJobTemplate(cmd.OutOrStdout(), result.Job, tmpl)
+				if err := renderJobTemplate(cmd.OutOrStdout(), result.Job, tmpl); err != nil {
+					return err
+				}
+				if failOnFailed && result.Job != nil && result.Job.Status == job.StatusFailed {
+					return exitErr(1)
+				}
+				return nil
 			}
 			action := "reconciled"
 			if dryRun {
@@ -5785,6 +5847,9 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "Advance: dispatched step %s status=%s\n", advanceResult.Step.ID, advanceResult.Step.Status)
 				}
 			}
+			if failOnFailed && result.Job != nil && result.Job.Status == job.StatusFailed {
+				return exitErr(1)
+			}
 			return nil
 		},
 	}
@@ -5798,6 +5863,12 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance dispatch: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the job to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if the job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the normalized event and reconciled job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd

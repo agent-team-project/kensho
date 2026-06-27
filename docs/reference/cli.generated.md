@@ -1486,20 +1486,26 @@ agent-team intake github [flags]
 Flags:
 
 ```text
-      --advance               With --reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.
-      --cleanup-merged        With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.
-      --dry-run               Normalize and print the event without publishing to the daemon.
-      --format string         Render the intake result with a Go template, e.g. '{{.Event.Type}}'.
-      --json                  Emit normalized event and daemon outcome as JSON.
-      --payload string        Webhook JSON object.
-      --payload-file string   Read webhook JSON from a file, or '-' for stdin.
-      --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
-      --reconcile-job         Also reconcile the normalized PR event into the owning durable job.
-      --runtime string        Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string    Runtime binary for --advance dispatch. Overrides env and repo config.
-      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
-      --workspace string      Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
+      --advance                  With --reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.
+      --cleanup-merged           With --reconcile-job, remove the job-owned worktree and branch after a merged PR event.
+      --dry-run                  Normalize and print the event without publishing to the daemon.
+      --fail-on-failed           With --wait, exit 1 if the reconciled job resolves to failed.
+      --format string            Render the intake result with a Go template, e.g. '{{.Event.Type}}'.
+      --json                     Emit normalized event and daemon outcome as JSON.
+      --payload string           Webhook JSON object.
+      --payload-file string      Read webhook JSON from a file, or '-' for stdin.
+      --preview-triggers         With --dry-run, include local topology instance and pipeline matches.
+      --reconcile-job            Also reconcile the normalized PR event into the owning durable job.
+      --runtime string           Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --advance dispatch. Overrides env and repo config.
+      --target string            Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --verify-pr                With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
+      --wait                     With --advance, wait for the reconciled job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 Inherited Flags:
@@ -2599,18 +2605,24 @@ agent-team job reconcile github [flags]
 Flags:
 
 ```text
-      --advance               After reconciling PR metadata, dispatch the next ready pipeline step.
-      --cleanup-merged        After a merged PR event, remove the job-owned worktree and branch.
-      --dry-run               Preview the owning job update without writing it.
-      --format string         Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --json                  Emit the normalized event and reconciled job as JSON.
-      --payload string        GitHub webhook JSON object.
-      --payload-file string   Read GitHub webhook JSON from a file, or '-' for stdin.
-      --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime string        Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string    Runtime binary for --advance dispatch. Overrides env and repo config.
-      --verify-pr             With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
-      --workspace string      Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
+      --advance                  After reconciling PR metadata, dispatch the next ready pipeline step.
+      --cleanup-merged           After a merged PR event, remove the job-owned worktree and branch.
+      --dry-run                  Preview the owning job update without writing it.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json                     Emit the normalized event and reconciled job as JSON.
+      --payload string           GitHub webhook JSON object.
+      --payload-file string      Read GitHub webhook JSON from a file, or '-' for stdin.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --advance dispatch. Overrides env and repo config.
+      --verify-pr                With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
+      --wait                     With --advance, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for --advance dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job reconcile queue`

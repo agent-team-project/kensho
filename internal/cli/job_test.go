@@ -8574,6 +8574,116 @@ func TestJobReconcileGitHubVerifyPRRequiresCleanupMerged(t *testing.T) {
 	}
 }
 
+func TestJobReconcileGitHubWaitValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "wait without advance",
+			args: []string{"job", "reconcile", "github", "--wait"},
+			want: "--wait requires --advance",
+		},
+		{
+			name: "wait dry-run",
+			args: []string{"job", "reconcile", "github", "--advance", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "wait flag without wait",
+			args: []string{"job", "reconcile", "github", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "negative wait timeout",
+			args: []string{"job", "reconcile", "github", "--advance", "--wait", "--wait-timeout", "-1s"},
+			want: "--wait-timeout must be >= 0",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("job reconcile github validation succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestJobReconcileGitHubAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-919",
+		Ticket:     "SQU-919",
+		Target:     "worker",
+		Kickoff:    "dispatch review after PR reconcile",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusBlocked,
+		Branch:     "worker-squ-919",
+		LastEvent:  "step_blocked",
+		LastStatus: "review waiting for PR",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"implement"}, Gate: job.StepGatePR},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write PR-gated job: %v", err)
+	}
+
+	payload := `{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":919,"merged":false,"html_url":"https://github.com/acme/repo/pull/919","head":{"ref":"worker-squ-919"}}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", payload,
+		"--repo", root,
+		"--advance",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile github --advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result struct {
+		Result  *job.ReconcileResult `json:"result"`
+		Advance *jobAdvanceResult    `json:"advance"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Result == nil || result.Result.Job == nil || result.Result.Job.Status != job.StatusRunning || result.Result.Job.LastEvent != "advance_dispatched" || result.Result.Job.PR == "" {
+		t.Fatalf("reconcile result = %+v", result.Result)
+	}
+	if result.Advance == nil || result.Advance.Step == nil || result.Advance.Step.ID != "review" || result.Advance.Step.Status != job.StatusRunning || result.Advance.Step.Instance != "worker-squ-919-review" {
+		t.Fatalf("advance result = %+v", result.Advance)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-919-review")
+}
+
 func TestJobNextReportsPipelineState(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

@@ -41,6 +41,10 @@ https://intake.example.com/healthz
 `--github-advance-job` lets GitHub PR events unlock PR-gated pipeline steps
 after job PR metadata is reconciled. Keep `--github-cleanup-merged` and
 `--github-verify-pr` for post-merge branch/worktree cleanup.
+The server path stays non-blocking for webhook latency. When running a saved
+GitHub payload from a shell or CI job, use the one-shot CLI with
+`--reconcile-job --advance --wait --wait-status running` if the command should
+block until the advanced step has a live owner.
 
 ## Before Exposing It
 
@@ -62,6 +66,7 @@ Then send saved provider payloads through the CLI path:
 ```sh
 agent-team intake linear --payload-file linear-webhook.json --dry-run --preview-triggers
 agent-team intake github --payload-file github-webhook.json --dry-run --preview-triggers
+agent-team intake github --payload-file github-webhook.json --reconcile-job --advance --wait --wait-status running --wait-timeout 30s --json
 agent-team intake github --payload-file github-webhook.json --reconcile-job --cleanup-merged --verify-pr --dry-run --json
 ```
 

@@ -2452,6 +2452,66 @@ gate = "pr"
 	}
 }
 
+func TestIntakeGitHubAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-920",
+		Ticket:     "SQU-920",
+		Target:     "worker",
+		Kickoff:    "dispatch review after intake PR reconcile",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusBlocked,
+		Branch:     "worker-squ-920",
+		LastEvent:  "step_blocked",
+		LastStatus: "review waiting for PR",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"implement"}, Gate: job.StepGatePR},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write PR-gated job: %v", err)
+	}
+
+	payload := `{"action":"opened","repository":{"full_name":"acme/repo"},"pull_request":{"number":920,"merged":false,"html_url":"https://github.com/acme/repo/pull/920","head":{"ref":"worker-squ-920"}}}`
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"intake", "github",
+		"--payload", payload,
+		"--target", root,
+		"--reconcile-job",
+		"--advance",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github --advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Reconcile == nil || result.Reconcile.Job == nil || result.Reconcile.Job.Status != job.StatusRunning || result.Reconcile.Job.LastEvent != "advance_dispatched" || result.Reconcile.Job.PR == "" {
+		t.Fatalf("reconcile result = %+v", result.Reconcile)
+	}
+	if result.Advance == nil || result.Advance.Step == nil || result.Advance.Step.ID != "review" || result.Advance.Step.Status != job.StatusRunning || result.Advance.Step.Instance != "worker-squ-920-review" {
+		t.Fatalf("advance result = %+v", result.Advance)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-920-review")
+}
+
 func TestIntakeGitHubReconcileDoesNotMutateWhenDaemonDown(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
@@ -2512,6 +2572,26 @@ func TestIntakeGitHubCleanupMergedRequiresReconcileJob(t *testing.T) {
 			name: "advance without reconcile",
 			args: []string{"intake", "github", "--payload", payload, "--advance", "--dry-run"},
 			want: "--advance requires --reconcile-job",
+		},
+		{
+			name: "wait without advance",
+			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--wait"},
+			want: "--wait requires --reconcile-job --advance",
+		},
+		{
+			name: "wait dry-run",
+			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--advance", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "wait flag without wait",
+			args: []string{"intake", "github", "--payload", payload, "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "negative wait timeout",
+			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--advance", "--wait", "--wait-timeout", "-1s"},
+			want: "--wait-timeout must be >= 0",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -186,7 +186,7 @@ Pipeline status, health, overview, and next-action hints recommend these retry a
 Supported gates:
 
 - `gate = "manual"`: wait for operator approval with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; reject gates with `agent-team pipeline reject <pipeline>`, `agent-team team reject <team>`, or `agent-team job reject <job-id> --step <step-id>`.
-- `gate = "pr"`: wait until the job has PR metadata, then advance normally. Use `agent-team job update <job-id> --pr <url> --advance --dry-run` to preview the metadata update and next-step dispatch together before rerunning without `--dry-run`; add `--wait --wait-status running` when the handoff should block until the unblocked step has a live owner. GitHub PR webhooks can do the same via `agent-team intake github --reconcile-job --advance --dry-run` or `agent-team job reconcile github --advance --dry-run`.
+- `gate = "pr"`: wait until the job has PR metadata, then advance normally. Use `agent-team job update <job-id> --pr <url> --advance --dry-run` to preview the metadata update and next-step dispatch together before rerunning without `--dry-run`; add `--wait --wait-status running` when the handoff should block until the unblocked step has a live owner. GitHub PR webhooks can do the same via `agent-team intake github --reconcile-job --advance --dry-run` or `agent-team job reconcile github --advance --dry-run`; rerun without `--dry-run` and add `--wait --wait-status running` when a foreground script should wait for the next owner.
 
 When a ready step targets a persistent instance that is not currently running,
 advancement writes the mailbox message and leaves the step `queued` with the
