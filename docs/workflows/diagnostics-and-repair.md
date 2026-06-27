@@ -192,6 +192,7 @@ agent-team repair --retry-pipelines --dry-run --preview-routes
 agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-force --retry-message "override after fixing dependency"
+agent-team tick --wait --wait-status running --wait-timeout 30s
 agent-team repair --until-idle
 agent-team drain --all-ready-steps --runtime codex
 agent-team team repair delivery --dry-run --jobs
@@ -209,6 +210,10 @@ Repair can:
 `--dry-run` should be the first step.
 Use `drain` when a script should keep running global maintenance cycles until
 the daemon has no immediate schedule, queue, or pipeline work left.
+Use `tick --wait --wait-status running` for one foreground maintenance cycle
+that should block until any pipeline jobs advanced by that cycle have live
+owners. `--wait` is intentionally one-shot and is not combined with `--watch`,
+`--until-idle`, or `--skip-advance`.
 Use `--timeout-jobs` after status/event reconciliation when stale running work
 should become failed before a retry pass. It covers stale pipeline steps and
 stale step-less running jobs; use `--timeout-pipelines` when you only want the

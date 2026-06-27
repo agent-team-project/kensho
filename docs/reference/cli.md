@@ -83,7 +83,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team plan` | Preview desired instance state |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
-| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps |
+| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps and `--wait` for one-shot bounded handoff |
 | `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps |
 | `agent-team reload` | Top-level daemon topology reload |
 

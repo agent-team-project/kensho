@@ -199,6 +199,92 @@ branch = "worker-squ-94"
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickWaitsForAdvancedJobs(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-421",
+		Ticket:    "SQU-421",
+		Target:    "worker",
+		Kickoff:   "SQU-421: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write ready job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"tick",
+		"--target", target,
+		"--workspace", "repo",
+		"--skip-reconcile",
+		"--skip-schedules",
+		"--skip-drain",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Advance) != 1 || result.Advance[0].Action != "advanced" || result.Advance[0].Job == nil || result.Advance[0].Job.Status != job.StatusRunning || result.Advance[0].Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("tick wait advance = %+v", result.Advance)
+	}
+	if result.Advance[0].Step == nil || result.Advance[0].Step.ID != "implement" || result.Advance[0].Step.Status != job.StatusRunning || result.Advance[0].Step.Instance != "worker-squ-421-implement" {
+		t.Fatalf("tick wait step = %+v", result.Advance[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-421-implement")
+}
+
+func TestTickWaitValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "dry run", args: []string{"tick", "--wait", "--dry-run"}, want: "--wait cannot be combined with --dry-run"},
+		{name: "watch", args: []string{"tick", "--wait", "--watch"}, want: "--wait cannot be combined with --watch"},
+		{name: "until idle", args: []string{"tick", "--wait", "--until-idle"}, want: "--wait cannot be combined with --until-idle"},
+		{name: "skip advance", args: []string{"tick", "--wait", "--skip-advance"}, want: "--wait requires pipeline advancement"},
+		{name: "wait flag without wait", args: []string{"tick", "--wait-status", "running"}, want: "wait-related flags require --wait"},
+		{name: "negative wait timeout", args: []string{"tick", "--wait", "--wait-timeout", "-1s"}, want: "--wait-timeout must be >= 0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("tick invalid wait flags succeeded: stdout=%s", out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestTickAllReadyStepsDryRun(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

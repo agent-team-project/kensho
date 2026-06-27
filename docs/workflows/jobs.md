@@ -113,6 +113,13 @@ Add `--wait-status running`, `--wait-event dispatched`,
 `--wait-event advance_dispatched`, or `--wait-event closed` when automation needs
 a different handoff point.
 
+For a broader maintenance pass that may advance several ready jobs, use one-shot
+`tick --wait`:
+
+```sh
+agent-team tick --wait --wait-status running --wait-timeout 30s
+```
+
 Preview first:
 
 ```sh

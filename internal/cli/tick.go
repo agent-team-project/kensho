@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,12 @@ func newTickCmd() *cobra.Command {
 		previewRoutes bool
 		watch         bool
 		untilIdle     bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
 		jsonOut       bool
 		format        string
 		interval      time.Duration
@@ -55,12 +62,40 @@ func newTickCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --interval must be >= 0.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
 			if watch && untilIdle {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: choose one of --watch or --until-idle.")
 				return exitErr(2)
 			}
 			if untilIdle && dryRun {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --until-idle cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if wait && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if wait && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait cannot be combined with --watch.")
+				return exitErr(2)
+			}
+			if wait && untilIdle {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait cannot be combined with --until-idle.")
+				return exitErr(2)
+			}
+			if wait && skipAdvance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait requires pipeline advancement; remove --skip-advance.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: wait-related flags require --wait.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -79,6 +114,20 @@ func newTickCmd() *cobra.Command {
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
 				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
 			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
@@ -127,7 +176,22 @@ func newTickCmd() *cobra.Command {
 				}
 				return exitErr(1)
 			}
-			return renderTickResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+			if wait {
+				result.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Advance, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team tick")
+				if err != nil {
+					if err == context.Canceled {
+						return nil
+					}
+					return err
+				}
+			}
+			if err := renderTickResult(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
+				return err
+			}
+			if failOnFailed && pipelineAdvanceResultsHaveFailed(result.Advance) {
+				return exitErr(1)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -144,6 +208,12 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, queue, or pipeline work remains.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any advanced job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch, or delay between --until-idle cycles.")
