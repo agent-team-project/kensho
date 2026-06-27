@@ -271,6 +271,12 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	before := snapshotDiffInput{
 		CapturedAt: "2026-06-18T12:00:00Z",
 		Pipeline:   "ticket_to_pr",
+		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
+			Events:           intValuePtr(20),
+			IntakeDeliveries: intValuePtr(20),
+			ScheduleLimit:    intValuePtr(10),
+			Redacted:         true,
+		}),
 		Instances: []snapshotDiffInstance{
 			{Instance: "manager", Agent: "manager", Status: "running", Phase: "idle"},
 			{Instance: "worker-squ-801", Agent: "worker", Status: "running", Phase: "blocked", Runtime: "codex", Job: "squ-801"},
@@ -318,6 +324,11 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	after := snapshotDiffInput{
 		CapturedAt: "2026-06-18T12:05:00Z",
 		Pipeline:   "ticket_to_pr",
+		Provenance: newSnapshotProvenance("agent-team team snapshot", "team", "delivery", snapshotProvenanceOptions{
+			Events:        intValuePtr(5),
+			ScheduleLimit: intValuePtr(0),
+			Redacted:      false,
+		}),
 		Instances: []snapshotDiffInstance{
 			{Instance: "manager", Agent: "manager", Status: "running", Phase: "idle"},
 			{Instance: "reviewer-squ-803", Agent: "manager", Status: "running", Phase: "working", Runtime: "claude", Job: "squ-803"},
@@ -386,6 +397,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Before.Kind != "pipeline" || result.Before.Scope != "ticket_to_pr" || result.After.Scope != "ticket_to_pr" {
 		t.Fatalf("snapshot diff metadata = %+v -> %+v", result.Before, result.After)
 	}
+	if result.Summary.Provenance.Added != 1 || result.Summary.Provenance.Removed != 1 || result.Summary.Provenance.Changed != 5 {
+		t.Fatalf("provenance counters = %+v", result.Summary.Provenance)
+	}
 	if result.Summary.Jobs.Added != 1 || result.Summary.Jobs.Removed != 1 || result.Summary.Jobs.Changed != 1 {
 		t.Fatalf("job counters = %+v", result.Summary.Jobs)
 	}
@@ -416,7 +430,10 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.SectionErrors.Added != 1 || result.Summary.SectionErrors.Removed != 1 {
 		t.Fatalf("section error counters = %+v", result.Summary.SectionErrors)
 	}
-	if !hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
+	if !hasSnapshotDiffChange(result.Changes, "provenance", "command", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "provenance", "subject", "added") ||
+		!hasSnapshotDiffChange(result.Changes, "provenance", "intake_deliveries", "removed") ||
+		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-802", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "instances", "reviewer-squ-803", "added") ||
@@ -443,6 +460,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	for _, want := range []string{
 		"snapshot diff:",
+		"provenance: added=1 removed=1 changed=5",
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
 		"pipelines:",
@@ -488,6 +506,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	if !strings.Contains(sameExitOut.String(), "changes: total=0") || !strings.Contains(sameExitOut.String(), "details: none") {
 		t.Fatalf("identical snapshot diff text = %s", sameExitOut.String())
+	}
+
+	provenanceOnly := NewRootCmd()
+	provenanceOnlyOut, provenanceOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	provenanceOnly.SetOut(provenanceOnlyOut)
+	provenanceOnly.SetErr(provenanceOnlyErr)
+	provenanceOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "provenance", "--json"})
+	if err := provenanceOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff provenance section: %v\nstderr=%s", err, provenanceOnlyErr.String())
+	}
+	var provenanceOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(provenanceOnlyOut.Bytes(), &provenanceOnlyResult); err != nil {
+		t.Fatalf("decode provenance-only snapshot diff: %v\nbody=%s", err, provenanceOnlyOut.String())
+	}
+	if provenanceOnlyResult.Summary.TotalChanges != 7 || provenanceOnlyResult.Summary.Provenance.Added != 1 || provenanceOnlyResult.Summary.Provenance.Removed != 1 || provenanceOnlyResult.Summary.Provenance.Changed != 5 || provenanceOnlyResult.Summary.Queue.Added != 0 {
+		t.Fatalf("provenance-only diff summary = %+v", provenanceOnlyResult.Summary)
+	}
+	for _, change := range provenanceOnlyResult.Changes {
+		if change.Section != "provenance" {
+			t.Fatalf("provenance-only diff included %q change: %+v", change.Section, provenanceOnlyResult.Changes)
+		}
 	}
 
 	queueOnly := NewRootCmd()
@@ -540,7 +579,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if err := invalidSection.Execute(); err == nil {
 		t.Fatalf("snapshot diff invalid section succeeded")
 	}
-	if !strings.Contains(invalidSectionErr.String(), "--section must be instances") {
+	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance") {
 		t.Fatalf("invalid section stderr = %q", invalidSectionErr.String())
 	}
 }
