@@ -319,6 +319,90 @@ func TestOverviewPrefersJobScopedOutboxActions(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Date(2026, 6, 27, 19, 0, 0, 0, time.UTC)
+	j := &job.Job{
+		ID:        "squ-813",
+		Ticket:    "SQU-813",
+		Target:    "worker",
+		Instance:  "worker-squ-813",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeQuarantinedOutboxFile(t, teamDir, "20260627T190000.000000000Z", daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-quarantine-overview",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-813", "target": "worker"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview outbox quarantine json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview outbox quarantine: %v\nbody=%s", err, out.String())
+	}
+	if overview.OK || overview.State != "attention" {
+		t.Fatalf("overview state = ok:%v state:%q", overview.OK, overview.State)
+	}
+	if overview.OutboxQuarantine.Quarantined != 1 || overview.OutboxQuarantine.Restorable != 1 || overview.OutboxQuarantineOwner != "squ-813" {
+		t.Fatalf("outbox quarantine = %+v owner=%q", overview.OutboxQuarantine, overview.OutboxQuarantineOwner)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team job outbox quarantine squ-813") {
+		t.Fatalf("actions missing job-scoped quarantine command: %+v", overview.Actions)
+	}
+	if stringSliceContains(overview.Actions, "agent-team outbox quarantine ls") {
+		t.Fatalf("overview should prefer job-scoped quarantine action: %+v", overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team job outbox quarantine squ-813"); !ok || detail.Source != "outbox" || detail.Reason != "quarantined=1" {
+		t.Fatalf("outbox quarantine detail = %+v, ok=%v", detail, ok)
+	}
+
+	next := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	next.SetOut(nextOut)
+	next.SetErr(nextErr)
+	next.SetArgs([]string{"next", "--target", root, "--source", "outbox", "--reason", "quarantined", "--json"})
+	if err := next.Execute(); err != nil {
+		t.Fatalf("next outbox quarantine json: %v\nstderr=%s", err, nextErr.String())
+	}
+	var nextResult nextActionResult
+	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
+		t.Fatalf("decode next outbox quarantine: %v\nbody=%s", err, nextOut.String())
+	}
+	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team job outbox quarantine squ-813" {
+		t.Fatalf("next outbox quarantine actions = %+v", nextResult)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview outbox quarantine text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "outbox quarantine: quarantined=1 restorable=1 unrestorable=0") {
+		t.Fatalf("overview text missing outbox quarantine summary:\n%s", textOut.String())
+	}
+}
+
 func TestTeamOverviewReportsScopedOutboxActions(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -436,6 +520,92 @@ instances = ["other"]
 		if detail.Team != "delivery" || detail.Source != "outbox" {
 			t.Fatalf("team next outbox detail = %+v", detail)
 		}
+	}
+}
+
+func TestTeamOverviewReportsScopedOutboxQuarantineActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+
+[instances.other]
+agent = "other"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["other"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 20, 0, 0, 0, time.UTC)
+	writeQuarantinedOutboxFile(t, teamDir, "20260627T200000.000000000Z", daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-delivery-quarantine-overview",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"target": "worker", "ticket": "SQU-914"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	writeQuarantinedOutboxFile(t, teamDir, "20260627T200000.000000000Z", daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-platform-quarantine-overview",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"target": "other", "ticket": "OTH-914"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team overview outbox quarantine json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode team overview outbox quarantine: %v\nbody=%s", err, out.String())
+	}
+	if overview.OutboxQuarantine.Quarantined != 1 || overview.OutboxQuarantine.Restorable != 1 {
+		t.Fatalf("team outbox quarantine = %+v", overview.OutboxQuarantine)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team team outbox quarantine delivery") {
+		t.Fatalf("team actions missing quarantine command: %+v", overview.Actions)
+	}
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team team outbox quarantine delivery"); !ok || detail.Team != "delivery" || detail.Source != "outbox" || detail.Reason != "quarantined=1" {
+		t.Fatalf("team outbox quarantine detail = %+v, ok=%v", detail, ok)
+	}
+	if strings.Contains(out.String(), "outbox-platform-quarantine-overview") {
+		t.Fatalf("team overview leaked platform quarantine:\n%s", out.String())
+	}
+
+	next := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	next.SetOut(nextOut)
+	next.SetErr(nextErr)
+	next.SetArgs([]string{"team", "next", "delivery", "--repo", root, "--source", "outbox", "--reason", "quarantined", "--json"})
+	if err := next.Execute(); err != nil {
+		t.Fatalf("team next outbox quarantine json: %v\nstderr=%s", err, nextErr.String())
+	}
+	var nextResult nextActionResult
+	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
+		t.Fatalf("decode team next outbox quarantine: %v\nbody=%s", err, nextOut.String())
+	}
+	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team team outbox quarantine delivery" {
+		t.Fatalf("team next outbox quarantine actions = %+v", nextResult)
 	}
 }
 

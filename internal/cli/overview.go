@@ -143,24 +143,26 @@ func newTeamOverviewCmd() *cobra.Command {
 }
 
 type overviewResult struct {
-	OK            bool                    `json:"ok"`
-	State         string                  `json:"state"`
-	CapturedAt    string                  `json:"captured_at"`
-	Team          *teamInfo               `json:"team,omitempty"`
-	Health        overviewHealthSummary   `json:"health"`
-	Topology      *topologySummary        `json:"topology,omitempty"`
-	Runtime       overviewRuntimeSummary  `json:"runtime"`
-	Inbox         overviewInboxSummary    `json:"inbox"`
-	Jobs          overviewJobSummary      `json:"jobs"`
-	Outbox        outboxSummary           `json:"outbox"`
-	OutboxOwner   *overviewOutboxOwner    `json:"outbox_owner,omitempty"`
-	Queue         queueSummary            `json:"queue"`
-	Pipelines     overviewPipelineSummary `json:"pipelines"`
-	Schedules     overviewScheduleSummary `json:"schedules"`
-	Intake        overviewIntakeSummary   `json:"intake"`
-	Actions       []string                `json:"actions,omitempty"`
-	ActionDetails []operatorActionHint    `json:"action_details,omitempty"`
-	SectionErrors map[string]string       `json:"section_errors,omitempty"`
+	OK                    bool                    `json:"ok"`
+	State                 string                  `json:"state"`
+	CapturedAt            string                  `json:"captured_at"`
+	Team                  *teamInfo               `json:"team,omitempty"`
+	Health                overviewHealthSummary   `json:"health"`
+	Topology              *topologySummary        `json:"topology,omitempty"`
+	Runtime               overviewRuntimeSummary  `json:"runtime"`
+	Inbox                 overviewInboxSummary    `json:"inbox"`
+	Jobs                  overviewJobSummary      `json:"jobs"`
+	Outbox                outboxSummary           `json:"outbox"`
+	OutboxOwner           *overviewOutboxOwner    `json:"outbox_owner,omitempty"`
+	OutboxQuarantine      outboxQuarantineSummary `json:"outbox_quarantine"`
+	OutboxQuarantineOwner string                  `json:"outbox_quarantine_owner,omitempty"`
+	Queue                 queueSummary            `json:"queue"`
+	Pipelines             overviewPipelineSummary `json:"pipelines"`
+	Schedules             overviewScheduleSummary `json:"schedules"`
+	Intake                overviewIntakeSummary   `json:"intake"`
+	Actions               []string                `json:"actions,omitempty"`
+	ActionDetails         []operatorActionHint    `json:"action_details,omitempty"`
+	SectionErrors         map[string]string       `json:"section_errors,omitempty"`
 }
 
 type operatorActionHint struct {
@@ -311,6 +313,13 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 		out.OutboxOwner = owner
 	}
 
+	if quarantine, owner, err := collectOverviewOutboxQuarantine(teamDir); err != nil {
+		out.addError("outbox_quarantine", err)
+	} else {
+		out.OutboxQuarantine = quarantine
+		out.OutboxQuarantineOwner = owner
+	}
+
 	if out.Pipelines.Total == 0 {
 		if rows, err := collectPipelineStatusRows(teamDir, ""); err != nil {
 			out.addError("pipelines", err)
@@ -396,6 +405,12 @@ func collectTeamOverview(teamDir, name string, now time.Time, scheduleLimit int)
 		out.addError("outbox", err)
 	} else {
 		out.Outbox = outbox
+	}
+
+	if quarantine, err := collectOverviewOutboxQuarantineForTeam(teamDir, top, team); err != nil {
+		out.addError("outbox_quarantine", err)
+	} else {
+		out.OutboxQuarantine = quarantine
 	}
 
 	if out.Jobs.Summary.Total == 0 && out.Jobs.Attention == 0 && out.Jobs.ReadySteps == 0 {
@@ -715,6 +730,30 @@ func collectOverviewOutboxForTeam(teamDir string, top *topology.Topology, team *
 	return summarizeOutboxItems(teamOutboxItems(top, team, teamJobs(top, team, jobs), items)), nil
 }
 
+func collectOverviewOutboxQuarantine(teamDir string) (outboxQuarantineSummary, string, error) {
+	items, err := listOutboxQuarantine(teamDir)
+	if err != nil {
+		return outboxQuarantineSummary{}, "", err
+	}
+	jobs, err := jobstore.List(teamDir)
+	if err != nil {
+		return outboxQuarantineSummary{}, "", err
+	}
+	return summarizeOutboxQuarantineItems(items), overviewOutboxQuarantineSingleJob(items, jobs), nil
+}
+
+func collectOverviewOutboxQuarantineForTeam(teamDir string, top *topology.Topology, team *topology.Team) (outboxQuarantineSummary, error) {
+	jobs, err := jobstore.List(teamDir)
+	if err != nil {
+		return outboxQuarantineSummary{}, err
+	}
+	items, err := listOutboxQuarantine(teamDir)
+	if err != nil {
+		return outboxQuarantineSummary{}, err
+	}
+	return summarizeOutboxQuarantineItems(teamOutboxQuarantineItems(top, team, teamJobs(top, team, jobs), items)), nil
+}
+
 func overviewActions(out *overviewResult, health *healthResult) []string {
 	return overviewActionCommands(overviewActionHints(out, health))
 }
@@ -806,6 +845,9 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 	}
 	if out.Queue.Quarantined > 0 {
 		add(overviewQueueQuarantineAction(health, teamName), "queue", fmt.Sprintf("quarantined=%d", out.Queue.Quarantined))
+	}
+	if out.OutboxQuarantine.Quarantined > 0 {
+		add(overviewOutboxQuarantineAction(out, teamName), "outbox", fmt.Sprintf("quarantined=%d", out.OutboxQuarantine.Quarantined))
 	}
 	if out.Outbox.Failed > 0 {
 		if teamName != "" {
@@ -1058,6 +1100,33 @@ func overviewOutboxOwnerJob(owner *overviewOutboxOwner, state string) string {
 	}
 }
 
+func overviewOutboxQuarantineSingleJob(items []outboxQuarantineItem, jobs []*jobstore.Job) string {
+	var owner string
+	for _, item := range items {
+		var matched string
+		for _, j := range jobs {
+			if j == nil {
+				continue
+			}
+			if outboxQuarantineItemMatchesJob(item, j) {
+				matched = j.ID
+				break
+			}
+		}
+		if matched == "" {
+			return ""
+		}
+		if owner == "" {
+			owner = matched
+			continue
+		}
+		if owner != matched {
+			return ""
+		}
+	}
+	return owner
+}
+
 func overviewQueueDeadRetryAction(health *healthResult, teamName string) string {
 	if health != nil {
 		for _, issue := range health.Issues {
@@ -1172,6 +1241,16 @@ func overviewQueueQuarantineAction(health *healthResult, teamName string) string
 	return "agent-team queue quarantine ls"
 }
 
+func overviewOutboxQuarantineAction(out *overviewResult, teamName string) string {
+	if teamName != "" {
+		return fmt.Sprintf("agent-team team outbox quarantine %s", teamName)
+	}
+	if out != nil && strings.TrimSpace(out.OutboxQuarantineOwner) != "" {
+		return fmt.Sprintf("agent-team job outbox quarantine %s", strings.TrimSpace(out.OutboxQuarantineOwner))
+	}
+	return "agent-team outbox quarantine ls"
+}
+
 func overviewRuntimeResumePlanAction(summary overviewRuntimeSummary, teamName string) string {
 	flag := runtimeResumePlanHintFlag("--status crashed")
 	if teamName != "" {
@@ -1247,6 +1326,7 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 		out.Queue.Quarantined == 0 &&
 		out.Outbox.Pending == 0 &&
 		out.Outbox.Failed == 0 &&
+		out.OutboxQuarantine.Quarantined == 0 &&
 		out.Inbox.Unread == 0 &&
 		out.Jobs.Attention == 0 &&
 		out.Jobs.ReadySteps == 0 &&
@@ -1271,6 +1351,7 @@ func overviewState(out *overviewResult) string {
 		out.Queue.Dead > 0 ||
 		out.Queue.Quarantined > 0 ||
 		out.Outbox.Failed > 0 ||
+		out.OutboxQuarantine.Quarantined > 0 ||
 		out.Jobs.Attention > 0 ||
 		out.Pipelines.BlockedSteps > 0 ||
 		out.Pipelines.FailedSteps > 0 ||
@@ -1397,6 +1478,9 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		result.Outbox.Pending,
 		result.Outbox.Failed,
 		result.Outbox.Processed)
+	if result.OutboxQuarantine.Quarantined > 0 {
+		fmt.Fprintln(w, outboxQuarantineSummaryLine(result.OutboxQuarantine))
+	}
 	fmt.Fprintf(w, "pipelines: total=%d jobs=%d ready_steps=%d parallel_ready_steps=%d stale_running_steps=%d blocked_steps=%d failed_steps=%d\n",
 		result.Pipelines.Total,
 		result.Pipelines.Jobs,

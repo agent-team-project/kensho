@@ -242,6 +242,8 @@ agent-team team outbox quarantine drop delivery --all --unrestorable --dry-run
 
 Job, pipeline, and team scoping prevent a recovery command for one ticket, workflow, or ownership boundary from restoring or deleting another owner's preserved outbox file.
 
+`overview` and `next --source outbox --reason quarantined` surface preserved outbox files as operator actions. Global views prefer `job outbox quarantine <job-id>` when all preserved files resolve to one durable job; team views use `team outbox quarantine <team>` and only count that team's files.
+
 Diagnostic snapshots include outbox quarantine inventory next to active outbox state. Use `snapshot`, `job snapshot <job-id>`, `pipeline snapshot <pipeline>`, or `team snapshot <team>` before and after recovery, and `snapshot diff --section outbox_quarantine` when a handoff only needs the preserved outbox-file delta.
 
 ## Team-Scoped Quarantine

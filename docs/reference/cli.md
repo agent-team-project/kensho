@@ -327,8 +327,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team overview` | Compact state and action hints; JSON includes structured `action_details` |
-| `agent-team next` | Recommended next commands with structured JSON `action_details` |
+| `agent-team overview` | Compact state and action hints, including queue/outbox quarantine recovery; JSON includes structured `action_details` |
+| `agent-team next` | Recommended next commands with structured JSON `action_details`; filter quarantined outbox recovery with `--source outbox --reason quarantined` |
 | `agent-team health` | Scriptable health check |
 | `agent-team monitor` | Operator dashboard |
 | `agent-team watch` | Continuous monitor |
