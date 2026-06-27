@@ -600,6 +600,43 @@ func TestDoctorIncludesQueueProblems(t *testing.T) {
 	}
 }
 
+func TestDoctorIncludesOutboxProblems(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	outboxDir := filepath.Join(daemon.OutboxRoot(teamDir), daemon.OutboxStatePending)
+	if err := os.MkdirAll(outboxDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outboxDir, "bad.json"), []byte("{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor to fail on corrupt outbox file")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.OK || !containsDoctorMessage(result.Problems, "outbox:") || !containsDoctorMessage(result.Problems, "not valid JSON") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write outbox problems to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorWarnsOnQueueQuarantine(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

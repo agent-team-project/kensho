@@ -262,6 +262,115 @@ func TestOutboxPruneLocal(t *testing.T) {
 	}
 }
 
+func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-valid",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"job_id": "squ-610", "target": "worker"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	writeRawOutboxFile(t, teamDir, daemon.OutboxStateProcessed, "bad-json.json", "{\n")
+	writeRawOutboxFile(t, teamDir, daemon.OutboxStateFailed, "missing-type.json", `{
+  "id": "missing-type",
+  "state": "failed",
+  "payload": {"job_id": "squ-611", "target": "worker"},
+  "created_at": "2026-06-27T12:00:00Z",
+  "updated_at": "2026-06-27T12:00:00Z",
+  "failed_at": "2026-06-27T12:00:00Z"
+}
+`)
+	writeRawOutboxFile(t, teamDir, daemon.OutboxStatePending, "path-id.json", `{
+  "id": "stored-id",
+  "state": "pending",
+  "type": "agent.dispatch",
+  "payload": {"job_id": "squ-612", "target": "worker"},
+  "created_at": "2026-06-27T12:00:00Z",
+  "updated_at": "2026-06-27T12:00:00Z"
+}
+`)
+	writeRawOutboxFile(t, teamDir, daemon.OutboxStatePending, "README.txt", "operator note\n")
+
+	out, stderr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--json")
+	if err == nil {
+		t.Fatalf("outbox doctor succeeded with corrupt outbox files")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("outbox doctor err = %v, want exit 1", err)
+	}
+	var result outboxDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode outbox doctor: %v\nstdout=%s stderr=%s", err, out.String(), stderr.String())
+	}
+	if result.OK || result.Summary.Files != 4 || result.Summary.Valid != 1 || result.Summary.Invalid != 3 || result.Summary.Ignored != 1 {
+		t.Fatalf("outbox doctor result = %+v", result)
+	}
+	for _, code := range []string{"invalid_json", "missing_type", "id_path_mismatch"} {
+		if !outboxDoctorHasCode(result.Problems, code) {
+			t.Fatalf("outbox doctor missing problem code %q: %+v", code, result.Problems)
+		}
+	}
+	if !outboxDoctorHasCode(result.Warnings, "unexpected_file") {
+		t.Fatalf("outbox doctor missing unexpected file warning: %+v", result.Warnings)
+	}
+
+	dryOut, dryErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("outbox doctor quarantine dry-run: %v\nstderr=%s", err, dryErrOut.String())
+	}
+	var dryResult outboxDoctorResult
+	if err := json.Unmarshal(dryOut.Bytes(), &dryResult); err != nil {
+		t.Fatalf("decode outbox doctor dry-run: %v\nstdout=%s", err, dryOut.String())
+	}
+	if dryResult.Quarantine == nil || !dryResult.Quarantine.DryRun || dryResult.Quarantine.Candidates != 3 || dryResult.Quarantine.Moved != 0 {
+		t.Fatalf("outbox doctor dry-run quarantine = %+v", dryResult.Quarantine)
+	}
+	for _, rel := range []string{
+		filepath.Join(daemon.OutboxStateProcessed, "bad-json.json"),
+		filepath.Join(daemon.OutboxStateFailed, "missing-type.json"),
+		filepath.Join(daemon.OutboxStatePending, "path-id.json"),
+	} {
+		if _, err := os.Stat(filepath.Join(daemon.OutboxRoot(teamDir), rel)); err != nil {
+			t.Fatalf("dry-run moved %s: %v", rel, err)
+		}
+	}
+
+	quarantineOut, quarantineErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--json")
+	if err != nil {
+		t.Fatalf("outbox doctor quarantine: %v\nstderr=%s", err, quarantineErrOut.String())
+	}
+	var quarantineResult outboxDoctorResult
+	if err := json.Unmarshal(quarantineOut.Bytes(), &quarantineResult); err != nil {
+		t.Fatalf("decode outbox doctor quarantine: %v\nstdout=%s", err, quarantineOut.String())
+	}
+	if !quarantineResult.OK || quarantineResult.Quarantine == nil || quarantineResult.Quarantine.Candidates != 3 || quarantineResult.Quarantine.Moved != 3 {
+		t.Fatalf("outbox doctor quarantine result = %+v", quarantineResult)
+	}
+	for _, rel := range []string{
+		filepath.Join(daemon.OutboxStateProcessed, "bad-json.json"),
+		filepath.Join(daemon.OutboxStateFailed, "missing-type.json"),
+		filepath.Join(daemon.OutboxStatePending, "path-id.json"),
+	} {
+		if _, err := os.Stat(filepath.Join(daemon.OutboxRoot(teamDir), rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s should be quarantined, err=%v", rel, err)
+		}
+	}
+	listOut := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--json")
+	var listed []*daemon.OutboxItem
+	if err := json.Unmarshal(listOut.Bytes(), &listed); err != nil {
+		t.Fatalf("decode outbox list after quarantine: %v\n%s", err, listOut.String())
+	}
+	if len(listed) != 1 || listed[0].ID != "outbox-valid" {
+		t.Fatalf("outbox list after quarantine = %+v", listed)
+	}
+}
+
 func TestScopedOutboxPruneRespectsOwnership(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -1075,6 +1184,26 @@ func writeCLIOutboxItem(t *testing.T, teamDir string, item *daemon.OutboxItem) {
 	if err := daemon.WriteOutboxItem(teamDir, item); err != nil {
 		t.Fatalf("WriteOutboxItem(%s): %v", item.ID, err)
 	}
+}
+
+func writeRawOutboxFile(t *testing.T, teamDir, state, name, body string) {
+	t.Helper()
+	dir := filepath.Join(daemon.OutboxRoot(teamDir), state)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func outboxDoctorHasCode(findings []outboxDoctorFinding, code string) bool {
+	for _, finding := range findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func runRootForOutboxTest(t *testing.T, args ...string) *bytes.Buffer {

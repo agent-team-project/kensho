@@ -226,6 +226,16 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 			warnings = append(warnings, "queue: "+warning.Message)
 		}
 	}
+	if outboxDoctor, err := collectOutboxDoctor(teamDir); err != nil {
+		problems = append(problems, fmt.Sprintf("outbox validation failed: %v", err))
+	} else {
+		for _, problem := range outboxDoctor.Problems {
+			problems = append(problems, "outbox: "+problem.Message)
+		}
+		for _, warning := range outboxDoctor.Warnings {
+			warnings = append(warnings, "outbox: "+warning.Message)
+		}
+	}
 	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
 		problems = append(problems, fmt.Sprintf("queue quarantine validation failed: %v", err))
 	} else if len(quarantine) > 0 {

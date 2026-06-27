@@ -33,6 +33,7 @@ func newOutboxCmd() *cobra.Command {
 	cmd.AddCommand(newOutboxRetryCmd())
 	cmd.AddCommand(newOutboxDropCmd())
 	cmd.AddCommand(newOutboxPruneCmd())
+	cmd.AddCommand(newOutboxDoctorCmd())
 	return cmd
 }
 

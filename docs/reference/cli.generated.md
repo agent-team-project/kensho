@@ -3461,12 +3461,39 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team outbox doctor` - Validate sandboxed agent outbox files.
 - `agent-team outbox drain` - Ask the running daemon to publish pending outbox events.
 - `agent-team outbox drop` - Drop one or more outbox events.
 - `agent-team outbox ls` - List sandboxed agent outbox events.
 - `agent-team outbox prune` - Prune old sandboxed agent outbox events.
 - `agent-team outbox retry` - Retry one or more processed or failed outbox events.
 - `agent-team outbox show` - Show one outbox event.
+
+## `agent-team outbox doctor`
+
+Validate sandboxed agent outbox files.
+
+Validate sandboxed agent outbox JSON files without relying on normal outbox listing paths.
+
+```text
+agent-team outbox doctor [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         With --quarantine, preview files that would be moved.
+      --format string   Render the outbox doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.
+      --json            Emit outbox doctor findings as JSON.
+      --quarantine      Move outbox files with doctor problems out of the active outbox.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
 
 ## `agent-team outbox drain`
 
