@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -105,6 +106,7 @@ func newPipelineOutboxCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineOutboxRetryCmd())
 	cmd.AddCommand(newPipelineOutboxDropCmd())
 	cmd.AddCommand(newPipelineOutboxPruneCmd())
+	cmd.AddCommand(newPipelineOutboxQuarantineCmd())
 	return cmd
 }
 
@@ -404,6 +406,344 @@ func newPipelineOutboxPruneCmd() *cobra.Command {
 	return cmd
 }
 
+func newPipelineOutboxQuarantineCmd() *cobra.Command {
+	var (
+		repo         string
+		stateFilter  string
+		types        []string
+		sources      []string
+		jobs         []string
+		restorable   bool
+		unrestorable bool
+		all          bool
+		sortBy       string
+		limit        int
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "quarantine [<pipeline>|--all]",
+		Short: "List pipeline-owned quarantined outbox files.",
+		Long:  "List quarantined outbox files owned by one pipeline. With no pipeline, all pipeline-owned quarantined outbox files are listed. Show, restore, and drop still require an explicit pipeline.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseOutboxQuarantineSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: %v\n", err)
+				return exitErr(2)
+			}
+			formatTemplate, err := parseOutboxQuarantineCommandFormat(cmd, "agent-team pipeline outbox quarantine", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseOutboxFilters(stateFilter, types, sources, jobs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: pipeline name is required.")
+				return exitErr(2)
+			}
+			items, err := collectPipelineOutboxQuarantineItems(teamDir, pipelineName, filters)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: %v\n", err)
+				return exitErr(1)
+			}
+			items = filterOutboxQuarantineRestorable(items, restorable, unrestorable)
+			items = prepareOutboxQuarantineItems(items, sortMode, limit)
+			return renderOutboxQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by outbox state: pending, processed, or failed.")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "Filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&sources, "source", nil, "Filter by source agent/instance; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "Only show quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "Only show quarantined files that cannot be restored.")
+	cmd.Flags().BoolVar(&all, "all", false, "List quarantined outbox files across all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().StringVar(&sortBy, "sort", "path", outboxQuarantineSortFlagHelp)
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned quarantined outbox files as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned quarantined outbox file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
+	cmd.AddCommand(newPipelineOutboxQuarantineShowCmd())
+	cmd.AddCommand(newPipelineOutboxQuarantineRestoreCmd())
+	cmd.AddCommand(newPipelineOutboxQuarantineDropCmd())
+	return cmd
+}
+
+func newPipelineOutboxQuarantineShowCmd() *cobra.Command {
+	var (
+		repo    string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "show <pipeline> <quarantine-path>",
+		Short: "Show one pipeline-owned quarantined outbox file.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseOutboxQuarantineCommandFormat(cmd, "agent-team pipeline outbox quarantine show", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			item, err := readPipelineOutboxQuarantineItem(teamDir, args[0], args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := showOutboxQuarantine(teamDir, item.Path)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine show: %v\n", err)
+				return exitErr(1)
+			}
+			return renderOutboxQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline-owned quarantined outbox file as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline-owned quarantined outbox file with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	return cmd
+}
+
+func newPipelineOutboxQuarantineRestoreCmd() *cobra.Command {
+	var (
+		repo        string
+		restoreAll  bool
+		dryRun      bool
+		force       bool
+		stateFilter string
+		types       []string
+		sources     []string
+		jobs        []string
+		sortBy      string
+		limit       int
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "restore <pipeline> [quarantine-path]",
+		Short: "Restore pipeline-owned quarantined outbox files.",
+		Long:  "Restore one pipeline-owned quarantined outbox file by path, or restore a filtered pipeline-owned batch of restorable files with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			formatTemplate, err := parseOutboxQuarantineCommandFormat(cmd, "agent-team pipeline outbox quarantine restore", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseOutboxFilters(stateFilter, types, sources, jobs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if restoreAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: --all requires exactly one pipeline and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				sortMode, err := parseOutboxQuarantineSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+					return exitErr(2)
+				}
+				items, err := collectPipelineOutboxQuarantineItems(teamDir, args[0], filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterOutboxQuarantineRestorable(items, true, false)
+				results, err := restoreOutboxQuarantineItems(teamDir, items, dryRun, force, sortMode, limit)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+					return exitErr(1)
+				}
+				return renderOutboxQuarantineRestoreMany(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: requires <pipeline> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if !outboxQuarantineFiltersEmpty(filters) || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: filters require --all; --sort requires --all; --limit requires --all.")
+				return exitErr(2)
+			}
+			if _, err := readPipelineOutboxQuarantineItem(teamDir, args[0], args[1]); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := restoreOutboxQuarantine(teamDir, args[1], dryRun, force)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine restore: %v\n", err)
+				return exitErr(1)
+			}
+			return renderOutboxQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching pipeline-owned restorable quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active outbox file with the same restore path.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by outbox state: pending, processed, or failed.")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&sources, "source", nil, "With --all, filter by source agent/instance; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching pipeline-owned quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, restore at most this many matching pipeline-owned quarantined files; 0 means no limit.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	return cmd
+}
+
+func newPipelineOutboxQuarantineDropCmd() *cobra.Command {
+	var (
+		repo         string
+		dropAll      bool
+		dryRun       bool
+		stateFilter  string
+		types        []string
+		sources      []string
+		jobs         []string
+		restorable   bool
+		unrestorable bool
+		olderThan    time.Duration
+		sortBy       string
+		limit        int
+		jsonOut      bool
+		format       string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "drop <pipeline> [quarantine-path]",
+		Short: "Drop pipeline-owned quarantined outbox files after inspection.",
+		Long:  "Drop one pipeline-owned quarantined outbox file by path, or drop a filtered pipeline-owned batch with --all.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if restorable && unrestorable {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: --restorable and --unrestorable cannot be combined.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseOutboxQuarantineCommandFormat(cmd, "agent-team pipeline outbox quarantine drop", format, jsonOut)
+			if err != nil {
+				return err
+			}
+			filters, err := parseOutboxFilters(stateFilter, types, sources, jobs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			if dropAll {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: --all requires exactly one pipeline and cannot be combined with a path.")
+					return exitErr(2)
+				}
+				sortMode, err := parseOutboxQuarantineSort(sortBy)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+					return exitErr(2)
+				}
+				items, err := collectPipelineOutboxQuarantineItems(teamDir, args[0], filters)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				items = filterOutboxQuarantineRestorable(items, restorable, unrestorable)
+				results, err := dropOutboxQuarantineItems(teamDir, items, dryRun, olderThan, sortMode, limit, time.Now().UTC())
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+					return exitErr(1)
+				}
+				return renderOutboxQuarantineDrop(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
+			}
+			if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: requires <pipeline> and one path unless --all is set.")
+				return exitErr(2)
+			}
+			if olderThan > 0 || restorable || unrestorable || !outboxQuarantineFiltersEmpty(filters) || cmd.Flags().Changed("sort") || limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: filters require --all; --sort requires --all; --limit requires --all.")
+				return exitErr(2)
+			}
+			item, err := readPipelineOutboxQuarantineItem(teamDir, args[0], args[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			result, err := dropOutboxQuarantineItem(daemon.OutboxRoot(teamDir), item, dryRun)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine drop: %v\n", err)
+				return exitErr(1)
+			}
+			return renderOutboxQuarantineDrop(cmd.OutOrStdout(), []outboxQuarantineDropResult{result}, jsonOut, formatTemplate)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching pipeline-owned quarantined files instead of one path.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
+	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by outbox state: pending, processed, or failed.")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "With --all, filter by event type; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&sources, "source", nil, "With --all, filter by source agent/instance; repeat or comma-separate values.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
+	cmd.Flags().BoolVar(&restorable, "restorable", false, "With --all, only drop quarantined files that can be restored.")
+	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "With --all, only drop quarantined files that cannot be restored.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "With --all, only drop files older than this duration based on file mtime.")
+	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching pipeline-owned quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching pipeline-owned quarantined files; 0 means no limit.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
+	return cmd
+}
+
 func runPipelineOutboxList(w io.Writer, teamDir, pipeline string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template) error {
 	items, err := collectPipelineOutboxItems(teamDir, pipeline)
 	if err != nil {
@@ -454,6 +794,61 @@ func runPipelineOutboxPrune(w io.Writer, teamDir, pipeline string, state string,
 		return err
 	}
 	return renderOutboxPruneResults(w, results, jsonOut, tmpl)
+}
+
+func collectPipelineOutboxQuarantineItems(teamDir, pipeline string, filters outboxListFilters) ([]outboxQuarantineItem, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	items, err := listOutboxQuarantine(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	items = outboxQuarantineItemsForJobs(items, jobs)
+	return filterOutboxQuarantineItems(items, filters), nil
+}
+
+func readPipelineOutboxQuarantineItem(teamDir, pipeline, rawPath string) (outboxQuarantineItem, error) {
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return outboxQuarantineItem{}, err
+	}
+	outboxRoot := daemon.OutboxRoot(teamDir)
+	rel, err := normalizeOutboxQuarantinePath(rawPath)
+	if err != nil {
+		return outboxQuarantineItem{}, err
+	}
+	item, err := inspectOutboxQuarantineFile(outboxRoot, rel)
+	if err != nil {
+		return outboxQuarantineItem{}, err
+	}
+	if !outboxQuarantineMatchesAnyJob(item, jobs) {
+		return outboxQuarantineItem{}, fmt.Errorf("quarantined outbox file %q is not owned by pipeline %q", item.Path, pipeline)
+	}
+	return item, nil
+}
+
+func outboxQuarantineItemsForJobs(items []outboxQuarantineItem, jobs []*job.Job) []outboxQuarantineItem {
+	if len(items) == 0 || len(jobs) == 0 {
+		return nil
+	}
+	out := make([]outboxQuarantineItem, 0, len(items))
+	for _, item := range items {
+		if outboxQuarantineMatchesAnyJob(item, jobs) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func outboxQuarantineMatchesAnyJob(item outboxQuarantineItem, jobs []*job.Job) bool {
+	for _, j := range jobs {
+		if outboxQuarantineItemMatchesJob(item, j) {
+			return true
+		}
+	}
+	return false
 }
 
 func filteredPipelineOutboxItems(teamDir, pipeline string, filters outboxListFilters, opts outboxListOptions) ([]*daemon.OutboxItem, error) {

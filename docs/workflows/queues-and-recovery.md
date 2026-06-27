@@ -218,7 +218,18 @@ agent-team job outbox quarantine restore squ-42 --all --state failed --dry-run
 agent-team job outbox quarantine drop squ-42 <path> --dry-run
 ```
 
-Job scoping prevents a recovery command for one ticket from restoring or deleting another job's preserved outbox file.
+When a workflow owns the files, use pipeline-scoped recovery:
+
+```sh
+agent-team pipeline outbox quarantine ticket_to_pr
+agent-team pipeline outbox quarantine ticket_to_pr --job SQU-42 --restorable
+agent-team pipeline outbox quarantine show ticket_to_pr <path>
+agent-team pipeline outbox quarantine restore ticket_to_pr <path> --dry-run
+agent-team pipeline outbox quarantine restore ticket_to_pr --all --job SQU-42 --dry-run
+agent-team pipeline outbox quarantine drop ticket_to_pr --all --unrestorable --dry-run
+```
+
+Job and pipeline scoping prevent a recovery command for one ticket or workflow from restoring or deleting another owner's preserved outbox file.
 
 ## Team-Scoped Quarantine
 

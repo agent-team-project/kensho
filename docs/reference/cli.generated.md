@@ -4441,6 +4441,7 @@ Subcommands:
 
 - `agent-team pipeline outbox drop` - Drop outbox events owned by one pipeline.
 - `agent-team pipeline outbox prune` - Prune old outbox events owned by one pipeline.
+- `agent-team pipeline outbox quarantine` - List pipeline-owned quarantined outbox files.
 - `agent-team pipeline outbox retry` - Retry outbox events owned by one pipeline.
 - `agent-team pipeline outbox show` - Show one outbox event owned by one pipeline.
 
@@ -4493,6 +4494,111 @@ Flags:
       --source strings        Filter by source agent/instance before pruning; repeat or comma-separate values.
       --state string          Outbox state to prune: processed, failed, pending, or all. (default "processed")
       --type strings          Filter by event type before pruning; repeat or comma-separate values.
+```
+
+## `agent-team pipeline outbox quarantine`
+
+List pipeline-owned quarantined outbox files.
+
+List quarantined outbox files owned by one pipeline. With no pipeline, all pipeline-owned quarantined outbox files are listed. Show, restore, and drop still require an explicit pipeline.
+
+```text
+agent-team pipeline outbox quarantine [<pipeline>|--all] [flags]
+```
+
+Flags:
+
+```text
+      --all              List quarantined outbox files across all pipelines. This is the default when no pipeline is passed.
+      --format string    Render each pipeline-owned quarantined outbox file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
+      --job strings      Filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit pipeline-owned quarantined outbox files as JSON.
+      --limit int        Limit rows after filtering and sorting; 0 means no limit.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --restorable       Only show quarantined files that can be restored.
+      --sort string      Sort rows by path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings   Filter by source agent/instance; repeat or comma-separate values.
+      --state string     Filter by outbox state: pending, processed, or failed.
+      --type strings     Filter by event type; repeat or comma-separate values.
+      --unrestorable     Only show quarantined files that cannot be restored.
+```
+
+Subcommands:
+
+- `agent-team pipeline outbox quarantine drop` - Drop pipeline-owned quarantined outbox files after inspection.
+- `agent-team pipeline outbox quarantine restore` - Restore pipeline-owned quarantined outbox files.
+- `agent-team pipeline outbox quarantine show` - Show one pipeline-owned quarantined outbox file.
+
+## `agent-team pipeline outbox quarantine drop`
+
+Drop pipeline-owned quarantined outbox files after inspection.
+
+Drop one pipeline-owned quarantined outbox file by path, or drop a filtered pipeline-owned batch with --all.
+
+```text
+agent-team pipeline outbox quarantine drop <pipeline> [quarantine-path] [flags]
+```
+
+Flags:
+
+```text
+      --all                   Drop all matching pipeline-owned quarantined files instead of one path.
+      --dry-run               Preview quarantined files that would be dropped.
+      --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings           With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json                  Emit drop results as JSON.
+      --limit int             With --all, drop at most this many matching pipeline-owned quarantined files; 0 means no limit.
+      --older-than duration   With --all, only drop files older than this duration based on file mtime.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --restorable            With --all, only drop quarantined files that can be restored.
+      --sort string           With --all, sort matching pipeline-owned quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings        With --all, filter by source agent/instance; repeat or comma-separate values.
+      --state string          With --all, filter by outbox state: pending, processed, or failed.
+      --type strings          With --all, filter by event type; repeat or comma-separate values.
+      --unrestorable          With --all, only drop quarantined files that cannot be restored.
+```
+
+## `agent-team pipeline outbox quarantine restore`
+
+Restore pipeline-owned quarantined outbox files.
+
+Restore one pipeline-owned quarantined outbox file by path, or restore a filtered pipeline-owned batch of restorable files with --all.
+
+```text
+agent-team pipeline outbox quarantine restore <pipeline> [quarantine-path] [flags]
+```
+
+Flags:
+
+```text
+      --all              Restore all matching pipeline-owned restorable quarantined files instead of one path.
+      --dry-run          Preview the restore without moving files.
+      --force            Overwrite an existing active outbox file with the same restore path.
+      --format string    Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings      With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit restore result as JSON.
+      --limit int        With --all, restore at most this many matching pipeline-owned quarantined files; 0 means no limit.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --sort string      With --all, sort matching pipeline-owned quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings   With --all, filter by source agent/instance; repeat or comma-separate values.
+      --state string     With --all, filter by outbox state: pending, processed, or failed.
+      --type strings     With --all, filter by event type; repeat or comma-separate values.
+```
+
+## `agent-team pipeline outbox quarantine show`
+
+Show one pipeline-owned quarantined outbox file.
+
+```text
+agent-team pipeline outbox quarantine show <pipeline> <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the pipeline-owned quarantined outbox file with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json            Emit the pipeline-owned quarantined outbox file as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline outbox retry`

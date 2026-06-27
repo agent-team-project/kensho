@@ -236,6 +236,12 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline outbox retry <pipeline> --all` | Retry matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox drop <pipeline> --all` | Drop matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox prune <pipeline>` | Remove old pipeline-owned processed outbox events by default; pass `--state failed`, `pending`, or `all` for explicit cleanup and bound with `--older-than`, filters, and `--limit` |
+| `agent-team pipeline outbox quarantine [<pipeline>]` | List quarantined outbox files owned by one or all pipelines; filter by state, job, or restorable state |
+| `agent-team pipeline outbox quarantine show <pipeline> <path>` | Inspect one pipeline-owned quarantined outbox file and its payload when parseable |
+| `agent-team pipeline outbox quarantine restore <pipeline> <path>` | Restore one validated pipeline-owned quarantined outbox file to the active outbox |
+| `agent-team pipeline outbox quarantine restore <pipeline> --all` | Restore matching pipeline-owned restorable quarantined outbox files; filter, sort, and limit batch actions |
+| `agent-team pipeline outbox quarantine drop <pipeline> <path>` | Drop one pipeline-owned quarantined outbox file after inspection |
+| `agent-team pipeline outbox quarantine drop <pipeline> --all` | Drop matching pipeline-owned quarantined outbox files; filter by state, job, restorable state, or age before deleting |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware recovery handoff |
 | `agent-team pipeline tick <pipeline>` | Run or preview one scoped queue drain and ready-step advance cycle for one pipeline; add `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |

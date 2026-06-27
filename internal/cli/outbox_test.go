@@ -1033,6 +1033,167 @@ target = "worker"
 	}
 }
 
+func TestPipelineOutboxQuarantineScopesRestoreAndDrop(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "implement"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 20, 30, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-907",
+			Ticket:    "SQU-907",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Instance:  "worker-squ-907",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-907",
+			Ticket:    "OPS-907",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Instance:  "worker-ops-907",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	stamp := "20260627T203000.000000000Z"
+	writeQuarantinedOutboxFile(t, teamDir, stamp, daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-pipeline-quarantine-restore",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-907", "ticket": "SQU-907", "target": "worker"},
+		CreatedAt: now,
+		UpdatedAt: now.Add(time.Minute),
+	})
+	writeQuarantinedOutboxFile(t, teamDir, stamp, daemon.OutboxStateFailed, &daemon.OutboxItem{
+		ID:        "outbox-pipeline-quarantine-instance",
+		State:     daemon.OutboxStateFailed,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"name": "worker-squ-907", "target": "worker"},
+		CreatedAt: now.Add(2 * time.Minute),
+		UpdatedAt: now.Add(3 * time.Minute),
+		FailedAt:  now.Add(3 * time.Minute),
+	})
+	writeQuarantinedOutboxFile(t, teamDir, stamp, daemon.OutboxStateFailed, &daemon.OutboxItem{
+		ID:        "outbox-pipeline-quarantine-other",
+		State:     daemon.OutboxStateFailed,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "ops-907", "target": "worker"},
+		CreatedAt: now.Add(4 * time.Minute),
+		UpdatedAt: now.Add(5 * time.Minute),
+		FailedAt:  now.Add(5 * time.Minute),
+	})
+	writeRawOutboxFile(t, teamDir, filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateFailed), "outbox-pipeline-quarantine-invalid.json", "{\n")
+
+	restorePath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStatePending, "outbox-pipeline-quarantine-restore.json")
+	instancePath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateFailed, "outbox-pipeline-quarantine-instance.json")
+	otherPath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateFailed, "outbox-pipeline-quarantine-other.json")
+
+	list := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "ticket_to_pr", "--repo", root, "--sort", "id", "--json")
+	var listed []outboxQuarantineItem
+	if err := json.Unmarshal(list.Bytes(), &listed); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine list: %v\n%s", err, list.String())
+	}
+	if len(listed) != 2 || listed[0].ID != "outbox-pipeline-quarantine-instance" || listed[1].ID != "outbox-pipeline-quarantine-restore" {
+		t.Fatalf("pipeline outbox quarantine list = %+v", listed)
+	}
+
+	allList := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "--repo", root, "--sort", "id", "--json")
+	var allListed []outboxQuarantineItem
+	if err := json.Unmarshal(allList.Bytes(), &allListed); err != nil {
+		t.Fatalf("decode all pipeline outbox quarantine list: %v\n%s", err, allList.String())
+	}
+	if len(allListed) != 3 || allListed[0].ID != "outbox-pipeline-quarantine-instance" || allListed[1].ID != "outbox-pipeline-quarantine-other" || allListed[2].ID != "outbox-pipeline-quarantine-restore" {
+		t.Fatalf("all pipeline outbox quarantine list = %+v", allListed)
+	}
+
+	show := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "show", "ticket_to_pr", restorePath, "--repo", root, "--json")
+	var shown outboxQuarantineShowResult
+	if err := json.Unmarshal(show.Bytes(), &shown); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine show: %v\n%s", err, show.String())
+	}
+	if shown.ID != "outbox-pipeline-quarantine-restore" || shown.OutboxItem == nil || shown.OutboxItem.Payload["ticket"] != "SQU-907" {
+		t.Fatalf("shown pipeline outbox quarantine item = %+v", shown)
+	}
+
+	restoreAllDry := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "restore", "ticket_to_pr", "--repo", root, "--all", "--state", daemon.OutboxStatePending, "--dry-run", "--json")
+	var restoreAllRows []outboxQuarantineRestoreResult
+	if err := json.Unmarshal(restoreAllDry.Bytes(), &restoreAllRows); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine restore all dry-run: %v\n%s", err, restoreAllDry.String())
+	}
+	if len(restoreAllRows) != 1 || restoreAllRows[0].ID != "outbox-pipeline-quarantine-restore" || restoreAllRows[0].Action != "would_restore" || !restoreAllRows[0].DryRun {
+		t.Fatalf("restore all rows = %+v", restoreAllRows)
+	}
+
+	restore := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "restore", "ticket_to_pr", restorePath, "--repo", root, "--json")
+	var restoreRow outboxQuarantineRestoreResult
+	if err := json.Unmarshal(restore.Bytes(), &restoreRow); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine restore: %v\n%s", err, restore.String())
+	}
+	if restoreRow.ID != "outbox-pipeline-quarantine-restore" || restoreRow.Action != "restored" {
+		t.Fatalf("restore row = %+v", restoreRow)
+	}
+	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-pipeline-quarantine-restore"); err != nil {
+		t.Fatalf("restored pipeline outbox item is not readable: %v", err)
+	}
+
+	dropAllDry := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "drop", "ticket_to_pr", "--repo", root, "--all", "--state", daemon.OutboxStateFailed, "--dry-run", "--json")
+	var dropAllRows []outboxQuarantineDropResult
+	if err := json.Unmarshal(dropAllDry.Bytes(), &dropAllRows); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine drop all dry-run: %v\n%s", err, dropAllDry.String())
+	}
+	if len(dropAllRows) != 1 || dropAllRows[0].ID != "outbox-pipeline-quarantine-instance" || dropAllRows[0].Action != "would_drop" {
+		t.Fatalf("drop all rows = %+v", dropAllRows)
+	}
+
+	drop := runRootForOutboxTest(t, "pipeline", "outbox", "quarantine", "drop", "ticket_to_pr", instancePath, "--repo", root, "--json")
+	var dropRows []outboxQuarantineDropResult
+	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
+		t.Fatalf("decode pipeline outbox quarantine drop: %v\n%s", err, drop.String())
+	}
+	if len(dropRows) != 1 || dropRows[0].ID != "outbox-pipeline-quarantine-instance" || !dropRows[0].Dropped {
+		t.Fatalf("drop rows = %+v", dropRows)
+	}
+
+	_, stderr, err := runRootForOutboxTestErr(t, "pipeline", "outbox", "quarantine", "show", "ticket_to_pr", otherPath, "--repo", root)
+	if err == nil {
+		t.Fatalf("out-of-pipeline quarantined show succeeded")
+	}
+	if !strings.Contains(stderr.String(), `quarantined outbox file "quarantine/20260627T203000.000000000Z/failed/outbox-pipeline-quarantine-other.json" is not owned by pipeline "ticket_to_pr"`) {
+		t.Fatalf("out-of-pipeline quarantine error = %q", stderr.String())
+	}
+}
+
 func TestJobOutboxScopesItemsAndActions(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
