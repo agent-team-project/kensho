@@ -3526,7 +3526,7 @@ Flags:
       --json                 Emit recommended actions as JSON.
       --limit int            Show at most this many actions; 0 means all.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
-      --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
+      --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Queue/outbox quarantine aliases are supported. Can repeat or comma-separate.
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
       --sort string          Sort actions before applying --limit by default, source, reason, or command. (default "default")
       --source strings       Only show actions from this source: health, topology, runtime, inbox, outbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.
@@ -7426,7 +7426,7 @@ Flags:
       --json                 Emit recommended actions as JSON.
       --limit int            Show at most this many actions; 0 means all.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
-      --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
+      --reason strings       Only show actions with this reason. Values match exactly, or as prefixes before '='. Queue/outbox quarantine aliases are supported. Can repeat or comma-separate.
       --repo string          Repo root containing .agent_team. (default "<repo>")
       --schedule-limit int   Upcoming schedules to inspect while building recommendations; 0 means all. (default 5)
       --sort string          Sort actions before applying --limit by default, source, reason, or command. (default "default")

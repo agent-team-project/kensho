@@ -103,7 +103,7 @@ func newNextCmd() *cobra.Command {
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
 	cmd.Flags().StringVar(&sortBy, "sort", "default", "Sort actions before applying --limit by default, source, reason, or command.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, outbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Queue/outbox quarantine aliases are supported. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
@@ -196,7 +196,7 @@ func newTeamNextCmd() *cobra.Command {
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
 	cmd.Flags().StringVar(&sortBy, "sort", "default", "Sort actions before applying --limit by default, source, reason, or command.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, outbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Queue/outbox quarantine aliases are supported. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended actions until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
@@ -295,7 +295,12 @@ func nextActionDetailsFromOverview(overview *overviewResult, actions []string) [
 
 type nextActionFilters struct {
 	sources map[string]bool
-	reasons []string
+	reasons []nextActionReasonFilter
+}
+
+type nextActionReasonFilter struct {
+	source string
+	reason string
 }
 
 func parseNextActionFilters(sourceRaw, reasonRaw []string) (nextActionFilters, error) {
@@ -319,8 +324,10 @@ func parseNextActionFilters(sourceRaw, reasonRaw []string) (nextActionFilters, e
 		}
 	}
 	for _, raw := range splitFilterValues(reasonRaw) {
-		reason := strings.ToLower(strings.TrimSpace(raw))
-		if reason != "" {
+		for _, reason := range normalizeNextActionReasonFilter(raw) {
+			if reason.reason == "" {
+				continue
+			}
 			out.reasons = append(out.reasons, reason)
 		}
 	}
@@ -328,6 +335,22 @@ func parseNextActionFilters(sourceRaw, reasonRaw []string) (nextActionFilters, e
 		return nextActionFilters{}, fmt.Errorf("--reason requires at least one non-empty value")
 	}
 	return out, nil
+}
+
+func normalizeNextActionReasonFilter(raw string) []nextActionReasonFilter {
+	value := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), "-", "_")
+	switch value {
+	case "":
+		return nil
+	case "quarantine", "quarantined":
+		return []nextActionReasonFilter{{reason: "quarantined"}, {reason: "queue_quarantined"}, {reason: "outbox_quarantined"}}
+	case "queue_quarantine", "queue_quarantined":
+		return []nextActionReasonFilter{{source: "queue", reason: "quarantined"}, {source: "queue", reason: "queue_quarantined"}}
+	case "outbox_quarantine", "outbox_quarantined":
+		return []nextActionReasonFilter{{source: "outbox", reason: "quarantined"}, {source: "outbox", reason: "outbox_quarantined"}}
+	default:
+		return []nextActionReasonFilter{{reason: value}}
+	}
 }
 
 func parseNextActionSort(raw string) (string, error) {
@@ -425,10 +448,14 @@ func nextActionMatchesFilters(detail operatorActionHint, filters nextActionFilte
 		return false
 	}
 	if len(filters.reasons) > 0 {
+		source := strings.ToLower(strings.TrimSpace(detail.Source))
 		reason := strings.ToLower(strings.TrimSpace(detail.Reason))
 		matched := false
 		for _, filter := range filters.reasons {
-			if reason == filter || strings.HasPrefix(reason, filter+"=") {
+			if filter.source != "" && source != filter.source {
+				continue
+			}
+			if reason == filter.reason || strings.HasPrefix(reason, filter.reason+"=") {
 				matched = true
 				break
 			}

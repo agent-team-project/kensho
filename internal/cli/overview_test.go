@@ -386,8 +386,66 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
 		t.Fatalf("decode next outbox quarantine: %v\nbody=%s", err, nextOut.String())
 	}
-	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team job outbox quarantine squ-813" {
+	for _, want := range []string{
+		"agent-team job outbox quarantine squ-813",
+		"agent-team job outbox quarantine squ-813 --restorable",
+		"agent-team job snapshot squ-813 --json",
+	} {
+		if !stringSliceContains(nextResult.Actions, want) {
+			t.Fatalf("next outbox quarantine actions missing %q: %+v", want, nextResult)
+		}
+	}
+	if nextResult.TotalActions != len(nextResult.Actions) || nextResult.TotalActions != 3 {
 		t.Fatalf("next outbox quarantine actions = %+v", nextResult)
+	}
+
+	nextAlias := NewRootCmd()
+	nextAliasOut, nextAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextAlias.SetOut(nextAliasOut)
+	nextAlias.SetErr(nextAliasErr)
+	nextAlias.SetArgs([]string{"next", "--target", root, "--reason", "outbox_quarantined", "--json"})
+	if err := nextAlias.Execute(); err != nil {
+		t.Fatalf("next outbox quarantine alias json: %v\nstderr=%s", err, nextAliasErr.String())
+	}
+	var nextAliasResult nextActionResult
+	if err := json.Unmarshal(nextAliasOut.Bytes(), &nextAliasResult); err != nil {
+		t.Fatalf("decode next outbox quarantine alias: %v\nbody=%s", err, nextAliasOut.String())
+	}
+	for _, want := range []string{
+		"agent-team job outbox quarantine squ-813",
+		"agent-team job outbox quarantine squ-813 --restorable",
+		"agent-team job snapshot squ-813 --json",
+	} {
+		if !stringSliceContains(nextAliasResult.Actions, want) {
+			t.Fatalf("next outbox quarantine alias actions missing %q: %+v", want, nextAliasResult)
+		}
+	}
+	if nextAliasResult.TotalActions != len(nextAliasResult.Actions) || nextAliasResult.TotalActions != 3 {
+		t.Fatalf("next outbox quarantine alias actions = %+v", nextAliasResult)
+	}
+	if len(nextAliasResult.ActionDetails) != len(nextAliasResult.Actions) {
+		t.Fatalf("next outbox quarantine alias details = %+v", nextAliasResult.ActionDetails)
+	}
+	for _, detail := range nextAliasResult.ActionDetails {
+		if detail.Source != "outbox" {
+			t.Fatalf("next outbox quarantine alias detail = %+v", detail)
+		}
+	}
+
+	queueAlias := NewRootCmd()
+	queueAliasOut, queueAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	queueAlias.SetOut(queueAliasOut)
+	queueAlias.SetErr(queueAliasErr)
+	queueAlias.SetArgs([]string{"next", "--target", root, "--reason", "queue_quarantined", "--json"})
+	if err := queueAlias.Execute(); err != nil {
+		t.Fatalf("next queue quarantine alias on outbox fixture: %v\nstderr=%s", err, queueAliasErr.String())
+	}
+	var queueAliasResult nextActionResult
+	if err := json.Unmarshal(queueAliasOut.Bytes(), &queueAliasResult); err != nil {
+		t.Fatalf("decode next queue quarantine alias on outbox fixture: %v\nbody=%s", err, queueAliasOut.String())
+	}
+	if len(queueAliasResult.Actions) != 0 || queueAliasResult.TotalActions != 0 {
+		t.Fatalf("queue quarantine alias should not match outbox actions: %+v", queueAliasResult)
 	}
 
 	text := NewRootCmd()
@@ -604,7 +662,16 @@ instances = ["other"]
 	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
 		t.Fatalf("decode team next outbox quarantine: %v\nbody=%s", err, nextOut.String())
 	}
-	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team team outbox quarantine delivery" {
+	for _, want := range []string{
+		"agent-team team outbox quarantine delivery",
+		"agent-team team outbox quarantine delivery --restorable",
+		"agent-team team snapshot delivery --json",
+	} {
+		if !stringSliceContains(nextResult.Actions, want) {
+			t.Fatalf("team next outbox quarantine actions missing %q: %+v", want, nextResult)
+		}
+	}
+	if nextResult.TotalActions != len(nextResult.Actions) || nextResult.TotalActions != 3 {
 		t.Fatalf("team next outbox quarantine actions = %+v", nextResult)
 	}
 }

@@ -1112,7 +1112,16 @@ target = "worker"
 	if err := json.Unmarshal(nextOut.Bytes(), &nextResult); err != nil {
 		t.Fatalf("decode next outbox quarantine: %v\nbody=%s", err, nextOut.String())
 	}
-	if len(nextResult.Actions) != 1 || nextResult.Actions[0] != "agent-team pipeline outbox quarantine ticket_to_pr" {
+	for _, want := range []string{
+		"agent-team pipeline outbox quarantine ticket_to_pr",
+		"agent-team pipeline outbox quarantine ticket_to_pr --restorable",
+		"agent-team pipeline snapshot ticket_to_pr --json",
+	} {
+		if !containsString(nextResult.Actions, want) {
+			t.Fatalf("next outbox quarantine actions missing %q: %+v", want, nextResult)
+		}
+	}
+	if nextResult.TotalActions != len(nextResult.Actions) || nextResult.TotalActions != 3 {
 		t.Fatalf("next outbox quarantine actions = %+v", nextResult)
 	}
 }
