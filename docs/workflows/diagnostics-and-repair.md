@@ -38,13 +38,12 @@ where applicable.
 
 When daemon metadata contains crashed instances or stale recorded running PIDs,
 overview includes runtime counts and suggests `agent-team resume-plan
---status crashed`, `agent-team resume-plan --runtime-stale`, or the matching
-team-scoped `agent-team team resume-plan <team> ...` command. Add
-`--unhealthy` when one report should include both crashed and stale-running
-metadata, `--action start|attach|resume|logs` when you only want one recovery
-class, `--sort stale --limit 10` when stale recorded PIDs should be reviewed
-first in a bounded list, or `--summary --json` when dashboards need counts
-instead of full commands.
+--status crashed --sort action --limit 10`, `agent-team resume-plan
+--runtime-stale --sort stale --limit 10`, or the matching team- or
+pipeline-scoped `resume-plan` command. Add `--unhealthy` when one report
+should include both crashed and stale-running metadata,
+`--action start|attach|resume|logs` when you only want one recovery class, or
+`--summary --json` when dashboards need counts instead of full commands.
 Resume-plan also probes positive recorded PIDs for `running` metadata; stale
 rows are marked in JSON/text, unhealthy totals count crashed plus stale-running
 rows, and summaries expose both counts before recommending the right start,

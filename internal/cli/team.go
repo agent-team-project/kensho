@@ -6176,7 +6176,7 @@ func scopeTeamHealthIssueActions(result *healthResult, teamName string) {
 	}
 	teamName = strings.TrimSpace(teamName)
 	scopedSync := fmt.Sprintf("agent-team team sync %s --dry-run", teamName)
-	scopedRuntimeResume := fmt.Sprintf("agent-team team resume-plan %s --status crashed", teamName)
+	scopedRuntimeResume := fmt.Sprintf("agent-team team resume-plan %s %s", teamName, runtimeResumePlanHintFlag("--status crashed"))
 	for i := range result.Issues {
 		for j, action := range result.Issues[i].Actions {
 			action = strings.TrimSpace(action)

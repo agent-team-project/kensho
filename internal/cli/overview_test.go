@@ -286,10 +286,10 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.Total != 4 || overview.Runtime.Crashed != 3 || overview.Runtime.Exited != 1 {
 		t.Fatalf("runtime summary = %+v", overview.Runtime)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team resume-plan --status crashed") {
+	if !stringSliceContains(overview.Actions, "agent-team resume-plan --status crashed --sort action --limit 10") {
 		t.Fatalf("actions missing runtime resume plan: %+v", overview.Actions)
 	}
-	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team resume-plan --status crashed"); !ok || detail.Source != "runtime" || detail.Reason != "crashed=3" {
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team resume-plan --status crashed --sort action --limit 10"); !ok || detail.Source != "runtime" || detail.Reason != "crashed=3" {
 		t.Fatalf("runtime action detail = %+v ok=%v", detail, ok)
 	}
 
@@ -320,7 +320,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if teamOverview.Runtime.Total != 3 || teamOverview.Runtime.Crashed != 2 || teamOverview.Runtime.Exited != 1 {
 		t.Fatalf("team runtime summary = %+v", teamOverview.Runtime)
 	}
-	if !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --status crashed") {
+	if !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") {
 		t.Fatalf("team actions missing scoped runtime resume plan: %+v", teamOverview.Actions)
 	}
 }
@@ -343,13 +343,13 @@ func TestOverviewReportsPipelineRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.Crashed != 2 || strings.Join(overview.Runtime.CrashedPipelines, ",") != "ops_review,ticket_to_pr" {
 		t.Fatalf("pipeline runtime summary = %+v", overview.Runtime)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team pipeline resume-plan --all --status crashed") {
+	if !stringSliceContains(overview.Actions, "agent-team pipeline resume-plan --all --status crashed --sort action --limit 10") {
 		t.Fatalf("actions missing all-pipeline runtime resume plan: %+v", overview.Actions)
 	}
 	if stringSliceContains(overview.Actions, "agent-team resume-plan --status crashed") {
 		t.Fatalf("actions should prefer pipeline runtime resume plan: %+v", overview.Actions)
 	}
-	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team pipeline resume-plan --all --status crashed"); !ok || detail.Source != "runtime" || detail.Reason != "crashed=2" {
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team pipeline resume-plan --all --status crashed --sort action --limit 10"); !ok || detail.Source != "runtime" || detail.Reason != "crashed=2" {
 		t.Fatalf("pipeline runtime action detail = %+v ok=%v", detail, ok)
 	}
 
@@ -365,7 +365,7 @@ func TestOverviewReportsPipelineRuntimeResumePlanActions(t *testing.T) {
 	if err := json.Unmarshal(nextOut.Bytes(), &result); err != nil {
 		t.Fatalf("decode next pipeline runtime: %v\nbody=%s", err, nextOut.String())
 	}
-	if len(result.Actions) != 1 || result.Actions[0] != "agent-team pipeline resume-plan --all --status crashed" {
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team pipeline resume-plan --all --status crashed --sort action --limit 10" {
 		t.Fatalf("pipeline runtime next = %+v", result)
 	}
 }
@@ -405,10 +405,10 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.StaleRunning != 2 || !stringSliceContains(overview.Runtime.StaleInstances, "support-stale") || !stringSliceContains(overview.Runtime.StaleInstances, "worker-squ-902") {
 		t.Fatalf("runtime stale summary = %+v", overview.Runtime)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team resume-plan --runtime-stale") {
+	if !stringSliceContains(overview.Actions, "agent-team resume-plan --runtime-stale --sort stale --limit 10") {
 		t.Fatalf("actions missing stale runtime resume plan: %+v", overview.Actions)
 	}
-	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team resume-plan --runtime-stale"); !ok || detail.Source != "runtime" || detail.Reason != "stale=2" {
+	if detail, ok := findOperatorActionHint(overview.ActionDetails, "agent-team resume-plan --runtime-stale --sort stale --limit 10"); !ok || detail.Source != "runtime" || detail.Reason != "stale=2" {
 		t.Fatalf("stale runtime action detail = %+v ok=%v", detail, ok)
 	}
 
@@ -436,10 +436,10 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	if err := json.Unmarshal(teamOut.Bytes(), &teamOverview); err != nil {
 		t.Fatalf("decode team overview stale runtime: %v\nbody=%s", err, teamOut.String())
 	}
-	if teamOverview.Runtime.StaleRunning != 1 || !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --runtime-stale") {
+	if teamOverview.Runtime.StaleRunning != 1 || !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10") {
 		t.Fatalf("team stale runtime summary = %+v actions=%+v", teamOverview.Runtime, teamOverview.Actions)
 	}
-	if detail, ok := findOperatorActionHint(teamOverview.ActionDetails, "agent-team team resume-plan delivery --runtime-stale"); !ok || detail.Team != "delivery" || detail.Source != "runtime" || detail.Reason != "stale=1" {
+	if detail, ok := findOperatorActionHint(teamOverview.ActionDetails, "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10"); !ok || detail.Team != "delivery" || detail.Source != "runtime" || detail.Reason != "stale=1" {
 		t.Fatalf("team stale runtime action detail = %+v ok=%v", detail, ok)
 	}
 }
@@ -469,7 +469,7 @@ func TestOverviewReportsPipelineStaleRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.StaleRunning != 2 || strings.Join(overview.Runtime.StalePipelines, ",") != "ticket_to_pr" {
 		t.Fatalf("pipeline stale runtime summary = %+v", overview.Runtime)
 	}
-	if !stringSliceContains(overview.Actions, "agent-team pipeline resume-plan ticket_to_pr --runtime-stale") {
+	if !stringSliceContains(overview.Actions, "agent-team pipeline resume-plan ticket_to_pr --runtime-stale --sort stale --limit 10") {
 		t.Fatalf("actions missing pipeline stale runtime resume plan: %+v", overview.Actions)
 	}
 	if stringSliceContains(overview.Actions, "agent-team resume-plan --runtime-stale") {
@@ -488,7 +488,7 @@ func TestOverviewReportsPipelineStaleRuntimeResumePlanActions(t *testing.T) {
 	if err := json.Unmarshal(nextOut.Bytes(), &result); err != nil {
 		t.Fatalf("decode next pipeline stale runtime: %v\nbody=%s", err, nextOut.String())
 	}
-	if len(result.Actions) != 1 || result.Actions[0] != "agent-team pipeline resume-plan ticket_to_pr --runtime-stale" {
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team pipeline resume-plan ticket_to_pr --runtime-stale --sort stale --limit 10" {
 		t.Fatalf("pipeline stale runtime next = %+v", result)
 	}
 }

@@ -368,7 +368,7 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode runtime next json: %v\nbody=%s", err, out.String())
 	}
-	if len(result.Actions) != 1 || result.Actions[0] != "agent-team resume-plan --status crashed" {
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team resume-plan --status crashed --sort action --limit 10" {
 		t.Fatalf("runtime filtered result = %+v", result)
 	}
 	if len(result.ActionDetails) != 1 || result.ActionDetails[0].Source != "runtime" || result.ActionDetails[0].Reason != "crashed=3" {
@@ -387,7 +387,7 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	if err := json.Unmarshal(teamOut.Bytes(), &teamResult); err != nil {
 		t.Fatalf("decode team runtime next json: %v\nbody=%s", err, teamOut.String())
 	}
-	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team team resume-plan delivery --status crashed" {
+	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team team resume-plan delivery --status crashed --sort action --limit 10" {
 		t.Fatalf("team runtime filtered result = %+v", teamResult)
 	}
 	if len(teamResult.ActionDetails) != 1 || teamResult.ActionDetails[0].Team != "delivery" || teamResult.ActionDetails[0].Source != "runtime" || teamResult.ActionDetails[0].Reason != "crashed=2" {
@@ -427,7 +427,7 @@ func TestNextCommandFiltersStaleRuntimeSource(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode stale runtime next json: %v\nbody=%s", err, out.String())
 	}
-	if len(result.Actions) != 1 || result.Actions[0] != "agent-team resume-plan --runtime-stale" {
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team resume-plan --runtime-stale --sort stale --limit 10" {
 		t.Fatalf("stale runtime filtered result = %+v", result)
 	}
 	if len(result.ActionDetails) != 1 || result.ActionDetails[0].Source != "runtime" || result.ActionDetails[0].Reason != "stale=2" {
@@ -446,7 +446,7 @@ func TestNextCommandFiltersStaleRuntimeSource(t *testing.T) {
 	if err := json.Unmarshal(teamOut.Bytes(), &teamResult); err != nil {
 		t.Fatalf("decode team stale runtime next json: %v\nbody=%s", err, teamOut.String())
 	}
-	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team team resume-plan delivery --runtime-stale" {
+	if len(teamResult.Actions) != 1 || teamResult.Actions[0] != "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10" {
 		t.Fatalf("team stale runtime filtered result = %+v", teamResult)
 	}
 	if len(teamResult.ActionDetails) != 1 || teamResult.ActionDetails[0].Team != "delivery" || teamResult.ActionDetails[0].Source != "runtime" || teamResult.ActionDetails[0].Reason != "stale=1" {

@@ -1029,17 +1029,19 @@ func overviewQueueQuarantineAction(health *healthResult, teamName string) string
 }
 
 func overviewRuntimeResumePlanAction(summary overviewRuntimeSummary, teamName string) string {
+	flag := runtimeResumePlanHintFlag("--status crashed")
 	if teamName != "" {
-		return fmt.Sprintf("agent-team team resume-plan %s --status crashed", teamName)
+		return fmt.Sprintf("agent-team team resume-plan %s %s", teamName, flag)
 	}
-	return overviewRuntimePipelineResumeAction(summary.CrashedPipelines, summary.crashedUnscoped, "--status crashed")
+	return overviewRuntimePipelineResumeAction(summary.CrashedPipelines, summary.crashedUnscoped, flag)
 }
 
 func overviewRuntimeStaleResumePlanAction(summary overviewRuntimeSummary, teamName string) string {
+	flag := runtimeResumePlanHintFlag("--runtime-stale")
 	if teamName != "" {
-		return fmt.Sprintf("agent-team team resume-plan %s --runtime-stale", teamName)
+		return fmt.Sprintf("agent-team team resume-plan %s %s", teamName, flag)
 	}
-	return overviewRuntimePipelineResumeAction(summary.StalePipelines, summary.staleUnscoped, "--runtime-stale")
+	return overviewRuntimePipelineResumeAction(summary.StalePipelines, summary.staleUnscoped, flag)
 }
 
 func overviewRuntimePipelineResumeAction(pipelines []string, unscoped int, flag string) string {
@@ -1055,6 +1057,18 @@ func overviewRuntimePipelineResumeAction(pipelines []string, unscoped int, flag 
 		}
 	}
 	return fmt.Sprintf("agent-team resume-plan %s", flag)
+}
+
+func runtimeResumePlanHintFlag(flag string) string {
+	flag = strings.TrimSpace(flag)
+	switch flag {
+	case "--runtime-stale":
+		return flag + " --sort stale --limit 10"
+	case "--status crashed":
+		return flag + " --sort action --limit 10"
+	default:
+		return flag
+	}
 }
 
 func overviewHasQueueSectionError(out *overviewResult) bool {

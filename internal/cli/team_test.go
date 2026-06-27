@@ -9777,13 +9777,13 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 	if got := result.Issues[1].Actions; !containsString(got, "agent-team queue retry --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("queue actions changed unexpectedly: %+v", got)
 	}
-	if got := result.Issues[2].Actions; !containsString(got, "agent-team team resume-plan delivery --status crashed") || containsString(got, "agent-team resume-plan worker-squ-1 --status crashed") {
+	if got := result.Issues[2].Actions; !containsString(got, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") || containsString(got, "agent-team resume-plan worker-squ-1 --status crashed") {
 		t.Fatalf("runtime actions = %+v", got)
 	}
 	if got := result.Issues[3].Actions; !containsString(got, "agent-team job resume-plan squ-1 --status crashed") {
 		t.Fatalf("job runtime action should remain job-scoped: %+v", got)
 	}
-	if got := result.Issues[4].Actions; !containsString(got, "agent-team team resume-plan delivery --status crashed") || containsString(got, "agent-team runtime resume-plan worker-squ-2 --status crashed") {
+	if got := result.Issues[4].Actions; !containsString(got, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") || containsString(got, "agent-team runtime resume-plan worker-squ-2 --status crashed") {
 		t.Fatalf("legacy runtime actions = %+v", got)
 	}
 }
