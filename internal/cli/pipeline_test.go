@@ -786,6 +786,7 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 		{ID: "squ-301", Ticket: "SQU-301", Target: "worker", Instance: "worker-squ-301", Pipeline: "ticket_to_pr", Status: job.StatusRunning, CreatedAt: now, UpdatedAt: now},
 		{ID: "squ-302", Ticket: "SQU-302", Target: "manager", Instance: "manager-squ-302", Pipeline: "nightly", Status: job.StatusQueued, CreatedAt: now, UpdatedAt: now},
 		{ID: "squ-303", Ticket: "SQU-303", Target: "manager", Instance: "manager-squ-303", Pipeline: "ticket_to_pr", Status: job.StatusDone, CreatedAt: now, UpdatedAt: now},
+		{ID: "adhoc-301", Ticket: "ADHOC-301", Target: "worker", Instance: "worker-adhoc-301", Status: job.StatusRunning, CreatedAt: now, UpdatedAt: now},
 	} {
 		if err := job.Write(teamDir, j); err != nil {
 			t.Fatalf("write %s: %v", j.ID, err)
@@ -815,6 +816,42 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].ID != "squ-301" {
 		t.Fatalf("pipeline job rows = %+v", rows)
+	}
+
+	allCmd := NewRootCmd()
+	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allCmd.SetOut(allOut)
+	allCmd.SetErr(allErr)
+	allCmd.SetArgs([]string{"pipeline", "jobs", "--repo", root, "--json"})
+	if err := allCmd.Execute(); err != nil {
+		t.Fatalf("pipeline jobs default all: %v\nstderr=%s", err, allErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(allOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline jobs default all json: %v\nbody=%s", err, allOut.String())
+	}
+	allIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		allIDs = append(allIDs, row.ID)
+	}
+	if strings.Join(allIDs, ",") != "squ-301,squ-302,squ-303" {
+		t.Fatalf("pipeline default all rows = %v", allIDs)
+	}
+
+	explicitAllCmd := NewRootCmd()
+	explicitAllOut, explicitAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explicitAllCmd.SetOut(explicitAllOut)
+	explicitAllCmd.SetErr(explicitAllErr)
+	explicitAllCmd.SetArgs([]string{"pipeline", "jobs", "--all", "--repo", root, "--status", "queued", "--json"})
+	if err := explicitAllCmd.Execute(); err != nil {
+		t.Fatalf("pipeline jobs --all: %v\nstderr=%s", err, explicitAllErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(explicitAllOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline jobs --all json: %v\nbody=%s", err, explicitAllOut.String())
+	}
+	if len(rows) != 1 || rows[0].ID != "squ-302" {
+		t.Fatalf("pipeline --all queued rows = %+v", rows)
 	}
 
 	formatCmd := NewRootCmd()
@@ -946,6 +983,30 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 	if !strings.Contains(summaryLimitErr.String(), "--limit cannot be combined with --summary") {
 		t.Fatalf("summary limit stderr = %q", summaryLimitErr.String())
+	}
+
+	invalidMany := NewRootCmd()
+	invalidManyOut, invalidManyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidMany.SetOut(invalidManyOut)
+	invalidMany.SetErr(invalidManyErr)
+	invalidMany.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "nightly", "--repo", root})
+	if err := invalidMany.Execute(); err == nil {
+		t.Fatalf("pipeline jobs accepted multiple pipeline names: stdout=%s", invalidManyOut.String())
+	}
+	if !strings.Contains(invalidManyErr.String(), "pass at most one pipeline name") {
+		t.Fatalf("multiple pipeline error = %q", invalidManyErr.String())
+	}
+
+	invalidAll := NewRootCmd()
+	invalidAllOut, invalidAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidAll.SetOut(invalidAllOut)
+	invalidAll.SetErr(invalidAllErr)
+	invalidAll.SetArgs([]string{"pipeline", "jobs", "ticket_to_pr", "--all", "--repo", root})
+	if err := invalidAll.Execute(); err == nil {
+		t.Fatalf("pipeline jobs accepted --all with pipeline: stdout=%s", invalidAllOut.String())
+	}
+	if !strings.Contains(invalidAllErr.String(), "--all cannot be combined with a pipeline argument") {
+		t.Fatalf("--all conflict error = %q", invalidAllErr.String())
 	}
 }
 

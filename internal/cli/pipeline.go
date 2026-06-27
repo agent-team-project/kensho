@@ -251,6 +251,7 @@ func newPipelineJobsCmd() *cobra.Command {
 		repo           string
 		status         string
 		runtimeFilters []string
+		all            bool
 		watch          bool
 		noClear        bool
 		interval       time.Duration
@@ -266,10 +267,19 @@ func newPipelineJobsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "jobs <pipeline>",
-		Short: "List jobs for one pipeline.",
-		Args:  cobra.ExactArgs(1),
+		Use:   "jobs [<pipeline>|--all]",
+		Short: "List pipeline jobs.",
+		Long:  "List durable jobs for one pipeline. With no pipeline, all pipeline-owned jobs are listed.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: pass at most one pipeline name.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -308,10 +318,21 @@ func newPipelineJobsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := newJobListFilters(status, "", "", args[0], "", "", "", runtimeFilters)
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: pipeline name is required.")
+				return exitErr(2)
+			}
+			filters, err := newJobListFilters(status, "", "", pipelineName, "", "", "", runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
+			}
+			if pipelineName == "" {
+				filters.PipelineOwned = true
 			}
 			filters.Held = jobHeldFilter(held, unheld)
 			filters.HoldExpired = jobHoldExpiredFilter(expiredHold, activeHold)
@@ -348,6 +369,7 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", "", "Filter by job status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&all, "all", false, "List jobs across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh pipeline jobs until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")

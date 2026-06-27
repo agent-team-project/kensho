@@ -4905,19 +4905,20 @@ func renderJobEventTable(w io.Writer, events []job.Event, header bool) {
 }
 
 type jobListFilters struct {
-	Status      job.Status
-	Target      string
-	Instance    string
-	Pipeline    string
-	Ticket      string
-	Branch      string
-	PR          string
-	Sort        string
-	Limit       int
-	Runtimes    map[string]bool
-	Held        *bool
-	HoldExpired *bool
-	Now         time.Time
+	Status        job.Status
+	Target        string
+	Instance      string
+	Pipeline      string
+	PipelineOwned bool
+	Ticket        string
+	Branch        string
+	PR            string
+	Sort          string
+	Limit         int
+	Runtimes      map[string]bool
+	Held          *bool
+	HoldExpired   *bool
+	Now           time.Time
 }
 
 type jobRemoveOptions struct {
@@ -6876,6 +6877,9 @@ func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
 		return false
 	}
 	if filters.Pipeline != "" && j.Pipeline != filters.Pipeline {
+		return false
+	}
+	if filters.PipelineOwned && strings.TrimSpace(j.Pipeline) == "" {
 		return false
 	}
 	if filters.Ticket != "" && !containsFold(j.Ticket, filters.Ticket) && !containsFold(j.TicketURL, filters.Ticket) {

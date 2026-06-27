@@ -3201,7 +3201,7 @@ Subcommands:
 - `agent-team pipeline explain` - Explain pipeline jobs and step blockers.
 - `agent-team pipeline graph` - Render a declared pipeline step graph.
 - `agent-team pipeline hold` - Hold pipeline jobs so automation will not advance them.
-- `agent-team pipeline jobs` - List jobs for one pipeline.
+- `agent-team pipeline jobs` - List pipeline jobs.
 - `agent-team pipeline logs` - Show daemon-captured logs for one pipeline.
 - `agent-team pipeline ls` - List declared pipelines.
 - `agent-team pipeline next` - Print recommended next actions for pipeline jobs.
@@ -3478,16 +3478,19 @@ Flags:
 
 ## `agent-team pipeline jobs`
 
-List jobs for one pipeline.
+List pipeline jobs.
+
+List durable jobs for one pipeline. With no pipeline, all pipeline-owned jobs are listed.
 
 ```text
-agent-team pipeline jobs <pipeline> [flags]
+agent-team pipeline jobs [<pipeline>|--all] [flags]
 ```
 
 Flags:
 
 ```text
       --active-hold         Only show held jobs whose hold is still active or has no deadline.
+      --all                 List jobs across all pipelines. This is the default when no pipeline is passed.
       --expired-hold        Only show held jobs whose hold_until has passed.
       --format string       Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --held                Only show held jobs.
