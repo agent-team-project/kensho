@@ -52,6 +52,7 @@ Subcommands:
 - `agent-team logs` - Show an instance&#39;s daemon-captured log.
 - `agent-team monitor` - Show a combined health, inbox, instance, and resource snapshot.
 - `agent-team next` - Print recommended next operator actions.
+- `agent-team outbox` - Inspect and control sandboxed agent outbox events.
 - `agent-team overview` - Show a concise operator overview across health, jobs, queue, pipelines, and schedules.
 - `agent-team pipeline` - Inspect declared pipeline workflows.
 - `agent-team plan` - Preview desired agent instance state from topology and daemon metadata.
@@ -3306,6 +3307,156 @@ Flags:
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string          Scope recommendations to this declared team.
   -w, --watch                Refresh recommended actions until interrupted.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox`
+
+Inspect and control sandboxed agent outbox events.
+
+Inspect and control sandboxed agent outbox events under `.agent_team/outbox/`.
+
+Agents write outbox events when daemon socket or loopback HTTP transport is unavailable. `agent-team tick`, `agent-team drain`, and `agent-team outbox drain` publish pending events through the daemon resolver.
+
+```text
+agent-team outbox
+```
+
+Aliases: `outboxes`
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team outbox drain` - Ask the running daemon to publish pending outbox events.
+- `agent-team outbox drop` - Remove one outbox event.
+- `agent-team outbox ls` - List sandboxed agent outbox events.
+- `agent-team outbox retry` - Move a processed or failed outbox event back to pending.
+- `agent-team outbox show` - Show one outbox event.
+
+## `agent-team outbox drain`
+
+Ask the running daemon to publish pending outbox events.
+
+```text
+agent-team outbox drain [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview pending outbox events without publishing them.
+      --format string   Render the drain result with a Go template, e.g. '{{.WouldPublish}} {{.Pending}}'.
+      --json            Emit machine-readable JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox drop`
+
+Remove one outbox event.
+
+```text
+agent-team outbox drop <id> [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview the drop without removing the event.
+      --format string   Render the drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox ls`
+
+List sandboxed agent outbox events.
+
+```text
+agent-team outbox ls [flags]
+```
+
+Flags:
+
+```text
+      --format string    Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --job strings      Filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit machine-readable JSON.
+      --limit int        Limit rows after filtering and sorting; 0 means no limit.
+      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings   Filter by source agent/instance; repeat or comma-separate values.
+      --state string     Filter by outbox state: pending, processed, or failed.
+      --summary          Show aggregate outbox counts instead of rows.
+      --target string    Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --type strings     Filter by event type; repeat or comma-separate values.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox retry`
+
+Move a processed or failed outbox event back to pending.
+
+```text
+agent-team outbox retry <id> [flags]
+```
+
+Aliases: `requeue`
+
+Flags:
+
+```text
+      --dry-run         Preview the retry without moving the event.
+      --format string   Render the retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox show`
+
+Show one outbox event.
+
+```text
+agent-team outbox show <id> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json            Emit the outbox item as JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:

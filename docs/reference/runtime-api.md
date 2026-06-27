@@ -88,6 +88,16 @@ POST /v1/outbox/drain?dry_run=true
 
 Sandboxed agents that cannot reach the Unix socket or optional loopback HTTP listener can write event files under `.agent_team/outbox/pending/`. A drain pass publishes each pending item through the same event resolver used by `POST /v1/event`, then archives the file under `processed/` or `failed/`.
 
+The CLI wraps these with:
+
+```sh
+agent-team outbox ls
+agent-team outbox show <id>
+agent-team outbox drain --dry-run
+agent-team outbox retry <id>
+agent-team outbox drop <id>
+```
+
 `agent-team tick` and `agent-team drain` run this outbox drain before the daemon capacity queue drain. Use `--dry-run` to preview pending outbox events without publishing them.
 
 ## Queue

@@ -133,6 +133,27 @@ func ReadOutboxItem(teamDir, id string) (*OutboxItem, error) {
 	return nil, fs.ErrNotExist
 }
 
+func RemoveOutboxItem(teamDir, id string) error {
+	if err := validateOutboxID(id); err != nil {
+		return err
+	}
+	var removed bool
+	for _, state := range []string{OutboxStatePending, OutboxStateProcessed, OutboxStateFailed} {
+		err := os.Remove(OutboxPath(teamDir, state, id))
+		switch {
+		case err == nil:
+			removed = true
+		case errors.Is(err, fs.ErrNotExist):
+		default:
+			return err
+		}
+	}
+	if !removed {
+		return fs.ErrNotExist
+	}
+	return nil
+}
+
 func ListOutboxItems(teamDir string) ([]*OutboxItem, error) {
 	var out []*OutboxItem
 	for _, state := range []string{OutboxStatePending, OutboxStateProcessed, OutboxStateFailed} {

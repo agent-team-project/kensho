@@ -244,7 +244,7 @@ Repair can:
 
 `--dry-run` should be the first step.
 Use `drain` when a script should keep running global maintenance cycles until
-the daemon has no immediate schedule, queue, or pipeline work left.
+the daemon has no immediate schedule, outbox, queue, or pipeline work left.
 Add `--wait --wait-status running` when it should then wait for jobs advanced
 during those drain cycles to have live owners. Use `team drain <team> --wait
 --wait-status running` for the same bounded handoff inside one declared team.

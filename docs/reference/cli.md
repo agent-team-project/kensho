@@ -161,6 +161,16 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team queue quarantine restore --all` | Restore matching restorable files; sort and cap batch actions with `--sort` and `--limit` |
 | `agent-team queue quarantine drop --all` | Drop matching preserved files; sort and cap batch actions with `--sort` and `--limit` |
 
+## Agent Outbox
+
+| Command | Purpose |
+| --- | --- |
+| `agent-team outbox ls` | List sandboxed agent outbox events; filter by state, type, source, or job and sort/cap rows |
+| `agent-team outbox show <id>` | Inspect one outbox event and its payload |
+| `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down |
+| `agent-team outbox retry <id>` | Move a failed or processed outbox event back to pending |
+| `agent-team outbox drop <id>` | Remove one outbox event after inspection |
+
 ## Pipelines
 
 | Command | Purpose |

@@ -10,6 +10,7 @@ The daemon handles:
 - child process spawning
 - process group stopping and restart
 - runtime metadata persistence
+- agent outbox draining
 - queue draining
 - schedule firing
 - event resolution
@@ -34,6 +35,7 @@ Important paths:
 | `.agent_team/daemon/<instance>/meta.json` | Runtime metadata |
 | `.agent_team/daemon/<instance>/child.log` | Child stdout/stderr |
 | `.agent_team/daemon/queue/` | Pending, dead-letter, and quarantine queue state |
+| `.agent_team/outbox/` | Agent-written event outbox for runtimes that cannot reach daemon transport |
 
 ## Starting and Stopping
 
@@ -109,6 +111,8 @@ Representative endpoints:
 | `POST /v1/message` | Deliver mailbox message |
 | `GET /v1/logs/{instance}` | Read or follow child log |
 | `GET /v1/events` | Read or follow lifecycle events |
+| `GET /v1/outbox` | List agent-written outbox events |
+| `POST /v1/outbox/drain` | Publish pending outbox events |
 | `GET /v1/queue` | List active queue entries |
 | `POST /v1/queue/drain` | Drain ready queue entries |
 | `POST /v1/queue/{id}/retry` | Retry one queue entry |
