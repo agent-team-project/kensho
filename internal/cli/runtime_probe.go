@@ -371,7 +371,7 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 			result.ExecProbe = probe
 			if probe.Error != "" {
 				issueID := runtimeExecProbeIssueID(probe)
-				result.addIssue("fail", "exec_probe", issueID, runtimeExecProbeIssueSummary(probe, issueID), runtimeExecProbeRemediation(issueID))
+				result.addIssue("fail", "exec_probe", issueID, runtimeExecProbeIssueSummary(probe, issueID), runtimeExecProbeRemediation(probe, issueID))
 			}
 		}
 	}
@@ -618,9 +618,6 @@ func runtimeExecProbeIssueID(probe *runtimeExecProbe) string {
 	if probe.TimedOut {
 		return "exec_timeout"
 	}
-	if probe.SocketCheck && probe.LastMessagePresent && strings.TrimSpace(probe.LastMessage) != "" && !runtimeProbeSocketCheckPassed(probe.LastMessage) {
-		return "socket_check_failed"
-	}
 	execText := runtimeExecProbeClassifiableText(probe)
 	switch {
 	case strings.Contains(execText, "could not resolve host"),
@@ -647,6 +644,9 @@ func runtimeExecProbeIssueID(probe *runtimeExecProbe) string {
 		strings.Contains(execText, "blocked by sandbox"):
 		return "sandbox_blocked"
 	}
+	if probe.SocketCheck && probe.LastMessagePresent && strings.TrimSpace(probe.LastMessage) != "" && !runtimeProbeSocketCheckPassed(probe.LastMessage) {
+		return "socket_check_failed"
+	}
 	if probe.LastMessagePresent && strings.TrimSpace(probe.LastMessage) == "" {
 		return "last_message_empty"
 	}
@@ -660,7 +660,7 @@ func runtimeExecProbeClassifiableText(probe *runtimeExecProbe) string {
 	if probe == nil {
 		return ""
 	}
-	raw := strings.Join([]string{probe.Error, probe.Stderr, probe.Stdout}, "\n")
+	raw := strings.Join([]string{probe.Error, probe.Stderr, probe.Stdout, probe.LastMessage}, "\n")
 	var lines []string
 	for _, line := range strings.Split(raw, "\n") {
 		lower := strings.ToLower(line)
@@ -706,13 +706,16 @@ func runtimeExecProbeIssueSummary(probe *runtimeExecProbe, issueID string) strin
 	}
 }
 
-func runtimeExecProbeRemediation(issueID string) string {
+func runtimeExecProbeRemediation(probe *runtimeExecProbe, issueID string) string {
 	switch issueID {
 	case "provider_unreachable":
 		return "Fix DNS, proxy, VPN, firewall, or provider reachability, then rerun `agent-team runtime probe --runtime codex --exec --timeout 2m`."
 	case "auth_failed":
 		return "Run `codex login` or refresh the selected runtime credentials, then rerun the exec probe."
 	case "sandbox_blocked":
+		if probe != nil && probe.SocketCheck {
+			return "Inspect Codex sandbox and Unix socket policy for this repo, then rerun `agent-team runtime probe --runtime codex --start-daemon --require-daemon --exec-socket-check --timeout 2m`."
+		}
 		return "Inspect Codex sandbox and filesystem/socket policy for this repo, then retry with the same `agent-team runtime probe --runtime codex --exec` command."
 	case "socket_check_failed":
 		return "Inspect the exec probe stdout/stderr and rerun `agent-team runtime probe --runtime codex --start-daemon --require-daemon --exec-socket-check --timeout 2m`."

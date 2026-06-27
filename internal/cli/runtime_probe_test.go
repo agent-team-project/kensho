@@ -719,6 +719,70 @@ func TestRuntimeProbeCodexExecSocketCheckFailure(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeCodexExecSocketCheckPermissionFailure(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	socketPath := filepath.Join(tmp, ".agent_team", "daemon.sock")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeStartDaemon(t, func(cmd *cobra.Command, teamDir string, timeout time.Duration) (daemonLifecycleJSON, error) {
+		return daemonLifecycleJSON{
+			Action: "start",
+			PID:    1234,
+			Status: daemonStatusJSON{
+				Running: true,
+				Ready:   true,
+				PID:     1234,
+				TeamDir: filepath.ToSlash(teamDir),
+				Socket:  socketPath,
+			},
+		}, nil
+	})
+	withRuntimeProbeRunExecCommand(t, func(ctx context.Context, binary string, args []string, env []string, cwd, stdin string) runtimeProbeExecCommandResult {
+		lastMessage := ""
+		for i := range args {
+			if args[i] == "--output-last-message" && i+1 < len(args) {
+				lastMessage = args[i+1]
+				break
+			}
+		}
+		if lastMessage == "" {
+			t.Fatalf("exec args = %#v, missing last-message path", args)
+		}
+		msg := "Failure: `daemon socket check failed: [Errno 1] Operation not permitted`\n"
+		if err := os.WriteFile(lastMessage, []byte(msg), 0o644); err != nil {
+			t.Fatalf("write last-message: %v", err)
+		}
+		return runtimeProbeExecCommandResult{Stdout: []byte(msg)}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("runtime probe socket check succeeded unexpectedly")
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || result.ExecProbe == nil || !result.ExecProbe.SocketCheck {
+		t.Fatalf("result = %+v, want failed socket check", result)
+	}
+	if !containsRuntimeProbeIssue(result.Issues, "fail", "exec_probe", "sandbox_blocked") {
+		t.Fatalf("issues = %+v, want sandbox_blocked", result.Issues)
+	}
+}
+
 func TestRuntimeProbeCodexExecProbeFailure(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -782,6 +846,16 @@ func TestRuntimeExecProbeClassifiesFailures(t *testing.T) {
 			want:  "sandbox_blocked",
 		},
 		{
+			name:  "socket check sandbox last message",
+			probe: &runtimeExecProbe{SocketCheck: true, LastMessagePresent: true, LastMessage: "Failure: `daemon socket check failed: [Errno 1] Operation not permitted`", Error: `Codex exec socket check did not confirm daemon socket access; expected final message "agent-team daemon socket ok"`},
+			want:  "sandbox_blocked",
+		},
+		{
+			name:  "generic socket check failure",
+			probe: &runtimeExecProbe{SocketCheck: true, LastMessagePresent: true, LastMessage: "daemon returned HTTP 503", Error: `Codex exec socket check did not confirm daemon socket access; expected final message "agent-team daemon socket ok"`},
+			want:  "socket_check_failed",
+		},
+		{
 			name:  "codex banner sandbox line",
 			probe: &runtimeExecProbe{Error: "exit status 1", ExitCode: 1, Stderr: "OpenAI Codex v0.142.2\nsandbox: read-only\nuser\nprobe"},
 			want:  "exec_failed",
@@ -815,8 +889,14 @@ func TestRuntimeExecProbeClassifiesFailures(t *testing.T) {
 			if summary := runtimeExecProbeIssueSummary(tc.probe, tc.want); strings.TrimSpace(summary) == "" {
 				t.Fatalf("empty summary for %s", tc.want)
 			}
-			if remediation := runtimeExecProbeRemediation(tc.want); strings.TrimSpace(remediation) == "" {
+			if remediation := runtimeExecProbeRemediation(tc.probe, tc.want); strings.TrimSpace(remediation) == "" {
 				t.Fatalf("empty remediation for %s", tc.want)
+			}
+			if tc.name == "socket check sandbox last message" {
+				remediation := runtimeExecProbeRemediation(tc.probe, tc.want)
+				if !strings.Contains(remediation, "--exec-socket-check") {
+					t.Fatalf("remediation = %q, want socket-check command", remediation)
+				}
 			}
 		})
 	}
