@@ -1793,6 +1793,7 @@ Subcommands:
 - `agent-team job ls` - List durable jobs.
 - `agent-team job next` - Show the next pipeline step for a job without dispatching it.
 - `agent-team job note` - Append an operator note to a job&#39;s audit history.
+- `agent-team job outbox` - List or control outbox events owned by one job.
 - `agent-team job prune` - Remove terminal job files and their event logs.
 - `agent-team job ps` - List instances owned by one job.
 - `agent-team job queue` - List queue items owned by one job.
@@ -2281,6 +2282,88 @@ Flags:
       --message string        Note text recorded on the job.
       --message-file string   Read note text from a file, or '-' for stdin.
       --repo string           Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job outbox`
+
+List or control outbox events owned by one job.
+
+List sandboxed agent outbox events owned by one durable job.
+
+```text
+agent-team job outbox <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --format string    Render each job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json             Emit job-owned outbox rows as JSON.
+      --limit int        Limit rows after filtering and sorting; 0 means no limit.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings   Filter by source agent/instance; repeat or comma-separate values.
+      --state string     Filter by outbox state: pending, processed, or failed.
+      --summary          Show aggregate outbox counts instead of rows.
+      --type strings     Filter by event type; repeat or comma-separate values.
+```
+
+Subcommands:
+
+- `agent-team job outbox drop` - Remove one job-owned outbox event.
+- `agent-team job outbox retry` - Move one job-owned processed or failed outbox event back to pending.
+- `agent-team job outbox show` - Show one outbox event owned by one job.
+
+## `agent-team job outbox drop`
+
+Remove one job-owned outbox event.
+
+```text
+agent-team job outbox drop <job-id> <id> [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview the drop without removing the event.
+      --format string   Render the drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job outbox retry`
+
+Move one job-owned processed or failed outbox event back to pending.
+
+```text
+agent-team job outbox retry <job-id> <id> [flags]
+```
+
+Aliases: `requeue`
+
+Flags:
+
+```text
+      --dry-run         Preview the retry without moving the event.
+      --format string   Render the retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job outbox show`
+
+Show one outbox event owned by one job.
+
+```text
+agent-team job outbox show <job-id> <id> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json            Emit the job-owned outbox item as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job prune`
@@ -2871,7 +2954,7 @@ Flags:
 
 Capture a job-scoped diagnostic snapshot.
 
-Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.
+Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue/outbox ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.
 
 ```text
 agent-team job snapshot <job-id> [flags]
@@ -2883,7 +2966,7 @@ Flags:
       --events int      Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events. (default 20)
       --format string   Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
       --json            Emit the full job snapshot JSON to stdout.
-      --no-redact       Include raw queue payload values and latest inbox bodies instead of redacting them.
+      --no-redact       Include raw queue/outbox payload values and latest inbox bodies instead of redacting them.
   -o, --output string   Write the full JSON snapshot to this file. Use '-' for stdout.
       --repo string     Repo root containing .agent_team. (default "<repo>")
       --tail int        Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.

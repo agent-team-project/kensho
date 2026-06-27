@@ -99,7 +99,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job resume-plan <job-id>` | Show runtime resume, attach, and log fallback commands for one job; add `--step` for one pipeline stage, or `--sort`/`--limit` for multi-runtime jobs |
 | `agent-team job ps <job-id>` | List daemon-aware instance rows for one job; add `--step` for one pipeline stage |
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
-| `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, events, inboxes, queue ownership, state files, optional log tails, and formatted summary fields |
+| `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, events, inboxes, queue/outbox ownership, state files, optional log tails, and formatted summary fields |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed |
@@ -140,6 +140,15 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job queue quarantine restore <job-id> --all` | Restore matching restorable files; sort and cap batch actions with `--sort` and `--limit` |
 | `agent-team job queue quarantine drop <job-id> <path>` | Drop one preserved file |
 | `agent-team job queue quarantine drop <job-id> --all` | Drop matching preserved files; sort and cap batch actions with `--sort` and `--limit` |
+
+## Job Outbox
+
+| Command | Purpose |
+| --- | --- |
+| `agent-team job outbox <job-id>` | List or summarize sandboxed outbox events owned by one job; filter by state, type, or source |
+| `agent-team job outbox show <job-id> <id>` | Inspect one outbox event owned by one job |
+| `agent-team job outbox retry <job-id> <id>` | Move one job-owned processed or failed outbox event back to pending |
+| `agent-team job outbox drop <job-id> <id>` | Remove one inspected job-owned outbox event |
 
 ## Global Queue
 

@@ -440,6 +440,131 @@ target = "worker"
 	}
 }
 
+func TestJobOutboxScopesItemsAndActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 17, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-903",
+			Ticket:    "SQU-903",
+			Target:    "worker",
+			Instance:  "worker-squ-903",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-903",
+			Ticket:    "OPS-903",
+			Target:    "worker",
+			Instance:  "worker-ops-903",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.OutboxItem{
+		{
+			ID:        "outbox-job-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-903", "ticket": "SQU-903", "target": "worker"},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "outbox-job-failed",
+			State:     daemon.OutboxStateFailed,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"ticket": "SQU-903", "target": "worker"},
+			LastError: "route missing",
+			CreatedAt: now.Add(time.Minute),
+			UpdatedAt: now.Add(time.Minute),
+		},
+		{
+			ID:        "outbox-other-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "ops-903", "ticket": "OPS-903", "target": "worker"},
+			CreatedAt: now.Add(2 * time.Minute),
+			UpdatedAt: now.Add(2 * time.Minute),
+		},
+	} {
+		writeCLIOutboxItem(t, teamDir, item)
+	}
+
+	out := runRootForOutboxTest(t, "job", "outbox", "SQU-903", "--repo", root, "--sort", "id", "--json")
+	var listed []*daemon.OutboxItem
+	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
+		t.Fatalf("decode job outbox list: %v\n%s", err, out.String())
+	}
+	if len(listed) != 2 || listed[0].ID != "outbox-job-failed" || listed[1].ID != "outbox-job-pending" {
+		t.Fatalf("job outbox list = %+v", listed)
+	}
+
+	summaryOut := runRootForOutboxTest(t, "job", "outbox", "squ-903", "--repo", root, "--summary", "--json")
+	var summary outboxSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode job outbox summary: %v\n%s", err, summaryOut.String())
+	}
+	if summary.Total != 2 || summary.Pending != 1 || summary.Failed != 1 || summary.Filtered != 2 {
+		t.Fatalf("job outbox summary = %+v", summary)
+	}
+
+	shown := runRootForOutboxTest(t, "job", "outbox", "show", "squ-903", "outbox-job-failed", "--repo", root, "--json")
+	var shownItem daemon.OutboxItem
+	if err := json.Unmarshal(shown.Bytes(), &shownItem); err != nil {
+		t.Fatalf("decode job outbox show: %v\n%s", err, shown.String())
+	}
+	if shownItem.ID != "outbox-job-failed" || shownItem.LastError != "route missing" {
+		t.Fatalf("shown job outbox item = %+v", shownItem)
+	}
+
+	retry := runRootForOutboxTest(t, "job", "outbox", "retry", "squ-903", "outbox-job-failed", "--repo", root, "--dry-run", "--json")
+	var retryRows []outboxActionResult
+	if err := json.Unmarshal(retry.Bytes(), &retryRows); err != nil {
+		t.Fatalf("decode job outbox retry: %v\n%s", err, retry.String())
+	}
+	if len(retryRows) != 1 || retryRows[0].Action != "would_retry" || !retryRows[0].DryRun {
+		t.Fatalf("retry rows = %+v", retryRows)
+	}
+	stillFailed, err := daemon.ReadOutboxItem(teamDir, "outbox-job-failed")
+	if err != nil || stillFailed.State != daemon.OutboxStateFailed {
+		t.Fatalf("dry-run retry changed item=%+v err=%v", stillFailed, err)
+	}
+
+	drop := runRootForOutboxTest(t, "job", "outbox", "drop", "squ-903", "outbox-job-pending", "--repo", root, "--dry-run", "--json")
+	var dropRows []outboxActionResult
+	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
+		t.Fatalf("decode job outbox drop: %v\n%s", err, drop.String())
+	}
+	if len(dropRows) != 1 || dropRows[0].Action != "would_drop" || !dropRows[0].DryRun {
+		t.Fatalf("drop rows = %+v", dropRows)
+	}
+	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-job-pending"); err != nil {
+		t.Fatalf("dry-run drop removed item: %v", err)
+	}
+
+	_, stderr, err := runRootForOutboxTestErr(t, "job", "outbox", "show", "squ-903", "outbox-other-pending", "--repo", root)
+	if err == nil {
+		t.Fatalf("out-of-job show succeeded")
+	}
+	if !strings.Contains(stderr.String(), `outbox item "outbox-other-pending" is not owned by job "squ-903"`) {
+		t.Fatalf("out-of-job error = %q", stderr.String())
+	}
+}
+
 func writeCLIOutboxItem(t *testing.T, teamDir string, item *daemon.OutboxItem) {
 	t.Helper()
 	if err := daemon.WriteOutboxItem(teamDir, item); err != nil {

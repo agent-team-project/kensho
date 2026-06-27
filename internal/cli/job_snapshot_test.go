@@ -104,6 +104,25 @@ description = "complete"
 	}); err != nil {
 		t.Fatalf("write queue: %v", err)
 	}
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-160",
+		State:     daemon.OutboxStateFailed,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": j.ID, "target": "worker", "api_key": "secret-outbox"},
+		LastError: "socket unavailable",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-other-160",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-other", "target": "worker", "api_key": "other-secret"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
 	if err := daemon.AppendMessage(root, j.Instance, &daemon.Message{
 		ID:   "msg-160",
 		From: "manager",
@@ -149,6 +168,12 @@ description = "complete"
 	if len(snapshot.Queue) != 1 || snapshot.Queue[0].Payload["api_key"] != snapshotRedactedValue {
 		t.Fatalf("queue not redacted: %+v", snapshot.Queue)
 	}
+	if len(snapshot.Outbox) != 1 || snapshot.Outbox[0].ID != "outbox-160" || snapshot.Outbox[0].Payload["api_key"] != snapshotRedactedValue {
+		t.Fatalf("outbox not scoped/redacted: %+v", snapshot.Outbox)
+	}
+	if snapshot.OutboxSummary == nil || snapshot.OutboxSummary.Total != 1 || snapshot.OutboxSummary.Failed != 1 {
+		t.Fatalf("outbox summary = %+v", snapshot.OutboxSummary)
+	}
 	if snapshot.InboxSummary == nil || snapshot.InboxSummary.Total != 1 || snapshot.InboxSummary.Unread != 1 || snapshot.InboxSummary.UnreadInstances != 1 {
 		t.Fatalf("inbox summary = %+v", snapshot.InboxSummary)
 	}
@@ -161,10 +186,27 @@ description = "complete"
 		"agent-team job logs squ-160 --tail 100",
 		"agent-team job logs squ-160 --last-message",
 		"agent-team job queue squ-160 --summary",
+		"agent-team job outbox squ-160 --summary",
 	} {
 		if !containsString(snapshot.Actions, want) {
 			t.Fatalf("actions missing %q: %+v", want, snapshot.Actions)
 		}
+	}
+
+	raw := NewRootCmd()
+	rawOut, rawErr := &bytes.Buffer{}, &bytes.Buffer{}
+	raw.SetOut(rawOut)
+	raw.SetErr(rawErr)
+	raw.SetArgs([]string{"job", "snapshot", "SQU-160", "--repo", tmp, "--events", "0", "--no-redact", "--json"})
+	if err := raw.Execute(); err != nil {
+		t.Fatalf("job snapshot no-redact: %v\nstderr=%s", err, rawErr.String())
+	}
+	var rawSnapshot jobSnapshotResult
+	if err := json.Unmarshal(rawOut.Bytes(), &rawSnapshot); err != nil {
+		t.Fatalf("decode raw snapshot: %v\nbody=%s", err, rawOut.String())
+	}
+	if len(rawSnapshot.Outbox) != 1 || rawSnapshot.Outbox[0].Payload["api_key"] != "secret-outbox" {
+		t.Fatalf("raw outbox rows = %+v", rawSnapshot.Outbox)
 	}
 }
 
@@ -184,6 +226,15 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-161",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": j.ID, "target": "worker"},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
 
 	summary := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -193,7 +244,7 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("job snapshot summary: %v\nstderr=%s", err, stderr.String())
 	}
-	for _, want := range []string{"job snapshot:", "command: agent-team job snapshot scope=job subject=squ-161", "job: squ-161", "events: job=0 lifecycle=0", "actions:"} {
+	for _, want := range []string{"job snapshot:", "command: agent-team job snapshot scope=job subject=squ-161", "job: squ-161", "events: job=0 lifecycle=0", "outbox: total=1 pending=1 failed=0 processed=0", "actions:"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}
