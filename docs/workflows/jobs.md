@@ -88,30 +88,36 @@ Advance a pipeline job step and wait:
 
 ```sh
 agent-team job advance squ-42 --wait --wait-status running --wait-timeout 30s
+agent-team job advance squ-42 --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 \
   --advance \
   --wait \
-  --wait-status running \
+  --wait-next-state running \
+  --wait-step review \
   --wait-timeout 30s
 agent-team job step squ-42 implement \
   --status done \
   --advance \
   --wait \
-  --wait-status running \
+  --wait-next-state running \
+  --wait-step review \
   --wait-timeout 30s
 agent-team job approve squ-42 \
   --step review \
   --advance \
   --wait \
-  --wait-status running \
+  --wait-next-state running \
+  --wait-step review \
   --wait-timeout 30s
 ```
 
 With `--wait`, create-and-dispatch, dispatch, advance, update-with-advance,
-step-with-advance, and approve-with-advance wait for terminal status by default.
+step-with-advance, approve-with-advance, retry-with-dispatch, and PR reconcile
+handoffs wait for terminal status by default.
 Add `--wait-status running`, `--wait-event dispatched`,
 `--wait-event advance_dispatched`, or `--wait-event closed` when automation needs
-a different handoff point.
+a different handoff point. For pipeline jobs, add `--wait-next-state running`
+with `--wait-step <id>` when the script should wait for a specific stage owner.
 
 For a broader maintenance pass that may advance several ready jobs, use one-shot
 `tick --wait`:
@@ -288,6 +294,7 @@ context, or external decisions that should remain attached to the job. Use
 agent-team job retry squ-42 --dry-run --dispatch
 agent-team job retry squ-42 --dispatch
 agent-team job retry squ-42 --dispatch --wait --wait-status running --wait-timeout 30s
+agent-team job retry squ-42 --dispatch --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 ```
 
 For normal jobs this reopens the job and can dispatch a fresh attempt.

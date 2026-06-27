@@ -1888,9 +1888,9 @@ func newPipelineAdvanceCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline advance: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline advance: %v\n", err)
 					return exitErr(2)
@@ -2026,9 +2026,9 @@ func newPipelineApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
 					return exitErr(2)
@@ -3400,9 +3400,9 @@ func newPipelineRetryCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline retry: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline retry: %v\n", err)
 					return exitErr(2)
@@ -4494,7 +4494,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 }
 
 func waitForPipelineRunJob(cmd *cobra.Command, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, opts pipelineRunOptions, prefix string) (*job.Job, error) {
-	return waitForJobCommand(cmd, teamDir, id, statuses, events, opts.WaitTimeout, opts.WaitInterval, prefix)
+	return waitForJobCommand(cmd, teamDir, id, statuses, events, nil, false, "", opts.WaitTimeout, opts.WaitInterval, prefix)
 }
 
 type pipelineInfo struct {
@@ -7488,7 +7488,7 @@ func pipelineAdvanceResultFromAdvance(row jobReadyRow, advanced *jobAdvanceResul
 	return result
 }
 
-type pipelineJobWaitFilters struct {
+type jobWaitFilters struct {
 	statuses     map[job.Status]bool
 	events       map[string]bool
 	nextStates   map[string]bool
@@ -7496,8 +7496,8 @@ type pipelineJobWaitFilters struct {
 	step         string
 }
 
-func parsePipelineJobWaitFilters(cmd *cobra.Command, waitStatuses, waitEvents, waitNextStates []string, waitStep string) (pipelineJobWaitFilters, error) {
-	filters := pipelineJobWaitFilters{
+func parseJobCommandWaitFilters(cmd *cobra.Command, waitStatuses, waitEvents, waitNextStates []string, waitStep string) (jobWaitFilters, error) {
+	filters := jobWaitFilters{
 		events: parseJobWaitEvents(waitEvents),
 		step:   strings.TrimSpace(waitStep),
 	}

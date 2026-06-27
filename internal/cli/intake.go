@@ -179,7 +179,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 						}
 						reconcile, cleanup, advance, err = reconcileGitHubIntakeJob(cmd, teamDir, ev, cleanupMerged, verifyPR, advanceJob, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 						if err == nil && wait && advance != nil && advance.Job != nil {
-							waited, waitErr := waitForJobCommand(cmd, teamDir, advance.Job.ID, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team intake github")
+							waited, waitErr := waitForJobCommand(cmd, teamDir, advance.Job.ID, waitStatusesSet, waitEventsSet, nil, false, "", waitTimeout, waitInterval, "agent-team intake github")
 							if waitErr != nil {
 								if waitErr == context.Canceled {
 									return nil

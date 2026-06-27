@@ -1656,9 +1656,9 @@ func newTeamAdvanceCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team advance: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team advance: %v\n", err)
 					return exitErr(2)
@@ -1786,9 +1786,9 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 					return exitErr(2)
@@ -2204,9 +2204,9 @@ func newTeamRetryCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
 				return exitErr(2)
 			}
-			waitFilters := pipelineJobWaitFilters{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitFilters, err = parsePipelineJobWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team retry: %v\n", err)
 					return exitErr(2)

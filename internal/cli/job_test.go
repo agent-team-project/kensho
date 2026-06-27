@@ -4213,7 +4213,8 @@ func TestJobCreateDispatchWaitsForRequestedStatus(t *testing.T) {
 		"--dispatch",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -4276,6 +4277,64 @@ func TestJobCreateDispatchWaitTimesOutForEvent(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-221")
+}
+
+func TestJobHandoffWaitFlagValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "create next-state flag without wait",
+			args: []string{"job", "create", "SQU-1", "--dispatch", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "create invalid wait next-state",
+			args: []string{"job", "create", "SQU-1", "--dispatch", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
+			name: "dispatch next-state flag without wait",
+			args: []string{"job", "dispatch", "squ-1", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "dispatch wait-step flag without wait",
+			args: []string{"job", "dispatch", "squ-1", "--wait-step", "implement"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "retry next-state flag without wait",
+			args: []string{"job", "retry", "squ-1", "--dispatch", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "retry invalid wait next-state",
+			args: []string{"job", "retry", "squ-1", "--dispatch", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("job handoff validation succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
 }
 
 func TestJobCreateDispatchQueuesStoppedPersistentInstance(t *testing.T) {
@@ -5058,7 +5117,7 @@ func TestJobRetryDispatchWaitsForRequestedStatus(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-82")
 }
 
-func TestJobRetryDispatchWaitsForPipelineEvent(t *testing.T) {
+func TestJobRetryDispatchWaitsForPipelineNextStepState(t *testing.T) {
 	target, _, cleanup := setupIntakePipelineRepo(t)
 	defer cleanup()
 	teamDir := filepath.Join(target, ".agent_team")
@@ -5093,7 +5152,8 @@ func TestJobRetryDispatchWaitsForPipelineEvent(t *testing.T) {
 		"--dispatch",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-event", "advance_queued",
+		"--wait-next-state", "queued",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -8714,6 +8774,16 @@ func TestJobReconcileGitHubWaitValidation(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "next-state flag without wait",
+			args: []string{"job", "reconcile", "github", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"job", "reconcile", "github", "--advance", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
 			name: "negative wait timeout",
 			args: []string{"job", "reconcile", "github", "--advance", "--wait", "--wait-timeout", "-1s"},
 			want: "--wait-timeout must be >= 0",
@@ -8778,7 +8848,8 @@ func TestJobReconcileGitHubAdvanceWaitsForRequestedStatus(t *testing.T) {
 		"--advance",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -9874,6 +9945,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "advance next-state flag without wait",
+			args: []string{"job", "advance", "squ-1", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "advance wait-step flag without wait",
+			args: []string{"job", "advance", "squ-1", "--wait-step", "review"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "advance invalid wait next-state",
+			args: []string{"job", "advance", "squ-1", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
 			name: "advance negative wait timeout",
 			args: []string{"job", "advance", "squ-1", "--wait", "--wait-timeout", "-1s"},
 			want: "--wait-timeout must be >= 0",
@@ -9891,6 +9977,11 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 		{
 			name: "update wait flag without wait",
 			args: []string{"job", "update", "squ-1", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "update next-state flag without wait",
+			args: []string{"job", "update", "squ-1", "--wait-next-state", "running"},
 			want: "wait-related flags require --wait",
 		},
 		{
@@ -9914,6 +10005,11 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "step next-state flag without wait",
+			args: []string{"job", "step", "squ-1", "implement", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
 			name: "step wait requires done advance",
 			args: []string{"job", "step", "squ-1", "implement", "--status", "failed", "--advance", "--wait"},
 			want: "--wait requires --advance with a done step",
@@ -9931,6 +10027,11 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 		{
 			name: "approve wait flag without wait",
 			args: []string{"job", "approve", "squ-1", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "approve next-state flag without wait",
+			args: []string{"job", "approve", "squ-1", "--wait-next-state", "running"},
 			want: "wait-related flags require --wait",
 		},
 	} {
@@ -9989,6 +10090,43 @@ func TestJobAdvanceWaitsForRequestedStatus(t *testing.T) {
 		t.Fatalf("advance wait step = %+v", result.Step)
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-914-implement")
+}
+
+func TestJobAdvanceWaitsForNextStepState(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeReadyAdvanceJob(t, teamDir, "squ-922")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "advance", "squ-922",
+		"--repo", root,
+		"--workspace", "repo",
+		"--wait",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job advance --wait-next-state: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job advance next-state wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("advance next-state wait job = %+v", result.Job)
+	}
+	if result.Step == nil || result.Step.ID != "implement" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-922-implement" {
+		t.Fatalf("advance next-state wait step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-922-implement")
 }
 
 func TestJobAdvanceWaitTimesOutForEvent(t *testing.T) {
@@ -10059,7 +10197,8 @@ func TestJobUpdateAdvanceWaitsForRequestedStatus(t *testing.T) {
 		"--advance",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -10114,7 +10253,8 @@ func TestJobStepAdvanceWaitsForRequestedStatus(t *testing.T) {
 		"--advance",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -10152,7 +10292,8 @@ func TestJobApproveAdvanceWaitsForRequestedStatus(t *testing.T) {
 		"--advance",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
