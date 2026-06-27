@@ -271,6 +271,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	before := snapshotDiffInput{
 		CapturedAt: "2026-06-18T12:00:00Z",
 		Pipeline:   "ticket_to_pr",
+		Git:        &snapshotGitInfo{Branch: "main", Commit: "1111111", Upstream: "origin/main", Behind: 1},
 		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
 			Events:           intValuePtr(20),
 			IntakeDeliveries: intValuePtr(20),
@@ -324,6 +325,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	after := snapshotDiffInput{
 		CapturedAt: "2026-06-18T12:05:00Z",
 		Pipeline:   "ticket_to_pr",
+		Git:        &snapshotGitInfo{Branch: "feature/squ-801", Commit: "2222222", Upstream: "origin/feature/squ-801", Dirty: true, Changes: 3, Ahead: 2},
 		Provenance: newSnapshotProvenance("agent-team team snapshot", "team", "delivery", snapshotProvenanceOptions{
 			Events:        intValuePtr(5),
 			ScheduleLimit: intValuePtr(0),
@@ -400,6 +402,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Provenance.Added != 1 || result.Summary.Provenance.Removed != 1 || result.Summary.Provenance.Changed != 5 {
 		t.Fatalf("provenance counters = %+v", result.Summary.Provenance)
 	}
+	if result.Summary.Git.Changed != 7 {
+		t.Fatalf("git counters = %+v", result.Summary.Git)
+	}
 	if result.Summary.Jobs.Added != 1 || result.Summary.Jobs.Removed != 1 || result.Summary.Jobs.Changed != 1 {
 		t.Fatalf("job counters = %+v", result.Summary.Jobs)
 	}
@@ -433,6 +438,8 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if !hasSnapshotDiffChange(result.Changes, "provenance", "command", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "provenance", "subject", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "provenance", "intake_deliveries", "removed") ||
+		!hasSnapshotDiffChange(result.Changes, "git", "branch", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "git", "dirty", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-802", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
@@ -461,6 +468,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	for _, want := range []string{
 		"snapshot diff:",
 		"provenance: added=1 removed=1 changed=5",
+		"git: added=0 removed=0 changed=7",
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
 		"pipelines:",
@@ -529,6 +537,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		}
 	}
 
+	gitOnly := NewRootCmd()
+	gitOnlyOut, gitOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	gitOnly.SetOut(gitOnlyOut)
+	gitOnly.SetErr(gitOnlyErr)
+	gitOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "git", "--json"})
+	if err := gitOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff git section: %v\nstderr=%s", err, gitOnlyErr.String())
+	}
+	var gitOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(gitOnlyOut.Bytes(), &gitOnlyResult); err != nil {
+		t.Fatalf("decode git-only snapshot diff: %v\nbody=%s", err, gitOnlyOut.String())
+	}
+	if gitOnlyResult.Summary.TotalChanges != 7 || gitOnlyResult.Summary.Git.Changed != 7 || gitOnlyResult.Summary.Provenance.Changed != 0 {
+		t.Fatalf("git-only diff summary = %+v", gitOnlyResult.Summary)
+	}
+	for _, change := range gitOnlyResult.Changes {
+		if change.Section != "git" {
+			t.Fatalf("git-only diff included %q change: %+v", change.Section, gitOnlyResult.Changes)
+		}
+	}
+
 	queueOnly := NewRootCmd()
 	queueOnlyOut, queueOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	queueOnly.SetOut(queueOnlyOut)
@@ -579,7 +608,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if err := invalidSection.Execute(); err == nil {
 		t.Fatalf("snapshot diff invalid section succeeded")
 	}
-	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance") {
+	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git") {
 		t.Fatalf("invalid section stderr = %q", invalidSectionErr.String())
 	}
 }
