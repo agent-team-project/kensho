@@ -2792,6 +2792,43 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestTeamApproveDispatchWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, true)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-907")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"team", "approve", "delivery",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team approve --dispatch --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineApproveResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team approve wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Pipeline != "ticket_to_pr" || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning || rows[0].Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("team approval wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "review" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-907-review" {
+		t.Fatalf("team approval wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-907-review")
+}
+
 func TestTeamRejectManualGateScopesToTeam(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

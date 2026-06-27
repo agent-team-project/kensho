@@ -3485,6 +3485,143 @@ gate = "manual"
 	}
 }
 
+func TestPipelineApproveDispatchWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-905")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "approve", "ticket_to_pr",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline approve --dispatch --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineApproveResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline approve wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning || rows[0].Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("approval wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "review" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-905-review" {
+		t.Fatalf("approval wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-905-review")
+}
+
+func TestPipelineApproveDispatchWaitTimesOutForEvent(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-906")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "approve", "ticket_to_pr",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-event", "closed",
+		"--wait-timeout", "1ms",
+		"--wait-interval", "10ms",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("pipeline approve --dispatch --wait succeeded unexpectedly")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("approve wait timeout wrote stdout=%q", out.String())
+	}
+	if !strings.Contains(stderr.String(), "timed out waiting for approved jobs to reach event=closed") ||
+		!strings.Contains(stderr.String(), "pending=squ-906=running event=advance_dispatched") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-906-review")
+}
+
+func setupManualGateApprovalRepo(t *testing.T, includeTeam bool) (root string, mgr *daemon.InstanceManager, cleanup func()) {
+	t.Helper()
+	root = t.TempDir()
+	if eval, err := filepath.EvalSymlinks(root); err == nil {
+		root = eval
+	}
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "worker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := "---\ndescription: test worker\n---\n\nYou are a test worker.\n"
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "worker", "agent.md"), []byte(agent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	topologyText := topoFixture + `
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "worker"
+after = ["implement"]
+gate = "manual"
+`
+	if includeTeam {
+		topologyText += `
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topologyText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr = daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
+	return root, mgr, cleanupDaemon
+}
+
+func writeManualGateApprovalJob(t *testing.T, teamDir, id string) {
+	t.Helper()
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         id,
+		Ticket:     strings.ToUpper(id),
+		Target:     "worker",
+		Kickoff:    "manual gate approval",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusBlocked,
+		LastEvent:  "step_blocked",
+		LastStatus: "review blocked",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"implement"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write manual gate job: %v", err)
+	}
+}
+
 func TestPipelineRejectManualGate(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

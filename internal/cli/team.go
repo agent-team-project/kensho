@@ -1513,6 +1513,12 @@ func newTeamApproveCmd() *cobra.Command {
 		messageFile   string
 		dryRun        bool
 		previewRoutes bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
 		jsonOut       bool
 		format        string
 	)
@@ -1532,14 +1538,44 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --limit must be >= 0.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
 			if previewRoutes && (!dryRun || !dispatchNow) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --preview-routes requires --dry-run and --dispatch.")
+				return exitErr(2)
+			}
+			if dryRun && wait {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: wait-related flags require --wait.")
 				return exitErr(2)
 			}
 			tmpl, err := parsePipelineApproveFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
 			}
 			approvalMessage, err := optionalSendMessageBody(message, messageFile, nil)
 			if err != nil {
@@ -1564,7 +1600,22 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(1)
 			}
-			return renderPipelineApproveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+			if wait {
+				results, err = waitForPipelineApproveResults(cmd, teamDir, results, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team team approve")
+				if err != nil {
+					if err == context.Canceled {
+						return nil
+					}
+					return err
+				}
+			}
+			if err := renderPipelineApproveResults(cmd.OutOrStdout(), results, jsonOut, tmpl); err != nil {
+				return err
+			}
+			if failOnFailed && pipelineApproveResultsHaveFailed(results) {
+				return exitErr(1)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -1578,6 +1629,12 @@ func newTeamApproveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read approval message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include local topology route and dispatch payload previews.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After approving or dispatching, wait for approved jobs to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any approved job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit approval results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.")
 	return cmd
