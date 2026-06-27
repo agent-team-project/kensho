@@ -296,6 +296,7 @@ func newTeamRuntimeResumePlanCommand(cfg teamRuntimeResumePlanCommandConfig) *co
 		runtimeStale  bool
 		unhealthyOnly bool
 		summary       bool
+		commandsOnly  bool
 		jsonOut       bool
 		format        string
 	)
@@ -310,8 +311,20 @@ func newTeamRuntimeResumePlanCommand(cfg teamRuntimeResumePlanCommandConfig) *co
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", cfg.ErrorName)
 				return exitErr(2)
 			}
+			if commandsOnly && jsonOut {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --json.\n", cfg.ErrorName)
+				return exitErr(2)
+			}
 			if summary && format != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --summary cannot be combined with --format.\n", cfg.ErrorName)
+				return exitErr(2)
+			}
+			if summary && commandsOnly {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --summary cannot be combined with --commands.\n", cfg.ErrorName)
+				return exitErr(2)
+			}
+			if commandsOnly && format != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --format.\n", cfg.ErrorName)
 				return exitErr(2)
 			}
 			if limit < 0 {
@@ -354,6 +367,10 @@ func newTeamRuntimeResumePlanCommand(cfg teamRuntimeResumePlanCommandConfig) *co
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
+			if commandsOnly {
+				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans)
+				return nil
+			}
 			if tmpl != nil {
 				return renderRuntimeResumePlanFormat(cmd.OutOrStdout(), plans, tmpl)
 			}
@@ -372,6 +389,7 @@ func newTeamRuntimeResumePlanCommand(cfg teamRuntimeResumePlanCommandConfig) *co
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
 	cmd.Flags().BoolVar(&summary, "summary", false, cfg.SummaryHelp)
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd

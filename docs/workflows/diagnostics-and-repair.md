@@ -43,7 +43,9 @@ overview includes runtime counts and suggests `agent-team resume-plan
 pipeline-scoped `resume-plan` command. Add `--unhealthy` when one report
 should include both crashed and stale-running metadata,
 `--action start|attach|resume|logs` when you only want one recovery class, or
-`--summary --json` when dashboards need counts instead of full commands.
+`--summary --json` when dashboards need counts instead of full commands. Add
+`--commands` when a script needs one recommended recovery command per line
+after filtering, sorting, and limiting.
 Resume-plan also probes positive recorded PIDs for `running` metadata; stale
 rows are marked in JSON/text, unhealthy totals count crashed plus stale-running
 rows, and summaries expose both counts before recommending the right start,

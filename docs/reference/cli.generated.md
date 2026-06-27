@@ -3129,6 +3129,7 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
@@ -5176,6 +5177,7 @@ Flags:
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
       --all               Plan runtime recovery across all pipelines. This is the default when no pipeline is passed.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
@@ -6187,6 +6189,7 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
@@ -6463,6 +6466,7 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
@@ -8316,6 +8320,7 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
@@ -8437,6 +8442,7 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.

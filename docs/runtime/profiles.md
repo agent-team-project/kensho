@@ -235,6 +235,7 @@ agent-team resume-plan --action resume --format '{{.Instance}} {{.RecommendedAct
 agent-team resume-plan --status crashed --summary --json
 agent-team resume-plan --runtime-stale --summary
 agent-team resume-plan --unhealthy --sort stale --limit 10
+agent-team resume-plan --unhealthy --sort stale --limit 10 --commands
 agent-team resume-plan --json
 agent-team runtime resume-plan --status crashed
 agent-team team resume-plan delivery --status crashed
@@ -262,8 +263,9 @@ running metadata, add `--sort instance|action|runtime|status|stale|job|pipeline|
 before rendering when a large recovery list needs stable grouping, add
 `--limit N` to cap rows after filtering and sorting, and add `--summary` to
 count matching plans by recommended action, runtime, lifecycle status, stale
-running metadata, and unhealthy metadata. `--limit` cannot be combined with
-`--summary`.
+running metadata, and unhealthy metadata. Add `--commands` when scripts need
+only the recommended command lines after filtering, sorting, and limiting.
+`--limit` cannot be combined with `--summary`.
 When a positive recorded `running` PID is no longer live, resume-plan marks the
 row as `stale` and recommends the recovery path that can reconcile or resume it.
 

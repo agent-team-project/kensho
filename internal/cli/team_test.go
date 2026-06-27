@@ -5673,6 +5673,21 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team limited resume-plan = %q", got)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "resume-plan", "delivery", "--repo", root, "--unhealthy", "--sort", "stale", "--limit", "2", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team resume-plan commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := strings.TrimSpace(commandsOut.String()), strings.Join([]string{
+		"agent-team start worker-squ-902",
+		"agent-team logs manager --follow",
+	}, "\n"); got != want {
+		t.Fatalf("team commands resume-plan = %q, want %q", got, want)
+	}
+
 	invalidSort := NewRootCmd()
 	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSort.SetOut(invalidSortOut)

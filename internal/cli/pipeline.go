@@ -2458,6 +2458,7 @@ func newPipelineResumePlanCmd() *cobra.Command {
 		runtimeStale  bool
 		unhealthyOnly bool
 		summary       bool
+		commandsOnly  bool
 		jsonOut       bool
 		all           bool
 		format        string
@@ -2474,8 +2475,20 @@ func newPipelineResumePlanCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commandsOnly && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
 			if summary && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --summary cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if summary && commandsOnly {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --summary cannot be combined with --commands.")
+				return exitErr(2)
+			}
+			if commandsOnly && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if len(args) > 1 {
@@ -2534,6 +2547,10 @@ func newPipelineResumePlanCmd() *cobra.Command {
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
+			if commandsOnly {
+				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans)
+				return nil
+			}
 			if tmpl != nil {
 				return renderRuntimeResumePlanFormat(cmd.OutOrStdout(), plans, tmpl)
 			}
@@ -2552,6 +2569,7 @@ func newPipelineResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching pipeline resume plans by recommended action, runtime, and status.")
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&all, "all", false, "Plan runtime recovery across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")

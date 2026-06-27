@@ -5103,6 +5103,21 @@ target = "worker"
 		t.Fatalf("pipeline limited resume-plan = %q, want %q", got, want)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--unhealthy", "--sort", "stale", "--limit", "2", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline resume-plan commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := strings.TrimSpace(commandsOut.String()), strings.Join([]string{
+		"agent-team start worker-squ-942",
+		"agent-team logs manager-squ-940 --follow",
+	}, "\n"); got != want {
+		t.Fatalf("pipeline commands resume-plan = %q, want %q", got, want)
+	}
+
 	invalidMany := NewRootCmd()
 	invalidManyOut, invalidManyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidMany.SetOut(invalidManyOut)

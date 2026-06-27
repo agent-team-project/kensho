@@ -902,6 +902,22 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 		t.Fatalf("limited unhealthy resume-plan = %q", got)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--sort", "stale", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("runtime resume-plan unhealthy commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	commandsWant := strings.Join([]string{
+		"agent-team start stale-manager",
+		"agent-team logs crashed-worker --follow",
+	}, "\n")
+	if got := strings.TrimSpace(commandsOut.String()); got != commandsWant {
+		t.Fatalf("command-only unhealthy resume-plan = %q, want %q", got, commandsWant)
+	}
+
 	summary := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
@@ -989,6 +1005,18 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	}
 	if len(jobPlans) != 1 || jobPlans[0].Instance != "worker-squ-42" || jobPlans[0].Job != "squ-42" || jobPlans[0].JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
 		t.Fatalf("job plans = %+v", jobPlans)
+	}
+
+	jobCommands := NewRootCmd()
+	jobCommandsOut, jobCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobCommands.SetOut(jobCommandsOut)
+	jobCommands.SetErr(jobCommandsErr)
+	jobCommands.SetArgs([]string{"job", "resume-plan", "SQU-42", "--repo", tmp, "--commands"})
+	if err := jobCommands.Execute(); err != nil {
+		t.Fatalf("job resume-plan --commands: %v\nstderr=%s", err, jobCommandsErr.String())
+	}
+	if got, want := strings.TrimSpace(jobCommandsOut.String()), "codex resume codex-session"; got != want {
+		t.Fatalf("job resume-plan commands = %q, want %q", got, want)
 	}
 }
 
@@ -1231,6 +1259,49 @@ func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "--format cannot be combined with --json") {
 		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRuntimeResumePlanRejectsCommandsWithStructuredRenderers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--format", "{{.RecommendedCommand}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "summary",
+			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--summary"},
+			want: "--summary cannot be combined with --commands",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("runtime resume-plan accepted %s conflict: stdout=%s", tc.name, out.String())
+			}
+			var ec ExitCode
+			if !errors.As(err, &ec) || int(ec) != 2 {
+				t.Fatalf("error = %v, want exit 2", err)
+			}
+			if !strings.Contains(errOut.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", errOut.String(), tc.want)
+			}
+		})
 	}
 }
 
