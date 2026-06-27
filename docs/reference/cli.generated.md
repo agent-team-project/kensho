@@ -2299,15 +2299,18 @@ agent-team job outbox <job-id> [flags]
 Flags:
 
 ```text
-      --format string    Render each job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
-      --json             Emit job-owned outbox rows as JSON.
-      --limit int        Limit rows after filtering and sorting; 0 means no limit.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
-      --source strings   Filter by source agent/instance; repeat or comma-separate values.
-      --state string     Filter by outbox state: pending, processed, or failed.
-      --summary          Show aggregate outbox counts instead of rows.
-      --type strings     Filter by event type; repeat or comma-separate values.
+      --format string       Render each job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --json                Emit job-owned outbox rows as JSON.
+      --limit int           Limit rows after filtering and sorting; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --sort string         Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings      Filter by source agent/instance; repeat or comma-separate values.
+      --state string        Filter by outbox state: pending, processed, or failed.
+      --summary             Show aggregate outbox counts instead of rows.
+      --type strings        Filter by event type; repeat or comma-separate values.
+  -w, --watch               Refresh the job outbox table until interrupted.
 ```
 
 Subcommands:
@@ -4431,17 +4434,20 @@ agent-team pipeline outbox [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all              List outbox events across all pipelines. This is the default when no pipeline is passed.
-      --format string    Render each pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
-      --job strings      Filter by job id or ticket; repeat or comma-separate values.
-      --json             Emit pipeline-owned outbox rows as JSON.
-      --limit int        Limit rows after filtering and sorting; 0 means no limit.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
-      --source strings   Filter by source agent/instance; repeat or comma-separate values.
-      --state string     Filter by outbox state: pending, processed, or failed.
-      --summary          Show aggregate outbox counts instead of rows.
-      --type strings     Filter by event type; repeat or comma-separate values.
+      --all                 List outbox events across all pipelines. This is the default when no pipeline is passed.
+      --format string       Render each pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --job strings         Filter by job id or ticket; repeat or comma-separate values.
+      --json                Emit pipeline-owned outbox rows as JSON.
+      --limit int           Limit rows after filtering and sorting; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --sort string         Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings      Filter by source agent/instance; repeat or comma-separate values.
+      --state string        Filter by outbox state: pending, processed, or failed.
+      --summary             Show aggregate outbox counts instead of rows.
+      --type strings        Filter by event type; repeat or comma-separate values.
+  -w, --watch               Refresh the pipeline outbox table until interrupted.
 ```
 
 Subcommands:
@@ -7458,16 +7464,19 @@ agent-team team outbox <team> [flags]
 Flags:
 
 ```text
-      --format string    Render each team-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
-      --job strings      Filter by job id or ticket; repeat or comma-separate values.
-      --json             Emit team-owned outbox rows as JSON.
-      --limit int        Limit rows after filtering and sorting; 0 means no limit.
-      --repo string      Repo root containing .agent_team. (default "<repo>")
-      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
-      --source strings   Filter by source agent/instance; repeat or comma-separate values.
-      --state string     Filter by outbox state: pending, processed, or failed.
-      --summary          Show aggregate outbox counts instead of rows.
-      --type strings     Filter by event type; repeat or comma-separate values.
+      --format string       Render each team-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --job strings         Filter by job id or ticket; repeat or comma-separate values.
+      --json                Emit team-owned outbox rows as JSON.
+      --limit int           Limit rows after filtering and sorting; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --sort string         Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings      Filter by source agent/instance; repeat or comma-separate values.
+      --state string        Filter by outbox state: pending, processed, or failed.
+      --summary             Show aggregate outbox counts instead of rows.
+      --type strings        Filter by event type; repeat or comma-separate values.
+  -w, --watch               Refresh the team outbox table until interrupted.
 ```
 
 Subcommands:

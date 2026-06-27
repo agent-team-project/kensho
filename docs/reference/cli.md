@@ -146,7 +146,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team job outbox <job-id>` | List or summarize sandboxed outbox events owned by one job; filter by state, type, or source |
+| `agent-team job outbox <job-id>` | List, summarize, or watch sandboxed outbox events owned by one job; filter by state, type, or source |
 | `agent-team job outbox show <job-id> <id>` | Inspect one outbox event owned by one job |
 | `agent-team job outbox retry <job-id> <id>` | Move one job-owned processed or failed outbox event back to pending |
 | `agent-team job outbox retry <job-id> --all` | Retry matching job-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--sort`, and `--limit` |
@@ -236,7 +236,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline events [<pipeline>]` | Read lifecycle events for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline cleanup <pipeline>` | Scoped job cleanup for done jobs in one pipeline |
 | `agent-team pipeline queue [<pipeline>]` | List active or quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
-| `agent-team pipeline outbox [<pipeline>]` | List outbox events owned by one or all pipelines; subcommands inspect, retry, drop, or prune events owned by one pipeline |
+| `agent-team pipeline outbox [<pipeline>]` | List, summarize, or watch outbox events owned by one or all pipelines; subcommands inspect, retry, drop, or prune events owned by one pipeline |
 | `agent-team pipeline outbox retry <pipeline> --all` | Retry matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox drop <pipeline> --all` | Drop matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox prune <pipeline>` | Remove old pipeline-owned processed outbox events by default; pass `--state failed`, `pending`, or `all` for explicit cleanup and bound with `--older-than`, filters, and `--limit` |
@@ -278,7 +278,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
 | `agent-team team queue prune <team>` | Age-prune team-owned entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit` |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list; sort rows with `--sort` and cap output with `--limit` |
-| `agent-team team outbox <team>` | Scoped outbox list or summary; filter by state, type, source, or job and sort/cap rows |
+| `agent-team team outbox <team>` | Scoped outbox list, summary, or watch view; filter by state, type, source, or job and sort/cap rows |
 | `agent-team team outbox show <team> <id>` | Inspect one outbox event owned by a team |
 | `agent-team team outbox retry <team> <id>` | Move one team-owned failed or processed outbox event back to pending |
 | `agent-team team outbox retry <team> --all` | Retry matching team-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |

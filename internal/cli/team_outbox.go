@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"text/template"
 	"time"
@@ -22,9 +24,12 @@ func newTeamOutboxCmd() *cobra.Command {
 		jobs        []string
 		sortBy      string
 		limit       int
+		watch       bool
+		noClear     bool
 		summary     bool
 		jsonOut     bool
 		format      string
+		interval    time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -48,6 +53,10 @@ func newTeamOutboxCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team outbox: --limit must be >= 0.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team outbox: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			sortMode, err := parseOutboxSort(sortBy)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team outbox: %v\n", err)
@@ -67,6 +76,14 @@ func newTeamOutboxCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if summary {
+					return runTeamOutboxSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut, interval, !noClear && !jsonOut)
+				}
+				return runTeamOutboxListWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
 			if summary {
 				return runTeamOutboxSummary(cmd.OutOrStdout(), teamDir, args[0], filters, jsonOut)
 			}
@@ -80,9 +97,12 @@ func newTeamOutboxCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, type, source, job, created, updated, or error.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the team outbox table until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate outbox counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team-owned outbox rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each team-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.AddCommand(newTeamOutboxShowCmd())
 	cmd.AddCommand(newTeamOutboxRetryCmd())
 	cmd.AddCommand(newTeamOutboxDropCmd())
@@ -721,6 +741,18 @@ func runTeamOutboxSummary(w io.Writer, teamDir, name string, filters outboxListF
 		return err
 	}
 	return renderOutboxSummaryForItems(w, items, filters, jsonOut)
+}
+
+func runTeamOutboxListWatch(ctx context.Context, w io.Writer, teamDir, name string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return runTeamOutboxList(w, teamDir, name, filters, opts, jsonOut, tmpl)
+	})
+}
+
+func runTeamOutboxSummaryWatch(ctx context.Context, w io.Writer, teamDir, name string, filters outboxListFilters, jsonOut bool, interval time.Duration, clear bool) error {
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return runTeamOutboxSummary(w, teamDir, name, filters, jsonOut)
+	})
 }
 
 func runTeamOutboxRetryAll(w io.Writer, teamDir, name string, filters outboxListFilters, opts outboxListOptions, dryRun, jsonOut bool, tmpl *template.Template) error {

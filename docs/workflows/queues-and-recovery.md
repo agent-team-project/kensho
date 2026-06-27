@@ -193,10 +193,13 @@ Sandboxed agents write pending fallback events under `.agent_team/outbox/` when 
 agent-team outbox ls
 agent-team outbox ls --summary
 agent-team outbox watch --state pending
+agent-team job outbox SQU-42 --watch --state failed
+agent-team pipeline outbox ticket_to_pr --watch --summary
+agent-team team outbox delivery --watch --job SQU-42
 agent-team outbox drain --dry-run
 ```
 
-Use `outbox watch` while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
+Use `outbox watch` or a scoped `--watch` view while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
 
 ## Outbox Quarantine
 

@@ -208,6 +208,81 @@ func TestOutboxListWatchRendersSnapshot(t *testing.T) {
 	}
 }
 
+func TestScopedOutboxWatchRendersSnapshot(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 12, 15, 0, 0, time.UTC)
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-513",
+		Ticket:    "SQU-513",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-scoped-watch",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"job_id": "squ-513", "ticket": "SQU-513", "target": "worker"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+
+	runCanceled := func(args ...string) string {
+		t.Helper()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetContext(ctx)
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("agent-team %s: %v\nstderr=%s", strings.Join(args, " "), err, stderr.String())
+		}
+		if strings.Contains(out.String(), watchClearSequence) {
+			t.Fatalf("watch output should not contain clear sequence: %q", out.String())
+		}
+		return out.String()
+	}
+
+	jobOut := runCanceled("job", "outbox", "squ-513", "--repo", root, "--watch", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}")
+	if got := strings.TrimSpace(jobOut); got != "outbox-scoped-watch pending" {
+		t.Fatalf("job outbox watch output = %q", jobOut)
+	}
+	pipelineOut := runCanceled("pipeline", "outbox", "ticket_to_pr", "--repo", root, "--watch", "--summary", "--no-clear", "--interval", "1ms")
+	if !strings.Contains(pipelineOut, "outbox: total=1 pending=1 processed=0 failed=0 filtered=1") {
+		t.Fatalf("pipeline outbox watch output = %q", pipelineOut)
+	}
+	teamOut := runCanceled("team", "outbox", "delivery", "--repo", root, "--watch", "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}")
+	if got := strings.TrimSpace(teamOut); got != "outbox-scoped-watch pending" {
+		t.Fatalf("team outbox watch output = %q", teamOut)
+	}
+}
+
 func TestOutboxPruneLocal(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")

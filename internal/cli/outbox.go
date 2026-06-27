@@ -652,27 +652,9 @@ func runOutboxListItems(w io.Writer, items []*daemon.OutboxItem, filters outboxL
 }
 
 func runOutboxListWatch(ctx context.Context, w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
-	if interval <= 0 {
-		interval = 2 * time.Second
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if !jsonOut {
-			if err := writeWatchClear(w, clear); err != nil {
-				return err
-			}
-		}
-		if err := runOutboxList(w, teamDir, filters, opts, jsonOut, tmpl); err != nil {
-			return err
-		}
-		if !waitForWatchTick(ctx, ticker.C) {
-			return nil
-		}
-		if !jsonOut && !clear {
-			fmt.Fprintln(w)
-		}
-	}
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return runOutboxList(w, teamDir, filters, opts, jsonOut, tmpl)
+	})
 }
 
 func runOutboxRetryAll(w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, dryRun, jsonOut bool, tmpl *template.Template) error {
@@ -834,6 +816,12 @@ func renderOutboxSummaryForItems(w io.Writer, items []*daemon.OutboxItem, filter
 }
 
 func runOutboxSummaryWatch(ctx context.Context, w io.Writer, teamDir string, filters outboxListFilters, jsonOut bool, interval time.Duration, clear bool) error {
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return renderOutboxSummary(w, teamDir, filters, jsonOut)
+	})
+}
+
+func runOutboxWatch(ctx context.Context, w io.Writer, jsonOut bool, interval time.Duration, clear bool, render func() error) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -845,7 +833,7 @@ func runOutboxSummaryWatch(ctx context.Context, w io.Writer, teamDir string, fil
 				return err
 			}
 		}
-		if err := renderOutboxSummary(w, teamDir, filters, jsonOut); err != nil {
+		if err := render(); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {

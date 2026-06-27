@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"text/template"
 	"time"
@@ -23,9 +25,12 @@ func newPipelineOutboxCmd() *cobra.Command {
 		all         bool
 		sortBy      string
 		limit       int
+		watch       bool
+		noClear     bool
 		summary     bool
 		jsonOut     bool
 		format      string
+		interval    time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -58,6 +63,10 @@ func newPipelineOutboxCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox: --limit must be >= 0.")
 				return exitErr(2)
 			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox: --interval must be >= 0.")
+				return exitErr(2)
+			}
 			sortMode, err := parseOutboxSort(sortBy)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline outbox: %v\n", err)
@@ -85,6 +94,14 @@ func newPipelineOutboxCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox: pipeline name is required.")
 				return exitErr(2)
 			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if summary {
+					return runPipelineOutboxSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, filters, jsonOut, interval, !noClear && !jsonOut)
+				}
+				return runPipelineOutboxListWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
 			if summary {
 				return runPipelineOutboxSummary(cmd.OutOrStdout(), teamDir, pipelineName, filters, jsonOut)
 			}
@@ -99,9 +116,12 @@ func newPipelineOutboxCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "List outbox events across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, type, source, job, created, updated, or error.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the pipeline outbox table until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate outbox counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned outbox rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.AddCommand(newPipelineOutboxShowCmd())
 	cmd.AddCommand(newPipelineOutboxRetryCmd())
 	cmd.AddCommand(newPipelineOutboxDropCmd())
@@ -758,6 +778,18 @@ func runPipelineOutboxSummary(w io.Writer, teamDir, pipeline string, filters out
 		return err
 	}
 	return renderOutboxSummaryForItems(w, items, filters, jsonOut)
+}
+
+func runPipelineOutboxListWatch(ctx context.Context, w io.Writer, teamDir, pipeline string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return runPipelineOutboxList(w, teamDir, pipeline, filters, opts, jsonOut, tmpl)
+	})
+}
+
+func runPipelineOutboxSummaryWatch(ctx context.Context, w io.Writer, teamDir, pipeline string, filters outboxListFilters, jsonOut bool, interval time.Duration, clear bool) error {
+	return runOutboxWatch(ctx, w, jsonOut, interval, clear, func() error {
+		return runPipelineOutboxSummary(w, teamDir, pipeline, filters, jsonOut)
+	})
 }
 
 func runPipelineOutboxRetryAll(w io.Writer, teamDir, pipeline string, filters outboxListFilters, opts outboxListOptions, dryRun, jsonOut bool, tmpl *template.Template) error {
