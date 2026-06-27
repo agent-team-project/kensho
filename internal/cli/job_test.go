@@ -8726,6 +8726,58 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 		t.Fatalf("ready actions = %+v", ready.Actions)
 	}
 
+	filtered := NewRootCmd()
+	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filtered.SetOut(filteredOut)
+	filtered.SetErr(filteredErr)
+	filtered.SetArgs([]string{"job", "next", "squ-203", "--repo", tmp, "--state", "ready", "--step", "review", "--json"})
+	if err := filtered.Execute(); err != nil {
+		t.Fatalf("job next filtered: %v\nstderr=%s", err, filteredErr.String())
+	}
+	var filteredNext jobNextResult
+	if err := json.Unmarshal(filteredOut.Bytes(), &filteredNext); err != nil {
+		t.Fatalf("decode filtered next json: %v\nbody=%s", err, filteredOut.String())
+	}
+	if filteredNext.State != "ready" || filteredNext.Step == nil || filteredNext.Step.ID != "review" {
+		t.Fatalf("filtered next = %+v", filteredNext)
+	}
+
+	mismatchState := NewRootCmd()
+	mismatchStateOut, mismatchStateErr := &bytes.Buffer{}, &bytes.Buffer{}
+	mismatchState.SetOut(mismatchStateOut)
+	mismatchState.SetErr(mismatchStateErr)
+	mismatchState.SetArgs([]string{"job", "next", "squ-203", "--repo", tmp, "--state", "failed"})
+	if err := mismatchState.Execute(); err == nil {
+		t.Fatalf("job next state mismatch succeeded")
+	}
+	if !strings.Contains(mismatchStateErr.String(), `job "squ-203" next-step state is "ready"; does not match --state`) {
+		t.Fatalf("job next state mismatch stderr = %q", mismatchStateErr.String())
+	}
+
+	mismatchStep := NewRootCmd()
+	mismatchStepOut, mismatchStepErr := &bytes.Buffer{}, &bytes.Buffer{}
+	mismatchStep.SetOut(mismatchStepOut)
+	mismatchStep.SetErr(mismatchStepErr)
+	mismatchStep.SetArgs([]string{"job", "next", "squ-203", "--repo", tmp, "--step", "implement"})
+	if err := mismatchStep.Execute(); err == nil {
+		t.Fatalf("job next step mismatch succeeded")
+	}
+	if !strings.Contains(mismatchStepErr.String(), `job "squ-203" next step is "review"; does not match --step`) {
+		t.Fatalf("job next step mismatch stderr = %q", mismatchStepErr.String())
+	}
+
+	badState := NewRootCmd()
+	badStateOut, badStateErr := &bytes.Buffer{}, &bytes.Buffer{}
+	badState.SetOut(badStateOut)
+	badState.SetErr(badStateErr)
+	badState.SetArgs([]string{"job", "next", "squ-203", "--repo", tmp, "--state", "stuck"})
+	if err := badState.Execute(); err == nil {
+		t.Fatalf("job next bad state succeeded")
+	}
+	if !strings.Contains(badStateErr.String(), "--state must be ready, queued, running, blocked, failed, held, done, none, or all") {
+		t.Fatalf("job next bad state stderr = %q", badStateErr.String())
+	}
+
 	blockedActions := actionsForJobReadyRow(jobReadyRow{JobID: "squ-205", State: "blocked", StepID: "review"})
 	if !containsString(blockedActions, "agent-team job unblock squ-205 --step review <answer...>") {
 		t.Fatalf("blocked actions = %+v", blockedActions)

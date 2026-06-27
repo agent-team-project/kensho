@@ -2234,6 +2234,8 @@ Flags:
       --format string   Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.
       --json            Emit the next-step state as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+      --state strings   Only render when the next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --step string     Only render when this pipeline step is the next step.
 ```
 
 ## `agent-team job note`

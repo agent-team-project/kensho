@@ -140,6 +140,7 @@ Job-level equivalents:
 
 ```sh
 agent-team job next squ-42
+agent-team job next squ-42 --state ready --step implement
 agent-team job explain squ-42
 agent-team job ready
 agent-team job advance squ-42 --dry-run --json

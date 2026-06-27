@@ -4679,6 +4679,8 @@ func newJobPruneCmd() *cobra.Command {
 func newJobNextCmd() *cobra.Command {
 	var (
 		repo    string
+		states  []string
+		step    string
 		jsonOut bool
 		format  string
 	)
@@ -4692,6 +4694,17 @@ func newJobNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job next: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			var (
+				stateFilter map[string]bool
+				err         error
+			)
+			if cmd.Flags().Changed("state") {
+				stateFilter, err = parseJobNextStateFilter(states, false)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job next: %v\n", err)
+					return exitErr(2)
+				}
+			}
 			tmpl, err := parseJobNextFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job next: %v\n", err)
@@ -4701,10 +4714,17 @@ func newJobNextCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderJobNextResult(cmd.OutOrStdout(), inspectNextJobStep(j), jsonOut, tmpl)
+			next := inspectNextJobStep(j)
+			if err := filterJobNextResult(next, stateFilter, step); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job next: %v\n", err)
+				return exitErr(1)
+			}
+			return renderJobNextResult(cmd.OutOrStdout(), next, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringSliceVar(&states, "state", nil, "Only render when the next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&step, "step", "", "Only render when this pipeline step is the next step.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the next-step state as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.")
 	return cmd
@@ -7244,6 +7264,24 @@ func parseJobNextStateFilter(raw []string, useDefault bool) (map[string]bool, er
 		return nil, fmt.Errorf("--state requires at least one non-empty state")
 	}
 	return states, nil
+}
+
+func filterJobNextResult(next jobNextResult, stateFilter map[string]bool, step string) error {
+	if len(stateFilter) > 0 && !stateFilter[next.State] {
+		return fmt.Errorf("job %q next-step state is %q; does not match --state", next.JobID, next.State)
+	}
+	stepFilter := strings.TrimSpace(step)
+	if stepFilter == "" {
+		return nil
+	}
+	currentStep := "none"
+	if next.Step != nil && strings.TrimSpace(next.Step.ID) != "" {
+		currentStep = next.Step.ID
+	}
+	if currentStep != stepFilter {
+		return fmt.Errorf("job %q next step is %q; does not match --step", next.JobID, currentStep)
+	}
+	return nil
 }
 
 func jobStatusTerminal(status job.Status) bool {
