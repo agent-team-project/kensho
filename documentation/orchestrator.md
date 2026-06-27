@@ -142,6 +142,14 @@ POST /v1/schedules/fire[?dry_run=true]
        "schedules": [{ "name": "...", "reason": "run_on_start|interval",
                        "event_type": "schedule", "payload": {...}, "outcomes": [...] }] }
 
+GET /v1/outbox
+  → [{ "id": "...", "state": "pending|processed|failed", "type": "...", ... }]
+
+POST /v1/outbox/drain[?dry_run=true]
+  → { "attempted": <int>, "published": <int>, "rejected": <int>,
+       "would_publish": <int>, "pending": <int>, "processed": <int>,
+       "failed": <int>, "dry_run": <bool>, "items": [...] }
+
 POST /v1/queue/{id}/retry
   → { "instance": "...", "action": "dispatched|queued|rejected", ... }
 

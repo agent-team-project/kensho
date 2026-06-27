@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"text/tabwriter"
 	"text/template"
 	"time"
 
@@ -49,7 +50,7 @@ func newTickCmd() *cobra.Command {
 		Use:   "tick",
 		Short: "Run one orchestration maintenance cycle.",
 		Long: "Run one orchestration maintenance cycle against the running daemon: " +
-			"reconcile process metadata and job status files, fire due schedules, drain ready queue items, then advance ready pipeline jobs.",
+			"reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, then advance ready pipeline jobs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -197,13 +198,13 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
-	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox and queue draining.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in this tick.")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job status reconciliation, schedule firing, queue drain, and pipeline advancement without mutating state.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job status reconciliation, schedule firing, outbox/queue drains, and pipeline advancement without mutating state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
-	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, queue, or pipeline work remains.")
+	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, outbox, queue, or pipeline work remains.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -248,7 +249,7 @@ func newDrainCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "drain",
 		Short: "Run maintenance cycles until idle.",
-		Long: "Run orchestration maintenance cycles until no immediate job-status, schedule, queue, or pipeline work remains. " +
+		Long: "Run orchestration maintenance cycles until no immediate job-status, schedule, outbox, queue, or pipeline work remains. " +
 			"This is the script-friendly shortcut for `agent-team tick --until-idle`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -342,7 +343,7 @@ func newDrainCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
-	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox and queue draining.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in each drain cycle.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After drain reaches idle, wait for jobs advanced during drain cycles to reach a lifecycle status, event, or next-step state.")
@@ -376,6 +377,7 @@ type tickResult struct {
 	JobEvents []jobEventReconcileResult  `json:"job_events,omitempty"`
 	JobStatus []jobStatusReconcileResult `json:"job_status,omitempty"`
 	Schedule  *daemon.ScheduleFireResult `json:"schedule,omitempty"`
+	Outbox    *daemon.OutboxDrainResult  `json:"outbox,omitempty"`
 	Queue     *daemon.QueueDrainResult   `json:"queue,omitempty"`
 	Advance   []pipelineAdvanceResult    `json:"advance,omitempty"`
 	DryRun    bool                       `json:"dry_run,omitempty"`
@@ -421,6 +423,11 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 		result.Schedule = schedule
 	}
 	if !opts.SkipDrain {
+		outbox, err := dc.OutboxDrain(opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		result.Outbox = outbox
 		drain, err := dc.QueueDrain(opts.DryRun)
 		if err != nil {
 			return nil, err
@@ -538,6 +545,9 @@ func tickResultIsIdle(result *tickResult) bool {
 	if result.Queue != nil && (result.Queue.Attempted > 0 || result.Queue.WouldDispatch > 0 || result.Queue.Dispatched > 0 || result.Queue.Rejected > 0) {
 		return false
 	}
+	if result.Outbox != nil && (result.Outbox.Attempted > 0 || result.Outbox.WouldPublish > 0 || result.Outbox.Published > 0 || result.Outbox.Rejected > 0) {
+		return false
+	}
 	for _, advanced := range result.Advance {
 		if advanced.Action == "advanced" || advanced.Action == "would_advance" {
 			return false
@@ -647,6 +657,15 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 		fmt.Fprintln(w, "Schedules: skipped")
 	}
 	fmt.Fprintln(w)
+	if result.Outbox != nil {
+		fmt.Fprintln(w, "Outbox:")
+		if err := renderOutboxDrainResult(w, result.Outbox); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "Outbox: skipped")
+	}
+	fmt.Fprintln(w)
 	if result.Queue != nil {
 		fmt.Fprintln(w, "Queue:")
 		if err := renderQueueDrainResult(w, result.Queue, false, nil); err != nil {
@@ -662,4 +681,27 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 	}
 	fmt.Fprintln(w, "Pipeline advance: skipped")
 	return nil
+}
+
+func renderOutboxDrainResult(w fmtWriter, result *daemon.OutboxDrainResult) error {
+	if result == nil {
+		result = &daemon.OutboxDrainResult{}
+	}
+	if result.DryRun {
+		fmt.Fprintf(w, "outbox drain dry-run: would_publish=%d pending=%d failed=%d processed=%d\n",
+			result.WouldPublish, result.Pending, result.Failed, result.Processed)
+	} else {
+		fmt.Fprintf(w, "outbox drain: attempted=%d published=%d rejected=%d pending=%d failed=%d processed=%d\n",
+			result.Attempted, result.Published, result.Rejected, result.Pending, result.Failed, result.Processed)
+	}
+	if len(result.Items) == 0 {
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tTYPE\tACTION\tERROR")
+	for _, item := range result.Items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			item.ID, item.Type, item.Action, emptyDash(item.Error))
+	}
+	return tw.Flush()
 }

@@ -199,6 +199,67 @@ branch = "worker-squ-94"
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickDrainsAgentOutbox(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
+	if err := daemon.WriteOutboxItem(teamDir, &daemon.OutboxItem{
+		ID:        "outbox-tick",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"target": "worker", "name": "worker-squ-95", "ticket": "SQU-95", "workspace": "repo"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("WriteOutboxItem: %v", err)
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("tick dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview tickResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode tick dry-run json: %v\nbody=%s", err, dryOut.String())
+	}
+	if preview.Outbox == nil || !preview.Outbox.DryRun || preview.Outbox.WouldPublish != 1 || preview.Outbox.Pending != 1 {
+		t.Fatalf("tick outbox preview = %+v", preview.Outbox)
+	}
+	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-tick"); err != nil {
+		t.Fatalf("tick dry-run removed outbox item: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick json: %v\nbody=%s", err, out.String())
+	}
+	if result.Outbox == nil || result.Outbox.Published != 1 || result.Outbox.Pending != 0 || result.Outbox.Processed != 1 {
+		t.Fatalf("tick outbox result = %+v", result.Outbox)
+	}
+	processed, err := daemon.ReadOutboxItem(teamDir, "outbox-tick")
+	if err != nil {
+		t.Fatalf("ReadOutboxItem: %v", err)
+	}
+	if processed.State != daemon.OutboxStateProcessed {
+		t.Fatalf("outbox state = %s, want processed", processed.State)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-95")
+}
+
 func TestTickWaitsForAdvancedJobs(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

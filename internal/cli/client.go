@@ -530,6 +530,23 @@ func (c *daemonClient) QueueDrain(dryRun bool) (*daemon.QueueDrainResult, error)
 	return c.queueDrain(dryRun, nil, false)
 }
 
+func (c *daemonClient) OutboxDrain(dryRun bool) (*daemon.OutboxDrainResult, error) {
+	u := daemonQueryURL(c.baseURL+"/v1/outbox/drain", dryRun, "", nil, false)
+	resp, err := c.hc.Post(u, "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: outbox drain: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: outbox drain: %s", readErrorBody(resp))
+	}
+	var out daemon.OutboxDrainResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: outbox drain decode: %w", err)
+	}
+	return &out, nil
+}
+
 func (c *daemonClient) QueueDrainScoped(dryRun bool, ids []string) (*daemon.QueueDrainResult, error) {
 	return c.queueDrain(dryRun, ids, true)
 }

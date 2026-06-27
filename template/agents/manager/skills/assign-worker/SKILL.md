@@ -8,7 +8,7 @@ user_invocable: true
 
 The worker itself is fully specified in the `worker` agent. This skill only covers the **launch / forwarding mechanics** the manager is responsible for.
 
-Use the daemon topology path when `agent-teamd` is running. Fall back to Claude's in-session `TeamCreate` / `Agent` tools only when the daemon socket is unavailable or topology cannot route the event.
+Use the daemon topology path when `agent-teamd` is running. If daemon transport is unavailable, the helper writes a durable outbox event under `.agent_team/outbox/pending/` for the next `agent-team tick` / `agent-team drain`. Fall back to Claude's in-session `TeamCreate` / `Agent` tools only when topology cannot route the event or the outbox write fails.
 
 ## Preflight
 
@@ -18,13 +18,15 @@ Use the daemon topology path when `agent-teamd` is running. Fall back to Claude'
 
 ## Daemon Dispatch (Preferred)
 
-If `AGENT_TEAM_DAEMON_URL` is set, or the resolved daemon socket exists (`$AGENT_TEAM_DAEMON_SOCKET`, falling back to `$AGENT_TEAM_ROOT/daemon.sock`), dispatch through topology:
+Dispatch through topology with the helper:
 
 ```sh
 "$AGENT_TEAM_ROOT"/agents/manager/skills/assign-worker/scripts/assign_worker.sh dispatch \
   --ticket SQU-14 \
   --kickoff "SQU-14: <user's instructions>"
 ```
+
+The helper prefers `AGENT_TEAM_DAEMON_URL`, then the resolved daemon socket (`$AGENT_TEAM_DAEMON_SOCKET`, falling back to `$AGENT_TEAM_ROOT/daemon.sock`). If neither transport is reachable, it writes an outbox event instead of spawning a legacy worker.
 
 For long kickoff text, write it to a temp file and use `--kickoff-file <path>`.
 
@@ -40,6 +42,7 @@ Interpret the JSON response:
 
 - `dispatched` has an entry: a worker started. Report the `instance_id` and continue.
 - `queued` is non-empty: the worker event was accepted but replica capacity is full. Tell the user it is queued.
+- `outbox` has an entry: the daemon was unreachable from this runtime, but the dispatch event was durably written. Tell the user it will be published on the next `agent-team tick` or `agent-team drain`.
 - `rejected` says the requested instance is already running or queued: reuse the existing worker by sending the follow-up to `worker-<ticket-lowercase>`:
   ```sh
   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send worker-squ-14 "<the user's follow-up ask>"

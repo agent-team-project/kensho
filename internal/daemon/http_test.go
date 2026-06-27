@@ -259,6 +259,70 @@ func TestHTTP_InstancesEmptyArray(t *testing.T) {
 	}
 }
 
+func TestHTTP_OutboxDrain(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 6, 27, 10, 30, 0, 0, time.UTC)
+	if err := WriteOutboxItem(teamDir, &OutboxItem{
+		ID:        "outbox-http",
+		State:     OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"target": "worker", "name": "worker-squ-402", "ticket": "SQU-402", "workspace": "repo"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("WriteOutboxItem: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/outbox")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("outbox list: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var items []*OutboxItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("outbox list decode: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "outbox-http" {
+		t.Fatalf("outbox items = %+v, want outbox-http", items)
+	}
+
+	resp = mustPost(t, srv.URL+"/v1/outbox/drain?dry_run=true", `{}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("outbox dry drain: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var preview OutboxDrainResult
+	if err := json.NewDecoder(resp.Body).Decode(&preview); err != nil {
+		t.Fatalf("preview decode: %v", err)
+	}
+	if preview.WouldPublish != 1 || preview.Pending != 1 {
+		t.Fatalf("preview = %+v, want would_publish=1 pending=1", preview)
+	}
+	if fake.callCount() != 0 {
+		t.Fatalf("dry-run spawned %d processes", fake.callCount())
+	}
+
+	resp = mustPost(t, srv.URL+"/v1/outbox/drain", `{}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("outbox drain: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var result OutboxDrainResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("result decode: %v", err)
+	}
+	if result.Published != 1 || result.Pending != 0 || result.Processed != 1 {
+		t.Fatalf("result = %+v, want published=1 pending=0 processed=1", result)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls=%d, want 1", fake.callCount())
+	}
+}
+
 func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
 	root := t.TempDir()
 	oldPidLiveCheck := PidLiveCheck

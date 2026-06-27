@@ -32,17 +32,13 @@ socket_path() {
     fi
 }
 
-require_daemon() {
+daemon_available() {
     if [[ -n "${AGENT_TEAM_DAEMON_URL:-}" ]]; then
         return 0
     fi
     local sock
     sock="$(socket_path)"
-    if [[ ! -S "$sock" ]]; then
-        echo "assign_worker.sh: daemon not running ($sock missing)." >&2
-        echo "  Start it with \`agent-team daemon start\`." >&2
-        exit 1
-    fi
+    [[ -S "$sock" ]]
 }
 
 slugify_ticket() {
@@ -64,6 +60,78 @@ curl_daemon() {
     local sock
     sock="$(socket_path)"
     curl --unix-socket "$sock" -sS --fail-with-body "$@"
+}
+
+write_outbox_event() {
+    local payload="$1"
+    local ticket_slug="$2"
+
+    export ASSIGN_WORKER_OUTBOX_PAYLOAD="$payload"
+    export ASSIGN_WORKER_OUTBOX_TICKET_SLUG="$ticket_slug"
+    python3 - <<'PY'
+from datetime import datetime, timezone
+import json
+import os
+import pathlib
+import tempfile
+import uuid
+
+root = os.environ.get("AGENT_TEAM_ROOT", "")
+if not root:
+    raise SystemExit("assign_worker.sh: AGENT_TEAM_ROOT not set")
+
+event = json.loads(os.environ["ASSIGN_WORKER_OUTBOX_PAYLOAD"])
+event_type = event.get("type", "")
+if not event_type:
+    raise SystemExit("assign_worker.sh: outbox event type missing")
+payload = event.get("payload") or {}
+ticket_slug = os.environ.get("ASSIGN_WORKER_OUTBOX_TICKET_SLUG", "event")
+source = os.environ.get("AGENT_TEAM_INSTANCE", "")
+
+pending = pathlib.Path(root) / "outbox" / "pending"
+pending.mkdir(parents=True, exist_ok=True)
+now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+stamp = now.replace("-", "").replace(":", "").replace(".", "-").replace("Z", "z")
+event_id = f"{stamp}-{ticket_slug}-{uuid.uuid4().hex[:8]}"
+item = {
+    "id": event_id,
+    "state": "pending",
+    "type": event_type,
+    "payload": payload,
+    "source": source,
+    "created_at": now,
+    "updated_at": now,
+}
+
+fd, tmp_name = tempfile.mkstemp(prefix=f"{event_id}-", suffix=".json.tmp", dir=str(pending), text=True)
+path = pending / f"{event_id}.json"
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(item, f, indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_name, path)
+except Exception:
+    try:
+        os.unlink(tmp_name)
+    except FileNotFoundError:
+        pass
+    raise
+
+print(json.dumps({
+    "matched": 0,
+    "dispatched": [],
+    "queued": [],
+    "outbox": [{
+        "id": event_id,
+        "type": event_type,
+        "path": str(path),
+        "action": "queued_to_outbox"
+    }],
+    "message": "daemon unavailable; run `agent-team tick` or `agent-team drain` to publish the outbox event"
+}))
+PY
 }
 
 dispatch() {
@@ -151,6 +219,7 @@ dispatch() {
     export ASSIGN_WORKER_TICKET="$ticket"
     export ASSIGN_WORKER_KICKOFF="$kickoff"
     export ASSIGN_WORKER_WORKSPACE="$workspace"
+    local payload
     payload=$(python3 - <<'PY'
 import json
 import os
@@ -168,11 +237,15 @@ print(json.dumps({"type": "agent.dispatch", "payload": event_payload}))
 PY
 )
 
-    curl_daemon -X POST \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        http://daemon/v1/event
-    echo
+    if daemon_available; then
+        curl_daemon -X POST \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            http://daemon/v1/event
+        echo
+    else
+        write_outbox_event "$payload" "$ticket_slug"
+    fi
 }
 
 [[ $# -ge 1 ]] || usage
@@ -181,7 +254,6 @@ verb="$1"; shift
 case "$verb" in
     dispatch)
         require_team_root
-        require_daemon
         dispatch "$@"
         ;;
     -h|--help|help)

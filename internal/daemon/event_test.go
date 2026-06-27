@@ -1023,6 +1023,62 @@ func TestEvent_PreviewDrainQueuesDoesNotDispatch(t *testing.T) {
 	}
 }
 
+func TestEvent_DrainOutboxWithResultPublishesPendingEvents(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	item := &OutboxItem{
+		ID:        "outbox-squ-401",
+		State:     OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"target": "worker", "name": "worker-squ-401", "ticket": "SQU-401", "kickoff": "test outbox", "workspace": "repo"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := WriteOutboxItem(teamDir, item); err != nil {
+		t.Fatalf("WriteOutboxItem: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	preview, err := resolver.DrainOutboxWithResult(true)
+	if err != nil {
+		t.Fatalf("DrainOutboxWithResult dry-run: %v", err)
+	}
+	if preview.WouldPublish != 1 || preview.Pending != 1 {
+		t.Fatalf("preview = %+v, want would_publish=1 pending=1", preview)
+	}
+	if fake.callCount() != 0 {
+		t.Fatalf("dry-run spawned %d processes", fake.callCount())
+	}
+
+	result, err := resolver.DrainOutboxWithResult(false)
+	if err != nil {
+		t.Fatalf("DrainOutboxWithResult: %v", err)
+	}
+	if result.Attempted != 1 || result.Published != 1 || result.Rejected != 0 {
+		t.Fatalf("result = %+v, want attempted=1 published=1 rejected=0", result)
+	}
+	if result.Pending != 0 || result.Processed != 1 || result.Failed != 0 {
+		t.Fatalf("state counts = pending %d processed %d failed %d, want 0/1/0", result.Pending, result.Processed, result.Failed)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls=%d, want 1", fake.callCount())
+	}
+	if _, err := os.Stat(OutboxPath(teamDir, OutboxStatePending, item.ID)); !os.IsNotExist(err) {
+		t.Fatalf("pending outbox path still exists or stat failed unexpectedly: %v", err)
+	}
+	processed, err := ReadOutboxItem(teamDir, item.ID)
+	if err != nil {
+		t.Fatalf("ReadOutboxItem: %v", err)
+	}
+	if processed.State != OutboxStateProcessed || processed.ProcessedAt.IsZero() {
+		t.Fatalf("processed item = %+v, want processed state with timestamp", processed)
+	}
+}
+
 func TestEvent_PipelineCreatesJobAndDispatchesFirstStep(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

@@ -448,6 +448,43 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		writeJSON(w, http.StatusOK, resp)
 	})
 
+	mux.HandleFunc("/v1/outbox", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if strings.TrimSpace(teamDir) == "" {
+			writeError(w, http.StatusServiceUnavailable, "team directory not configured")
+			return
+		}
+		items, err := ListOutboxItems(teamDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if items == nil {
+			items = []*OutboxItem{}
+		}
+		writeJSON(w, http.StatusOK, items)
+	})
+
+	mux.HandleFunc("/v1/outbox/drain", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		result, err := events.DrainOutboxWithResult(r.URL.Query().Get("dry_run") == "true")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("/v1/queue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")

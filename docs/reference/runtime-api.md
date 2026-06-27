@@ -78,6 +78,18 @@ GET /v1/events?follow=true
 
 Responses stream text or JSONL depending on endpoint.
 
+## Agent Outbox
+
+```http
+GET /v1/outbox
+POST /v1/outbox/drain
+POST /v1/outbox/drain?dry_run=true
+```
+
+Sandboxed agents that cannot reach the Unix socket or optional loopback HTTP listener can write event files under `.agent_team/outbox/pending/`. A drain pass publishes each pending item through the same event resolver used by `POST /v1/event`, then archives the file under `processed/` or `failed/`.
+
+`agent-team tick` and `agent-team drain` run this outbox drain before the daemon capacity queue drain. Use `--dry-run` to preview pending outbox events without publishing them.
+
 ## Queue
 
 ```http
