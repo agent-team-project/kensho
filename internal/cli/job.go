@@ -38,6 +38,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobLsCmd())
 	cmd.AddCommand(newJobShowCmd())
 	cmd.AddCommand(newJobDoctorCmd())
+	cmd.AddCommand(newJobQuarantineCmd())
 	cmd.AddCommand(newJobQueueCmd())
 	cmd.AddCommand(newJobOutboxCmd())
 	cmd.AddCommand(newJobEventsCmd())

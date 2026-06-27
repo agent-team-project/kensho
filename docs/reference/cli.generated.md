@@ -1797,6 +1797,7 @@ Subcommands:
 - `agent-team job outbox` - List or control outbox events owned by one job.
 - `agent-team job prune` - Remove terminal job files and their event logs.
 - `agent-team job ps` - List instances owned by one job.
+- `agent-team job quarantine` - Inspect, restore, and drop quarantined job files.
 - `agent-team job queue` - List queue items owned by one job.
 - `agent-team job ready` - List pipeline jobs with ready or selected next-step states.
 - `agent-team job reconcile` - Reconcile external runtime state back into jobs.
@@ -2590,6 +2591,85 @@ Flags:
       --summary             Show lifecycle counts instead of job instance rows.
       --unhealthy           Only show crashed, status-stale, or runtime-stale job-owned instances.
   -w, --watch               Refresh job instance rows until interrupted.
+```
+
+## `agent-team job quarantine`
+
+Inspect, restore, and drop quarantined job files.
+
+Inspect durable job TOML files moved under `.agent_team/jobs/quarantine/`, restore validated files to the active jobs directory, or explicitly drop preserved files.
+
+```text
+agent-team job quarantine [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render each quarantined job file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
+      --json            Emit quarantined job files as JSON.
+      --limit int       Limit rows after filtering and sorting; 0 means no limit.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --restorable      Only show quarantined job files that can be restored.
+      --sort string     Sort rows by path, id, ticket, target, status, modified, restorable, or size. (default "path")
+      --unrestorable    Only show quarantined job files that cannot be restored.
+```
+
+Subcommands:
+
+- `agent-team job quarantine drop` - Drop one quarantined job file after inspection.
+- `agent-team job quarantine restore` - Restore one validated quarantined job file.
+- `agent-team job quarantine show` - Show one quarantined job file.
+
+## `agent-team job quarantine drop`
+
+Drop one quarantined job file after inspection.
+
+```text
+agent-team job quarantine drop <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview the quarantined job file drop without deleting it.
+      --format string   Render the drop result with a Go template, e.g. '{{.Path}} {{.Action}}'.
+      --json            Emit the drop result as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job quarantine restore`
+
+Restore one validated quarantined job file.
+
+```text
+agent-team job quarantine restore <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview the job file restore without moving it.
+      --force           Overwrite an existing active job file with the same id.
+      --format string   Render the restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit the restore result as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job quarantine show`
+
+Show one quarantined job file.
+
+```text
+agent-team job quarantine show <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the quarantined job file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
+      --json            Emit the quarantined job file as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job queue`
