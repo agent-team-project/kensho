@@ -57,7 +57,7 @@ func newMonitorCmd() *cobra.Command {
 		Use:   "monitor",
 		Short: "Show a combined health, recovery, inbox, instance, and resource snapshot.",
 		Long: "Show a Docker-style operator snapshot combining fleet health, inbox state, " +
-			"queue and outbox recovery signals, the instance table, and daemon-managed process stats. " +
+			"job, queue, and outbox recovery signals, the instance table, and daemon-managed process stats. " +
 			"With --watch, refresh until interrupted.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {

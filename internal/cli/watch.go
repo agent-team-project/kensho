@@ -47,7 +47,7 @@ func newWatchCmd() *cobra.Command {
 		Use:   "watch",
 		Short: "Watch the combined health, recovery, inbox, instance, and resource monitor.",
 		Long: "Watch the Docker-style operator monitor, refreshing fleet health, " +
-			"queue and outbox recovery signals, inbox state, instance state, and daemon-managed process stats until interrupted.",
+			"job, queue, and outbox recovery signals, inbox state, instance state, and daemon-managed process stats until interrupted.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team watch: --interval must be >= 0.")

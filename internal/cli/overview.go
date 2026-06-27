@@ -152,6 +152,7 @@ type overviewResult struct {
 	Runtime               overviewRuntimeSummary  `json:"runtime"`
 	Inbox                 overviewInboxSummary    `json:"inbox"`
 	Jobs                  overviewJobSummary      `json:"jobs"`
+	JobQuarantine         jobQuarantineSummary    `json:"job_quarantine"`
 	Outbox                outboxSummary           `json:"outbox"`
 	OutboxOwner           *overviewOutboxOwner    `json:"outbox_owner,omitempty"`
 	OutboxQuarantine      outboxQuarantineSummary `json:"outbox_quarantine"`
@@ -304,6 +305,12 @@ func collectOverview(teamDir string, now time.Time, scheduleLimit int) *overview
 				out.Queue = triage.Queue
 			}
 		}
+	}
+
+	if quarantine, err := listJobQuarantine(teamDir); err != nil {
+		out.addError("job_quarantine", err)
+	} else {
+		out.JobQuarantine = summarizeJobQuarantineItems(quarantine)
 	}
 
 	if outbox, owner, err := collectOverviewOutbox(teamDir); err != nil {
@@ -1358,6 +1365,7 @@ func overviewOK(out *overviewResult, health *healthResult) bool {
 	return out.Queue.Dead == 0 &&
 		out.Queue.Pending <= out.Queue.Delayed &&
 		out.Queue.Quarantined == 0 &&
+		out.JobQuarantine.Quarantined == 0 &&
 		out.Outbox.Pending == 0 &&
 		out.Outbox.Failed == 0 &&
 		out.OutboxQuarantine.Quarantined == 0 &&
@@ -1384,6 +1392,7 @@ func overviewState(out *overviewResult) string {
 		(out.Topology != nil && !out.Topology.OK) ||
 		out.Queue.Dead > 0 ||
 		out.Queue.Quarantined > 0 ||
+		out.JobQuarantine.Quarantined > 0 ||
 		out.Outbox.Failed > 0 ||
 		out.OutboxQuarantine.Quarantined > 0 ||
 		out.Jobs.Attention > 0 ||
@@ -1506,6 +1515,9 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		result.Jobs.StaleRunning,
 		result.Jobs.ReadySteps,
 		result.Jobs.StatusChanges)
+	if result.JobQuarantine.Quarantined > 0 {
+		fmt.Fprintln(w, jobQuarantineSummaryLine(result.JobQuarantine))
+	}
 	fmt.Fprintln(w, queueSummaryLine(result.Queue))
 	fmt.Fprintf(w, "outbox: total=%d pending=%d failed=%d processed=%d\n",
 		result.Outbox.Total,

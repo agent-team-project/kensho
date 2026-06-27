@@ -1379,6 +1379,46 @@ func TestOverviewReportsQueueQuarantineInventory(t *testing.T) {
 	}
 }
 
+func TestOverviewReportsJobQuarantineInventory(t *testing.T) {
+	root := writeNextJobQuarantineFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview job quarantine json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview job quarantine: %v\nbody=%s", err, out.String())
+	}
+	if overview.OK || overview.State != "attention" || overview.JobQuarantine.Quarantined != 2 || overview.JobQuarantine.Restorable != 1 || overview.JobQuarantine.Unrestorable != 1 {
+		t.Fatalf("overview = %+v", overview)
+	}
+	if !stringSliceContains(overview.Actions, "agent-team job quarantine") {
+		t.Fatalf("actions missing job quarantine: %+v", overview.Actions)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview job quarantine text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{
+		"job quarantine: quarantined=2 restorable=1 unrestorable=1",
+		"agent-team job quarantine",
+	} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("overview job quarantine text missing %q:\n%s", want, textOut.String())
+		}
+	}
+}
+
 func TestOverviewIgnoresRecoveredIntakeErrors(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

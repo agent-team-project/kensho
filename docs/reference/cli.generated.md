@@ -3572,7 +3572,7 @@ Inherited Flags:
 
 Show a combined health, recovery, inbox, instance, and resource snapshot.
 
-Show a Docker-style operator snapshot combining fleet health, inbox state, queue and outbox recovery signals, the instance table, and daemon-managed process stats. With --watch, refresh until interrupted.
+Show a Docker-style operator snapshot combining fleet health, inbox state, job, queue, and outbox recovery signals, the instance table, and daemon-managed process stats. With --watch, refresh until interrupted.
 
 ```text
 agent-team monitor [flags]
@@ -9220,7 +9220,7 @@ Inherited Flags:
 
 Watch the combined health, recovery, inbox, instance, and resource monitor.
 
-Watch the Docker-style operator monitor, refreshing fleet health, queue and outbox recovery signals, inbox state, instance state, and daemon-managed process stats until interrupted.
+Watch the Docker-style operator monitor, refreshing fleet health, job, queue, and outbox recovery signals, inbox state, instance state, and daemon-managed process stats until interrupted.
 
 ```text
 agent-team watch [flags]
