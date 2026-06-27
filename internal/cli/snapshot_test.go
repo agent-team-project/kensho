@@ -126,6 +126,9 @@ branch = "worker-squ-501"
 	if snapshot.Version == "" || snapshot.CapturedAt == "" || snapshot.Repo == "" || snapshot.TeamDir == "" {
 		t.Fatalf("snapshot metadata missing: %+v", snapshot)
 	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team snapshot" || snapshot.Provenance.Scope != "global" || snapshot.Provenance.Subject != "" || snapshot.Provenance.Options.Events == nil || *snapshot.Provenance.Options.Events != 5 || snapshot.Provenance.Options.IntakeDeliveries == nil || *snapshot.Provenance.Options.IntakeDeliveries != 50 || !snapshot.Provenance.Options.Redacted {
+		t.Fatalf("snapshot provenance = %+v", snapshot.Provenance)
+	}
 	if snapshot.Health == nil || snapshot.Health.Queue.Dead != 1 {
 		t.Fatalf("health = %+v", snapshot.Health)
 	}
@@ -659,8 +662,11 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 	snapshot := &snapshotResult{
 		CapturedAt: now.Format(time.RFC3339),
 		Repo:       "/repo",
-		Git:        &snapshotGitInfo{Branch: "main", Commit: "abcdef123456", Dirty: true, Changes: 2, Ahead: 1},
-		Redacted:   true,
+		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
+			Redacted: true,
+		}),
+		Git:      &snapshotGitInfo{Branch: "main", Commit: "abcdef123456", Dirty: true, Changes: 2, Ahead: 1},
+		Redacted: true,
 		Jobs: []*job.Job{
 			{ID: "squ-601", Ticket: "SQU-601", Target: "worker", Status: job.StatusFailed, CreatedAt: now, UpdatedAt: now},
 		},
@@ -731,7 +737,7 @@ func TestSnapshotSummaryIncludesJobTriage(t *testing.T) {
 
 	var out bytes.Buffer
 	renderSnapshotSummary(&out, snapshot)
-	for _, want := range []string{"git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 stale_running_steps=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=2 total=3 unread=1 unread_instances=1", "intake: deliveries=1 errors=1 recovered=0 replayable=1 duplicate_request_ids=1"} {
+	for _, want := range []string{"command: agent-team snapshot scope=global", "git: branch=main commit=abcdef123456 dirty=yes changes=2 ahead=1 behind=0", "jobs: total=1", "job triage: attention=1 ready_steps=0", "job status: previews=1 changes=1", "pipeline status: pipelines=1 jobs=1 ready_steps=1 manual_gates=0 stale_running_steps=0 failed_steps=0", "pipeline advance: ready=1 route_previews=1", "teams doctor: teams=1 problems=1 warnings=1", "team doctor: problems=1 warnings=0", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=2 total=3 unread=1 unread_instances=1", "intake: deliveries=1 errors=1 recovered=0 replayable=1 duplicate_request_ids=1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}

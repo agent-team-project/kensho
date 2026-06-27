@@ -2214,6 +2214,9 @@ target = "worker"
 	if snapshot.Pipeline != "ticket_to_pr" || snapshot.Version == "" || snapshot.CapturedAt == "" || snapshot.Repo == "" || snapshot.TeamDir == "" {
 		t.Fatalf("snapshot metadata = %+v", snapshot)
 	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team pipeline snapshot" || snapshot.Provenance.Scope != "pipeline" || snapshot.Provenance.Subject != "ticket_to_pr" || !snapshot.Provenance.Options.Redacted {
+		t.Fatalf("snapshot provenance = %+v", snapshot.Provenance)
+	}
 	if !snapshot.Redacted {
 		t.Fatalf("snapshot should redact by default")
 	}
@@ -2279,7 +2282,7 @@ target = "worker"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "inbox: instances=1 total=1 unread=1 unread_instances=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "advance: ready=1 route_previews=1"} {
+	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "command: agent-team pipeline snapshot scope=pipeline subject=ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "inbox: instances=1 total=1 unread=1 unread_instances=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "advance: ready=1 route_previews=1"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline snapshot text missing %q:\n%s", want, textOut.String())
 		}

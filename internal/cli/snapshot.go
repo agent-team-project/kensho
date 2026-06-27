@@ -35,7 +35,7 @@ func newSnapshotCmd() *cobra.Command {
 		Use:   "snapshot",
 		Short: "Capture a read-only orchestration diagnostic report.",
 		Long: "Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, " +
-			"inbox, schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.",
+			"inbox, schedule, runtime, recent lifecycle event state, and command provenance. Use --json for stdout or --output to write a JSON file.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -68,6 +68,12 @@ func newSnapshotCmd() *cobra.Command {
 				ScheduleLimit: scheduleLimit,
 				Redact:        !noRedact,
 				Now:           time.Now().UTC(),
+			})
+			setSnapshotProvenance(snapshot, cmd.CommandPath(), "global", "", snapshotProvenanceOptions{
+				Events:           intValuePtr(eventLimit),
+				IntakeDeliveries: intValuePtr(intakeLimit),
+				ScheduleLimit:    intValuePtr(scheduleLimit),
+				Redacted:         !noRedact,
 			})
 			switch {
 			case jsonOut || output == "-":
@@ -109,6 +115,7 @@ type snapshotResult struct {
 	CapturedAt       string                     `json:"captured_at"`
 	Repo             string                     `json:"repo"`
 	TeamDir          string                     `json:"team_dir"`
+	Provenance       *snapshotProvenance        `json:"provenance,omitempty"`
 	Git              *snapshotGitInfo           `json:"git,omitempty"`
 	Team             *teamInfo                  `json:"team,omitempty"`
 	Redacted         bool                       `json:"redacted"`
@@ -138,6 +145,21 @@ type snapshotResult struct {
 	IntakeDuplicates []intakeDuplicateRequest   `json:"intake_duplicates,omitempty"`
 	Events           []daemon.LifecycleEvent    `json:"events,omitempty"`
 	SectionErrors    map[string]string          `json:"section_errors,omitempty"`
+}
+
+type snapshotProvenance struct {
+	Command string                    `json:"command"`
+	Scope   string                    `json:"scope"`
+	Subject string                    `json:"subject,omitempty"`
+	Options snapshotProvenanceOptions `json:"options"`
+}
+
+type snapshotProvenanceOptions struct {
+	Events           *int `json:"events,omitempty"`
+	IntakeDeliveries *int `json:"intake_deliveries,omitempty"`
+	ScheduleLimit    *int `json:"schedule_limit,omitempty"`
+	Tail             *int `json:"tail,omitempty"`
+	Redacted         bool `json:"redacted"`
 }
 
 type snapshotGitInfo struct {
@@ -396,6 +418,27 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		redactSnapshotResult(out)
 	}
 	return out, nil
+}
+
+func setSnapshotProvenance(snapshot *snapshotResult, command, scope, subject string, opts snapshotProvenanceOptions) {
+	if snapshot == nil {
+		return
+	}
+	snapshot.Provenance = newSnapshotProvenance(command, scope, subject, opts)
+}
+
+func newSnapshotProvenance(command, scope, subject string, opts snapshotProvenanceOptions) *snapshotProvenance {
+	return &snapshotProvenance{
+		Command: strings.TrimSpace(command),
+		Scope:   strings.TrimSpace(scope),
+		Subject: strings.TrimSpace(subject),
+		Options: opts,
+	}
+}
+
+func intValuePtr(value int) *int {
+	v := value
+	return &v
 }
 
 func collectSnapshotInbox(teamDir string, top *topology.Topology, team *topology.Team) ([]inboxSummaryRow, overviewInboxSummary, error) {
@@ -754,6 +797,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	}
 	fmt.Fprintf(w, "snapshot: %s\n", snapshot.CapturedAt)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
+	if snapshot.Provenance != nil {
+		renderSnapshotProvenanceSummary(w, snapshot.Provenance)
+	}
 	if snapshot.Git != nil {
 		branch := snapshot.Git.Branch
 		if branch == "" {
@@ -860,6 +906,20 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func renderSnapshotProvenanceSummary(w io.Writer, provenance *snapshotProvenance) {
+	if provenance == nil {
+		return
+	}
+	fmt.Fprintf(w, "command: %s", emptyDash(provenance.Command))
+	if provenance.Scope != "" {
+		fmt.Fprintf(w, " scope=%s", provenance.Scope)
+	}
+	if provenance.Subject != "" {
+		fmt.Fprintf(w, " subject=%s", provenance.Subject)
+	}
+	fmt.Fprintln(w)
 }
 
 func countPipelineStatusJobs(rows []pipelineStatusRow) int {

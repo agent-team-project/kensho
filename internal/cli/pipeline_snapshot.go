@@ -27,7 +27,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <pipeline>",
 		Short: "Capture a read-only diagnostic snapshot for one pipeline.",
 		Long: "Capture a compact read-only diagnostic artifact for one pipeline, including status, " +
-			"step explanations, owned jobs, inbox summaries, queue ownership, and dry-run advance previews.",
+			"step explanations, owned jobs, inbox summaries, queue ownership, dry-run advance previews, and command provenance.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && output != "" && output != "-" {
@@ -50,6 +50,9 @@ func newPipelineSnapshotCmd() *cobra.Command {
 			snapshot := collectPipelineSnapshot(teamDir, repoRoot, pipelineName, pipelineSnapshotOptions{
 				Redact: !noRedact,
 				Now:    time.Now().UTC(),
+			})
+			snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "pipeline", pipelineName, snapshotProvenanceOptions{
+				Redacted: !noRedact,
 			})
 			switch {
 			case jsonOut || output == "-":
@@ -84,6 +87,7 @@ type pipelineSnapshotResult struct {
 	CapturedAt      string                  `json:"captured_at"`
 	Repo            string                  `json:"repo"`
 	TeamDir         string                  `json:"team_dir"`
+	Provenance      *snapshotProvenance     `json:"provenance,omitempty"`
 	Pipeline        string                  `json:"pipeline"`
 	Git             *snapshotGitInfo        `json:"git,omitempty"`
 	Redacted        bool                    `json:"redacted"`
@@ -320,6 +324,9 @@ func renderPipelineSnapshotSummary(w io.Writer, snapshot *pipelineSnapshotResult
 	fmt.Fprintf(w, "pipeline snapshot: %s\n", snapshot.CapturedAt)
 	fmt.Fprintf(w, "pipeline: %s\n", snapshot.Pipeline)
 	fmt.Fprintf(w, "repo: %s\n", snapshot.Repo)
+	if snapshot.Provenance != nil {
+		renderSnapshotProvenanceSummary(w, snapshot.Provenance)
+	}
 	if snapshot.Git != nil {
 		branch := snapshot.Git.Branch
 		if branch == "" {

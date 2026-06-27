@@ -31,7 +31,7 @@ func newJobSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <job-id>",
 		Short: "Capture a job-scoped diagnostic snapshot.",
 		Long: "Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, " +
-			"daemon lifecycle rows, queue ownership, inbox summaries, runtime metadata, state files, and optional log tail content.",
+			"daemon lifecycle rows, queue ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -59,6 +59,11 @@ func newJobSnapshotCmd() *cobra.Command {
 				LogTail:    logTail,
 				Redact:     !noRedact,
 				Now:        time.Now().UTC(),
+			})
+			snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "job", j.ID, snapshotProvenanceOptions{
+				Events:   intValuePtr(eventLimit),
+				Tail:     intValuePtr(logTail),
+				Redacted: !noRedact,
 			})
 			switch {
 			case jsonOut || output == "-":
@@ -97,6 +102,7 @@ type jobSnapshotResult struct {
 	CapturedAt      string                  `json:"captured_at"`
 	Repo            string                  `json:"repo"`
 	TeamDir         string                  `json:"team_dir"`
+	Provenance      *snapshotProvenance     `json:"provenance,omitempty"`
 	Redacted        bool                    `json:"redacted"`
 	Job             *job.Job                `json:"job"`
 	Instance        string                  `json:"instance,omitempty"`
@@ -551,6 +557,9 @@ func renderJobSnapshotSummary(w io.Writer, snapshot *jobSnapshotResult) {
 	}
 	j := snapshot.Job
 	fmt.Fprintf(w, "job snapshot: %s\n", snapshot.CapturedAt)
+	if snapshot.Provenance != nil {
+		renderSnapshotProvenanceSummary(w, snapshot.Provenance)
+	}
 	fmt.Fprintf(w, "job: %s ticket=%s status=%s target=%s\n", j.ID, emptyDash(j.Ticket), j.Status, emptyDash(j.Target))
 	if j.Instance != "" {
 		fmt.Fprintf(w, "instance: %s\n", j.Instance)

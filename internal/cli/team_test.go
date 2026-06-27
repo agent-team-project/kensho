@@ -7959,6 +7959,9 @@ branch = "other-oth-701"
 	if snapshot.Team == nil || snapshot.Team.Name != "delivery" {
 		t.Fatalf("team metadata = %+v", snapshot.Team)
 	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team team snapshot" || snapshot.Provenance.Scope != "team" || snapshot.Provenance.Subject != "delivery" || snapshot.Provenance.Options.Events == nil || *snapshot.Provenance.Options.Events != -1 || snapshot.Provenance.Options.ScheduleLimit == nil || *snapshot.Provenance.Options.ScheduleLimit != 0 || !snapshot.Provenance.Options.Redacted {
+		t.Fatalf("team snapshot provenance = %+v", snapshot.Provenance)
+	}
 	if snapshot.Overview == nil || snapshot.Overview.Team == nil || snapshot.Overview.Team.Name != "delivery" || snapshot.Next == nil || snapshot.Next.Team == nil || snapshot.Next.Team.Name != "delivery" {
 		t.Fatalf("team overview/next missing: overview=%+v next=%+v", snapshot.Overview, snapshot.Next)
 	}
@@ -8034,7 +8037,7 @@ branch = "other-oth-701"
 		t.Fatalf("team snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
 	textBody := textOut.String()
-	for _, want := range []string{"team: delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=1 total=1 unread=1 unread_instances=1", "pipeline status: pipelines=1", "pipeline explain: pipelines=1 jobs=1 steps=1", "team doctor: problems=0 warnings=1", "events: 0"} {
+	for _, want := range []string{"team: delivery", "command: agent-team team snapshot scope=team subject=delivery", "next: state=", "jobs: total=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "inbox: instances=1 total=1 unread=1 unread_instances=1", "pipeline status: pipelines=1", "pipeline explain: pipelines=1 jobs=1 steps=1", "team doctor: problems=0 warnings=1", "events: 0"} {
 		if !strings.Contains(textBody, want) {
 			t.Fatalf("team snapshot text missing %q:\n%s", want, textBody)
 		}

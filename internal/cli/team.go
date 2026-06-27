@@ -4067,7 +4067,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <team>",
 		Short: "Capture a team-scoped diagnostic report.",
 		Long: "Capture a read-only diagnostic report scoped to one declared team. " +
-			"It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, and lifecycle event state.",
+			"It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, lifecycle event state, and command provenance.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -4100,6 +4100,11 @@ func newTeamSnapshotCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team snapshot: %v\n", err)
 				return exitErr(1)
 			}
+			setSnapshotProvenance(snapshot, cmd.CommandPath(), "team", args[0], snapshotProvenanceOptions{
+				Events:        intValuePtr(eventLimit),
+				ScheduleLimit: intValuePtr(scheduleLimit),
+				Redacted:      !noRedact,
+			})
 			switch {
 			case jsonOut || output == "-":
 				return writeSnapshotJSON(cmd.OutOrStdout(), snapshot)

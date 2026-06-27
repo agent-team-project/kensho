@@ -128,6 +128,9 @@ description = "complete"
 	if snapshot.Job == nil || snapshot.Job.ID != j.ID || snapshot.Instance != j.Instance {
 		t.Fatalf("job snapshot identity = %+v", snapshot)
 	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team job snapshot" || snapshot.Provenance.Scope != "job" || snapshot.Provenance.Subject != "squ-160" || snapshot.Provenance.Options.Events == nil || *snapshot.Provenance.Options.Events != -1 || snapshot.Provenance.Options.Tail == nil || *snapshot.Provenance.Options.Tail != 2 || !snapshot.Provenance.Options.Redacted {
+		t.Fatalf("job snapshot provenance = %+v", snapshot.Provenance)
+	}
 	if snapshot.Runtime == nil || snapshot.Runtime.Lifecycle != "exited" || snapshot.Runtime.Runtime != "codex" || snapshot.Runtime.ExitCode == nil || *snapshot.Runtime.ExitCode != 0 {
 		t.Fatalf("runtime = %+v", snapshot.Runtime)
 	}
@@ -190,7 +193,7 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("job snapshot summary: %v\nstderr=%s", err, stderr.String())
 	}
-	for _, want := range []string{"job snapshot:", "job: squ-161", "events: job=0 lifecycle=0", "actions:"} {
+	for _, want := range []string{"job snapshot:", "command: agent-team job snapshot scope=job subject=squ-161", "job: squ-161", "events: job=0 lifecycle=0", "actions:"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}

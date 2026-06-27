@@ -2868,7 +2868,7 @@ Flags:
 
 Capture a job-scoped diagnostic snapshot.
 
-Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue ownership, inbox summaries, runtime metadata, state files, and optional log tail content.
+Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.
 
 ```text
 agent-team job snapshot <job-id> [flags]
@@ -4374,7 +4374,7 @@ Flags:
 
 Capture a read-only diagnostic snapshot for one pipeline.
 
-Capture a compact read-only diagnostic artifact for one pipeline, including status, step explanations, owned jobs, inbox summaries, queue ownership, and dry-run advance previews.
+Capture a compact read-only diagnostic artifact for one pipeline, including status, step explanations, owned jobs, inbox summaries, queue ownership, dry-run advance previews, and command provenance.
 
 ```text
 agent-team pipeline snapshot <pipeline> [flags]
@@ -5755,7 +5755,7 @@ Inherited Flags:
 
 Capture a read-only orchestration diagnostic report.
 
-Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, inbox, schedule, runtime, and recent lifecycle event state. Use --json for stdout or --output to write a JSON file.
+Capture a read-only diagnostic report with health, plan, instance, job, job status preview, queue, inbox, schedule, runtime, recent lifecycle event state, and command provenance. Use --json for stdout or --output to write a JSON file.
 
 ```text
 agent-team snapshot [flags]
@@ -7315,7 +7315,7 @@ Flags:
 
 Capture a team-scoped diagnostic report.
 
-Capture a read-only diagnostic report scoped to one declared team. It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, and lifecycle event state.
+Capture a read-only diagnostic report scoped to one declared team. It includes team health, plan, instances, jobs, job status preview, queue, inbox, schedule, runtime, lifecycle event state, and command provenance.
 
 ```text
 agent-team team snapshot <team> [flags]
