@@ -2111,6 +2111,7 @@ Flags:
       --json                Emit the pipeline explanation as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --repo string         Repo root containing .agent_team. (default "<repo>")
+      --state strings       Only render when the job's next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
       --step string         Only include details for this pipeline step id.
   -w, --watch               Refresh the job pipeline explanation until interrupted.
 ```

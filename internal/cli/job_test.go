@@ -8869,6 +8869,46 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 		t.Fatalf("explain step = %+v", explainedStep)
 	}
 
+	explainState := NewRootCmd()
+	explainStateOut, explainStateErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainState.SetOut(explainStateOut)
+	explainState.SetErr(explainStateErr)
+	explainState.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--state", "ready", "--json"})
+	if err := explainState.Execute(); err != nil {
+		t.Fatalf("job explain state: %v\nstderr=%s", err, explainStateErr.String())
+	}
+	var explainedState jobExplainResult
+	if err := json.Unmarshal(explainStateOut.Bytes(), &explainedState); err != nil {
+		t.Fatalf("decode job explain state: %v\nbody=%s", err, explainStateOut.String())
+	}
+	if explainedState.State != "ready" || explainedState.Next.StepID != "review" || len(explainedState.Steps) != 2 {
+		t.Fatalf("explain state = %+v", explainedState)
+	}
+
+	explainStateMismatch := NewRootCmd()
+	explainStateMismatchOut, explainStateMismatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainStateMismatch.SetOut(explainStateMismatchOut)
+	explainStateMismatch.SetErr(explainStateMismatchErr)
+	explainStateMismatch.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--state", "failed"})
+	if err := explainStateMismatch.Execute(); err == nil {
+		t.Fatalf("job explain state mismatch succeeded")
+	}
+	if !strings.Contains(explainStateMismatchErr.String(), `job "squ-204" next-step state is "ready"; does not match --state`) {
+		t.Fatalf("job explain state mismatch stderr = %q", explainStateMismatchErr.String())
+	}
+
+	explainBadState := NewRootCmd()
+	explainBadStateOut, explainBadStateErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainBadState.SetOut(explainBadStateOut)
+	explainBadState.SetErr(explainBadStateErr)
+	explainBadState.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--state", "stuck"})
+	if err := explainBadState.Execute(); err == nil {
+		t.Fatalf("job explain bad state succeeded")
+	}
+	if !strings.Contains(explainBadStateErr.String(), "--state must be ready, queued, running, blocked, failed, held, done, none, or all") {
+		t.Fatalf("job explain bad state stderr = %q", explainBadStateErr.String())
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	explainWatch := NewRootCmd()
@@ -8876,7 +8916,7 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 	explainWatch.SetContext(ctx)
 	explainWatch.SetOut(explainWatchOut)
 	explainWatch.SetErr(explainWatchErr)
-	explainWatch.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--watch", "--no-clear", "--interval", "1h", "--step", "review", "--format", "{{.JobID}} {{.State}} {{len .Steps}} {{(index .Steps 0).ID}}"})
+	explainWatch.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--watch", "--no-clear", "--interval", "1h", "--state", "ready", "--step", "review", "--format", "{{.JobID}} {{.State}} {{len .Steps}} {{(index .Steps 0).ID}}"})
 	if err := explainWatch.Execute(); err != nil {
 		t.Fatalf("job explain watch: %v\nstderr=%s", err, explainWatchErr.String())
 	}

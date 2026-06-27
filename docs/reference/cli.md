@@ -99,7 +99,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job ps <job-id>` | List daemon-aware instance rows for one job; add `--step` for one pipeline stage |
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, inboxes, queue ownership, state files, and optional log tails |
-| `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--step` to focus one stage |
+| `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--advance --wait` for bounded handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed |
 | `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--advance --wait` after marking a step done |
