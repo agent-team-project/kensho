@@ -28,6 +28,7 @@ func newPlanCmd() *cobra.Command {
 		phaseFilters    []string
 		instanceFilters []string
 		actionFilters   []string
+		commands        bool
 		format          string
 	)
 	cwd, _ := os.Getwd()
@@ -39,6 +40,18 @@ func newPlanCmd() *cobra.Command {
 			"ones when supported by the runtime, keep running ones, and leave ephemeral declarations on-demand. With --stop-extras, " +
 			"running daemon-known instances not declared in topology are previewed as stop actions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team plan: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team plan: --commands cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team plan: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && (jsonOut || summary) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team plan: --format cannot be combined with --json or --summary.")
 				return exitErr(2)
@@ -71,6 +84,21 @@ func newPlanCmd() *cobra.Command {
 			}
 			result.Instances = filterPlanRowsWithActions(result.Instances, opts, actions)
 			result.Summary = summarizePlanRows(result.Instances)
+			if commands {
+				return renderPlanCommands(cmd.OutOrStdout(), result.Instances, planCommandOptions{
+					BaseArgs:        []string{"agent-team", "sync"},
+					TargetFlag:      "--target",
+					Target:          target,
+					TargetSet:       cmd.Flags().Changed("target"),
+					StopExtras:      stopExtras,
+					StatusFilters:   statusFilters,
+					RuntimeFilters:  runtimeFilters,
+					AgentFilters:    agentFilters,
+					PhaseFilters:    phaseFilters,
+					InstanceFilters: instanceFilters,
+					ActionFilters:   actionFilters,
+				})
+			}
 			if jsonOut {
 				if summary {
 					return json.NewEncoder(cmd.OutOrStdout()).Encode(lifecycleActionSummaryResult{
@@ -100,6 +128,7 @@ func newPlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show plan rows with this name. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print the matching dry-run sync command when the plan has actionable work.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
 }
@@ -439,4 +468,61 @@ func renderPlanFormat(w fmtWriter, rows []planRow, tmpl *template.Template) erro
 		}
 	}
 	return nil
+}
+
+type planCommandOptions struct {
+	BaseArgs        []string
+	TargetFlag      string
+	Target          string
+	TargetSet       bool
+	StopExtras      bool
+	StatusFilters   []string
+	RuntimeFilters  []string
+	AgentFilters    []string
+	PhaseFilters    []string
+	InstanceFilters []string
+	ActionFilters   []string
+}
+
+func renderPlanCommands(w fmtWriter, rows []planRow, opts planCommandOptions) error {
+	if !planHasActionableSyncRows(rows) {
+		return nil
+	}
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.TargetSet && strings.TrimSpace(opts.Target) != "" {
+		args = append(args, opts.TargetFlag, opts.Target)
+	}
+	args = append(args, "--dry-run")
+	if opts.StopExtras {
+		args = append(args, "--stop-extras")
+	}
+	args = appendPlanCommandFilterArgs(args, "--status", opts.StatusFilters)
+	args = appendPlanCommandFilterArgs(args, "--runtime", opts.RuntimeFilters)
+	args = appendPlanCommandFilterArgs(args, "--agent", opts.AgentFilters)
+	args = appendPlanCommandFilterArgs(args, "--phase", opts.PhaseFilters)
+	args = appendPlanCommandFilterArgs(args, "--instance", opts.InstanceFilters)
+	args = appendPlanCommandFilterArgs(args, "--action", opts.ActionFilters)
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(args), " "))
+	return err
+}
+
+func planHasActionableSyncRows(rows []planRow) bool {
+	for _, row := range rows {
+		switch row.Action {
+		case "start", "resume", "stop":
+			return true
+		}
+	}
+	return false
+}
+
+func appendPlanCommandFilterArgs(args []string, flag string, values []string) []string {
+	for _, value := range splitFilterValues(values) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		args = append(args, flag, value)
+	}
+	return args
 }

@@ -10236,6 +10236,65 @@ func TestTeamPlanScopesRowsAndStopExtras(t *testing.T) {
 			t.Fatalf("team plan text missing %q:\n%s", want, textOut.String())
 		}
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "plan", "delivery", "--repo", root, "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team plan --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := "agent-team team sync delivery --repo " + root + " --dry-run --stop-extras --runtime codex --action stop"
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("team plan --commands = %q, want %q", got, wantCommand)
+	}
+
+	noAction := NewRootCmd()
+	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noAction.SetOut(noActionOut)
+	noAction.SetErr(noActionErr)
+	noAction.SetArgs([]string{"team", "plan", "delivery", "--repo", root, "--action", "keep", "--commands"})
+	if err := noAction.Execute(); err != nil {
+		t.Fatalf("team plan --commands no actionable rows: %v\nstderr=%s", err, noActionErr.String())
+	}
+	if got := strings.TrimSpace(noActionOut.String()); got != "" {
+		t.Fatalf("team plan --commands with no actionable rows = %q, want empty", got)
+	}
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"team", "plan", "delivery", "--repo", root, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "summary",
+			args: []string{"team", "plan", "delivery", "--repo", root, "--commands", "--summary"},
+			want: "--commands cannot be combined with --summary",
+		},
+		{
+			name: "format",
+			args: []string{"team", "plan", "delivery", "--repo", root, "--commands", "--format", "{{.Instance}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	} {
+		invalid := NewRootCmd()
+		invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+		invalid.SetOut(invalidOut)
+		invalid.SetErr(invalidErr)
+		invalid.SetArgs(tt.args)
+		if err := invalid.Execute(); err == nil {
+			t.Fatalf("team plan --commands with %s succeeded", tt.name)
+		}
+		if !strings.Contains(invalidErr.String(), tt.want) {
+			t.Fatalf("team plan --commands with %s stderr = %q", tt.name, invalidErr.String())
+		}
+	}
 }
 
 func TestTeamSyncDryRunScopesRowsAndFilters(t *testing.T) {

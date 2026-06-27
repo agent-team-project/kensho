@@ -5442,6 +5442,7 @@ func newTeamPlanCmd() *cobra.Command {
 		jsonOut        bool
 		summary        bool
 		stopExtras     bool
+		commands       bool
 		runtimeFilters []string
 		actionFilters  []string
 		format         string
@@ -5452,6 +5453,18 @@ func newTeamPlanCmd() *cobra.Command {
 		Short: "Preview desired lifecycle state for one team.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team plan: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team plan: --commands cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team plan: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && (jsonOut || summary) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team plan: --format cannot be combined with --json or --summary.")
 				return exitErr(2)
@@ -5480,6 +5493,17 @@ func newTeamPlanCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team plan: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderPlanCommands(cmd.OutOrStdout(), snapshot.Plan.Instances, planCommandOptions{
+					BaseArgs:       []string{"agent-team", "team", "sync", args[0]},
+					TargetFlag:     "--repo",
+					Target:         repo,
+					TargetSet:      cmd.Flags().Changed("repo"),
+					StopExtras:     stopExtras,
+					RuntimeFilters: runtimeFilters,
+					ActionFilters:  actionFilters,
+				})
+			}
 			if jsonOut {
 				if summary {
 					return json.NewEncoder(cmd.OutOrStdout()).Encode(lifecycleActionSummaryResult{
@@ -5505,6 +5529,7 @@ func newTeamPlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running team-agent topology extras as stop actions.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print the matching dry-run team sync command when the plan has actionable work.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
 }

@@ -5603,6 +5603,7 @@ Flags:
 ```text
       --action strings     Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --agent strings      Only show plan rows for this agent. Can repeat or comma-separate.
+      --commands           Print the matching dry-run sync command when the plan has actionable work.
       --format string      Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --instance strings   Only show plan rows with this name. Can repeat or comma-separate.
       --json               Emit machine-readable JSON.
@@ -7913,6 +7914,7 @@ Flags:
 
 ```text
       --action strings    Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
+      --commands          Print the matching dry-run team sync command when the plan has actionable work.
       --format string     Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json              Emit team plan as JSON.
       --repo string       Repo root containing .agent_team. (default "<repo>")

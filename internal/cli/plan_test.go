@@ -508,6 +508,48 @@ func TestPlanFormatPrintsFilteredRows(t *testing.T) {
 	}
 }
 
+func TestPlanCommandsPrintsFilteredSyncPreview(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "adhoc",
+		Agent:     "worker",
+		Runtime:   string(runtimebin.KindCodex),
+		Status:    daemon.StatusRunning,
+		PID:       os.Getpid(),
+		SessionID: "sid-adhoc",
+		Workspace: tmp,
+	}); err != nil {
+		t.Fatalf("write adhoc metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"plan", "--target", tmp, "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan --commands: %v\nstderr: %s", err, stderr.String())
+	}
+	want := "agent-team sync --target " + tmp + " --dry-run --stop-extras --runtime codex --action stop"
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Fatalf("plan --commands = %q, want %q", got, want)
+	}
+
+	noAction := NewRootCmd()
+	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noAction.SetOut(noActionOut)
+	noAction.SetErr(noActionErr)
+	noAction.SetArgs([]string{"plan", "--target", tmp, "--action", "keep", "--commands"})
+	if err := noAction.Execute(); err != nil {
+		t.Fatalf("plan --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
+	}
+	if got := strings.TrimSpace(noActionOut.String()); got != "" {
+		t.Fatalf("plan --commands with no actionable rows = %q, want empty", got)
+	}
+}
+
 func TestPlanFormatRejectsJSONAndInvalidTemplate(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -516,6 +558,9 @@ func TestPlanFormatRejectsJSONAndInvalidTemplate(t *testing.T) {
 		{[]string{"plan", "--format", "{{.Instance}}", "--json"}, "--format cannot be combined"},
 		{[]string{"plan", "--format", "{{.Instance}}", "--summary"}, "--format cannot be combined"},
 		{[]string{"plan", "--format", "{{"}, "invalid --format template"},
+		{[]string{"plan", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"plan", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"plan", "--commands", "--format", "{{.Instance}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

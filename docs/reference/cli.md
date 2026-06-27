@@ -81,7 +81,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team topology graph` | Render full topology graph |
 | `agent-team topology summary` | Summarize topology health |
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
-| `agent-team plan` | Preview desired instance state |
+| `agent-team plan` | Preview desired instance state; add `--commands` to print the matching dry-run sync command when the selected plan has actionable work |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
 | `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for one-shot stage-aware handoff; `team tick <team>` supports the same scoped handoff |
 | `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for bounded stage-aware handoff after drain cycles; `team drain <team>` supports the same scoped handoff |
@@ -273,6 +273,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team watch <team>` | Continuous scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team top <team>` | `agent-team team stats <team>` |
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts workspace/runtime overrides and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
+| `agent-team team plan <team>` | Preview one team's desired instance state; add `--commands` to print the matching dry-run team sync command when the selected plan has actionable work |
+| `agent-team team sync <team>` | Reconcile one team's declared persistent instances |
 | `agent-team team jobs <team>` | Scoped job list, summary, or watch view; filter held state, mixed-runtime ownership, and cap output with `--limit` |
 | `agent-team team wait-jobs <team>` | Wait for team-owned jobs to reach a lifecycle status, event, or next-step state/stage |
 | `agent-team team tick <team>` | Scoped maintenance cycle; use `--workspace`/`--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |
