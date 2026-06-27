@@ -22,6 +22,7 @@ func newOverviewCmd() *cobra.Command {
 	var (
 		target        string
 		jsonOut       bool
+		commands      bool
 		watch         bool
 		noClear       bool
 		scheduleLimit int
@@ -42,6 +43,18 @@ func newOverviewCmd() *cobra.Command {
 			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team overview: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if format != "" && jsonOut {
@@ -65,11 +78,15 @@ func newOverviewCmd() *cobra.Command {
 				}, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
 			result := collectOverview(teamDir, time.Now().UTC(), scheduleLimit)
+			if commands {
+				return renderOverviewCommands(cmd.OutOrStdout(), result)
+			}
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit overview as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended actions, one per line.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect after ordering; 0 means all.")
@@ -82,6 +99,7 @@ func newTeamOverviewCmd() *cobra.Command {
 	var (
 		repo          string
 		jsonOut       bool
+		commands      bool
 		watch         bool
 		noClear       bool
 		scheduleLimit int
@@ -102,6 +120,18 @@ func newTeamOverviewCmd() *cobra.Command {
 			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team overview: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if format != "" && jsonOut {
@@ -129,11 +159,15 @@ func newTeamOverviewCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team overview: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderOverviewCommands(cmd.OutOrStdout(), result)
+			}
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team overview as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended team actions, one per line.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming team schedules to inspect after ordering; 0 means all.")
@@ -1566,6 +1600,13 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		}
 	}
 	return nil
+}
+
+func renderOverviewCommands(w io.Writer, result *overviewResult) error {
+	if result == nil {
+		return nil
+	}
+	return renderActionCommands(w, commandActionsOnly(result.Actions))
 }
 
 func parseOverviewFormat(format string) (*template.Template, error) {

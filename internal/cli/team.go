@@ -5557,6 +5557,7 @@ func newTeamStatusCmd() *cobra.Command {
 		noClear          bool
 		interval         time.Duration
 		jsonOut          bool
+		commands         bool
 		format           string
 		runtimeFilters   []string
 		runtimeStaleOnly bool
@@ -5569,6 +5570,18 @@ func newTeamStatusCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team status: --interval must be >= 0.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team status: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team status: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team status: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if format != "" && (watch || jsonOut) {
@@ -5601,6 +5614,9 @@ func newTeamStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team status: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderTeamStatusCommands(cmd.OutOrStdout(), snapshot)
+			}
 			return renderTeamStatus(cmd.OutOrStdout(), snapshot, jsonOut, tmpl)
 		},
 	}
@@ -5609,6 +5625,7 @@ func newTeamStatusCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team status as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended actions, one per line.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only summarize team-owned instances for this runtime: claude or codex. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only summarize team-owned running instances whose recorded runtime PID is no longer live. Jobs, queue, pipelines, and schedules remain team-scoped.")
 	cmd.Flags().StringVar(&format, "format", "", "Render team status with a Go template, e.g. '{{.Team.Name}} {{.InstanceSummary.Total}}'.")
@@ -10145,6 +10162,13 @@ func renderTeamStatus(w io.Writer, snapshot *teamStatusSnapshot, jsonOut bool, t
 		fmt.Fprintf(w, "  %s\n", action)
 	}
 	return nil
+}
+
+func renderTeamStatusCommands(w io.Writer, snapshot *teamStatusSnapshot) error {
+	if snapshot == nil {
+		return nil
+	}
+	return renderActionCommands(w, commandActionsOnly(snapshot.Actions))
 }
 
 func renderTeamStatusFormat(w io.Writer, snapshot *teamStatusSnapshot, tmpl *template.Template) error {

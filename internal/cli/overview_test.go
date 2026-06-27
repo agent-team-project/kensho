@@ -78,6 +78,18 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	if stringSliceContains(overview.Actions, "agent-team queue quarantine ls") {
 		t.Fatalf("actions should use job-scoped queue quarantine: %+v", overview.Actions)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"overview", "--target", root, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("overview --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), strings.Join(overview.Actions, "\n")+"\n"; got != want {
+		t.Fatalf("overview --commands = %q, want %q", got, want)
+	}
 }
 
 func TestOverviewReportsUnreadInboxActions(t *testing.T) {
@@ -1516,6 +1528,18 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	if stringSliceContains(overview.Actions, "agent-team team queue retry delivery --all --sort attempts --limit 10 --dry-run") {
 		t.Fatalf("team actions should prefer job-filtered retry: %+v", overview.Actions)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "overview", "delivery", "--repo", root, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team overview --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), strings.Join(overview.Actions, "\n")+"\n"; got != want {
+		t.Fatalf("team overview --commands = %q, want %q", got, want)
+	}
 }
 
 func TestTeamOverviewCommandFormat(t *testing.T) {
@@ -1605,6 +1629,21 @@ func TestOverviewFormatValidation(t *testing.T) {
 			want: "invalid --format template",
 		},
 		{
+			name: "overview-commands-json-conflict",
+			args: []string{"overview", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "overview-commands-format-conflict",
+			args: []string{"overview", "--commands", "--format", "{{.State}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "overview-commands-watch-conflict",
+			args: []string{"overview", "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
+		},
+		{
 			name: "team-overview-json-conflict",
 			args: []string{"team", "overview", "delivery", "--format", "{{.State}}", "--json"},
 			want: "--format cannot be combined",
@@ -1613,6 +1652,21 @@ func TestOverviewFormatValidation(t *testing.T) {
 			name: "team-overview-invalid-template",
 			args: []string{"team", "overview", "delivery", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			name: "team-overview-commands-json-conflict",
+			args: []string{"team", "overview", "delivery", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "team-overview-commands-format-conflict",
+			args: []string{"team", "overview", "delivery", "--commands", "--format", "{{.State}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "team-overview-commands-watch-conflict",
+			args: []string{"team", "overview", "delivery", "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
 		},
 	}
 	for _, tc := range cases {

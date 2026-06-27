@@ -881,6 +881,18 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team status text leaked unrelated quarantine:\n%s", textOut.String())
 	}
 
+	statusCommands := NewRootCmd()
+	statusCommandsOut, statusCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	statusCommands.SetOut(statusCommandsOut)
+	statusCommands.SetErr(statusCommandsErr)
+	statusCommands.SetArgs([]string{"team", "status", "delivery", "--repo", root, "--commands"})
+	if err := statusCommands.Execute(); err != nil {
+		t.Fatalf("team status --commands: %v\nstderr=%s", err, statusCommandsErr.String())
+	}
+	if got, want := statusCommandsOut.String(), strings.Join(snapshot.Actions, "\n")+"\n"; got != want {
+		t.Fatalf("team status --commands = %q, want %q", got, want)
+	}
+
 	statusFormat := NewRootCmd()
 	statusFormatOut, statusFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	statusFormat.SetOut(statusFormatOut)
@@ -10799,6 +10811,21 @@ func TestTeamStatusRejectsFormatCombinations(t *testing.T) {
 			name: "invalid format",
 			args: []string{"team", "status", "delivery", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			name: "commands with json",
+			args: []string{"team", "status", "delivery", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands with format",
+			args: []string{"team", "status", "delivery", "--commands", "--format", "{{.Team.Name}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "commands with watch",
+			args: []string{"team", "status", "delivery", "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

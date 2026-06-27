@@ -4069,6 +4069,7 @@ agent-team overview [flags]
 Flags:
 
 ```text
+      --commands             Print recommended actions, one per line.
       --format string        Render the overview result with a Go template, e.g. '{{.State}} {{len .Actions}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
       --json                 Emit overview as JSON.
@@ -7862,6 +7863,7 @@ agent-team team overview <team> [flags]
 Flags:
 
 ```text
+      --commands             Print recommended team actions, one per line.
       --format string        Render the team overview result with a Go template, e.g. '{{.Team.Name}} {{.State}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
       --json                 Emit team overview as JSON.
@@ -8654,6 +8656,7 @@ agent-team team status <team> [flags]
 Flags:
 
 ```text
+      --commands            Print recommended actions, one per line.
       --format string       Render team status with a Go template, e.g. '{{.Team.Name}} {{.InstanceSummary.Total}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team status as JSON.
