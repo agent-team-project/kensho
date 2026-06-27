@@ -4061,6 +4061,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 		noRedact      bool
 		eventLimit    int
 		scheduleLimit int
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -4080,6 +4081,15 @@ func newTeamSnapshotCmd() *cobra.Command {
 			}
 			if jsonOut && output != "" && output != "-" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team snapshot: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || output != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team snapshot: --format cannot be combined with --json or --output.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSnapshotFormat("team-snapshot-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team snapshot: %v\n", err)
 				return exitErr(2)
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
@@ -4115,6 +4125,8 @@ func newTeamSnapshotCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Wrote snapshot to %s\n", path)
 				return nil
+			case formatTemplate != nil:
+				return renderSnapshotFormat(cmd.OutOrStdout(), snapshot, formatTemplate)
 			default:
 				renderSnapshotSummary(cmd.OutOrStdout(), snapshot)
 				return nil
@@ -4125,6 +4137,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the team snapshot with a Go template, e.g. '{{.Team.Name}} {{len .Jobs}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "Recent matching team lifecycle events to include. Use -1 for all matching events or 0 to skip events.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "Upcoming team schedules to include after ordering; 0 means all.")
 	return cmd

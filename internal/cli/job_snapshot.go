@@ -25,6 +25,7 @@ func newJobSnapshotCmd() *cobra.Command {
 		noRedact   bool
 		eventLimit int
 		logTail    int
+		format     string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -44,6 +45,15 @@ func newJobSnapshotCmd() *cobra.Command {
 			}
 			if jsonOut && output != "" && output != "-" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job snapshot: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || output != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job snapshot: --format cannot be combined with --json or --output.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSnapshotFormat("job-snapshot-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job snapshot: %v\n", err)
 				return exitErr(2)
 			}
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
@@ -75,6 +85,8 @@ func newJobSnapshotCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Wrote job snapshot to %s\n", path)
 				return nil
+			case formatTemplate != nil:
+				return renderSnapshotFormat(cmd.OutOrStdout(), snapshot, formatTemplate)
 			default:
 				renderJobSnapshotSummary(cmd.OutOrStdout(), snapshot)
 				return nil
@@ -85,6 +97,7 @@ func newJobSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full job snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw queue payload values and latest inbox bodies instead of redacting them.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 20, "Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events.")
 	cmd.Flags().IntVar(&logTail, "tail", 0, "Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.")
 	return cmd

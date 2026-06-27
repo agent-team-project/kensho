@@ -2878,6 +2878,7 @@ Flags:
 
 ```text
       --events int      Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events. (default 20)
+      --format string   Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
       --json            Emit the full job snapshot JSON to stdout.
       --no-redact       Include raw queue payload values and latest inbox bodies instead of redacting them.
   -o, --output string   Write the full JSON snapshot to this file. Use '-' for stdout.
@@ -4383,6 +4384,7 @@ agent-team pipeline snapshot <pipeline> [flags]
 Flags:
 
 ```text
+      --format string   Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --json            Emit the full pipeline snapshot JSON to stdout.
       --no-redact       Include raw payload values and latest inbox bodies instead of redacting them.
   -o, --output string   Write the full JSON pipeline snapshot to this file. Use '-' for stdout.
@@ -5765,6 +5767,7 @@ Flags:
 
 ```text
       --events int              Recent lifecycle events to include. Use -1 for all events or 0 to skip events. (default 50)
+      --format string           Render the snapshot with a Go template, e.g. '{{.Repo}} {{len .Jobs}}'.
       --intake-deliveries int   Recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries. (default 50)
       --json                    Emit the full snapshot JSON to stdout.
       --no-redact               Include raw payload values instead of redacting sensitive keys.
@@ -7326,6 +7329,7 @@ Flags:
 
 ```text
       --events int           Recent matching team lifecycle events to include. Use -1 for all matching events or 0 to skip events. (default 50)
+      --format string        Render the team snapshot with a Go template, e.g. '{{.Team.Name}} {{len .Jobs}}'.
       --json                 Emit the full snapshot JSON to stdout.
       --no-redact            Include raw payload values instead of redacting sensitive keys.
   -o, --output string        Write the full JSON snapshot to this file. Use '-' for stdout.

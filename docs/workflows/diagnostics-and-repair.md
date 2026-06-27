@@ -131,9 +131,13 @@ Monitor combines health, inbox counts, instance rows, resources, events, jobs, s
 ```sh
 agent-team snapshot --output diagnostics.json
 agent-team snapshot --json
+agent-team snapshot --format '{{.Repo}} {{len .Jobs}}'
 agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json
+agent-team pipeline snapshot ticket_to_pr --format '{{.Pipeline}} {{len .Jobs}}'
 agent-team team snapshot delivery --output delivery-diagnostics.json
+agent-team team snapshot delivery --format '{{.Team.Name}} {{len .Jobs}}'
 agent-team job snapshot squ-42 --output squ-42-diagnostics.json
+agent-team job snapshot squ-42 --format '{{.Job.ID}} {{.Job.Status}}'
 agent-team snapshot diff before-repair.json after-repair.json
 agent-team snapshot diff before-repair.json after-repair.json --section provenance
 agent-team snapshot diff before-repair.json after-repair.json --section git
@@ -151,7 +155,7 @@ agent-team snapshot diff before-repair.json after-repair.json --format '{{.Summa
 agent-team snapshot diff before-repair.json after-repair.json --exit-code
 ```
 
-Snapshots are redacted by default and are designed for debugging or handoff. Snapshot JSON includes a top-level `provenance` object with the command, scope, subject, redaction setting, and collection limits used to create the artifact. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, inbox summaries, job-owned queue/quarantine state, and dry-run advance previews; use `job snapshot` when the handoff is a post-mortem for one durable job. Use `snapshot diff` to compare two saved global, team, pipeline, or job artifacts after a tick, repair, or manual intervention; add `--section provenance`, `--section git`, `--section runtime`, `--section health`, `--section plan`, `--section triage`, `--section next`, `--section instances`, `--section inbox`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, add `--format '{{.Summary.TotalChanges}}'` for script-friendly output, and add `--exit-code` when a script should fail on any detected difference. Git diffs compare branch, commit, upstream, dirty-state, and ahead/behind counts. Runtime diffs compare selected profile, binary/path, env overrides, availability, runtime capabilities, and job runtime lifecycle/exit metadata. Health diffs compare daemon readiness, instance/queue/intake/job summary counts, declared topology counts, and issue-code/severity counts. Plan diffs compare daemon state, desired action counts, and per-instance desired actions. Triage diffs compare job attention rows, reason/severity counts, ready steps, status previews, and triage queue summaries. Next-action diffs compare recommended commands and their source/reason labels, or the action list captured by job snapshots. Inbox diffs compare instance-level mailbox counts, unread cursors, and latest-message identity; intake diffs include both delivery rows and duplicate request-id groups.
+Snapshots are redacted by default and are designed for debugging or handoff. Snapshot JSON includes a top-level `provenance` object with the command, scope, subject, redaction setting, and collection limits used to create the artifact. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, inbox summaries, job-owned queue/quarantine state, and dry-run advance previews; use `job snapshot` when the handoff is a post-mortem for one durable job. Global, pipeline, team, and job snapshot commands also accept `--format` for concise script output; it cannot be combined with `--json` or `--output`. Use `snapshot diff` to compare two saved global, team, pipeline, or job artifacts after a tick, repair, or manual intervention; add `--section provenance`, `--section git`, `--section runtime`, `--section health`, `--section plan`, `--section triage`, `--section next`, `--section instances`, `--section inbox`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, add `--format '{{.Summary.TotalChanges}}'` for script-friendly output, and add `--exit-code` when a script should fail on any detected difference. Git diffs compare branch, commit, upstream, dirty-state, and ahead/behind counts. Runtime diffs compare selected profile, binary/path, env overrides, availability, runtime capabilities, and job runtime lifecycle/exit metadata. Health diffs compare daemon readiness, instance/queue/intake/job summary counts, declared topology counts, and issue-code/severity counts. Plan diffs compare daemon state, desired action counts, and per-instance desired actions. Triage diffs compare job attention rows, reason/severity counts, ready steps, status previews, and triage queue summaries. Next-action diffs compare recommended commands and their source/reason labels, or the action list captured by job snapshots. Inbox diffs compare instance-level mailbox counts, unread cursors, and latest-message identity; intake diffs include both delivery rows and duplicate request-id groups.
 
 They include:
 
@@ -276,8 +280,12 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need only unhealthy instance rows | `agent-team ps --unhealthy --json` |
 | Need only stale recorded runtime PIDs | `agent-team ps --runtime-stale --json` |
 | Need handoff artifact | `agent-team snapshot --output diagnostics.json` |
+| Need script-friendly global snapshot fields | `agent-team snapshot --format '{{.Repo}} {{len .Jobs}}'` |
 | Need one workflow handoff artifact | `agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json` |
+| Need script-friendly workflow snapshot fields | `agent-team pipeline snapshot ticket_to_pr --format '{{.Pipeline}} {{len .Jobs}}'` |
+| Need script-friendly team snapshot fields | `agent-team team snapshot delivery --format '{{.Team.Name}} {{len .Jobs}}'` |
 | Need one job post-mortem artifact | `agent-team job snapshot squ-42 --output squ-42-diagnostics.json` |
+| Need script-friendly job snapshot fields | `agent-team job snapshot squ-42 --format '{{.Job.ID}} {{.Job.Status}}'` |
 | Need before/after artifact comparison | `agent-team snapshot diff before.json after.json` |
 | Need focused artifact provenance comparison | `agent-team snapshot diff before.json after.json --section provenance` |
 | Need focused git context comparison | `agent-team snapshot diff before.json after.json --section git` |

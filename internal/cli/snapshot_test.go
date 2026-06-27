@@ -263,6 +263,113 @@ func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	}
 }
 
+func TestSnapshotFormatCommands(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatalf("write team topology: %v", err)
+	}
+	now := time.Now().UTC()
+	j, err := job.New("SQU-287", "worker", "format snapshot commands", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Pipeline = "ticket_to_pr"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "global",
+			args: []string{"--repo", target, "snapshot", "--events", "0", "--format", "{{len .Jobs}}:{{.Redacted}}"},
+			want: "1:true\n",
+		},
+		{
+			name: "job",
+			args: []string{"job", "snapshot", "squ-287", "--repo", target, "--format", "{{.Job.ID}}:{{.Redacted}}"},
+			want: "squ-287:true\n",
+		},
+		{
+			name: "pipeline",
+			args: []string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--format", "{{.Pipeline}}:{{len .Jobs}}:{{.Redacted}}"},
+			want: "ticket_to_pr:1:true\n",
+		},
+		{
+			name: "team",
+			args: []string{"team", "snapshot", "delivery", "--repo", target, "--events", "0", "--format", "{{.Team.Name}}:{{len .Jobs}}:{{.Redacted}}"},
+			want: "delivery:1:true\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("%s snapshot --format: %v\nstderr=%s", tc.name, err, stderr.String())
+			}
+			if got := out.String(); got != tc.want {
+				t.Fatalf("%s snapshot --format output = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+
+	conflict := NewRootCmd()
+	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	conflict.SetOut(conflictOut)
+	conflict.SetErr(conflictErr)
+	conflict.SetArgs([]string{"--repo", target, "snapshot", "--format", "{{.Repo}}", "--json"})
+	if err := conflict.Execute(); err == nil {
+		t.Fatalf("snapshot --format --json succeeded")
+	}
+	if !strings.Contains(conflictErr.String(), "--format cannot be combined with --json or --output") {
+		t.Fatalf("format/json stderr = %q", conflictErr.String())
+	}
+
+	jobConflict := NewRootCmd()
+	jobConflictOut, jobConflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobConflict.SetOut(jobConflictOut)
+	jobConflict.SetErr(jobConflictErr)
+	jobConflict.SetArgs([]string{"job", "snapshot", "squ-287", "--repo", target, "--format", "{{.Job.ID}}", "--output", filepath.Join(target, "job-snapshot.json")})
+	if err := jobConflict.Execute(); err == nil {
+		t.Fatalf("job snapshot --format --output succeeded")
+	}
+	if !strings.Contains(jobConflictErr.String(), "--format cannot be combined with --json or --output") {
+		t.Fatalf("job format/output stderr = %q", jobConflictErr.String())
+	}
+
+	invalid := NewRootCmd()
+	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalid.SetOut(invalidOut)
+	invalid.SetErr(invalidErr)
+	invalid.SetArgs([]string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--format", "{{"})
+	if err := invalid.Execute(); err == nil {
+		t.Fatalf("pipeline snapshot invalid format succeeded")
+	}
+	if !strings.Contains(invalidErr.String(), "invalid --format template") {
+		t.Fatalf("invalid format stderr = %q", invalidErr.String())
+	}
+}
+
 func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	tmp := t.TempDir()
 	beforePath := filepath.Join(tmp, "before.json")

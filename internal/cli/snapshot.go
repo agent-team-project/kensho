@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
@@ -29,6 +30,7 @@ func newSnapshotCmd() *cobra.Command {
 		eventLimit    int
 		intakeLimit   int
 		scheduleLimit int
+		format        string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -52,6 +54,15 @@ func newSnapshotCmd() *cobra.Command {
 			}
 			if jsonOut && output != "" && output != "-" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || output != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot: --format cannot be combined with --json or --output.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSnapshotFormat("snapshot-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot: %v\n", err)
 				return exitErr(2)
 			}
 			teamDir, err := resolveTeamDir(cmd, target)
@@ -85,6 +96,8 @@ func newSnapshotCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Wrote snapshot to %s\n", path)
 				return nil
+			case formatTemplate != nil:
+				return renderSnapshotFormat(cmd.OutOrStdout(), snapshot, formatTemplate)
 			default:
 				renderSnapshotSummary(cmd.OutOrStdout(), snapshot)
 				return nil
@@ -95,6 +108,7 @@ func newSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the snapshot with a Go template, e.g. '{{.Repo}} {{len .Jobs}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "Recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
 	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "Recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "Upcoming schedules to include after ordering; 0 means all.")
@@ -906,6 +920,25 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func parseSnapshotFormat(name, format string) (*template.Template, error) {
+	if format == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New(name).Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderSnapshotFormat(w io.Writer, snapshot any, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, snapshot); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func renderSnapshotProvenanceSummary(w io.Writer, provenance *snapshotProvenance) {

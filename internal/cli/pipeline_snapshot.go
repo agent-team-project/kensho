@@ -21,6 +21,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		output   string
 		jsonOut  bool
 		noRedact bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -32,6 +33,15 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && output != "" && output != "-" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || output != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: --format cannot be combined with --json or --output.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSnapshotFormat("pipeline-snapshot-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline snapshot: %v\n", err)
 				return exitErr(2)
 			}
 			pipelineName := strings.TrimSpace(args[0])
@@ -64,6 +74,8 @@ func newPipelineSnapshotCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Wrote pipeline snapshot to %s\n", path)
 				return nil
+			case formatTemplate != nil:
+				return renderSnapshotFormat(cmd.OutOrStdout(), snapshot, formatTemplate)
 			default:
 				renderPipelineSnapshotSummary(cmd.OutOrStdout(), snapshot)
 				return nil
@@ -74,6 +86,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON pipeline snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full pipeline snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values and latest inbox bodies instead of redacting them.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
 }
 
