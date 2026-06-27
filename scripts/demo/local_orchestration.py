@@ -116,6 +116,13 @@ def main(argv: list[str]) -> int:
         require_command(team_schedule_commands, "agent-team team tick delivery --dry-run --preview-routes")
         print("schedule commands verified: schedule fire preview, team tick")
 
+        step("verify command-only plan hints")
+        plan_commands = run(binary, "plan", "--target", repo, "--commands")
+        require_command(plan_commands, f"agent-team sync --target {repo} --dry-run")
+        team_plan_commands = run(binary, "team", "plan", "delivery", "--repo", repo, "--commands")
+        require_command(team_plan_commands, f"agent-team team sync delivery --repo {repo} --dry-run")
+        print("plan commands verified: sync preview, team sync preview")
+
         step("start daemon")
         run(binary, "daemon", "start", "--target", repo, "--ready-timeout", "5s", "--json", env=env, parse_json=True)
         if args.runtime == "claude":
