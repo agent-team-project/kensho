@@ -4615,6 +4615,21 @@ target = "worker"
 		t.Fatalf("pipeline stale-sorted resume-plan = %q, want %q", got, want)
 	}
 
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--unhealthy", "--sort", "stale", "--limit", "2", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("pipeline resume-plan sort stale limit: %v\nstderr=%s", err, limitedErr.String())
+	}
+	if got, want := strings.TrimSpace(limitedOut.String()), strings.Join([]string{
+		"worker-squ-942 start true",
+		"manager-squ-940 logs false",
+	}, "\n"); got != want {
+		t.Fatalf("pipeline limited resume-plan = %q, want %q", got, want)
+	}
+
 	invalidMany := NewRootCmd()
 	invalidManyOut, invalidManyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidMany.SetOut(invalidManyOut)
@@ -4649,6 +4664,18 @@ target = "worker"
 	}
 	if !strings.Contains(invalidSortErr.String(), "--sort must be instance") {
 		t.Fatalf("invalid sort error = %q", invalidSortErr.String())
+	}
+
+	invalidLimit := NewRootCmd()
+	invalidLimitOut, invalidLimitErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidLimit.SetOut(invalidLimitOut)
+	invalidLimit.SetErr(invalidLimitErr)
+	invalidLimit.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--limit", "-1"})
+	if err := invalidLimit.Execute(); err == nil {
+		t.Fatalf("pipeline resume-plan accepted invalid limit: stdout=%s", invalidLimitOut.String())
+	}
+	if !strings.Contains(invalidLimitErr.String(), "--limit must be >= 0") {
+		t.Fatalf("invalid limit error = %q", invalidLimitErr.String())
 	}
 }
 

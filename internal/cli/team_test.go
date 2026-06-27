@@ -5219,6 +5219,18 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team stale-sorted resume-plan = %q, want %q", got, want)
 	}
 
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"team", "runtime", "resume-plan", "delivery", "--repo", root, "--unhealthy", "--sort", "stale", "--limit", "1", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("team runtime resume-plan sort stale limit: %v\nstderr=%s", err, limitedErr.String())
+	}
+	if got := strings.TrimSpace(limitedOut.String()); got != "worker-squ-902 start true" {
+		t.Fatalf("team limited resume-plan = %q", got)
+	}
+
 	invalidSort := NewRootCmd()
 	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSort.SetOut(invalidSortOut)
@@ -5229,6 +5241,18 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if !strings.Contains(invalidSortErr.String(), "--sort must be instance") {
 		t.Fatalf("invalid team resume-plan sort error = %q", invalidSortErr.String())
+	}
+
+	invalidLimit := NewRootCmd()
+	invalidLimitOut, invalidLimitErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidLimit.SetOut(invalidLimitOut)
+	invalidLimit.SetErr(invalidLimitErr)
+	invalidLimit.SetArgs([]string{"team", "resume-plan", "delivery", "--repo", root, "--limit", "-1"})
+	if err := invalidLimit.Execute(); err == nil {
+		t.Fatalf("team resume-plan accepted invalid limit: stdout=%s", invalidLimitOut.String())
+	}
+	if !strings.Contains(invalidLimitErr.String(), "--limit must be >= 0") {
+		t.Fatalf("invalid team resume-plan limit error = %q", invalidLimitErr.String())
 	}
 }
 

@@ -2763,6 +2763,7 @@ Flags:
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -4172,6 +4173,7 @@ Flags:
       --all               Plan runtime recovery across all pipelines. This is the default when no pipeline is passed.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -5163,6 +5165,7 @@ Flags:
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -5436,6 +5439,7 @@ Flags:
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
@@ -7010,6 +7014,7 @@ Flags:
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -7126,6 +7131,7 @@ Flags:
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
+      --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.

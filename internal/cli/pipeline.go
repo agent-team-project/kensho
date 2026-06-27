@@ -2419,6 +2419,7 @@ func newPipelineResumePlanCmd() *cobra.Command {
 		runtimeFilter []string
 		actionFilters []string
 		sortBy        string
+		limit         int
 		staleOnly     bool
 		runtimeStale  bool
 		unhealthyOnly bool
@@ -2449,6 +2450,14 @@ func newPipelineResumePlanCmd() *cobra.Command {
 			}
 			if all && len(args) > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if summary && limit > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: --limit cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			pipelineName := ""
@@ -2487,6 +2496,7 @@ func newPipelineResumePlanCmd() *cobra.Command {
 				renderRuntimeResumeSummary(cmd.OutOrStdout(), out)
 				return nil
 			}
+			plans = limitRuntimeResumePlans(plans, limit)
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
@@ -2503,6 +2513,7 @@ func newPipelineResumePlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&runtimeFilter, "runtime", nil, "Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit plans after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")

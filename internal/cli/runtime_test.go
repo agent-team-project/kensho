@@ -890,6 +890,18 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 		t.Fatalf("sorted unhealthy resume-plan = %q, want %q", got, sortedWant)
 	}
 
+	limited := NewRootCmd()
+	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	limited.SetOut(limitedOut)
+	limited.SetErr(limitedErr)
+	limited.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--sort", "stale", "--limit", "1", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	if err := limited.Execute(); err != nil {
+		t.Fatalf("runtime resume-plan unhealthy limit: %v\nstderr=%s", err, limitedErr.String())
+	}
+	if got := strings.TrimSpace(limitedOut.String()); got != "stale-manager start true" {
+		t.Fatalf("limited unhealthy resume-plan = %q", got)
+	}
+
 	summary := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
@@ -1280,6 +1292,54 @@ func TestRuntimeResumePlanRejectsInvalidSort(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "--sort must be instance") {
 		t.Fatalf("stderr = %q", errOut.String())
+	}
+}
+
+func TestRuntimeResumePlanRejectsInvalidLimit(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--limit", "-1"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime resume-plan --limit -1 succeeded")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Fatalf("error = %v, want exit 2", err)
+	}
+	if !strings.Contains(errOut.String(), "--limit must be >= 0") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--summary", "--limit", "1"})
+	err = summary.Execute()
+	if err == nil {
+		t.Fatal("runtime resume-plan --summary --limit 1 succeeded")
+	}
+	if !strings.Contains(summaryErr.String(), "--limit cannot be combined with --summary") {
+		t.Fatalf("summary limit stderr = %q", summaryErr.String())
+	}
+
+	jobCmd := NewRootCmd()
+	jobOut, jobErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobCmd.SetOut(jobOut)
+	jobCmd.SetErr(jobErr)
+	jobCmd.SetArgs([]string{"job", "resume-plan", "SQU-1", "--repo", tmp, "--limit", "-1"})
+	err = jobCmd.Execute()
+	if err == nil {
+		t.Fatal("job resume-plan --limit -1 succeeded")
+	}
+	if !strings.Contains(jobErr.String(), "--limit must be >= 0") {
+		t.Fatalf("job limit stderr = %q", jobErr.String())
 	}
 }
 

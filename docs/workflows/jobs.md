@@ -152,7 +152,8 @@ If daemon metadata says a job-owned instance crashed, it also suggests
 `--unhealthy` for both crashed and stale recorded running PIDs, or
 `--action resume`/`--action logs` to narrow the recovery path. Add
 `--sort stale` or `--sort step` when a multi-stage job has several owned
-runtimes and the recovery list needs a predictable order.
+runtimes and the recovery list needs a predictable order, and add `--limit N`
+to cap rows after sorting.
 Use `agent-team job ps <job-id>` when you need the lifecycle table for every
 job-owned runtime before attaching, messaging, or stopping work; add
 `--step <id>` for one pipeline stage. Use `agent-team job stats <job-id>` when
