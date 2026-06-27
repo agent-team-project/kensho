@@ -103,8 +103,11 @@ For reverse proxy, service manager, and recovery guidance, see [Intake Deploymen
 
 ```sh
 agent-team intake summary
+agent-team intake summary --commands
 agent-team intake deliveries --tail 20
 agent-team intake deliveries --unresolved
+agent-team intake deliveries --unresolved --commands
+agent-team intake duplicates --commands
 agent-team intake doctor
 agent-team intake doctor --commands
 agent-team intake replay <delivery-id> --dry-run --preview-triggers
@@ -128,9 +131,11 @@ request IDs, such as duplicate GitHub delivery IDs, while keeping warning-only
 ledgers exit-code clean. Add `--commands` when automation should print only
 the duplicate-inspection commands from warning rows.
 
-`agent-team intake summary` reports duplicate request-id group counts. Use
-`agent-team intake duplicates` to list those groups and copy the generated
-`intake deliveries --request-id ...` inspection command for each group.
+`agent-team intake summary` reports duplicate request-id group counts and
+replay/prune actions. Use `agent-team intake duplicates` to list duplicate
+groups and copy the generated `intake deliveries --request-id ...` inspection
+command for each group. Add `--commands` to summary, deliveries, duplicates, or
+doctor when scripts should receive only shell commands.
 Duplicate request-id doctor warnings include an action that opens the matching
 `intake duplicates --request-id ...` view.
 

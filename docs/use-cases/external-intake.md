@@ -44,6 +44,7 @@ For a production-oriented listener setup, see [Intake Deployment](./intake-deplo
 ```sh
 agent-team intake summary
 agent-team intake deliveries --unresolved
+agent-team intake deliveries --unresolved --commands
 agent-team intake doctor
 ```
 

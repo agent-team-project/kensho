@@ -310,6 +310,7 @@ Inspect deliveries:
 ```sh
 agent-team intake deliveries --tail 20
 agent-team intake deliveries --unresolved
+agent-team intake deliveries --unresolved --commands
 agent-team intake doctor
 ```
 

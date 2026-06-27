@@ -1426,6 +1426,7 @@ agent-team intake deliveries [flags]
 Flags:
 
 ```text
+      --commands               Print recommended follow-up commands, one per line.
       --format string          Render each delivery with a Go template, e.g. '{{.Provider}} {{.Status}} {{.EventType}}'.
       --json                   Emit deliveries as JSON.
       --provider string        Only show deliveries for a provider: linear or github.
@@ -1477,6 +1478,7 @@ agent-team intake duplicates [flags]
 Flags:
 
 ```text
+      --commands            Print recommended follow-up commands, one per line.
       --format string       Render each duplicate group with a Go template, e.g. '{{.Provider}} {{.RequestID}} {{.Count}}'.
       --json                Emit duplicate request id groups as JSON.
       --provider string     Only show duplicate request ids for a provider: linear or github.
@@ -1743,6 +1745,7 @@ agent-team intake summary [flags]
 Flags:
 
 ```text
+      --commands               Print recommended follow-up commands, one per line.
       --format string          Render the summary with a Go template, e.g. '{{.Unresolved}} {{.Replayable}}'.
       --json                   Emit summary as JSON.
       --provider string        Only summarize deliveries for a provider: linear or github.

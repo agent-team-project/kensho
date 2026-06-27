@@ -257,7 +257,10 @@ Use:
 ```sh
 agent-team intake deliveries --json
 agent-team intake summary --json
+agent-team intake summary --commands
 agent-team intake doctor --json
 ```
 
-instead of parsing raw history where possible.
+instead of parsing raw history where possible. Use `--commands` when automation
+only needs the replay, prune, duplicate-inspection, or warning follow-up
+commands derived from the ledger.

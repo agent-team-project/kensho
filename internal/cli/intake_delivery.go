@@ -81,6 +81,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 		requestID    string
 		unresolved   bool
 		tail         string
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -115,6 +116,14 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake deliveries: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake deliveries: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake deliveries: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			tmpl, err := parseIntakeDeliveryFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake deliveries: %v\n", err)
@@ -138,7 +147,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 			})
 			deliveries = tailIntakeDeliveries(deliveries, tailLines)
 			deliveries = withIntakeDeliveryActions(deliveries)
-			return renderIntakeDeliveries(cmd.OutOrStdout(), deliveries, jsonOut, tmpl)
+			return renderIntakeDeliveries(cmd.OutOrStdout(), deliveries, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -148,6 +157,7 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&requestID, "request-id", "", "Only show deliveries with this provider request id, such as X-GitHub-Delivery.")
 	cmd.Flags().BoolVar(&unresolved, "unresolved", false, "Only show failed deliveries that still need replay.")
 	cmd.Flags().StringVar(&tail, "tail", "20", "Show only the last N deliveries (0 or all = all).")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit deliveries as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each delivery with a Go template, e.g. '{{.Provider}} {{.Status}} {{.EventType}}'.")
 	return cmd
@@ -158,6 +168,7 @@ func newIntakeDuplicatesCmd() *cobra.Command {
 		target    string
 		provider  string
 		requestID string
+		commands  bool
 		jsonOut   bool
 		format    string
 	)
@@ -177,6 +188,14 @@ func newIntakeDuplicatesCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake duplicates: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake duplicates: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake duplicates: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			tmpl, err := parseIntakeDuplicateFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake duplicates: %v\n", err)
@@ -192,12 +211,13 @@ func newIntakeDuplicatesCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			rows := duplicateIntakeRequestIDs(deliveries, provider, requestID)
-			return renderIntakeDuplicates(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+			return renderIntakeDuplicates(cmd.OutOrStdout(), rows, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only show duplicate request ids for a provider: linear or github.")
 	cmd.Flags().StringVar(&requestID, "request-id", "", "Only show this provider request id.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit duplicate request id groups as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each duplicate group with a Go template, e.g. '{{.Provider}} {{.RequestID}} {{.Count}}'.")
 	return cmd
@@ -403,6 +423,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 		replayStatus string
 		requestID    string
 		unresolved   bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -433,6 +454,14 @@ func newIntakeSummaryCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake summary: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake summary: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake summary: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			tmpl, err := parseIntakeSummaryFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake summary: %v\n", err)
@@ -455,7 +484,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 				Unresolved:   unresolved,
 			})
 			summary := summarizeIntakeDeliveries(deliveries)
-			return renderIntakeSummary(cmd.OutOrStdout(), summary, jsonOut, tmpl)
+			return renderIntakeSummary(cmd.OutOrStdout(), summary, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -464,6 +493,7 @@ func newIntakeSummaryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only summarize deliveries with replay status: ok, error, none, or any.")
 	cmd.Flags().StringVar(&requestID, "request-id", "", "Only summarize deliveries with this provider request id, such as X-GitHub-Delivery.")
 	cmd.Flags().BoolVar(&unresolved, "unresolved", false, "Only summarize failed deliveries that still need replay.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit summary as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the summary with a Go template, e.g. '{{.Unresolved}} {{.Replayable}}'.")
 	return cmd
@@ -1251,9 +1281,12 @@ func parseIntakePruneFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bool, tmpl *template.Template) error {
+func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bool, tmpl *template.Template, commands bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(deliveries)
+	}
+	if commands {
+		return renderActionCommands(w, intakeDeliveryCommandActions(deliveries))
 	}
 	if tmpl != nil {
 		for _, delivery := range deliveries {
@@ -1291,9 +1324,12 @@ func renderIntakeDeliveries(w io.Writer, deliveries []intakeDelivery, jsonOut bo
 	return tw.Flush()
 }
 
-func renderIntakeDuplicates(w io.Writer, rows []intakeDuplicateRequest, jsonOut bool, tmpl *template.Template) error {
+func renderIntakeDuplicates(w io.Writer, rows []intakeDuplicateRequest, jsonOut bool, tmpl *template.Template, commands bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
+	}
+	if commands {
+		return renderActionCommands(w, intakeDuplicateCommandActions(rows))
 	}
 	if tmpl != nil {
 		for _, row := range rows {
@@ -1326,6 +1362,22 @@ func renderIntakeDuplicates(w io.Writer, rows []intakeDuplicateRequest, jsonOut 
 	return tw.Flush()
 }
 
+func intakeDeliveryCommandActions(deliveries []intakeDelivery) []string {
+	var actions []string
+	for _, delivery := range deliveries {
+		actions = append(actions, commandActionsOnly(delivery.Actions)...)
+	}
+	return actions
+}
+
+func intakeDuplicateCommandActions(rows []intakeDuplicateRequest) []string {
+	var actions []string
+	for _, row := range rows {
+		actions = append(actions, commandActionsOnly(row.Actions)...)
+	}
+	return actions
+}
+
 func intakeDuplicateTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
@@ -1333,9 +1385,12 @@ func intakeDuplicateTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func renderIntakeSummary(w io.Writer, summary intakeSummaryResult, jsonOut bool, tmpl *template.Template) error {
+func renderIntakeSummary(w io.Writer, summary intakeSummaryResult, jsonOut bool, tmpl *template.Template, commands bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(summary)
+	}
+	if commands {
+		return renderActionCommands(w, commandActionsOnly(summary.Actions))
 	}
 	if tmpl != nil {
 		if err := tmpl.Execute(w, summary); err != nil {

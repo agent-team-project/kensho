@@ -975,6 +975,21 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	if len(rows[0].Actions) != 2 || !strings.Contains(rows[0].Actions[0], "agent-team intake replay github-error --dry-run --preview-triggers") {
 		t.Fatalf("tail delivery actions = %+v", rows[0].Actions)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "deliveries", "--target", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake deliveries --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), "agent-team intake replay github-error --dry-run --preview-triggers\nagent-team intake replay github-error\n"; got != want {
+		t.Fatalf("intake deliveries --commands output = %q, want %q", got, want)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("intake deliveries --commands stderr = %q", commandsErr.String())
+	}
 }
 
 func TestIntakeDeliveriesReplayFilters(t *testing.T) {
@@ -1173,6 +1188,27 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 		}
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "summary", "--target", target, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake summary --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), strings.Join([]string{
+		"agent-team intake deliveries --unresolved",
+		"agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers",
+		"agent-team intake replay --all --dedupe-request-id",
+		"agent-team intake prune --replay-status ok --dry-run",
+		"",
+	}, "\n"); got != want {
+		t.Fatalf("intake summary --commands output = %q, want %q", got, want)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("intake summary --commands stderr = %q", commandsErr.String())
+	}
+
 	filtered := NewRootCmd()
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
@@ -1266,6 +1302,21 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 		t.Fatalf("duplicates format = %q, want %q", got, want)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "duplicates", "--target", target, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake duplicates --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), "agent-team intake deliveries --provider github --request-id delivery-dup\n"; got != want {
+		t.Fatalf("intake duplicates --commands output = %q, want %q", got, want)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("intake duplicates --commands stderr = %q", commandsErr.String())
+	}
+
 	none := NewRootCmd()
 	noneOut, noneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	none.SetOut(noneOut)
@@ -1292,6 +1343,41 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	}
 	if summary.DuplicateRequestIDs != 1 || !containsString(summary.Actions, "agent-team intake duplicates") {
 		t.Fatalf("summary duplicate count/actions = %+v", summary)
+	}
+}
+
+func TestIntakeActionCommandsValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"intake", "deliveries", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"intake", "deliveries", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"intake", "summary", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"intake", "summary", "--commands", "--format", "{{.Deliveries}}"}, "--commands cannot be combined with --format"},
+		{[]string{"intake", "duplicates", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"intake", "duplicates", "--commands", "--format", "{{.Provider}}"}, "--commands cannot be combined with --format"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 

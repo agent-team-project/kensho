@@ -20,3 +20,15 @@ func renderActionCommands(w io.Writer, actions []string) error {
 	}
 	return nil
 }
+
+func commandActionsOnly(actions []string) []string {
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		action = strings.TrimSpace(action)
+		if !strings.HasPrefix(action, "agent-team ") {
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
+}

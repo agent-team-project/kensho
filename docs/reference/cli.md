@@ -328,9 +328,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team intake schedule` | Normalize schedule payload; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
 | `agent-team intake serve` | Run local intake server with optional GitHub job reconciliation |
 | `agent-team intake service systemd|launchd|compose|kubernetes` | Print a systemd unit, launchd plist, compose service, or Kubernetes manifests for `intake serve` |
-| `agent-team intake summary` | Summarize delivery history |
-| `agent-team intake duplicates` | List duplicate provider request IDs |
-| `agent-team intake deliveries` | Inspect delivery rows |
+| `agent-team intake summary` | Summarize delivery history; add `--commands` to print recovery/prune commands only |
+| `agent-team intake duplicates` | List duplicate provider request IDs; add `--commands` to print matching delivery-inspection commands only |
+| `agent-team intake deliveries` | Inspect delivery rows; add `--commands` to print replay commands for matching rows only |
 | `agent-team intake replay` | Replay failed deliveries |
 | `agent-team intake doctor` | Validate delivery history; add `--commands` to print warning follow-up commands only |
 | `agent-team intake prune` | Drop old delivery rows |
