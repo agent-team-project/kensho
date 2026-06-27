@@ -220,7 +220,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/outbox quarantine and ready-step recovery hints |
 | `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; sort and cap large histories with `--sort` and `--limit`, or add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, provenance, explained jobs, inboxes, queue/outbox ownership including quarantine, dry-run advance previews, and formatted summary fields |
-| `agent-team pipeline next` | Print or watch recommended pipeline actions |
+| `agent-team pipeline next` | Print or watch recommended pipeline actions; use `--commands` for one selected action command per line |
 | `agent-team pipeline wait [<pipeline>]` | Wait for pipeline jobs to reach a lifecycle status, event, or next-step state/stage |
 | `agent-team pipeline jobs [<pipeline>]` | List, summarize, or watch pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, sort rows, and cap output with `--limit` |
 | `agent-team pipeline ready` | List or watch ready steps; filter by `--step`, sort by `--sort`, and cap rows with `--limit` |

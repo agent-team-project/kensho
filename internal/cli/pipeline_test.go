@@ -2556,6 +2556,18 @@ pipelines = ["ticket_to_pr"]
 		t.Fatalf("reason-filtered actions = %+v, want first failed action", reasonActions)
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", "ready_steps", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("pipeline next commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes\n"; got != want {
+		t.Fatalf("pipeline next commands = %q, want %q", got, want)
+	}
+
 	multiReasonCmd := NewRootCmd()
 	multiReasonOut, multiReasonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	multiReasonCmd.SetOut(multiReasonOut)
@@ -2612,6 +2624,21 @@ pipelines = ["ticket_to_pr"]
 		t.Fatalf("pipeline next team reason filter included ready action:\n%s", teamOut.String())
 	}
 
+	teamCommands := NewRootCmd()
+	teamCommandsOut, teamCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamCommands.SetOut(teamCommandsOut)
+	teamCommands.SetErr(teamCommandsErr)
+	teamCommands.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--team", "delivery", "--repo", root, "--reason", "failed_steps", "--commands"})
+	if err := teamCommands.Execute(); err != nil {
+		t.Fatalf("pipeline next team commands: %v\nstderr=%s", err, teamCommandsErr.String())
+	}
+	if strings.Contains(teamCommandsOut.String(), "PIPELINE") || strings.Contains(teamCommandsOut.String(), "failed_steps=") {
+		t.Fatalf("pipeline next team commands should not include table headers or reasons:\n%s", teamCommandsOut.String())
+	}
+	if !strings.Contains(teamCommandsOut.String(), "agent-team team repair delivery --retry-pipelines --dry-run --preview-routes") {
+		t.Fatalf("pipeline next team commands missing team-scoped repair:\n%s", teamCommandsOut.String())
+	}
+
 	invalidInterval := NewRootCmd()
 	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidInterval.SetOut(invalidIntervalOut)
@@ -2646,6 +2673,42 @@ pipelines = ["ticket_to_pr"]
 	}
 	if !strings.Contains(invalidSortErr.String(), "--sort must be declared") {
 		t.Fatalf("invalid sort stderr = %q stdout=%q", invalidSortErr.String(), invalidSortOut.String())
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--commands", "--format", "{{.Action}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "watch",
+			args: []string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
+		},
+	} {
+		t.Run("commands-conflict-"+tc.name, func(t *testing.T) {
+			conflict := NewRootCmd()
+			conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+			conflict.SetOut(conflictOut)
+			conflict.SetErr(conflictErr)
+			conflict.SetArgs(tc.args)
+			if err := conflict.Execute(); err == nil {
+				t.Fatalf("pipeline next accepted %s conflict: stdout=%s", tc.name, conflictOut.String())
+			}
+			if !strings.Contains(conflictErr.String(), tc.want) {
+				t.Fatalf("pipeline next %s conflict stderr = %q, want %q", tc.name, conflictErr.String(), tc.want)
+			}
+		})
 	}
 }
 

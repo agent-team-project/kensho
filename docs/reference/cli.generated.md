@@ -4526,6 +4526,7 @@ Flags:
 
 ```text
       --all                 Consider all pipelines. This is the default when no pipeline is passed.
+      --commands            Print only recommended commands, one per line.
       --format string       Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit recommended actions as JSON.

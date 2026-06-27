@@ -686,6 +686,7 @@ func newPipelineNextCmd() *cobra.Command {
 		interval time.Duration
 		sortBy   string
 		reasons  []string
+		commands bool
 		jsonOut  bool
 		format   string
 	)
@@ -698,6 +699,18 @@ func newPipelineNextCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if all && len(args) > 0 {
@@ -748,7 +761,7 @@ func newPipelineNextCmd() *cobra.Command {
 				defer stop()
 				return runPipelineNextWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err := runPipelineNext(cmd.OutOrStdout(), teamDir, pipelineName, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl); err != nil {
+			if err := runPipelineNext(cmd.OutOrStdout(), teamDir, pipelineName, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl, commands); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
 				return exitErr(1)
 			}
@@ -764,6 +777,7 @@ func newPipelineNextCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringVar(&sortBy, "sort", "declared", "Sort pipelines before selecting actions by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, queue-quarantined, quarantined, outbox, outbox-pending, outbox-failed, outbox-processed, or outbox-quarantined.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.")
 	return cmd
@@ -10099,9 +10113,15 @@ func renderPipelineExplainRow(w io.Writer, row pipelineExplainRow) {
 	_ = stepWriter.Flush()
 }
 
-func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOut bool, tmpl *template.Template) error {
+func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOut bool, tmpl *template.Template, commandsOnly bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(actions)
+	}
+	if commandsOnly {
+		for _, action := range actions {
+			fmt.Fprintln(w, action.Action)
+		}
+		return nil
 	}
 	if tmpl != nil {
 		for _, action := range actions {
@@ -10118,7 +10138,7 @@ func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOu
 	return nil
 }
 
-func runPipelineNext(w io.Writer, teamDir, pipeline, teamName, sortMode string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template) error {
+func runPipelineNext(w io.Writer, teamDir, pipeline, teamName, sortMode string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template, commandsOnly bool) error {
 	var (
 		rows []pipelineStatusRow
 		err  error
@@ -10135,7 +10155,7 @@ func runPipelineNext(w io.Writer, teamDir, pipeline, teamName, sortMode string, 
 		return err
 	}
 	sortPipelineStatusRows(rows, sortMode)
-	return renderPipelineNextActions(w, pipelineNextActionsFromStatus(rows, limit, reasonFilters), jsonOut, tmpl)
+	return renderPipelineNextActions(w, pipelineNextActionsFromStatus(rows, limit, reasonFilters), jsonOut, tmpl, commandsOnly)
 }
 
 func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, teamName, sortMode string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
@@ -10150,7 +10170,7 @@ func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, t
 				return err
 			}
 		}
-		if err := runPipelineNext(w, teamDir, pipeline, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl); err != nil {
+		if err := runPipelineNext(w, teamDir, pipeline, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl, false); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {
