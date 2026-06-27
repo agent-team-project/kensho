@@ -167,12 +167,15 @@ agent-team job wait squ-42
 agent-team job wait squ-42 --status running
 agent-team job wait squ-42 --event adopted
 agent-team job wait squ-42 --status done --event closed
+agent-team job wait squ-42 --next-state ready --step implement --timeout 30s
 ```
 
 Without flags, `job wait` waits for a terminal status: `done` or `failed`.
 Use `--event` to wait for a specific last event such as `adopted`, `closed`,
 or `pipeline_done`. When `--event` is set without `--status`, any lifecycle
-status is accepted.
+status is accepted. Use `--next-state` with optional `--step` when automation
+needs to block until a pipeline job is ready, blocked, held, done, or pointing
+at a specific stage without dispatching it.
 
 ## Capturing Job Snapshots
 

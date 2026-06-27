@@ -1799,7 +1799,7 @@ Subcommands:
 - `agent-team job triage` - Show jobs that need operator attention.
 - `agent-team job unblock` - Answer a blocked job and mark it ready to continue.
 - `agent-team job update` - Update job metadata.
-- `agent-team job wait` - Wait for a job to reach a lifecycle status or event.
+- `agent-team job wait` - Wait for a job to reach a lifecycle status, event, or next step.
 
 ## `agent-team job adopt`
 
@@ -3092,9 +3092,9 @@ Flags:
 
 ## `agent-team job wait`
 
-Wait for a job to reach a lifecycle status or event.
+Wait for a job to reach a lifecycle status, event, or next step.
 
-Wait for a durable job to reach one of the requested lifecycle statuses and/or last events. By default this waits for a terminal status: done or failed. When --event is set without --status, any status is accepted.
+Wait for a durable job to reach one of the requested lifecycle statuses, last events, or pipeline next-step states. By default this waits for a terminal status: done or failed. When --event, --next-state, or --step is set without --status, any lifecycle status is accepted.
 
 ```text
 agent-team job wait <job-id> [flags]
@@ -3103,15 +3103,17 @@ agent-team job wait <job-id> [flags]
 Flags:
 
 ```text
-      --event strings       Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.
-      --fail-on-failed      Exit 1 if the job resolves to failed.
-      --format string       Render the final job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --interval duration   Polling interval. (default 500ms)
-      --json                Emit the final job as JSON.
-  -q, --quiet               Suppress output and use only the exit code.
-      --repo string         Repo root containing .agent_team. (default "<repo>")
-      --status strings      Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
-      --timeout duration    Maximum time to wait (0 = no timeout).
+      --event strings        Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.
+      --fail-on-failed       Exit 1 if the job resolves to failed.
+      --format string        Render the final job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --interval duration    Polling interval. (default 500ms)
+      --json                 Emit the final job as JSON.
+      --next-state strings   Next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+  -q, --quiet                Suppress output and use only the exit code.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --status strings       Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --step string          Pipeline step id that must be the current next step.
+      --timeout duration     Maximum time to wait (0 = no timeout).
 ```
 
 ## `agent-team kill`

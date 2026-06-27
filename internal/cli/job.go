@@ -1352,6 +1352,8 @@ func newJobWaitCmd() *cobra.Command {
 		repo         string
 		statuses     []string
 		events       []string
+		nextStates   []string
+		step         string
 		timeout      time.Duration
 		interval     time.Duration
 		failOnFailed bool
@@ -1362,9 +1364,9 @@ func newJobWaitCmd() *cobra.Command {
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "wait <job-id>",
-		Short: "Wait for a job to reach a lifecycle status or event.",
-		Long: "Wait for a durable job to reach one of the requested lifecycle statuses and/or last events. " +
-			"By default this waits for a terminal status: done or failed. When --event is set without --status, any status is accepted.",
+		Short: "Wait for a job to reach a lifecycle status, event, or next step.",
+		Long: "Wait for a durable job to reach one of the requested lifecycle statuses, last events, or pipeline next-step states. " +
+			"By default this waits for a terminal status: done or failed. When --event, --next-state, or --step is set without --status, any lifecycle status is accepted.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
@@ -1383,14 +1385,26 @@ func newJobWaitCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job wait: --format cannot be combined with --quiet or --json.")
 				return exitErr(2)
 			}
+			nextStepFilter := strings.TrimSpace(step)
+			nextStateChanged := cmd.Flags().Changed("next-state")
+			nextStateFilter := map[string]bool{}
+			var err error
+			if nextStateChanged {
+				nextStateFilter, err = parseJobNextStateFilter(nextStates, false)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: %s\n", strings.ReplaceAll(err.Error(), "--state", "--next-state"))
+					return exitErr(2)
+				}
+			}
 			waitEvents := parseJobWaitEvents(events)
-			waitStatuses, err := parseJobWaitStatuses(statuses, !cmd.Flags().Changed("status") && len(waitEvents) == 0)
+			defaultStatus := !cmd.Flags().Changed("status") && len(waitEvents) == 0 && !nextStateChanged && nextStepFilter == ""
+			waitStatuses, err := parseJobWaitStatuses(statuses, defaultStatus)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: %v\n", err)
 				return exitErr(2)
 			}
-			if len(waitStatuses) == 0 && len(waitEvents) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job wait: pass at least one non-empty --status or --event.")
+			if len(waitStatuses) == 0 && len(waitEvents) == 0 && !nextStateChanged && nextStepFilter == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job wait: pass at least one non-empty --status, --event, --next-state, or --step.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -1409,7 +1423,7 @@ func newJobWaitCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 			}
 			defer cancel()
-			j, err := runJobWait(ctx, teamDir, args[0], waitStatuses, waitEvents, interval)
+			j, err := runJobWait(ctx, teamDir, args[0], waitStatuses, waitEvents, nextStateFilter, nextStateChanged, nextStepFilter, interval)
 			if err != nil {
 				if timeoutErr, ok := err.(*jobWaitTimeoutError); ok {
 					if !quiet {
@@ -1419,9 +1433,16 @@ func newJobWaitCmd() *cobra.Command {
 							status = string(timeoutErr.Job.Status)
 							event = strings.TrimSpace(timeoutErr.Job.LastEvent)
 						}
-						if len(waitEvents) > 0 {
+						if nextStateChanged || nextStepFilter != "" {
+							next := jobNextResult{}
+							if timeoutErr.Job != nil {
+								next = inspectNextJobStep(timeoutErr.Job)
+							}
+							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s event=%s next_state=%s step=%s).\n",
+								job.NormalizeID(args[0]), jobWaitConditionList(waitStatuses, waitEvents, nextStateFilter, nextStateChanged, nextStepFilter), status, emptyDash(event), emptyDash(next.State), jobWaitNextStep(next))
+						} else if len(waitEvents) > 0 {
 							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s event=%s).\n",
-								job.NormalizeID(args[0]), jobWaitConditionList(waitStatuses, waitEvents), status, emptyDash(event))
+								job.NormalizeID(args[0]), jobWaitConditionList(waitStatuses, waitEvents, nil, false, ""), status, emptyDash(event))
 						} else {
 							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job wait: timed out waiting for %s to reach %s (current=%s).\n",
 								job.NormalizeID(args[0]), jobWaitStatusList(waitStatuses), status)
@@ -1454,6 +1475,8 @@ func newJobWaitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&events, "event", nil, "Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&nextStates, "next-state", nil, "Next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&step, "step", "", "Pipeline step id that must be the current next step.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&interval, "interval", 500*time.Millisecond, "Polling interval.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "Exit 1 if the job resolves to failed.")
@@ -7816,10 +7839,11 @@ func parseJobWaitEvents(raw []string) map[string]bool {
 	return events
 }
 
-func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, interval time.Duration) (*job.Job, error) {
+func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, interval time.Duration) (*job.Job, error) {
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
+	step = strings.TrimSpace(step)
 	var last *job.Job
 	for {
 		j, err := job.Read(teamDir, id)
@@ -7829,7 +7853,8 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 		last = j
 		statusMatched := len(statuses) == 0 || statuses[j.Status]
 		eventMatched := len(events) == 0 || events[strings.TrimSpace(j.LastEvent)]
-		if statusMatched && eventMatched {
+		nextMatched := jobWaitNextMatched(j, nextStates, nextStateSet, step)
+		if statusMatched && eventMatched && nextMatched {
 			return j, nil
 		}
 		timer := time.NewTimer(interval)
@@ -7845,6 +7870,21 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 	}
 }
 
+func jobWaitNextMatched(j *job.Job, nextStates map[string]bool, nextStateSet bool, step string) bool {
+	if !nextStateSet && strings.TrimSpace(step) == "" {
+		return true
+	}
+	next := inspectNextJobStep(j)
+	if nextStateSet && len(nextStates) > 0 && !nextStates[next.State] {
+		return false
+	}
+	step = strings.TrimSpace(step)
+	if step == "" {
+		return true
+	}
+	return jobWaitNextStep(next) == step
+}
+
 func waitForJobCommand(cmd *cobra.Command, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, timeout, interval time.Duration, prefix string) (*job.Job, error) {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
@@ -7853,7 +7893,7 @@ func waitForJobCommand(cmd *cobra.Command, teamDir, id string, statuses map[job.
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-	waited, err := runJobWait(ctx, teamDir, id, statuses, events, interval)
+	waited, err := runJobWait(ctx, teamDir, id, statuses, events, nil, false, "", interval)
 	if err == nil {
 		return waited, nil
 	}
@@ -7866,7 +7906,7 @@ func waitForJobCommand(cmd *cobra.Command, teamDir, id string, statuses map[job.
 		}
 		if len(events) > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for %s to reach %s (current=%s event=%s).\n",
-				prefix, id, jobWaitConditionList(statuses, events), status, emptyDash(event))
+				prefix, id, jobWaitConditionList(statuses, events, nil, false, ""), status, emptyDash(event))
 		} else {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for %s to reach %s (current=%s).\n",
 				prefix, id, jobWaitStatusList(statuses), status)
@@ -7896,13 +7936,20 @@ func refreshJobAdvanceResultAfterWait(res *jobAdvanceResult, waited *job.Job) {
 	res.Step = &waited.Steps[idx]
 }
 
-func jobWaitConditionList(statuses map[job.Status]bool, events map[string]bool) string {
-	parts := make([]string, 0, 2)
+func jobWaitConditionList(statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string) string {
+	parts := make([]string, 0, 4)
 	if len(statuses) > 0 {
 		parts = append(parts, "status="+jobWaitStatusList(statuses))
 	}
 	if len(events) > 0 {
 		parts = append(parts, "event="+jobWaitEventList(events))
+	}
+	if nextStateSet {
+		parts = append(parts, "next-state="+jobNextStateList(nextStates))
+	}
+	step = strings.TrimSpace(step)
+	if step != "" {
+		parts = append(parts, "step="+step)
 	}
 	return strings.Join(parts, " ")
 }
@@ -7916,6 +7963,27 @@ func jobWaitStatusList(statuses map[job.Status]bool) string {
 		}
 	}
 	return strings.Join(out, "|")
+}
+
+func jobNextStateList(states map[string]bool) string {
+	if len(states) == 0 {
+		return "all"
+	}
+	order := []string{"ready", "queued", "running", "blocked", "failed", "held", "done", "none"}
+	out := make([]string, 0, len(states))
+	for _, state := range order {
+		if states[state] {
+			out = append(out, state)
+		}
+	}
+	return strings.Join(out, "|")
+}
+
+func jobWaitNextStep(next jobNextResult) string {
+	if next.Step == nil || strings.TrimSpace(next.Step.ID) == "" {
+		return "none"
+	}
+	return next.Step.ID
 }
 
 func jobWaitEventList(events map[string]bool) string {

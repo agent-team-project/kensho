@@ -871,7 +871,7 @@ func newPipelineWaitCmd() *cobra.Command {
 				if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 					if !quiet {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline wait: timed out waiting for %s to reach %s: %s\n",
-							waitLabel, jobWaitConditionList(waitStatuses, waitEvents), pipelineWaitPendingSummary(timeoutErr.Pending))
+							waitLabel, jobWaitConditionList(waitStatuses, waitEvents, nil, false, ""), pipelineWaitPendingSummary(timeoutErr.Pending))
 					}
 					return exitErr(1)
 				}
@@ -7502,7 +7502,7 @@ func waitForPipelineAdvanceResults(cmd *cobra.Command, teamDir string, results [
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for advanced jobs to reach %s (pending=%s).\n",
-				prefix, jobWaitConditionList(statuses, events), pipelineWaitPendingSummary(timeoutErr.Pending))
+				prefix, jobWaitConditionList(statuses, events, nil, false, ""), pipelineWaitPendingSummary(timeoutErr.Pending))
 			return nil, exitErr(1)
 		}
 		return nil, err
@@ -7699,7 +7699,7 @@ func waitForPipelineApproveResults(cmd *cobra.Command, teamDir string, results [
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for approved jobs to reach %s (pending=%s).\n",
-				prefix, jobWaitConditionList(statuses, events), pipelineWaitPendingSummary(timeoutErr.Pending))
+				prefix, jobWaitConditionList(statuses, events, nil, false, ""), pipelineWaitPendingSummary(timeoutErr.Pending))
 			return nil, exitErr(1)
 		}
 		return nil, err
@@ -8340,7 +8340,7 @@ func waitForPipelineRetryResults(cmd *cobra.Command, teamDir string, results []p
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for retried jobs to reach %s (pending=%s).\n",
-				prefix, jobWaitConditionList(statuses, events), pipelineWaitPendingSummary(timeoutErr.Pending))
+				prefix, jobWaitConditionList(statuses, events, nil, false, ""), pipelineWaitPendingSummary(timeoutErr.Pending))
 			return nil, exitErr(1)
 		}
 		return nil, err

@@ -268,6 +268,7 @@ agent-team job update <job-id> [--status running] [--instance name] [--branch na
 agent-team job step <job-id> <step-id> [--status done|failed|blocked|running|queued] [--skip] [--advance] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--format '{{.ID}} {{.Status}}'] [--json]
 agent-team job send <job-id> [message...] [--message "..."] [--message-file <path|->] [--step <id>] [--from cli] [--allow-missing] [--dry-run] [--format '{{.ID}}'] [--json]
 agent-team job unblock <job-id> [answer...] [--message "..."] [--message-file <path|->] [--step <id>] [--status running|queued] [--dry-run] [--json]
+agent-team job wait <job-id> [--status running|terminal] [--event closed] [--next-state ready|blocked|all] [--step <id>] [--timeout 5m] [--interval 500ms] [--fail-on-failed] [--format '{{.ID}} {{.Status}}'] [--json]
 agent-team job resume-plan <job-id> [--step <id>] [--status crashed] [--runtime codex] [--action resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--format '{{.RecommendedCommand}}'] [--json]
 agent-team job ps <job-id> [--step <id>] [-w] [-q] [--runtime codex] [--status running] [--summary] [--format '{{.Instance}} {{.Status}}'] [--json]
 agent-team job stats <job-id> [--step <id>] [-w] [-a] [--runtime codex] [--status crashed] [--summary] [--format '{{.Instance}} {{.CPUPercent}}'] [--json]
