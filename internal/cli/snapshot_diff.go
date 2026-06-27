@@ -18,6 +18,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		jsonOut  bool
 		exitCode bool
 		sections []string
+		actions  []string
 		format   string
 		limit    int
 		sortBy   string
@@ -65,11 +66,17 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(2)
 			}
+			actionSet, actionLabels, err := parseSnapshotDiffActions(actions)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
+				return exitErr(2)
+			}
 			result, err := diffSnapshotFiles(args[0], args[1], snapshotDiffOptions{Sections: sectionSet})
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(1)
 			}
+			filterSnapshotDiffResultByActions(result, actionSet, actionLabels)
 			if summary {
 				summarizeSnapshotDiffResult(result)
 			} else {
@@ -96,6 +103,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
 	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
 	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only compare change actions: added, removed, or changed. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
 	cmd.Flags().StringVar(&sortBy, "sort", "section", "Sort emitted change detail rows by section, action, or id before applying --limit.")
@@ -396,6 +404,7 @@ type snapshotDiffSummary struct {
 	OmittedChanges  int                  `json:"omitted_changes,omitempty"`
 	DetailLimit     int                  `json:"detail_limit,omitempty"`
 	DetailSort      string               `json:"detail_sort,omitempty"`
+	ActionFilter    []string             `json:"action_filter,omitempty"`
 	SummaryOnly     bool                 `json:"summary_only,omitempty"`
 	Provenance      snapshotDiffCounters `json:"provenance"`
 	Git             snapshotDiffCounters `json:"git"`
@@ -538,6 +547,122 @@ func parseSnapshotDiffSort(value string) (string, error) {
 		return snapshotDiffSortID, nil
 	default:
 		return "", fmt.Errorf("--sort must be section, action, or id")
+	}
+}
+
+func parseSnapshotDiffActions(values []string) (map[string]bool, []string, error) {
+	if len(values) == 0 {
+		return nil, nil, nil
+	}
+	valid := map[string]bool{"added": true, "removed": true, "changed": true}
+	out := map[string]bool{}
+	labels := []string{}
+	for _, raw := range values {
+		for _, part := range strings.Split(raw, ",") {
+			name := strings.ToLower(strings.TrimSpace(part))
+			if name == "" {
+				continue
+			}
+			if name == "all" {
+				return nil, nil, nil
+			}
+			if !valid[name] {
+				return nil, nil, fmt.Errorf("--action must be added, removed, changed, or all")
+			}
+			if !out[name] {
+				labels = append(labels, name)
+			}
+			out[name] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil, fmt.Errorf("--action requires at least one non-empty action")
+	}
+	sort.Strings(labels)
+	return out, labels, nil
+}
+
+func filterSnapshotDiffResultByActions(result *snapshotDiffResult, actions map[string]bool, labels []string) {
+	if result == nil || len(actions) == 0 {
+		return
+	}
+	filtered := make([]snapshotDiffChange, 0, len(result.Changes))
+	for _, change := range result.Changes {
+		if actions[change.Action] {
+			filtered = append(filtered, change)
+		}
+	}
+	result.Changes = filtered
+	result.Summary = snapshotDiffSummaryForChanges(filtered)
+	result.Summary.ActionFilter = append([]string(nil), labels...)
+}
+
+func snapshotDiffSummaryForChanges(changes []snapshotDiffChange) snapshotDiffSummary {
+	summary := snapshotDiffSummary{TotalChanges: len(changes)}
+	for _, change := range changes {
+		snapshotDiffIncrementSummary(&summary, change.Section, change.Action)
+	}
+	return summary
+}
+
+func snapshotDiffIncrementSummary(summary *snapshotDiffSummary, section, action string) {
+	counter := snapshotDiffSummaryCounter(summary, section)
+	if counter == nil {
+		return
+	}
+	switch action {
+	case "added":
+		counter.Added++
+	case "removed":
+		counter.Removed++
+	case "changed":
+		counter.Changed++
+	}
+}
+
+func snapshotDiffSummaryCounter(summary *snapshotDiffSummary, section string) *snapshotDiffCounters {
+	if summary == nil {
+		return nil
+	}
+	switch section {
+	case "provenance":
+		return &summary.Provenance
+	case "git":
+		return &summary.Git
+	case "runtime":
+		return &summary.Runtime
+	case "health":
+		return &summary.Health
+	case "plan":
+		return &summary.Plan
+	case "triage":
+		return &summary.Triage
+	case "next":
+		return &summary.Next
+	case "instances":
+		return &summary.Instances
+	case "jobs":
+		return &summary.Jobs
+	case "pipelines":
+		return &summary.Pipelines
+	case "inbox":
+		return &summary.Inbox
+	case "queue":
+		return &summary.Queue
+	case "queue_quarantine":
+		return &summary.QueueQuarantine
+	case "schedules":
+		return &summary.Schedules
+	case "intake":
+		return &summary.Intake
+	case "events":
+		return &summary.Events
+	case "advance":
+		return &summary.Advance
+	case "section_errors":
+		return &summary.SectionErrors
+	default:
+		return nil
 	}
 }
 
@@ -1643,6 +1768,9 @@ func renderSnapshotDiff(w io.Writer, result *snapshotDiffResult) {
 	renderSnapshotDiffCounterLine(w, "events", result.Summary.Events)
 	renderSnapshotDiffCounterLine(w, "advance", result.Summary.Advance)
 	renderSnapshotDiffCounterLine(w, "section_errors", result.Summary.SectionErrors)
+	if len(result.Summary.ActionFilter) > 0 {
+		fmt.Fprintf(w, "filter: actions=%s\n", strings.Join(result.Summary.ActionFilter, ","))
+	}
 	if result.Summary.SummaryOnly {
 		fmt.Fprintf(w, "details: summary only (omitted=%d)\n", result.Summary.OmittedChanges)
 		return

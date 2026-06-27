@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -747,6 +748,82 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		t.Fatalf("summary diff counters changed: %+v vs %+v", summaryResult.Summary, result.Summary)
 	}
 
+	addedOnly := NewRootCmd()
+	addedOnlyOut, addedOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	addedOnly.SetOut(addedOnlyOut)
+	addedOnly.SetErr(addedOnlyErr)
+	addedOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--action", "added", "--json"})
+	if err := addedOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff --action added json: %v\nstderr=%s", err, addedOnlyErr.String())
+	}
+	var addedOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(addedOnlyOut.Bytes(), &addedOnlyResult); err != nil {
+		t.Fatalf("decode added-only snapshot diff json: %v\nbody=%s", err, addedOnlyOut.String())
+	}
+	addedTotal := 0
+	for _, change := range result.Changes {
+		if change.Action == "added" {
+			addedTotal++
+		}
+	}
+	if addedOnlyResult.Summary.TotalChanges != addedTotal || len(addedOnlyResult.Changes) != addedTotal || strings.Join(addedOnlyResult.Summary.ActionFilter, ",") != "added" {
+		t.Fatalf("added-only diff summary = %+v changes=%d want added=%d", addedOnlyResult.Summary, len(addedOnlyResult.Changes), addedTotal)
+	}
+	if addedOnlyResult.Summary.Jobs.Added != result.Summary.Jobs.Added || addedOnlyResult.Summary.Jobs.Removed != 0 || addedOnlyResult.Summary.Jobs.Changed != 0 || addedOnlyResult.Summary.Advance.Removed != 0 {
+		t.Fatalf("added-only counters = %+v", addedOnlyResult.Summary)
+	}
+	for _, change := range addedOnlyResult.Changes {
+		if change.Action != "added" {
+			t.Fatalf("added-only diff included %q change: %+v", change.Action, addedOnlyResult.Changes)
+		}
+	}
+
+	actionText := NewRootCmd()
+	actionTextOut, actionTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	actionText.SetOut(actionTextOut)
+	actionText.SetErr(actionTextErr)
+	actionText.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--action", "removed", "--limit", "1"})
+	if err := actionText.Execute(); err != nil {
+		t.Fatalf("snapshot diff --action removed text: %v\nstderr=%s", err, actionTextErr.String())
+	}
+	if !strings.Contains(actionTextOut.String(), "filter: actions=removed") || !strings.Contains(actionTextOut.String(), "details: showing=1 omitted=") || strings.Contains(actionTextOut.String(), "\tadded\t") {
+		t.Fatalf("action text output unexpected:\n%s", actionTextOut.String())
+	}
+
+	actionFormat := NewRootCmd()
+	actionFormatOut, actionFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	actionFormat.SetOut(actionFormatOut)
+	actionFormat.SetErr(actionFormatErr)
+	actionFormat.SetArgs([]string{
+		"snapshot", "diff", beforePath, afterPath,
+		"--action", "added,changed",
+		"--format", "{{.Summary.TotalChanges}}:{{.Summary.Jobs.Added}}:{{.Summary.Jobs.Changed}}:{{len .Changes}}:{{index .Summary.ActionFilter 0}},{{index .Summary.ActionFilter 1}}",
+	})
+	if err := actionFormat.Execute(); err != nil {
+		t.Fatalf("snapshot diff --action --format: %v\nstderr=%s", err, actionFormatErr.String())
+	}
+	actionFilteredTotal := 0
+	for _, change := range result.Changes {
+		if change.Action == "added" || change.Action == "changed" {
+			actionFilteredTotal++
+		}
+	}
+	if got, want := strings.TrimSpace(actionFormatOut.String()), fmt.Sprintf("%d:1:1:%d:added,changed", actionFilteredTotal, actionFilteredTotal); got != want {
+		t.Fatalf("snapshot diff --action --format output = %q, want %q", got, want)
+	}
+
+	noRemovedQueueExit := NewRootCmd()
+	noRemovedQueueExitOut, noRemovedQueueExitErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRemovedQueueExit.SetOut(noRemovedQueueExitOut)
+	noRemovedQueueExit.SetErr(noRemovedQueueExitErr)
+	noRemovedQueueExit.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "queue", "--action", "removed", "--exit-code"})
+	if err := noRemovedQueueExit.Execute(); err != nil {
+		t.Fatalf("snapshot diff --action removed --exit-code with no filtered changes: %v\nstderr=%s", err, noRemovedQueueExitErr.String())
+	}
+	if !strings.Contains(noRemovedQueueExitOut.String(), "changes: total=0") {
+		t.Fatalf("no removed queue diff output = %s", noRemovedQueueExitOut.String())
+	}
+
 	summaryText := NewRootCmd()
 	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryText.SetOut(summaryTextOut)
@@ -1093,6 +1170,18 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	if !strings.Contains(invalidSortErr.String(), "--sort must be section, action, or id") {
 		t.Fatalf("invalid sort stderr = %q", invalidSortErr.String())
+	}
+
+	invalidAction := NewRootCmd()
+	invalidActionOut, invalidActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidAction.SetOut(invalidActionOut)
+	invalidAction.SetErr(invalidActionErr)
+	invalidAction.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--action", "updated"})
+	if err := invalidAction.Execute(); err == nil {
+		t.Fatalf("snapshot diff invalid action succeeded")
+	}
+	if !strings.Contains(invalidActionErr.String(), "--action must be added, removed, changed, or all") {
+		t.Fatalf("invalid action stderr = %q", invalidActionErr.String())
 	}
 
 	invalidSummaryLimit := NewRootCmd()

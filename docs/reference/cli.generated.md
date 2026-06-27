@@ -5799,6 +5799,7 @@ agent-team snapshot diff <before.json> <after.json> [flags]
 Flags:
 
 ```text
+      --action strings    Only compare change actions: added, removed, or changed. Can repeat or comma-separate.
       --exit-code         Exit with status 1 when snapshots differ.
       --format string     Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.
       --json              Emit snapshot diff as JSON.

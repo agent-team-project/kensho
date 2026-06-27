@@ -272,7 +272,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team monitor` | Operator dashboard |
 | `agent-team watch` | Continuous monitor |
 | `agent-team snapshot` | Redacted diagnostic artifact with command provenance and formatted summary fields |
-| `agent-team snapshot diff <before.json> <after.json>` | Compare saved global, team, pipeline, or job diagnostic artifacts, including provenance, git/runtime context, health, plan, triage, next-action hints, job state, inboxes, queue, schedules, intake, events, pipeline state, summary-only output, sorted/bounded detail rows, and formatted counters for scripts |
+| `agent-team snapshot diff <before.json> <after.json>` | Compare saved global, team, pipeline, or job diagnostic artifacts, including provenance, git/runtime context, health, plan, triage, next-action hints, job state, inboxes, queue, schedules, intake, events, pipeline state, action filters, summary-only output, sorted/bounded detail rows, and formatted counters for scripts |
 | `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop; timeout repair accepts filters, and failed-step retry accepts pipeline/step filters, `--retry-force`, runtime overrides, and `--wait-next-state`/`--wait-step` stage-aware bounded handoff |
 
 ## Communication
