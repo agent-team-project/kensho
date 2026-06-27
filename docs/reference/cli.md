@@ -240,12 +240,12 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline logs [<pipeline>]` | Read daemon-captured logs for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline events [<pipeline>]` | Read lifecycle events for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline cleanup <pipeline>` | Scoped job cleanup for done jobs in one pipeline |
-| `agent-team pipeline queue [<pipeline>]` | List active or quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
+| `agent-team pipeline queue [<pipeline>]` | List or summarize active/quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
 | `agent-team pipeline outbox [<pipeline>]` | List, summarize, or watch outbox events owned by one or all pipelines; subcommands inspect, retry, drop, or prune events owned by one pipeline |
 | `agent-team pipeline outbox retry <pipeline> --all` | Retry matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox drop <pipeline> --all` | Drop matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox prune <pipeline>` | Remove old pipeline-owned processed outbox events by default; pass `--state failed`, `pending`, or `all` for explicit cleanup and bound with `--older-than`, filters, and `--limit` |
-| `agent-team pipeline outbox quarantine [<pipeline>]` | List quarantined outbox files owned by one or all pipelines; filter by state, job, or restorable state |
+| `agent-team pipeline outbox quarantine [<pipeline>]` | List or summarize quarantined outbox files owned by one or all pipelines; filter by state, job, or restorable state |
 | `agent-team pipeline outbox quarantine show <pipeline> <path>` | Inspect one pipeline-owned quarantined outbox file and its payload when parseable |
 | `agent-team pipeline outbox quarantine restore <pipeline> <path>` | Restore one validated pipeline-owned quarantined outbox file to the active outbox |
 | `agent-team pipeline outbox quarantine restore <pipeline> --all` | Restore matching pipeline-owned restorable quarantined outbox files; filter, sort, and limit batch actions |

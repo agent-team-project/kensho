@@ -91,6 +91,7 @@ agent-team pipeline cleanup ticket_to_pr --dry-run
 agent-team pipeline queue --state dead --summary
 agent-team pipeline queue ticket_to_pr --state dead --summary
 agent-team pipeline queue retry ticket_to_pr --all --sort attempts --limit 10 --dry-run
+agent-team pipeline queue quarantine --summary --json
 agent-team pipeline queue quarantine --restorable
 agent-team pipeline queue quarantine ticket_to_pr --restorable
 agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json

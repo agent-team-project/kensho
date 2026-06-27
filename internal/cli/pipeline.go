@@ -1102,6 +1102,7 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 		all          bool
 		sortBy       string
 		limit        int
+		summary      bool
 		jsonOut      bool
 		format       string
 	)
@@ -1126,6 +1127,14 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --sort and --limit cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			sortMode, err := parseQueueQuarantineSort(sortBy)
@@ -1160,6 +1169,9 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			items = filterQueueQuarantineRestorable(items, restorable, unrestorable)
+			if summary {
+				return renderQueueQuarantineSummary(cmd.OutOrStdout(), summarizeQueueQuarantineItems(items), jsonOut)
+			}
 			items = prepareQueueQuarantineItems(items, sortMode, limit)
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
@@ -1173,6 +1185,7 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "List quarantined queue files across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "path", queueQuarantineSortFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline-owned quarantined queue-file counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned quarantined queue files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	cmd.AddCommand(newPipelineQueueQuarantineShowCmd())

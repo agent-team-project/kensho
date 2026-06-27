@@ -250,6 +250,7 @@ agent-team job outbox quarantine drop squ-42 <path> --dry-run
 When a workflow owns the files, use pipeline-scoped recovery:
 
 ```sh
+agent-team pipeline outbox quarantine ticket_to_pr --summary --json
 agent-team pipeline outbox quarantine ticket_to_pr
 agent-team pipeline outbox quarantine ticket_to_pr --job SQU-42 --restorable
 agent-team pipeline outbox quarantine show ticket_to_pr <path>

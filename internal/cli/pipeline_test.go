@@ -8327,6 +8327,46 @@ target = "worker"
 		t.Fatalf("listed pipeline quarantined items = %s\nbody=%s", got, listOut.String())
 	}
 
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summaryBody queueQuarantineSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summaryBody); err != nil {
+		t.Fatalf("decode pipeline queue quarantine summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summaryBody.Quarantined != 3 || summaryBody.Restorable != 2 || summaryBody.Unrestorable != 1 || summaryBody.States[daemon.QueueStatePending] != 2 || summaryBody.States[daemon.QueueStateDead] != 1 || summaryBody.Jobs["squ-902"] != 2 || summaryBody.Jobs["squ-903"] != 1 {
+		t.Fatalf("pipeline queue quarantine summary = %+v", summaryBody)
+	}
+
+	summaryText := NewRootCmd()
+	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryText.SetOut(summaryTextOut)
+	summaryText.SetErr(summaryTextErr)
+	summaryText.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--restorable", "--summary"})
+	if err := summaryText.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine summary text: %v\nstderr=%s", err, summaryTextErr.String())
+	}
+	if got, want := summaryTextOut.String(), "queue quarantine: quarantined=2 restorable=2 unrestorable=0\n"; got != want {
+		t.Fatalf("pipeline queue quarantine summary text = %q, want %q", got, want)
+	}
+
+	invalidSummary := NewRootCmd()
+	invalidSummaryOut, invalidSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSummary.SetOut(invalidSummaryOut)
+	invalidSummary.SetErr(invalidSummaryErr)
+	invalidSummary.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--summary", "--limit", "1"})
+	if err := invalidSummary.Execute(); err == nil {
+		t.Fatalf("pipeline queue quarantine summary accepted --limit; stdout=%s stderr=%s", invalidSummaryOut.String(), invalidSummaryErr.String())
+	}
+	if !strings.Contains(invalidSummaryErr.String(), "--sort and --limit cannot be combined with --summary") {
+		t.Fatalf("pipeline queue quarantine summary invalid stderr = %q", invalidSummaryErr.String())
+	}
+
 	allList := NewRootCmd()
 	allListOut, allListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	allList.SetOut(allListOut)

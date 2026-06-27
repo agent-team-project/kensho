@@ -4643,6 +4643,7 @@ Flags:
       --sort string      Sort rows by path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
       --source strings   Filter by source agent/instance; repeat or comma-separate values.
       --state string     Filter by outbox state: pending, processed, or failed.
+      --summary          Show aggregate pipeline-owned quarantined outbox-file counts instead of rows.
       --type strings     Filter by event type; repeat or comma-separate values.
       --unrestorable     Only show quarantined files that cannot be restored.
 ```
@@ -4917,6 +4918,7 @@ Flags:
       --restorable           Only show quarantined files that can be restored.
       --sort string          Sort rows by path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size. (default "path")
       --state string         Filter by queue state: pending or dead.
+      --summary              Show aggregate pipeline-owned quarantined queue-file counts instead of rows.
       --unrestorable         Only show quarantined files that cannot be restored.
 ```
 

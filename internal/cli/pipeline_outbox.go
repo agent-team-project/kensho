@@ -438,6 +438,7 @@ func newPipelineOutboxQuarantineCmd() *cobra.Command {
 		all          bool
 		sortBy       string
 		limit        int
+		summary      bool
 		jsonOut      bool
 		format       string
 	)
@@ -462,6 +463,14 @@ func newPipelineOutboxQuarantineCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline outbox quarantine: --sort and --limit cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			sortMode, err := parseOutboxQuarantineSort(sortBy)
@@ -496,6 +505,9 @@ func newPipelineOutboxQuarantineCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			items = filterOutboxQuarantineRestorable(items, restorable, unrestorable)
+			if summary {
+				return renderOutboxQuarantineSummary(cmd.OutOrStdout(), summarizeOutboxQuarantineItems(items), jsonOut)
+			}
 			items = prepareOutboxQuarantineItems(items, sortMode, limit)
 			return renderOutboxQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
@@ -510,6 +522,7 @@ func newPipelineOutboxQuarantineCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "List quarantined outbox files across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().StringVar(&sortBy, "sort", "path", outboxQuarantineSortFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline-owned quarantined outbox-file counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned quarantined outbox files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned quarantined outbox file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	cmd.AddCommand(newPipelineOutboxQuarantineShowCmd())
