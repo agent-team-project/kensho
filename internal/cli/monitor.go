@@ -787,7 +787,7 @@ func renderMonitorSchedules(w io.Writer, snapshot *scheduleForecast) {
 		return
 	}
 	fmt.Fprintln(w)
-	_ = renderScheduleNextRows(w, snapshot.Rows, false, nil)
+	_ = renderScheduleNextRows(w, snapshot.Rows, false, nil, false)
 }
 
 func collectMonitorSnapshot(teamDir string, now time.Time, probe processStatsProbe, opts monitorOptions) (*monitorSnapshot, error) {

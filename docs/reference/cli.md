@@ -319,8 +319,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | Command | Purpose |
 | --- | --- |
 | `agent-team schedule ls` | List schedules |
-| `agent-team schedule due` | Show due schedules |
-| `agent-team schedule next` | Show upcoming schedules |
+| `agent-team schedule due` | Show due schedules; add `--commands` to print the dry-run fire preview command when anything is due |
+| `agent-team schedule next` | Show upcoming schedules; add `--commands` to print the dry-run fire preview command when the forecast includes due work |
 | `agent-team schedule fire` | Fire due schedules; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
 | `agent-team schedule run <name>` | Publish one schedule event; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
 | `agent-team intake linear` | Normalize Linear payload |

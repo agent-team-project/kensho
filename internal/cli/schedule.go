@@ -116,9 +116,10 @@ func newScheduleShowCmd() *cobra.Command {
 
 func newScheduleDueCmd() *cobra.Command {
 	var (
-		repo    string
-		jsonOut bool
-		format  string
+		repo     string
+		jsonOut  bool
+		format   string
+		commands bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -126,6 +127,14 @@ func newScheduleDueCmd() *cobra.Command {
 		Short: "List schedules due now.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule due: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule due: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule due: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -145,21 +154,23 @@ func newScheduleDueCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			rows := dueScheduleRows(schedules, time.Now().UTC())
-			return renderScheduleDueRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+			return renderScheduleDueRows(cmd.OutOrStdout(), rows, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit due schedules as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only the due schedule preview command, one per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.")
 	return cmd
 }
 
 func newScheduleNextCmd() *cobra.Command {
 	var (
-		repo    string
-		jsonOut bool
-		format  string
-		limit   int
+		repo     string
+		jsonOut  bool
+		format   string
+		limit    int
+		commands bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -167,6 +178,14 @@ func newScheduleNextCmd() *cobra.Command {
 		Short: "List declared schedules ordered by next run.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule next: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule next: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule next: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -190,11 +209,12 @@ func newScheduleNextCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			rows := nextScheduleRows(schedules, time.Now().UTC(), limit)
-			return renderScheduleNextRows(cmd.OutOrStdout(), rows, jsonOut, tmpl)
+			return renderScheduleNextRows(cmd.OutOrStdout(), rows, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schedule forecast rows as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only due schedule preview commands, one per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each forecast row with a Go template, e.g. '{{.Name}} {{.Due}} {{.NextRun}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many schedules after ordering; 0 means all.")
 	return cmd
@@ -705,9 +725,12 @@ func parseScheduleDueFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func renderScheduleDueRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl *template.Template) error {
+func renderScheduleDueRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl *template.Template, commands bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
+	}
+	if commands {
+		return renderScheduleDueCommands(w, rows)
 	}
 	if tmpl != nil {
 		for _, row := range rows {
@@ -734,9 +757,12 @@ func renderScheduleDueRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl 
 	return nil
 }
 
-func renderScheduleNextRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl *template.Template) error {
+func renderScheduleNextRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl *template.Template, commands bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
+	}
+	if commands {
+		return renderScheduleDueCommands(w, rows)
 	}
 	if tmpl != nil {
 		for _, row := range rows {
@@ -764,6 +790,17 @@ func renderScheduleNextRows(w io.Writer, rows []scheduleInfo, jsonOut bool, tmpl
 			row.Name, row.Every, yesNo(row.Due), reason, scheduleTime(row.NextRun), scheduleTime(row.LastFiredAt), summariseSchedulePayload(row.Payload))
 	}
 	_ = tw.Flush()
+	return nil
+}
+
+func renderScheduleDueCommands(w io.Writer, rows []scheduleInfo) error {
+	for _, row := range rows {
+		if !row.Due {
+			continue
+		}
+		_, err := fmt.Fprintln(w, "agent-team schedule fire --dry-run --preview-triggers")
+		return err
+	}
 	return nil
 }
 

@@ -279,6 +279,18 @@ func TestScheduleDueListsRunOnStartAndInterval(t *testing.T) {
 	if got := strings.Split(strings.TrimSpace(formatOut.String()), "\n"); strings.Join(got, ",") != "hourly interval,nightly run_on_start" {
 		t.Fatalf("formatted due rows = %q", formatOut.String())
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"schedule", "due", "--repo", tmp, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("schedule due commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := strings.TrimSpace(commandsOut.String()), "agent-team schedule fire --dry-run --preview-triggers"; got != want {
+		t.Fatalf("schedule due commands = %q, want %q", got, want)
+	}
 }
 
 func TestScheduleNextOrdersDueUpcomingAndLimit(t *testing.T) {
@@ -326,6 +338,65 @@ func TestScheduleNextOrdersDueUpcomingAndLimit(t *testing.T) {
 	}
 	if strings.TrimSpace(formatOut.String()) != "nightly run_on_start" {
 		t.Fatalf("formatted limited next rows = %q", formatOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"schedule", "next", "--repo", tmp, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("schedule next commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := strings.TrimSpace(commandsOut.String()), "agent-team schedule fire --dry-run --preview-triggers"; got != want {
+		t.Fatalf("schedule next commands = %q, want %q", got, want)
+	}
+}
+
+func TestScheduleDueNextCommandsRejectStructuredOutput(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "due-json",
+			args: []string{"schedule", "due", "--repo", tmp, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "due-format",
+			args: []string{"schedule", "due", "--repo", tmp, "--commands", "--format", "{{.Name}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "next-json",
+			args: []string{"schedule", "next", "--repo", tmp, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "next-format",
+			args: []string{"schedule", "next", "--repo", tmp, "--commands", "--format", "{{.Name}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("%s succeeded unexpectedly: stdout=%s", tc.name, out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+			}
+		})
 	}
 }
 

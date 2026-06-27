@@ -6621,6 +6621,7 @@ agent-team schedule due [flags]
 Flags:
 
 ```text
+      --commands        Print only the due schedule preview command, one per line.
       --format string   Render each due schedule with a Go template, e.g. '{{.Name}} {{.DueReason}}'.
       --json            Emit due schedules as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
@@ -6679,6 +6680,7 @@ agent-team schedule next [flags]
 Flags:
 
 ```text
+      --commands        Print only due schedule preview commands, one per line.
       --format string   Render each forecast row with a Go template, e.g. '{{.Name}} {{.Due}} {{.NextRun}}'.
       --json            Emit schedule forecast rows as JSON.
       --limit int       Show at most this many schedules after ordering; 0 means all.
