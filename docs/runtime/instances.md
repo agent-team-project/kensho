@@ -95,11 +95,16 @@ If the instance is declared in `instances.toml`, `--agent` is inferred. Include
 managed-resume attempts to have the session identifier available. Use
 `--pid-file <path>` when the PID comes from a service manager, wrapper, or
 existing runtime pidfile.
+Text and JSON adoption results include follow-up actions such as `inspect`,
+`logs --follow`, and `resume-plan`; Codex adoptions also include
+`logs --last-message`.
 
 Add `--job <id>` when the external process owns a durable job. If that job file
 exists, adoption records the instance, branch, PR, running status, and an
 `adopted` audit event on the job so `job show`, `job logs`, and scoped triage
-commands immediately point at the recovered process.
+commands immediately point at the recovered process. Job-owned adoption results
+also include the matching `job show`, `job logs`, and `job resume-plan`
+follow-up actions.
 
 `agent-team runtime adopt` and `agent-team daemon adopt` are the same metadata
 operation from narrower namespaces. Use `agent-team job adopt <job-id> --pid

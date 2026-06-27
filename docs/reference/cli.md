@@ -40,7 +40,7 @@ as the output directory instead.
 | `agent-team runtime profile` | Explicit profile view, with `show` as a shorter alias |
 | `agent-team runtime ls` | List supported runtime profiles, availability, and capabilities |
 | `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, Codex socket reachability with `--exec-socket-check`, loopback HTTP reachability with `--exec-http-check`, and write diagnostics with `--output`; aliases: `doctor`, `check` |
-| `agent-team adopt <instance>` | Adopt a live external runtime process into daemon metadata; `runtime adopt` remains available |
+| `agent-team adopt <instance>` | Adopt a live external runtime process into daemon metadata and return follow-up actions; `runtime adopt` remains available |
 | `agent-team resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print one command per line with `--commands`, or summarize with `--summary`; `runtime resume-plan` remains available |
 
 ## Instance Lifecycle
@@ -231,7 +231,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline reject <pipeline>` | Reject blocked manual gates |
 | `agent-team pipeline skip <pipeline> --step <id>` | Mark matching non-running steps intentionally skipped |
 | `agent-team pipeline cancel <pipeline>` | Cancel non-terminal pipeline jobs without stopping instances |
-| `agent-team pipeline adopt <pipeline> <job-id>` | Adopt a live external process for a job after verifying pipeline ownership |
+| `agent-team pipeline adopt <pipeline> <job-id>` | Adopt a live external process for a job after verifying pipeline ownership; output includes scoped follow-up actions |
 | `agent-team pipeline resume-plan [<pipeline>]` | Pipeline-owned runtime recovery commands across all workflows by default; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print one command per line with `--commands`, or summarize with `--summary` |
 | `agent-team pipeline send <pipeline>` | Send a mailbox message to pipeline-owned daemon-known instances |
 | `agent-team pipeline ps [<pipeline>\|--all]` | List daemon-aware instance rows for pipeline-owned jobs across all workflows by default |
@@ -308,7 +308,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team reject <team>` | Scoped manual-gate rejection |
 | `agent-team team skip <team> --step <id>` | Scoped intentional step skip |
 | `agent-team team cancel <team>` | Cancel non-terminal team pipeline jobs without stopping instances |
-| `agent-team team adopt <team> <job-id>` | Adopt a live external process for a job after verifying team ownership |
+| `agent-team team adopt <team> <job-id>` | Adopt a live external process for a job after verifying team ownership; output includes scoped follow-up actions |
 | `agent-team team retry <team>` | Scoped failed-step retry, honoring step `max_attempts` caps; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware recovery handoff |
 | `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
 | `agent-team team snapshot <team>` | Scoped diagnostic artifact with command provenance, queue/outbox quarantine inventory, and formatted summary fields |

@@ -78,12 +78,16 @@ wrapper already writes the live runtime PID to disk.
 Adoption writes `.agent_team/daemon/<instance>/meta.json`, appends an `adopt`
 lifecycle event, and asks a running daemon to reconcile so `ps`, `inspect`,
 `monitor`, `stop`, and `health` see the process immediately.
+Adoption output includes an `actions` list with the inspect, log, and
+resume-plan commands to run next. For Codex-owned metadata, that list also
+includes the clean `logs --last-message` path.
 
 When `--job <id>` points at an existing durable job, adoption defaults the
 agent, ticket, branch, PR, and workspace from that job. It also updates the job
 with the adopted instance and running status, then appends an `adopted` job
 audit event. Dry-runs include the planned job update in JSON without writing
-metadata or the job file.
+metadata or the job file, and job-owned adoption output adds job-scoped
+`show`, `logs`, and `resume-plan` follow-up actions.
 
 `agent-team runtime adopt` and `agent-team daemon adopt` expose the same
 operation from narrower operator namespaces.

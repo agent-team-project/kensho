@@ -14,6 +14,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -46,6 +47,7 @@ type daemonAdoptResult struct {
 	Reconciled bool             `json:"reconciled,omitempty"`
 	JobChanged bool             `json:"job_changed,omitempty"`
 	Message    string           `json:"message,omitempty"`
+	Actions    []string         `json:"actions,omitempty"`
 	Metadata   *daemon.Metadata `json:"metadata"`
 	Job        *job.Job         `json:"job,omitempty"`
 }
@@ -301,6 +303,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 		Action:   "adopt",
 		Changed:  changed,
 		DryRun:   opts.DryRun,
+		Actions:  daemonAdoptFollowUpActions(meta),
 		Metadata: meta,
 	}
 	if meta != nil {
@@ -563,5 +566,44 @@ func renderDaemonAdoptResult(w fmtWriter, result daemonAdoptResult, opts daemonA
 			result.Job.Instance,
 		)
 	}
+	if len(result.Actions) > 0 {
+		label := "next"
+		if result.DryRun {
+			label = "after apply"
+		}
+		fmt.Fprintf(w, "%s:\n", label)
+		for _, action := range result.Actions {
+			fmt.Fprintf(w, "  %s\n", action)
+		}
+	}
 	return nil
+}
+
+func daemonAdoptFollowUpActions(meta *daemon.Metadata) []string {
+	if meta == nil {
+		return nil
+	}
+	var actions []string
+	instance := strings.TrimSpace(meta.Instance)
+	if instance != "" {
+		actions = append(actions,
+			"agent-team inspect "+instance,
+			"agent-team logs "+instance+" --follow",
+		)
+		if strings.TrimSpace(meta.Runtime) == string(runtimebin.KindCodex) {
+			actions = append(actions, "agent-team logs "+instance+" --last-message")
+		}
+		actions = append(actions, "agent-team resume-plan "+instance)
+	}
+	if id := job.NormalizeID(meta.Job); id != "" {
+		actions = append(actions,
+			"agent-team job show "+id,
+			"agent-team job logs "+id+" --follow",
+		)
+		if strings.TrimSpace(meta.Runtime) == string(runtimebin.KindCodex) {
+			actions = append(actions, "agent-team job logs "+id+" --last-message")
+		}
+		actions = append(actions, "agent-team job resume-plan "+id)
+	}
+	return actions
 }

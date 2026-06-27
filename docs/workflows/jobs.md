@@ -252,6 +252,9 @@ are starting from an instance PID instead of a job; `runtime adopt` and
 `daemon adopt` remain available from narrower namespaces. When the job belongs
 to a declared pipeline and you want that ownership checked before metadata is
 written, use `agent-team pipeline adopt <pipeline> <job-id> --step <id>`.
+Adoption text and JSON include follow-up actions for `inspect`, `logs`, and
+`resume-plan`; job-owned adoption also includes the matching job-scoped
+commands so scripts can continue from the durable work unit.
 
 ## Blocking And Unblocking Jobs
 

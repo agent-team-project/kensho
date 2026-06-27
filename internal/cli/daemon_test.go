@@ -246,6 +246,15 @@ agent = "manager"
 	if result.Metadata.Instance != "manager" || result.Metadata.Agent != "manager" || result.Metadata.Status != daemon.StatusRunning || !result.Metadata.Adopted {
 		t.Fatalf("adopt metadata = %+v", result.Metadata)
 	}
+	for _, want := range []string{
+		"agent-team inspect manager",
+		"agent-team logs manager --follow",
+		"agent-team resume-plan manager",
+	} {
+		if !containsString(result.Actions, want) {
+			t.Fatalf("adopt actions = %+v, missing %q", result.Actions, want)
+		}
+	}
 	absTmp, err := filepath.Abs(tmp)
 	if err != nil {
 		t.Fatalf("Abs(tmp): %v", err)
@@ -290,6 +299,31 @@ func TestDaemonAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	}
 }
 
+func TestDaemonAdoptDryRunTextPrintsFollowUpActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt --dry-run text: %v", err)
+	}
+	for _, want := range []string{
+		"would adopt external-worker",
+		"after apply:",
+		"agent-team inspect external-worker",
+		"agent-team logs external-worker --follow",
+		"agent-team resume-plan external-worker",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("adopt dry-run text missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -298,7 +332,7 @@ func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"runtime", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
+	cmd.SetArgs([]string{"runtime", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--runtime", "codex", "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime adopt --dry-run: %v", err)
 	}
@@ -311,6 +345,9 @@ func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	}
 	if result.Metadata.Instance != "external-worker" || result.Metadata.Agent != "worker" {
 		t.Fatalf("runtime adopt metadata = %+v", result.Metadata)
+	}
+	if result.Metadata.Runtime != "codex" || !containsString(result.Actions, "agent-team logs external-worker --last-message") {
+		t.Fatalf("runtime adopt codex actions = %+v metadata=%+v", result.Actions, result.Metadata)
 	}
 	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(filepath.Join(tmp, ".agent_team")), "external-worker"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata should not exist after dry-run: %v", err)
@@ -439,6 +476,18 @@ func TestDaemonAdoptUpdatesOwningJob(t *testing.T) {
 	}
 	if result.Job.Status != job.StatusRunning || result.Job.Instance != "worker-squ-66" || result.Job.Branch != "squ-66-adopted" || result.Job.PR != "https://github.com/example/repo/pull/66" || result.Job.LastEvent != "adopted" {
 		t.Fatalf("adopted job result = %+v", result.Job)
+	}
+	for _, want := range []string{
+		"agent-team inspect worker-squ-66",
+		"agent-team logs worker-squ-66 --follow",
+		"agent-team resume-plan worker-squ-66",
+		"agent-team job show squ-66",
+		"agent-team job logs squ-66 --follow",
+		"agent-team job resume-plan squ-66",
+	} {
+		if !containsString(result.Actions, want) {
+			t.Fatalf("job adopt actions = %+v, missing %q", result.Actions, want)
+		}
 	}
 	updated, err := job.Read(teamDir, "squ-66")
 	if err != nil {
