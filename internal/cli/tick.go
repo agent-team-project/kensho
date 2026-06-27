@@ -512,10 +512,8 @@ func runTickLoop(ctx context.Context, cmd *cobra.Command, teamDir, workspace str
 			return err
 		}
 		first = false
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }

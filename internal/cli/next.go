@@ -523,13 +523,11 @@ func runNextWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*ov
 		if err := renderNextActionResult(w, nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, showDetails); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

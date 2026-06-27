@@ -1084,13 +1084,11 @@ func runStatusSummaryWatchWithOptions(ctx context.Context, w io.Writer, teamDir 
 			}
 			renderStatusSummarySnapshot(w, snapshot)
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -1118,13 +1116,11 @@ func runStatusWatchWithClear(ctx context.Context, w fmtWriter, teamDir string, i
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

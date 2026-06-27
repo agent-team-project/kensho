@@ -276,13 +276,11 @@ func runHealthWatchWithClear(ctx context.Context, w io.Writer, teamDir string, i
 			}
 			renderHealth(w, result)
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -301,10 +299,8 @@ func runHealthFormatWatch(ctx context.Context, w io.Writer, teamDir string, inte
 		if err := renderHealthFormat(w, result, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }

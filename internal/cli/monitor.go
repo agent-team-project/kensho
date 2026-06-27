@@ -317,6 +317,25 @@ func writeWatchClear(w io.Writer, clear bool) error {
 	return err
 }
 
+func waitForWatchTick(ctx context.Context, ticks <-chan time.Time) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-ticks:
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	default:
+		return true
+	}
+}
+
 func runMonitorWatch(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, probe processStatsProbe, jsonOut bool, opts monitorOptions, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -340,13 +359,11 @@ func runMonitorWatch(ctx context.Context, w io.Writer, teamDir string, interval 
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -365,10 +382,8 @@ func runMonitorFormatWatch(ctx context.Context, w io.Writer, teamDir string, int
 		if err := renderMonitorFormat(w, snapshot, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }
@@ -396,13 +411,11 @@ func runTeamMonitorWatch(ctx context.Context, w io.Writer, teamDir, name string,
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -421,10 +434,8 @@ func runTeamMonitorFormatWatch(ctx context.Context, w io.Writer, teamDir, name s
 		if err := renderMonitorFormat(w, snapshot, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }
@@ -471,13 +482,11 @@ func runMonitorSummaryWatch(ctx context.Context, w io.Writer, teamDir string, in
 			}
 			renderMonitorSummarySnapshot(w, snapshot)
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

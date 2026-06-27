@@ -1164,13 +1164,11 @@ func runOverviewWatch(ctx context.Context, w io.Writer, collect func(time.Time) 
 		if err := renderOverview(w, result, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

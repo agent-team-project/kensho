@@ -2376,13 +2376,11 @@ func runJobPsWatch(ctx context.Context, w io.Writer, teamDir string, j *job.Job,
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -2406,13 +2404,11 @@ func runJobPsSummaryWatch(ctx context.Context, w io.Writer, teamDir string, j *j
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -2427,10 +2423,8 @@ func runJobPsFormatWatch(ctx context.Context, w io.Writer, teamDir string, j *jo
 		if err := runJobPsFormat(w, teamDir, j, stepID, now(), opts, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }
@@ -5971,10 +5965,8 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 		events, err := job.ListEvents(teamDir, id)
 		if err != nil {
@@ -6547,13 +6539,11 @@ func runJobSummaryWatch(ctx context.Context, w io.Writer, teamDir string, filter
 		if err := runJobSummary(w, teamDir, filters, jsonOut); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6741,13 +6731,11 @@ func runJobTriageWatch(ctx context.Context, w io.Writer, teamDir string, staleAf
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -7481,13 +7469,11 @@ func runJobReadyWatch(ctx context.Context, w io.Writer, teamDir string, opts job
 		if err := runJobReady(w, teamDir, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -7761,13 +7747,11 @@ func runJobListWatch(ctx context.Context, w io.Writer, teamDir string, filters j
 		if err := runJobList(w, teamDir, filters, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -8355,13 +8339,11 @@ func runJobQueueListWatch(ctx context.Context, w io.Writer, teamDir string, j *j
 		if err := runJobQueueList(w, teamDir, j, filters, opts, false, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -8381,13 +8363,11 @@ func runJobQueueSummaryWatch(ctx context.Context, w io.Writer, teamDir string, j
 		if err := runJobQueueList(w, teamDir, j, filters, queueListOptions{}, true, jsonOut, nil); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -10542,13 +10522,11 @@ func runJobExplainWatch(ctx context.Context, w io.Writer, teamDir, id string, st
 		if err := runJobExplain(w, teamDir, id, stateFilter, step, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

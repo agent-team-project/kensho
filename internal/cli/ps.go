@@ -199,13 +199,11 @@ func runPsWatchFiltered(ctx context.Context, w io.Writer, teamDir string, interv
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -315,13 +313,11 @@ func runPsSummaryWatchWithClear(ctx context.Context, w io.Writer, teamDir string
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -343,10 +339,8 @@ func runPsFormatWatchWithClear(ctx context.Context, w io.Writer, teamDir string,
 		if err := runPsFormatWithOptions(w, teamDir, now(), opts, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }

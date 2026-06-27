@@ -514,13 +514,11 @@ func runStatsWatchWithClear(ctx context.Context, w io.Writer, lister instanceLis
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -542,10 +540,8 @@ func runStatsFormatWatchWithClear(ctx context.Context, w io.Writer, lister insta
 		if err := runStatsFormat(w, lister, names, opts, now(), probe, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }
@@ -573,13 +569,11 @@ func runStatsSummaryWatchWithClear(ctx context.Context, w io.Writer, lister inst
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

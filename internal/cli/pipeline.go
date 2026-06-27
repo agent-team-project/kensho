@@ -1807,13 +1807,11 @@ func runPipelineReadyWatch(ctx context.Context, w io.Writer, teamDir, pipeline s
 		if err := runPipelineReady(w, teamDir, pipeline, allPipelines, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6169,13 +6167,11 @@ func runPipelineTriageWatch(ctx context.Context, w io.Writer, teamDir, pipeline 
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6628,13 +6624,11 @@ func runPipelineQueueListWatch(ctx context.Context, w io.Writer, teamDir, pipeli
 		if err := runPipelineQueueList(w, teamDir, pipeline, filters, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6654,13 +6648,11 @@ func runPipelineQueueSummaryWatch(ctx context.Context, w io.Writer, teamDir, pip
 		if err := runPipelineQueueSummary(w, teamDir, pipeline, filters, jsonOut); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6960,13 +6952,11 @@ func runPipelinePsWatch(ctx context.Context, w io.Writer, teamDir, pipeline stri
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -6990,13 +6980,11 @@ func runPipelinePsSummaryWatch(ctx context.Context, w io.Writer, teamDir, pipeli
 				return err
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -7011,10 +6999,8 @@ func runPipelinePsFormatWatch(ctx context.Context, w io.Writer, teamDir, pipelin
 		if err := runPipelinePsFormat(w, teamDir, pipeline, now(), opts, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 	}
 }
@@ -9573,13 +9559,11 @@ func runPipelineStatusWatch(ctx context.Context, w io.Writer, teamDir, pipeline,
 		if err := runPipelineStatus(w, teamDir, pipeline, sortMode, limit, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -9860,13 +9844,11 @@ func runPipelineExplainWatch(ctx context.Context, w io.Writer, teamDir, pipeline
 		if err := runPipelineExplain(w, teamDir, pipeline, limit, stateFilter, step, sortMode, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -10005,13 +9987,11 @@ func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, t
 		if err := runPipelineNext(w, teamDir, pipeline, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

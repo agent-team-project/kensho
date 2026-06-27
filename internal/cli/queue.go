@@ -1274,13 +1274,11 @@ func runQueueSummaryWatch(ctx context.Context, w io.Writer, teamDir string, filt
 		if err := runQueueSummary(w, teamDir, filters, jsonOut); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -1572,13 +1570,11 @@ func runQueueListWatch(ctx context.Context, w io.Writer, teamDir string, filters
 		if err := runQueueList(w, teamDir, filters, opts, jsonOut, tmpl); err != nil {
 			return err
 		}
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
-			if !jsonOut && !clear {
-				fmt.Fprintln(w)
-			}
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }

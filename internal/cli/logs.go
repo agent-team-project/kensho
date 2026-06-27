@@ -1318,10 +1318,8 @@ func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, 
 	defer ticker.Stop()
 	buf := make([]byte, 32*1024)
 	for {
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 		for {
 			n, rerr := f.Read(buf)
@@ -1410,10 +1408,8 @@ func followCleanLogLines(ctx context.Context, w io.Writer, f *os.File) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
-		case <-ticker.C:
 		}
 		for {
 			line, err := reader.ReadString('\n')
