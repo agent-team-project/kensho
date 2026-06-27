@@ -3212,6 +3212,7 @@ Aliases: `inspect`
 Flags:
 
 ```text
+      --commands        Print only recommended follow-up commands.
       --events string   Include the last N job events in the detail output, or all. (default "5")
       --format string   Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json            Emit the job as JSON.

@@ -1318,6 +1318,7 @@ func newJobShowCmd() *cobra.Command {
 		eventsTail string
 		jsonOut    bool
 		format     string
+		commands   bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1329,6 +1330,18 @@ func newJobShowCmd() *cobra.Command {
 			includeEvents := cmd.Flags().Changed("events")
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && includeEvents {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --commands cannot be combined with --events.")
 				return exitErr(2)
 			}
 			if includeEvents && format != "" {
@@ -1352,12 +1365,13 @@ func newJobShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail)
+			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, commands)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&eventsTail, "events", "5", "Include the last N job events in the detail output, or all.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
@@ -11586,7 +11600,7 @@ type jobShowResult struct {
 	Events []job.Event `json:"events"`
 }
 
-func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int) error {
+func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, commandsOut bool) error {
 	if jsonOut || tmpl != nil {
 		if jsonOut && includeEvents {
 			events, err := job.ListEvents(teamDir, j.ID)
@@ -11619,6 +11633,10 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 	statusPreviews, err := statusPreviewsForJob(teamDir, j)
 	if err != nil {
 		return err
+	}
+	if commandsOut {
+		actions := jobDetailActions(j, teamDir, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems, time.Now().UTC())
+		return renderActionCommands(w, commandActionsOnly(actions))
 	}
 	renderJobDetailWithRuntime(w, teamDir, j, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems)
 	if includeEvents {

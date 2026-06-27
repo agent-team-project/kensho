@@ -387,6 +387,18 @@ func TestJobCreateListShowClose(t *testing.T) {
 		t.Fatalf("job show missing kickoff:\n%s", showOut.String())
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "show", "SQU-42", "--repo", tmp, "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job show --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), "agent-team job dispatch squ-42\n"; got != want {
+		t.Fatalf("job show --commands = %q, want %q", got, want)
+	}
+
 	closeCmd := NewRootCmd()
 	closeOut, closeErr := &bytes.Buffer{}, &bytes.Buffer{}
 	closeCmd.SetOut(closeOut)
@@ -465,6 +477,35 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if got := strings.TrimSpace(tailOut.String()); got != "closed done" {
 		t.Fatalf("tail output = %q", got)
+	}
+}
+
+func TestJobShowCommandsRenderValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"job", "show", "squ-42", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "show", "squ-42", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "show", "squ-42", "--commands", "--events", "all"}, "--commands cannot be combined with --events"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v unexpectedly succeeded", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
 	}
 }
 
