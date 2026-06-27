@@ -2494,6 +2494,98 @@ pipelines = ["ticket_to_pr"]
 	if !strings.Contains(invalidReasonErr.String(), "--reason requires") {
 		t.Fatalf("invalid reason stderr = %q stdout=%q", invalidReasonErr.String(), invalidReasonOut.String())
 	}
+
+	invalidSort := NewRootCmd()
+	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSort.SetOut(invalidSortOut)
+	invalidSort.SetErr(invalidSortErr)
+	invalidSort.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--sort", "age"})
+	if err := invalidSort.Execute(); err == nil {
+		t.Fatalf("pipeline next invalid sort succeeded")
+	}
+	if !strings.Contains(invalidSortErr.String(), "--sort must be declared") {
+		t.Fatalf("invalid sort stderr = %q stdout=%q", invalidSortErr.String(), invalidSortOut.String())
+	}
+}
+
+func TestPipelineNextSortsPipelinesBeforeActionLimit(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "audit"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-721",
+			Ticket:    "SQU-721",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+		{
+			ID:        "ops-721",
+			Ticket:    "OPS-721",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "audit", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+		{
+			ID:        "ops-722",
+			Ticket:    "OPS-722",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusFailed,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "audit", Target: "worker", Status: job.StatusFailed},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "next", "--repo", root, "--sort", "failed", "--limit", "1", "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline next sort: %v\nstderr=%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "ops_review|failed_steps=2|agent-team pipeline retry ops_review --dry-run --dispatch --preview-routes"; got != want {
+		t.Fatalf("pipeline next sort = %q, want %q", got, want)
+	}
 }
 
 func TestPipelineStatusSurfacesQueueState(t *testing.T) {

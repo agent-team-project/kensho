@@ -672,6 +672,7 @@ func newPipelineNextCmd() *cobra.Command {
 		watch    bool
 		noClear  bool
 		interval time.Duration
+		sortBy   string
 		reasons  []string
 		jsonOut  bool
 		format   string
@@ -703,6 +704,11 @@ func newPipelineNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline next: --interval must be >= 0.")
 				return exitErr(2)
 			}
+			sortMode, err := parsePipelineStatusSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
+				return exitErr(2)
+			}
 			reasonFilters, err := parsePipelineNextReasonFilters(reasons)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
@@ -728,9 +734,9 @@ func newPipelineNextCmd() *cobra.Command {
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				return runPipelineNextWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, teamName, limit, reasonFilters, jsonOut, tmpl, interval, !noClear && !jsonOut)
+				return runPipelineNextWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err := runPipelineNext(cmd.OutOrStdout(), teamDir, pipelineName, teamName, limit, reasonFilters, jsonOut, tmpl); err != nil {
+			if err := runPipelineNext(cmd.OutOrStdout(), teamDir, pipelineName, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline next: %v\n", err)
 				return exitErr(1)
 			}
@@ -744,6 +750,7 @@ func newPipelineNextCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh recommended pipeline actions until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
+	cmd.Flags().StringVar(&sortBy, "sort", "declared", "Sort pipelines before selecting actions by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, or quarantined.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit recommended actions as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.")
@@ -9821,7 +9828,7 @@ func renderPipelineNextActions(w io.Writer, actions []pipelineNextAction, jsonOu
 	return nil
 }
 
-func runPipelineNext(w io.Writer, teamDir, pipeline, teamName string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template) error {
+func runPipelineNext(w io.Writer, teamDir, pipeline, teamName, sortMode string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template) error {
 	var (
 		rows []pipelineStatusRow
 		err  error
@@ -9837,10 +9844,11 @@ func runPipelineNext(w io.Writer, teamDir, pipeline, teamName string, limit int,
 	if err != nil {
 		return err
 	}
+	sortPipelineStatusRows(rows, sortMode)
 	return renderPipelineNextActions(w, pipelineNextActionsFromStatus(rows, limit, reasonFilters), jsonOut, tmpl)
 }
 
-func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, teamName string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, teamName, sortMode string, limit int, reasonFilters []string, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -9852,7 +9860,7 @@ func runPipelineNextWatch(ctx context.Context, w io.Writer, teamDir, pipeline, t
 				return err
 			}
 		}
-		if err := runPipelineNext(w, teamDir, pipeline, teamName, limit, reasonFilters, jsonOut, tmpl); err != nil {
+		if err := runPipelineNext(w, teamDir, pipeline, teamName, sortMode, limit, reasonFilters, jsonOut, tmpl); err != nil {
 			return err
 		}
 		select {
