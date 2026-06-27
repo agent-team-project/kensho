@@ -183,6 +183,42 @@ func TestNextCommandFormat(t *testing.T) {
 	}
 }
 
+func TestNextCommandSortsActionsBeforeLimit(t *testing.T) {
+	root := writeOverviewAttentionFixture(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"next", "--target", root, "--sort", "command", "--limit", "1", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("next sort command json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	var result nextActionResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode next sort command json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.Actions) != 1 || result.Actions[0] != "agent-team daemon start" || result.HiddenActions == 0 {
+		t.Fatalf("sorted result = %+v, want daemon start first with hidden actions", result)
+	}
+	if len(result.ActionDetails) != 1 || result.ActionDetails[0].Command != result.Actions[0] || result.ActionDetails[0].Source != "health" {
+		t.Fatalf("sorted detail = %+v, want aligned health detail", result.ActionDetails)
+	}
+
+	team := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	team.SetOut(teamOut)
+	team.SetErr(teamErr)
+	team.SetArgs([]string{"team", "next", "delivery", "--repo", root, "--sort", "source", "--limit", "1", "--details"})
+	if err := team.Execute(); err != nil {
+		t.Fatalf("team next sort source text: %v\nstderr=%s", err, teamErr.String())
+	}
+	if !strings.Contains(teamOut.String(), "[health/daemon_not_running] agent-team daemon start") || !strings.Contains(teamOut.String(), "... ") {
+		t.Fatalf("team next sort source output:\n%s", teamOut.String())
+	}
+}
+
 func TestTeamNextCommandFormat(t *testing.T) {
 	root := writeOverviewAttentionFixture(t)
 
@@ -455,9 +491,19 @@ func TestNextCommandFormatValidation(t *testing.T) {
 			want: "--reason requires",
 		},
 		{
+			name: "next-invalid-sort",
+			args: []string{"next", "--sort", "age"},
+			want: "--sort must be default",
+		},
+		{
 			name: "team-next-invalid-source",
 			args: []string{"team", "next", "delivery", "--source", "unknown"},
 			want: "unknown --source",
+		},
+		{
+			name: "team-next-invalid-sort",
+			args: []string{"team", "next", "delivery", "--sort", "age"},
+			want: "--sort must be default",
 		},
 	}
 	for _, tc := range cases {
@@ -615,7 +661,7 @@ func TestNextWatchRendersUntilContextDone(t *testing.T) {
 			CapturedAt: now.UTC().Format(time.RFC3339),
 			Actions:    []string{"agent-team queue drain --dry-run"},
 		}, nil
-	}, 0, nextActionFilters{}, false, nil, false, time.Millisecond, false)
+	}, "", 0, nextActionFilters{}, false, nil, false, time.Millisecond, false)
 	if err != nil {
 		t.Fatalf("runNextWatch: %v", err)
 	}

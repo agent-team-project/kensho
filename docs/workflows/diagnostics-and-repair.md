@@ -70,8 +70,10 @@ agent-team next
 agent-team next --team delivery
 agent-team next --source queue
 agent-team next --reason dead
+agent-team next --sort source --limit 10
 agent-team next --source jobs --reason stale_running
 agent-team team next delivery
+agent-team team next delivery --sort command --limit 5
 agent-team team next delivery --source jobs --reason stale_running
 ```
 
@@ -83,7 +85,9 @@ strings.
 Use `--source` to narrow recommendations to one subsystem such as `queue`,
 `jobs`, `runtime`, or `pipelines`. Use `--reason` when an automation only wants a
 specific trigger; values match exactly, or as prefixes before `=`, so
-`--reason dead` matches a detail reason like `dead=2`.
+`--reason dead` matches a detail reason like `dead=2`. Use `--sort source`,
+`--sort reason`, or `--sort command` before `--limit` when a script needs stable
+grouped recommendations.
 When outstanding queue, schedule, status, or ready pipeline work can be drained,
 overview adds `agent-team drain` (or `agent-team team drain <team>`). Filter that
 shortcut with `agent-team next --source overview --reason drainable_work`.

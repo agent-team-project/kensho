@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -20,6 +21,7 @@ func newNextCmd() *cobra.Command {
 		teamName      string
 		limit         int
 		scheduleLimit int
+		sortBy        string
 		sources       []string
 		reasons       []string
 		details       bool
@@ -49,6 +51,11 @@ func newNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team next: --schedule-limit must be >= 0.")
 				return exitErr(2)
 			}
+			sortMode, err := parseNextActionSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team next: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -76,7 +83,7 @@ func newNextCmd() *cobra.Command {
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, limit, filters, jsonOut, tmpl, details, interval, !noClear && !jsonOut); err != nil {
+				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, sortMode, limit, filters, jsonOut, tmpl, details, interval, !noClear && !jsonOut); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
 					return exitErr(1)
 				}
@@ -87,13 +94,14 @@ func newNextCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
 				return exitErr(1)
 			}
-			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFiltered(overview, limit, filters), jsonOut, tmpl, details)
+			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, details)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Scope recommendations to this declared team.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
+	cmd.Flags().StringVar(&sortBy, "sort", "default", "Sort actions before applying --limit by default, source, reason, or command.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
@@ -110,6 +118,7 @@ func newTeamNextCmd() *cobra.Command {
 		repo          string
 		limit         int
 		scheduleLimit int
+		sortBy        string
 		sources       []string
 		reasons       []string
 		details       bool
@@ -138,6 +147,11 @@ func newTeamNextCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team next: --schedule-limit must be >= 0.")
 				return exitErr(2)
 			}
+			sortMode, err := parseNextActionSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team next: %v\n", err)
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team next: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -163,7 +177,7 @@ func newTeamNextCmd() *cobra.Command {
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, limit, filters, jsonOut, tmpl, details, interval, !noClear && !jsonOut); err != nil {
+				if err := runNextWatch(ctx, cmd.OutOrStdout(), collect, sortMode, limit, filters, jsonOut, tmpl, details, interval, !noClear && !jsonOut); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team next: %v\n", err)
 					return exitErr(1)
 				}
@@ -174,12 +188,13 @@ func newTeamNextCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team next: %v\n", err)
 				return exitErr(1)
 			}
-			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFiltered(overview, limit, filters), jsonOut, tmpl, details)
+			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, details)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")
+	cmd.Flags().StringVar(&sortBy, "sort", "default", "Sort actions before applying --limit by default, source, reason, or command.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Only show actions from this source: health, topology, runtime, inbox, queue, jobs, pipelines, schedules, intake, section_errors, or overview. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&details, "details", false, "Include source and reason metadata in text output.")
@@ -207,12 +222,17 @@ func nextActionResultFromOverview(overview *overviewResult, limit int) nextActio
 }
 
 func nextActionResultFromOverviewFiltered(overview *overviewResult, limit int, filters nextActionFilters) nextActionResult {
+	return nextActionResultFromOverviewFilteredSorted(overview, limit, filters, "")
+}
+
+func nextActionResultFromOverviewFilteredSorted(overview *overviewResult, limit int, filters nextActionFilters, sortMode string) nextActionResult {
 	if overview == nil {
 		return nextActionResult{OK: true, State: "ok", Actions: []string{}}
 	}
 	actions := append([]string{}, overview.Actions...)
 	details := nextActionDetailsFromOverview(overview, actions)
 	actions, details = filterNextActions(actions, details, filters)
+	actions, details = sortNextActions(actions, details, sortMode)
 	total := len(actions)
 	hidden := 0
 	if limit > 0 && len(actions) > limit {
@@ -308,6 +328,74 @@ func parseNextActionFilters(sourceRaw, reasonRaw []string) (nextActionFilters, e
 		return nextActionFilters{}, fmt.Errorf("--reason requires at least one non-empty value")
 	}
 	return out, nil
+}
+
+func parseNextActionSort(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "", "default":
+		return "", nil
+	case "source", "reason", "command":
+		return value, nil
+	default:
+		return "", fmt.Errorf("--sort must be default, source, reason, or command")
+	}
+}
+
+func sortNextActions(actions []string, details []operatorActionHint, sortMode string) ([]string, []operatorActionHint) {
+	if sortMode == "" || len(actions) < 2 {
+		return actions, details
+	}
+	type actionPair struct {
+		action string
+		detail operatorActionHint
+	}
+	pairs := make([]actionPair, 0, len(actions))
+	for i, action := range actions {
+		detail := operatorActionHint{Command: action, Source: "overview"}
+		if i < len(details) {
+			detail = details[i]
+			if strings.TrimSpace(detail.Command) == "" {
+				detail.Command = action
+			}
+		}
+		pairs = append(pairs, actionPair{action: action, detail: detail})
+	}
+	sort.SliceStable(pairs, func(i, j int) bool {
+		left := pairs[i]
+		right := pairs[j]
+		switch sortMode {
+		case "source":
+			return nextActionSortLess(left.detail.Source, right.detail.Source, left.detail.Reason, right.detail.Reason, left.action, right.action)
+		case "reason":
+			return nextActionSortLess(left.detail.Reason, right.detail.Reason, left.detail.Source, right.detail.Source, left.action, right.action)
+		case "command":
+			return strings.TrimSpace(left.action) < strings.TrimSpace(right.action)
+		default:
+			return false
+		}
+	})
+	sortedActions := make([]string, 0, len(pairs))
+	sortedDetails := make([]operatorActionHint, 0, len(pairs))
+	for _, pair := range pairs {
+		sortedActions = append(sortedActions, pair.action)
+		sortedDetails = append(sortedDetails, pair.detail)
+	}
+	return sortedActions, sortedDetails
+}
+
+func nextActionSortLess(primaryLeft, primaryRight, secondaryLeft, secondaryRight, commandLeft, commandRight string) bool {
+	left := strings.ToLower(strings.TrimSpace(primaryLeft))
+	right := strings.ToLower(strings.TrimSpace(primaryRight))
+	if left != right {
+		return left < right
+	}
+	left = strings.ToLower(strings.TrimSpace(secondaryLeft))
+	right = strings.ToLower(strings.TrimSpace(secondaryRight))
+	if left != right {
+		return left < right
+	}
+	return strings.TrimSpace(commandLeft) < strings.TrimSpace(commandRight)
 }
 
 func filterNextActions(actions []string, details []operatorActionHint, filters nextActionFilters) ([]string, []operatorActionHint) {
@@ -416,7 +504,7 @@ func renderNextActionFormat(w io.Writer, result nextActionResult, tmpl *template
 	return err
 }
 
-func runNextWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), limit int, filters nextActionFilters, jsonOut bool, tmpl *template.Template, showDetails bool, interval time.Duration, clear bool) error {
+func runNextWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*overviewResult, error), sortMode string, limit int, filters nextActionFilters, jsonOut bool, tmpl *template.Template, showDetails bool, interval time.Duration, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -432,7 +520,7 @@ func runNextWatch(ctx context.Context, w io.Writer, collect func(time.Time) (*ov
 		if err != nil {
 			return err
 		}
-		if err := renderNextActionResult(w, nextActionResultFromOverviewFiltered(overview, limit, filters), jsonOut, tmpl, showDetails); err != nil {
+		if err := renderNextActionResult(w, nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, showDetails); err != nil {
 			return err
 		}
 		select {
