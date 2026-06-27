@@ -1218,6 +1218,19 @@ target = "manager"
 		t.Fatalf("pipeline status watch output = %q", watchOut.String())
 	}
 
+	watchAlias := NewRootCmd()
+	watchAliasOut, watchAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watchAlias.SetContext(ctx)
+	watchAlias.SetOut(watchAliasOut)
+	watchAlias.SetErr(watchAliasErr)
+	watchAlias.SetArgs([]string{"pipeline", "watch", "ticket_to_pr", "--repo", root, "--no-clear", "--interval", "1ms", "--format", "{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}"})
+	if err := watchAlias.Execute(); err != nil {
+		t.Fatalf("pipeline watch alias: %v\nstderr=%s", err, watchAliasErr.String())
+	}
+	if got := strings.TrimSpace(watchAliasOut.String()); got != "ticket_to_pr 4 1" || strings.Contains(watchAliasOut.String(), watchClearSequence) {
+		t.Fatalf("pipeline watch alias output = %q", watchAliasOut.String())
+	}
+
 	text := NewRootCmd()
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)

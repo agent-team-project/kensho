@@ -404,10 +404,14 @@ func newPipelineStatusCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "status [<pipeline>|--all]",
-		Short: "Summarize pipeline jobs and next steps.",
-		Args:  cobra.ArbitraryArgs,
+		Use:     "status [<pipeline>|--all]",
+		Aliases: []string{"watch"},
+		Short:   "Summarize pipeline jobs and next steps.",
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.CalledAs() == "watch" {
+				watch = true
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: --format cannot be combined with --json.")
 				return exitErr(2)

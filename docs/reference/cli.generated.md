@@ -5266,6 +5266,8 @@ Summarize pipeline jobs and next steps.
 agent-team pipeline status [<pipeline>|--all] [flags]
 ```
 
+Aliases: `watch`
+
 Flags:
 
 ```text
