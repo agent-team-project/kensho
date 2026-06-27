@@ -57,6 +57,46 @@ updated_at = 2026-06-27T12:00:00Z
 		t.Fatalf("listed job quarantine items = %+v", listed)
 	}
 
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"job", "quarantine", "--repo", tmp, "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("job quarantine summary json: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobQuarantineSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode job quarantine summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Quarantined != 2 || summary.Restorable != 1 || summary.Unrestorable != 1 || summary.Jobs["squ-402"] != 1 {
+		t.Fatalf("job quarantine summary = %+v", summary)
+	}
+
+	summaryText := NewRootCmd()
+	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryText.SetOut(summaryTextOut)
+	summaryText.SetErr(summaryTextErr)
+	summaryText.SetArgs([]string{"job", "quarantine", "--repo", tmp, "--restorable", "--summary"})
+	if err := summaryText.Execute(); err != nil {
+		t.Fatalf("job quarantine restorable summary text: %v\nstderr=%s", err, summaryTextErr.String())
+	}
+	if got, want := summaryTextOut.String(), "job quarantine: quarantined=1 restorable=1 unrestorable=0\n"; got != want {
+		t.Fatalf("job quarantine restorable summary text = %q, want %q", got, want)
+	}
+
+	invalidSummary := NewRootCmd()
+	invalidSummaryOut, invalidSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSummary.SetOut(invalidSummaryOut)
+	invalidSummary.SetErr(invalidSummaryErr)
+	invalidSummary.SetArgs([]string{"job", "quarantine", "--repo", tmp, "--summary", "--limit", "1"})
+	if err := invalidSummary.Execute(); err == nil {
+		t.Fatalf("job quarantine summary accepted --limit; stdout=%s stderr=%s", invalidSummaryOut.String(), invalidSummaryErr.String())
+	}
+	if !strings.Contains(invalidSummaryErr.String(), "--sort and --limit cannot be combined with --summary") {
+		t.Fatalf("job quarantine summary invalid stderr = %q", invalidSummaryErr.String())
+	}
+
 	filtered := NewRootCmd()
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)

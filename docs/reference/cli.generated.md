@@ -2612,6 +2612,7 @@ Flags:
       --repo string     Repo root containing .agent_team. (default "<repo>")
       --restorable      Only show quarantined job files that can be restored.
       --sort string     Sort rows by path, id, ticket, target, status, modified, restorable, or size. (default "path")
+      --summary         Show aggregate quarantined job-file counts instead of rows.
       --unrestorable    Only show quarantined job files that cannot be restored.
 ```
 

@@ -69,6 +69,7 @@ func newJobQuarantineCmd() *cobra.Command {
 		unrestorable bool
 		sortBy       string
 		limit        int
+		summary      bool
 		jsonOut      bool
 		format       string
 	)
@@ -85,6 +86,14 @@ func newJobQuarantineCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if summary && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --sort and --limit cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			sortMode, err := parseJobQuarantineSort(sortBy)
@@ -106,6 +115,9 @@ func newJobQuarantineCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			items = filterJobQuarantineRestorable(items, restorable, unrestorable)
+			if summary {
+				return renderJobQuarantineSummary(cmd.OutOrStdout(), summarizeJobQuarantineItems(items), jsonOut)
+			}
 			items = prepareJobQuarantineItems(items, sortMode, limit)
 			return renderJobQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
@@ -115,6 +127,7 @@ func newJobQuarantineCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&unrestorable, "unrestorable", false, "Only show quarantined job files that cannot be restored.")
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "Sort rows by path, id, ticket, target, status, modified, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate quarantined job-file counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit quarantined job files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each quarantined job file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	cmd.AddCommand(newJobQuarantineShowCmd())
@@ -611,6 +624,14 @@ func renderJobQuarantineList(w io.Writer, items []jobQuarantineItem, jsonOut boo
 			emptyDash(item.Problem))
 	}
 	return tw.Flush()
+}
+
+func renderJobQuarantineSummary(w io.Writer, summary jobQuarantineSummary, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(summary)
+	}
+	fmt.Fprintln(w, jobQuarantineSummaryLine(summary))
+	return nil
 }
 
 func renderJobQuarantineShow(w io.Writer, result jobQuarantineShowResult, jsonOut bool, tmpl *template.Template) error {

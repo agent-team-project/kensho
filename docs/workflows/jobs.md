@@ -432,6 +432,24 @@ agent-team job timeout squ-42 --dry-run
 agent-team job cleanup squ-42 --dry-run
 ```
 
+## Job File Quarantine
+
+Use `job doctor` when active job TOML files cannot be parsed or no longer match
+their filename/id invariants:
+
+```sh
+agent-team job doctor --quarantine --dry-run
+agent-team job doctor --quarantine
+agent-team job quarantine --summary --json
+agent-team job quarantine
+agent-team job quarantine show quarantine/<timestamp>/squ-42.toml
+agent-team job quarantine restore quarantine/<timestamp>/squ-42.toml --dry-run
+agent-team job quarantine drop quarantine/<timestamp>/broken.toml --dry-run
+```
+
+`job quarantine --summary` reports compact preserved-file counts while
+`--restorable` or `--unrestorable` narrows that count before inspection.
+
 ## Events
 
 ```sh
