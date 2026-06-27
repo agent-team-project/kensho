@@ -9622,6 +9622,12 @@ func teamPipelineActions(teamName string, row pipelineStatusRow) []string {
 		add(teamTickPreviewAction(teamName, false))
 		add(fmt.Sprintf("agent-team team queue %s --state pending", teamName))
 	}
+	if row.OutboxFailed > 0 {
+		add(fmt.Sprintf("agent-team team outbox %s --state failed", teamName))
+	}
+	if row.OutboxPending > 0 {
+		add(fmt.Sprintf("agent-team team outbox %s --state pending", teamName))
+	}
 	return actions
 }
 

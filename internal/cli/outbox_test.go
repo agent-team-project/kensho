@@ -289,6 +289,157 @@ instances = ["other"]
 	}
 }
 
+func TestPipelineOutboxScopesItemsAndActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "implement"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 16, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-902",
+			Ticket:    "SQU-902",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-902",
+			Ticket:    "OPS-902",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.OutboxItem{
+		{
+			ID:        "outbox-ticket-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-902", "ticket": "SQU-902", "target": "worker"},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "outbox-ticket-failed",
+			State:     daemon.OutboxStateFailed,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-902", "ticket": "SQU-902", "target": "worker"},
+			LastError: "route missing",
+			CreatedAt: now.Add(time.Minute),
+			UpdatedAt: now.Add(time.Minute),
+		},
+		{
+			ID:        "outbox-ops-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "ops-902", "ticket": "OPS-902", "target": "worker"},
+			CreatedAt: now.Add(2 * time.Minute),
+			UpdatedAt: now.Add(2 * time.Minute),
+		},
+	} {
+		writeCLIOutboxItem(t, teamDir, item)
+	}
+
+	out := runRootForOutboxTest(t, "pipeline", "outbox", "ticket_to_pr", "--repo", root, "--sort", "id", "--json")
+	var listed []*daemon.OutboxItem
+	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
+		t.Fatalf("decode pipeline outbox list: %v\n%s", err, out.String())
+	}
+	if len(listed) != 2 || listed[0].ID != "outbox-ticket-failed" || listed[1].ID != "outbox-ticket-pending" {
+		t.Fatalf("pipeline outbox list = %+v", listed)
+	}
+
+	allOut := runRootForOutboxTest(t, "pipeline", "outbox", "--repo", root, "--sort", "id", "--json")
+	var allListed []*daemon.OutboxItem
+	if err := json.Unmarshal(allOut.Bytes(), &allListed); err != nil {
+		t.Fatalf("decode all pipeline outbox list: %v\n%s", err, allOut.String())
+	}
+	if len(allListed) != 3 {
+		t.Fatalf("all pipeline outbox list = %+v", allListed)
+	}
+
+	summaryOut := runRootForOutboxTest(t, "pipeline", "outbox", "ticket_to_pr", "--repo", root, "--summary", "--json")
+	var summary outboxSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode pipeline outbox summary: %v\n%s", err, summaryOut.String())
+	}
+	if summary.Total != 2 || summary.Pending != 1 || summary.Failed != 1 || summary.Filtered != 2 {
+		t.Fatalf("pipeline outbox summary = %+v", summary)
+	}
+
+	shown := runRootForOutboxTest(t, "pipeline", "outbox", "show", "ticket_to_pr", "outbox-ticket-failed", "--repo", root, "--json")
+	var shownItem daemon.OutboxItem
+	if err := json.Unmarshal(shown.Bytes(), &shownItem); err != nil {
+		t.Fatalf("decode pipeline outbox show: %v\n%s", err, shown.String())
+	}
+	if shownItem.ID != "outbox-ticket-failed" || shownItem.LastError != "route missing" {
+		t.Fatalf("shown pipeline outbox item = %+v", shownItem)
+	}
+
+	retry := runRootForOutboxTest(t, "pipeline", "outbox", "retry", "ticket_to_pr", "outbox-ticket-failed", "--repo", root, "--dry-run", "--json")
+	var retryRows []outboxActionResult
+	if err := json.Unmarshal(retry.Bytes(), &retryRows); err != nil {
+		t.Fatalf("decode pipeline outbox retry: %v\n%s", err, retry.String())
+	}
+	if len(retryRows) != 1 || retryRows[0].Action != "would_retry" || !retryRows[0].DryRun {
+		t.Fatalf("retry rows = %+v", retryRows)
+	}
+	stillFailed, err := daemon.ReadOutboxItem(teamDir, "outbox-ticket-failed")
+	if err != nil || stillFailed.State != daemon.OutboxStateFailed {
+		t.Fatalf("dry-run retry changed item=%+v err=%v", stillFailed, err)
+	}
+
+	drop := runRootForOutboxTest(t, "pipeline", "outbox", "drop", "ticket_to_pr", "outbox-ticket-pending", "--repo", root, "--dry-run", "--json")
+	var dropRows []outboxActionResult
+	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
+		t.Fatalf("decode pipeline outbox drop: %v\n%s", err, drop.String())
+	}
+	if len(dropRows) != 1 || dropRows[0].Action != "would_drop" || !dropRows[0].DryRun {
+		t.Fatalf("drop rows = %+v", dropRows)
+	}
+	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-ticket-pending"); err != nil {
+		t.Fatalf("dry-run drop removed item: %v", err)
+	}
+
+	_, stderr, err := runRootForOutboxTestErr(t, "pipeline", "outbox", "show", "ticket_to_pr", "outbox-ops-pending", "--repo", root)
+	if err == nil {
+		t.Fatalf("out-of-pipeline show succeeded")
+	}
+	if !strings.Contains(stderr.String(), `outbox item "outbox-ops-pending" is not owned by pipeline "ticket_to_pr"`) {
+		t.Fatalf("out-of-pipeline error = %q", stderr.String())
+	}
+}
+
 func writeCLIOutboxItem(t *testing.T, teamDir string, item *daemon.OutboxItem) {
 	t.Helper()
 	if err := daemon.WriteOutboxItem(teamDir, item); err != nil {

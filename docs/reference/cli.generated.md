@@ -3528,6 +3528,7 @@ Subcommands:
 - `agent-team pipeline logs` - Show daemon-captured logs for pipeline-owned jobs.
 - `agent-team pipeline ls` - List declared pipelines.
 - `agent-team pipeline next` - Print recommended next actions for pipeline jobs.
+- `agent-team pipeline outbox` - List or control pipeline-owned outbox events.
 - `agent-team pipeline ps` - List pipeline-owned instances.
 - `agent-team pipeline queue` - List or control pipeline-owned queue items.
 - `agent-team pipeline ready` - List ready pipeline jobs.
@@ -3958,9 +3959,93 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --reason strings      Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --sort string         Sort pipelines before selecting actions by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, or quarantined. (default "declared")
+      --sort string         Sort pipelines before selecting actions by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, quarantined, outbox, outbox-pending, outbox-failed, or outbox-processed. (default "declared")
       --team string         Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.
   -w, --watch               Refresh recommended pipeline actions until interrupted.
+```
+
+## `agent-team pipeline outbox`
+
+List or control pipeline-owned outbox events.
+
+List sandboxed agent outbox events owned by one pipeline. With no pipeline, all pipeline-owned outbox events are listed. Outbox subcommands still require an explicit pipeline.
+
+```text
+agent-team pipeline outbox [<pipeline>|--all] [flags]
+```
+
+Flags:
+
+```text
+      --all              List outbox events across all pipelines. This is the default when no pipeline is passed.
+      --format string    Render each pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --job strings      Filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit pipeline-owned outbox rows as JSON.
+      --limit int        Limit rows after filtering and sorting; 0 means no limit.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings   Filter by source agent/instance; repeat or comma-separate values.
+      --state string     Filter by outbox state: pending, processed, or failed.
+      --summary          Show aggregate outbox counts instead of rows.
+      --type strings     Filter by event type; repeat or comma-separate values.
+```
+
+Subcommands:
+
+- `agent-team pipeline outbox drop` - Remove one pipeline-owned outbox event.
+- `agent-team pipeline outbox retry` - Move one pipeline-owned processed or failed outbox event back to pending.
+- `agent-team pipeline outbox show` - Show one outbox event owned by one pipeline.
+
+## `agent-team pipeline outbox drop`
+
+Remove one pipeline-owned outbox event.
+
+```text
+agent-team pipeline outbox drop <pipeline> <id> [flags]
+```
+
+Flags:
+
+```text
+      --dry-run         Preview the drop without removing the event.
+      --format string   Render the drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team pipeline outbox retry`
+
+Move one pipeline-owned processed or failed outbox event back to pending.
+
+```text
+agent-team pipeline outbox retry <pipeline> <id> [flags]
+```
+
+Aliases: `requeue`
+
+Flags:
+
+```text
+      --dry-run         Preview the retry without moving the event.
+      --format string   Render the retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team pipeline outbox show`
+
+Show one outbox event owned by one pipeline.
+
+```text
+agent-team pipeline outbox show <pipeline> <id> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json            Emit the pipeline-owned outbox item as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team pipeline ps`
@@ -4594,7 +4679,7 @@ Flags:
       --limit int           Limit rows after sorting; 0 means no limit.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --sort string         Sort rows by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, or quarantined. (default "declared")
+      --sort string         Sort rows by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, quarantined, outbox, outbox-pending, outbox-failed, or outbox-processed. (default "declared")
   -w, --watch               Refresh the pipeline status table until interrupted.
 ```
 

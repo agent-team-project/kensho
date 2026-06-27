@@ -112,6 +112,8 @@ type pipelineSnapshotResult struct {
 	Queue           []*daemon.QueueItem     `json:"queue,omitempty"`
 	QueueSummary    *queueSummary           `json:"queue_summary,omitempty"`
 	QueueQuarantine []queueQuarantineItem   `json:"queue_quarantine,omitempty"`
+	Outbox          []*daemon.OutboxItem    `json:"outbox,omitempty"`
+	OutboxSummary   *outboxSummary          `json:"outbox_summary,omitempty"`
 	AdvancePreview  []pipelineAdvanceResult `json:"advance_preview,omitempty"`
 	SectionErrors   map[string]string       `json:"section_errors,omitempty"`
 }
@@ -156,6 +158,13 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 		out.Queue = queueItemsForJobs(queue, out.Jobs)
 		summary := summarizeQueueItems(out.Queue, now)
 		out.QueueSummary = &summary
+	}
+	if outbox, err := daemon.ListOutboxItems(teamDir); err != nil {
+		out.addError("outbox", err)
+	} else {
+		out.Outbox = outboxItemsForJobs(outbox, out.Jobs)
+		summary := summarizeOutboxItems(out.Outbox)
+		out.OutboxSummary = &summary
 	}
 	if inbox, summary, err := collectPipelineSnapshotInbox(teamDir, out.Jobs); err != nil {
 		out.addError("inbox", err)
@@ -283,6 +292,12 @@ func redactPipelineSnapshotResult(snapshot *pipelineSnapshotResult) {
 		}
 		item.Payload = redactSnapshotMap(item.Payload)
 	}
+	for _, item := range snapshot.Outbox {
+		if item == nil {
+			continue
+		}
+		item.Payload = redactSnapshotMap(item.Payload)
+	}
 	for i := range snapshot.Inbox {
 		if snapshot.Inbox[i].LatestBody != "" {
 			snapshot.Inbox[i].LatestBody = snapshotRedactedValue
@@ -384,6 +399,13 @@ func renderPipelineSnapshotSummary(w io.Writer, snapshot *pipelineSnapshotResult
 	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintln(w, queueSummaryLine(*snapshot.QueueSummary))
+	}
+	if snapshot.OutboxSummary != nil {
+		fmt.Fprintf(w, "outbox: total=%d pending=%d failed=%d processed=%d\n",
+			snapshot.OutboxSummary.Total,
+			snapshot.OutboxSummary.Pending,
+			snapshot.OutboxSummary.Failed,
+			snapshot.OutboxSummary.Processed)
 	}
 	if snapshot.AdvancePreview != nil {
 		fmt.Fprintf(w, "advance: ready=%d route_previews=%d\n",

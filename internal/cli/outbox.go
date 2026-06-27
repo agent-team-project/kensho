@@ -476,6 +476,19 @@ func filterOutboxItems(items []*daemon.OutboxItem, filters outboxListFilters) []
 	return out
 }
 
+func outboxItemsForJobs(items []*daemon.OutboxItem, jobs []*job.Job) []*daemon.OutboxItem {
+	if len(items) == 0 || len(jobs) == 0 {
+		return nil
+	}
+	out := make([]*daemon.OutboxItem, 0, len(items))
+	for _, item := range items {
+		if outboxItemMatchesAnyJob(item, jobs) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func sortOutboxItems(items []*daemon.OutboxItem, sortMode string) {
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]

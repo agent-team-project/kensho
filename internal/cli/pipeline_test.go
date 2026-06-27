@@ -2163,6 +2163,35 @@ target = "worker"
 			t.Fatalf("write queue item %s: %v", item.ID, err)
 		}
 	}
+	for _, item := range []*daemon.OutboxItem{
+		{
+			ID:     "outbox-ticket-pipeline",
+			State:  daemon.OutboxStatePending,
+			Type:   "agent.dispatch",
+			Source: "manager",
+			Payload: map[string]any{
+				"job_id":       "squ-704",
+				"target":       "worker",
+				"ticket":       "SQU-704",
+				"access_token": "outbox-ticket-secret",
+			},
+			CreatedAt: now.Add(-3 * time.Minute),
+			UpdatedAt: now.Add(-3 * time.Minute),
+		},
+		{
+			ID:        "outbox-platform-pipeline",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-705", "target": "worker", "ticket": "SQU-705"},
+			CreatedAt: now.Add(-3 * time.Minute),
+			UpdatedAt: now.Add(-3 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteOutboxItem(teamDir, item); err != nil {
+			t.Fatalf("write outbox item %s: %v", item.ID, err)
+		}
+	}
 	writeQuarantinedQueueItem(t, teamDir, "20260619T000000.000000000Z", daemon.QueueStatePending, &daemon.QueueItem{
 		ID:         "q-ticket-quarantined",
 		EventType:  "agent.dispatch",
@@ -2241,6 +2270,12 @@ target = "worker"
 	if snapshot.Queue[0].Payload["access_token"] != snapshotRedactedValue {
 		t.Fatalf("snapshot queue payload not redacted: %+v", snapshot.Queue[0].Payload)
 	}
+	if len(snapshot.Outbox) != 1 || snapshot.Outbox[0].ID != "outbox-ticket-pipeline" || snapshot.OutboxSummary == nil || snapshot.OutboxSummary.Total != 1 || snapshot.OutboxSummary.Pending != 1 {
+		t.Fatalf("snapshot outbox = %+v summary=%+v", snapshot.Outbox, snapshot.OutboxSummary)
+	}
+	if snapshot.Outbox[0].Payload["access_token"] != snapshotRedactedValue {
+		t.Fatalf("snapshot outbox payload not redacted: %+v", snapshot.Outbox[0].Payload)
+	}
 	if len(snapshot.QueueQuarantine) != 1 || snapshot.QueueQuarantine[0].ID != "q-ticket-quarantined" || snapshot.QueueQuarantine[0].Job != "squ-704" {
 		t.Fatalf("snapshot queue quarantine = %+v", snapshot.QueueQuarantine)
 	}
@@ -2251,7 +2286,7 @@ target = "worker"
 	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-704-implement" {
 		t.Fatalf("snapshot route preview = %+v", preview)
 	}
-	if strings.Contains(out.String(), "platform_work") || strings.Contains(out.String(), "squ-705") || strings.Contains(out.String(), "q-platform") || strings.Contains(out.String(), "ticket-secret") || strings.Contains(out.String(), "ticket pipeline inbox secret") || strings.Contains(out.String(), "platform pipeline inbox secret") {
+	if strings.Contains(out.String(), "platform_work") || strings.Contains(out.String(), "squ-705") || strings.Contains(out.String(), "q-platform") || strings.Contains(out.String(), "outbox-platform") || strings.Contains(out.String(), "ticket-secret") || strings.Contains(out.String(), "outbox-ticket-secret") || strings.Contains(out.String(), "ticket pipeline inbox secret") || strings.Contains(out.String(), "platform pipeline inbox secret") {
 		t.Fatalf("pipeline snapshot leaked unrelated workflow:\n%s", out.String())
 	}
 
@@ -2270,8 +2305,11 @@ target = "worker"
 	if len(rawSnapshot.Inbox) != 1 || rawSnapshot.Inbox[0].LatestBody != "ticket pipeline inbox secret" {
 		t.Fatalf("raw pipeline inbox = %+v", rawSnapshot.Inbox)
 	}
-	if strings.Contains(rawOut.String(), "platform pipeline inbox secret") {
-		t.Fatalf("raw pipeline snapshot leaked platform inbox:\n%s", rawOut.String())
+	if len(rawSnapshot.Outbox) != 1 || rawSnapshot.Outbox[0].Payload["access_token"] != "outbox-ticket-secret" {
+		t.Fatalf("raw pipeline outbox = %+v", rawSnapshot.Outbox)
+	}
+	if strings.Contains(rawOut.String(), "platform pipeline inbox secret") || strings.Contains(rawOut.String(), "outbox-platform-pipeline") {
+		t.Fatalf("raw pipeline snapshot leaked unrelated workflow:\n%s", rawOut.String())
 	}
 
 	text := NewRootCmd()
@@ -2282,12 +2320,12 @@ target = "worker"
 	if err := text.Execute(); err != nil {
 		t.Fatalf("pipeline snapshot text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "command: agent-team pipeline snapshot scope=pipeline subject=ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "inbox: instances=1 total=1 unread=1 unread_instances=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "advance: ready=1 route_previews=1"} {
+	for _, want := range []string{"pipeline snapshot:", "pipeline: ticket_to_pr", "command: agent-team pipeline snapshot scope=pipeline subject=ticket_to_pr", "status: jobs=1 ready_steps=1", "explain: jobs=1 steps=1", "jobs: total=1", "inbox: instances=1 total=1 unread=1 unread_instances=1", "queue: total=1 pending=1 dead=0 delayed=0 attempts=0 quarantined=1 restorable=1 unrestorable=0", "outbox: total=1 pending=1 failed=0 processed=0", "advance: ready=1 route_previews=1"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("pipeline snapshot text missing %q:\n%s", want, textOut.String())
 		}
 	}
-	for _, leak := range []string{"platform_work", "squ-705", "q-platform", "ticket pipeline inbox secret", "platform pipeline inbox secret"} {
+	for _, leak := range []string{"platform_work", "squ-705", "q-platform", "outbox-platform", "outbox-ticket-secret", "ticket pipeline inbox secret", "platform pipeline inbox secret"} {
 		if strings.Contains(textOut.String(), leak) {
 			t.Fatalf("pipeline snapshot text leaked %q:\n%s", leak, textOut.String())
 		}
@@ -2616,6 +2654,202 @@ target = "worker"
 	}
 	if got, want := strings.TrimSpace(out.String()), "ops_review|failed_steps=2|agent-team pipeline retry ops_review --dry-run --dispatch --preview-routes"; got != want {
 		t.Fatalf("pipeline next sort = %q, want %q", got, want)
+	}
+}
+
+func TestPipelineStatusNextReportsOutboxReasons(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 27, 17, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-920",
+			Ticket:    "SQU-920",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning},
+			},
+		},
+		{
+			ID:        "ops-920",
+			Ticket:    "OPS-920",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.OutboxItem{
+		{
+			ID:        "outbox-ticket-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-920", "target": "worker"},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "outbox-ticket-failed",
+			State:     daemon.OutboxStateFailed,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-920", "target": "worker"},
+			LastError: "route missing",
+			CreatedAt: now.Add(time.Minute),
+			UpdatedAt: now.Add(time.Minute),
+		},
+		{
+			ID:        "outbox-ticket-processed",
+			State:     daemon.OutboxStateProcessed,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "squ-920", "target": "worker"},
+			CreatedAt: now.Add(2 * time.Minute),
+			UpdatedAt: now.Add(2 * time.Minute),
+		},
+		{
+			ID:        "outbox-ops-pending",
+			State:     daemon.OutboxStatePending,
+			Type:      "agent.dispatch",
+			Source:    "manager",
+			Payload:   map[string]any{"job_id": "ops-920", "target": "worker"},
+			CreatedAt: now.Add(3 * time.Minute),
+			UpdatedAt: now.Add(3 * time.Minute),
+		},
+	} {
+		if err := daemon.WriteOutboxItem(teamDir, item); err != nil {
+			t.Fatalf("write outbox item %s: %v", item.ID, err)
+		}
+	}
+
+	status := NewRootCmd()
+	statusOut, statusErr := &bytes.Buffer{}, &bytes.Buffer{}
+	status.SetOut(statusOut)
+	status.SetErr(statusErr)
+	status.SetArgs([]string{"pipeline", "status", "--repo", root, "--json"})
+	if err := status.Execute(); err != nil {
+		t.Fatalf("pipeline status outbox json: %v\nstderr=%s", err, statusErr.String())
+	}
+	var rows []pipelineStatusRow
+	if err := json.Unmarshal(statusOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline status outbox: %v\nbody=%s", err, statusOut.String())
+	}
+	byName := map[string]pipelineStatusRow{}
+	for _, row := range rows {
+		byName[row.Pipeline] = row
+	}
+	ticket := byName["ticket_to_pr"]
+	if ticket.OutboxPending != 1 || ticket.OutboxFailed != 1 || ticket.OutboxProcessed != 1 {
+		t.Fatalf("ticket outbox status = %+v", ticket)
+	}
+	for _, want := range []string{
+		"agent-team pipeline outbox ticket_to_pr --state failed",
+		"agent-team pipeline outbox ticket_to_pr --state pending",
+	} {
+		if !containsString(ticket.Actions, want) {
+			t.Fatalf("ticket outbox actions missing %q: %+v", want, ticket.Actions)
+		}
+	}
+	ops := byName["ops_review"]
+	if ops.OutboxPending != 1 || ops.OutboxFailed != 0 || ops.OutboxProcessed != 0 {
+		t.Fatalf("ops outbox status = %+v", ops)
+	}
+
+	next := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	next.SetOut(nextOut)
+	next.SetErr(nextErr)
+	next.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", "outbox_failed,outbox_pending", "--format", "{{.Reason}}|{{.Action}}"})
+	if err := next.Execute(); err != nil {
+		t.Fatalf("pipeline next outbox reasons: %v\nstderr=%s", err, nextErr.String())
+	}
+	for _, want := range []string{
+		"outbox_failed=1|agent-team pipeline outbox ticket_to_pr --state failed",
+		"outbox_pending=1|agent-team pipeline outbox ticket_to_pr --state pending",
+	} {
+		if !strings.Contains(nextOut.String(), want) {
+			t.Fatalf("pipeline next outbox reason missing %q:\n%s", want, nextOut.String())
+		}
+	}
+
+	teamNext := NewRootCmd()
+	teamNextOut, teamNextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamNext.SetOut(teamNextOut)
+	teamNext.SetErr(teamNextErr)
+	teamNext.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--team", "delivery", "--repo", root, "--reason", "outbox_failed,outbox_pending", "--format", "{{.Reason}}|{{.Action}}"})
+	if err := teamNext.Execute(); err != nil {
+		t.Fatalf("pipeline next team outbox reasons: %v\nstderr=%s", err, teamNextErr.String())
+	}
+	for _, want := range []string{
+		"outbox_failed=1|agent-team team outbox delivery --state failed",
+		"outbox_pending=1|agent-team team outbox delivery --state pending",
+	} {
+		if !strings.Contains(teamNextOut.String(), want) {
+			t.Fatalf("pipeline next team outbox reason missing %q:\n%s", want, teamNextOut.String())
+		}
+	}
+
+	sorted := NewRootCmd()
+	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sorted.SetOut(sortedOut)
+	sorted.SetErr(sortedErr)
+	sorted.SetArgs([]string{"pipeline", "status", "--repo", root, "--sort", "outbox", "--limit", "1", "--format", "{{.Pipeline}} {{.OutboxPending}} {{.OutboxFailed}} {{.OutboxProcessed}}"})
+	if err := sorted.Execute(); err != nil {
+		t.Fatalf("pipeline status sort outbox: %v\nstderr=%s", err, sortedErr.String())
+	}
+	if got, want := strings.TrimSpace(sortedOut.String()), "ticket_to_pr 1 1 1"; got != want {
+		t.Fatalf("pipeline status outbox sort = %q, want %q", got, want)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"pipeline", "status", "ticket_to_pr", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("pipeline status outbox text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"OUTBOX", "pending=1,failed=1,processed=1"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("pipeline status outbox text missing %q:\n%s", want, textOut.String())
+		}
 	}
 }
 
