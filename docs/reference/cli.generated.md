@@ -2284,6 +2284,7 @@ agent-team job next <job-id> [flags]
 Flags:
 
 ```text
+      --commands        Print only recommended commands, one per line.
       --format string   Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.
       --json            Emit the next-step state as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")

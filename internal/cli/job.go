@@ -4706,11 +4706,12 @@ func newJobPruneCmd() *cobra.Command {
 
 func newJobNextCmd() *cobra.Command {
 	var (
-		repo    string
-		states  []string
-		step    string
-		jsonOut bool
-		format  string
+		repo     string
+		states   []string
+		step     string
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -4720,6 +4721,14 @@ func newJobNextCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job next: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job next: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job next: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			var (
@@ -4747,12 +4756,13 @@ func newJobNextCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job next: %v\n", err)
 				return exitErr(1)
 			}
-			return renderJobNextResult(cmd.OutOrStdout(), next, jsonOut, tmpl)
+			return renderJobNextResult(cmd.OutOrStdout(), next, jsonOut, tmpl, commands)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Only render when the next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&step, "step", "", "Only render when this pipeline step is the next step.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the next-step state as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.")
 	return cmd
@@ -10482,9 +10492,15 @@ func renderJobAdvanceResultFormat(w io.Writer, res *jobAdvanceResult, tmpl *temp
 	return err
 }
 
-func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *template.Template) error {
+func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *template.Template, commandsOnly bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(res)
+	}
+	if commandsOnly {
+		for _, action := range res.Actions {
+			fmt.Fprintln(w, action)
+		}
+		return nil
 	}
 	if tmpl != nil {
 		if err := tmpl.Execute(w, res); err != nil {

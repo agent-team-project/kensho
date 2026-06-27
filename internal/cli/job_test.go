@@ -9360,6 +9360,18 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 		t.Fatalf("ready actions = %+v", ready.Actions)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "next", "squ-203", "--repo", tmp, "--state", "ready", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job next commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if got, want := commandsOut.String(), "agent-team job advance squ-203\n"; got != want {
+		t.Fatalf("job next commands = %q, want %q", got, want)
+	}
+
 	filtered := NewRootCmd()
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
@@ -9410,6 +9422,37 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 	}
 	if !strings.Contains(badStateErr.String(), "--state must be ready, queued, running, blocked, failed, held, done, none, or all") {
 		t.Fatalf("job next bad state stderr = %q", badStateErr.String())
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"job", "next", "squ-203", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"job", "next", "squ-203", "--commands", "--format", "{{.State}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	} {
+		t.Run("commands-conflict-"+tc.name, func(t *testing.T) {
+			conflict := NewRootCmd()
+			conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+			conflict.SetOut(conflictOut)
+			conflict.SetErr(conflictErr)
+			conflict.SetArgs(tc.args)
+			if err := conflict.Execute(); err == nil {
+				t.Fatalf("job next accepted %s conflict: stdout=%s", tc.name, conflictOut.String())
+			}
+			if !strings.Contains(conflictErr.String(), tc.want) {
+				t.Fatalf("job next %s conflict stderr = %q, want %q", tc.name, conflictErr.String(), tc.want)
+			}
+		})
 	}
 
 	blockedActions := actionsForJobReadyRow(jobReadyRow{JobID: "squ-205", State: "blocked", StepID: "review"})
