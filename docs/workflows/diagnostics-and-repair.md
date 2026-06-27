@@ -195,6 +195,8 @@ agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-force --retry-message "override after fixing dependency"
 agent-team tick --wait --wait-status running --wait-timeout 30s
+agent-team pipeline tick ticket_to_pr --dry-run --preview-routes
+agent-team pipeline tick ticket_to_pr --wait --wait-status running --wait-timeout 30s
 agent-team team tick delivery --wait --wait-status running --wait-timeout 30s
 agent-team repair --until-idle
 agent-team drain --all-ready-steps --runtime codex
@@ -224,10 +226,13 @@ Use `pipeline drain <pipeline> --wait --wait-status running` when the finite
 drain should stay inside one workflow's queue and ready steps.
 Use `tick --wait --wait-status running` for one foreground maintenance cycle
 that should block until any pipeline jobs advanced by that cycle have live
-owners. Use `team tick <team> --wait --wait-status running` when that bounded
-handoff should stay inside one declared team's schedules, queue items, and
-pipelines. `--wait` is intentionally one-shot and is not combined with
-`--watch`, `--until-idle`, or `--skip-advance`.
+owners. Use `pipeline tick <pipeline> --dry-run --preview-routes` to preview
+one workflow's queue and ready-step work, or add `--wait --wait-status running`
+when that bounded one-cycle handoff should stay inside one workflow. Use
+`team tick <team> --wait --wait-status running` when that bounded handoff should
+stay inside one declared team's schedules, queue items, and pipelines. `--wait`
+is intentionally one-shot and is not combined with `--watch`, `--until-idle`,
+or `--skip-advance`.
 Use `--timeout-jobs` after status/event reconciliation when stale running work
 should become failed before a retry pass. It covers stale pipeline steps and
 stale step-less running jobs; use `--timeout-pipelines` when you only want the
@@ -272,6 +277,7 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Failed pipeline steps across workflows | `agent-team repair --retry-pipelines --dry-run --preview-routes` |
 | Failed stage across jobs | `agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes` |
 | Capped failed stage after fix | `agent-team repair --retry-pipelines --retry-force --retry-step review --dry-run --preview-routes` |
+| One workflow one-cycle queue/ready-step preview | `agent-team pipeline tick ticket_to_pr --dry-run --preview-routes` |
 | One workflow pending queue/ready-step drain | `agent-team pipeline drain ticket_to_pr --wait --wait-status running --wait-timeout 30s` |
 | One stuck job | `agent-team job show <job-id> --events all` |
 | One team stuck | `agent-team team overview <team>` |

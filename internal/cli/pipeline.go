@@ -59,6 +59,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineEventsCmd())
 	cmd.AddCommand(newPipelineRetryCmd())
 	cmd.AddCommand(newPipelineTimeoutCmd())
+	cmd.AddCommand(newPipelineTickCmd())
 	cmd.AddCommand(newPipelineRepairCmd())
 	cmd.AddCommand(newPipelineDrainCmd())
 	cmd.AddCommand(newPipelineRunCmd())
@@ -3729,6 +3730,148 @@ func newPipelineRepairCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any repaired job resolves to failed.")
+	return cmd
+}
+
+func newPipelineTickCmd() *cobra.Command {
+	var (
+		repo          string
+		workspace     string
+		runtimeKind   string
+		runtimeBin    string
+		limit         int
+		skipDrain     bool
+		skipAdvance   bool
+		allReadySteps bool
+		dryRun        bool
+		previewRoutes bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
+		jsonOut       bool
+		format        string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "tick <pipeline>",
+		Short: "Run one pipeline's orchestration maintenance work.",
+		Long:  "Run or preview one pipeline's drainable queue items and ready steps.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if wait && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if wait && skipAdvance {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --wait requires pipeline advancement; remove --skip-advance.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: wait-related flags require --wait.")
+				return exitErr(2)
+			}
+			if previewRoutes && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --preview-routes requires --dry-run.")
+				return exitErr(2)
+			}
+			tmpl, err := parsePipelineTickFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline tick: %v\n", err)
+				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline tick: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			result, err := runPipelineTick(cmd, teamDir, args[0], workspace, limit, tickOptions{
+				SkipDrain:     skipDrain,
+				SkipAdvance:   skipAdvance,
+				AllReadySteps: allReadySteps,
+				Runtime:       runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+				DryRun:        dryRun,
+				PreviewRoutes: previewRoutes,
+			})
+			if err != nil {
+				var code ExitCode
+				if errors.As(err, &code) {
+					return err
+				}
+				if errors.Is(err, errDaemonNotRunning) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: daemon is not running — start it with `agent-team start`, or use --dry-run.")
+					return exitErr(2)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline tick: %v\n", err)
+				return exitErr(1)
+			}
+			if wait {
+				result.Tick.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Tick.Advance, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team pipeline tick")
+				if err != nil {
+					if err == context.Canceled {
+						return nil
+					}
+					return err
+				}
+			}
+			if err := renderPipelineTickCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
+				return err
+			}
+			if failOnFailed && tickResultAdvanceRowsHaveFailed(&result.Tick) {
+				return exitErr(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip pipeline-owned queue drain work.")
+	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement work.")
+	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in this tick.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pipeline-owned maintenance work without mutating state.")
+	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After one pipeline tick, wait for advanced pipeline jobs to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any advanced pipeline job resolves to failed.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline tick result with a Go template, e.g. '{{.Pipeline}} {{.Tick.Queue.WouldDispatch}} {{len .Tick.Advance}}'.")
 	return cmd
 }
 
@@ -8374,31 +8517,40 @@ func runPipelineTick(cmd *cobra.Command, teamDir, pipeline, workspace string, li
 		},
 	}
 	if !opts.SkipDrain {
-		filters, err := parseQueueListFilters(daemon.QueueStatePending, nil, nil, nil, false, time.Now().UTC())
+		now := time.Now().UTC()
+		filters, err := parseQueueListFilters(daemon.QueueStatePending, nil, nil, nil, false, now)
 		if err != nil {
 			return nil, err
 		}
-		items, err := collectPipelineQueueItems(teamDir, pipeline, filters, time.Now().UTC())
+		items, err := collectPipelineQueueItems(teamDir, pipeline, filters, now)
 		if err != nil {
 			return nil, err
 		}
-		ids := queueItemIDsFromPointers(items)
-		if len(ids) == 0 {
-			result.Tick.Queue = &daemon.QueueDrainResult{Outcomes: []daemon.EventOutcome{}}
+		if opts.DryRun {
+			top, err := topology.LoadFromTeamDir(teamDir)
+			if err != nil {
+				return nil, err
+			}
+			result.Tick.Queue = previewQueueDrainItems(top, items, now)
 		} else {
-			client, err := newDaemonClient(teamDir)
-			if err != nil {
-				return nil, err
+			ids := queueItemIDsFromPointers(items)
+			if len(ids) == 0 {
+				result.Tick.Queue = &daemon.QueueDrainResult{Outcomes: []daemon.EventOutcome{}}
+			} else {
+				client, err := newDaemonClient(teamDir)
+				if err != nil {
+					return nil, err
+				}
+				queue, err := client.QueueDrainScoped(false, ids)
+				if err != nil {
+					return nil, err
+				}
+				result.Tick.Queue = queue
 			}
-			queue, err := client.QueueDrainScoped(false, ids)
-			if err != nil {
-				return nil, err
-			}
-			result.Tick.Queue = queue
 		}
 	}
 	if !opts.SkipAdvance {
-		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, opts.Runtime, limit, false, false, opts.AllReadySteps)
+		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, pipeline, workspace, opts.Runtime, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
 		if err != nil {
 			return nil, err
 		}
@@ -9286,6 +9438,34 @@ func pipelineStatusQueueSummary(row pipelineStatusRow) string {
 	return strings.Join(parts, ",")
 }
 
+func parsePipelineTickFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("pipeline-tick-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderPipelineTickCommandResult(w io.Writer, result *pipelineTickResult, jsonOut bool, tmpl *template.Template) error {
+	if result == nil {
+		result = &pipelineTickResult{}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	return renderPipelineTickResult(w, result)
+}
+
 func parsePipelineDrainFormat(format string) (*template.Template, error) {
 	if strings.TrimSpace(format) == "" {
 		return nil, nil
@@ -9336,6 +9516,10 @@ func renderPipelineDrainResult(w io.Writer, result *pipelineDrainResult, jsonOut
 func renderPipelineTickResult(w io.Writer, result *pipelineTickResult) error {
 	if result == nil {
 		result = &pipelineTickResult{}
+	}
+	if result.Tick.DryRun {
+		fmt.Fprintln(w, "Dry run: true")
+		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "Pipeline: %s\n", result.Pipeline)
 	if result.CheckedAt != "" {

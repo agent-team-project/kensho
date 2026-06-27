@@ -195,6 +195,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline queue [<pipeline>]` | List active or quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--dispatch --wait` for bounded recovery handoff |
+| `agent-team pipeline tick <pipeline>` | Run or preview one scoped queue drain and ready-step advance cycle for one pipeline; add `--wait` for bounded handoff |
 | `agent-team pipeline repair <pipeline>` | Scoped repair loop for one pipeline: queue retry, optional timeout/retry, ready-step advance, and `--wait` bounded handoff |
 | `agent-team pipeline drain <pipeline>` | Run scoped queue drain and ready-step advance cycles until one pipeline is idle; add `--wait` for bounded handoff |
 

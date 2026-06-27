@@ -3352,6 +3352,7 @@ Subcommands:
 - `agent-team pipeline snapshot` - Capture a read-only diagnostic snapshot for one pipeline.
 - `agent-team pipeline stats` - Show CPU and memory usage for pipeline-owned instances.
 - `agent-team pipeline status` - Summarize pipeline jobs and next steps.
+- `agent-team pipeline tick` - Run one pipeline&#39;s orchestration maintenance work.
 - `agent-team pipeline timeout` - Mark stale running pipeline steps failed.
 - `agent-team pipeline triage` - Show pipeline-owned jobs that need operator attention.
 - `agent-team pipeline unblock` - Answer blocked pipeline workers.
@@ -4386,6 +4387,39 @@ Flags:
       --repo string         Repo root containing .agent_team. (default "<repo>")
       --sort string         Sort rows by declared, pipeline, steps, jobs, queued, running, blocked, done, failed, ready, stale, manual, held, none, queue, queue-pending, queue-dead, or quarantined. (default "declared")
   -w, --watch               Refresh the pipeline status table until interrupted.
+```
+
+## `agent-team pipeline tick`
+
+Run one pipeline&#39;s orchestration maintenance work.
+
+Run or preview one pipeline&#39;s drainable queue items and ready steps.
+
+```text
+agent-team pipeline tick <pipeline> [flags]
+```
+
+Flags:
+
+```text
+      --all-ready-steps          Advance every currently ready independent pipeline step in this tick.
+      --dry-run                  Preview pipeline-owned maintenance work without mutating state.
+      --fail-on-failed           With --wait, exit 1 if any advanced pipeline job resolves to failed.
+      --format string            Render the pipeline tick result with a Go template, e.g. '{{.Pipeline}} {{.Tick.Queue.WouldDispatch}} {{len .Tick.Advance}}'.
+      --json                     Emit machine-readable JSON.
+      --limit int                Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
+      --preview-routes           With --dry-run, include route and dispatch payload previews for ready pipeline steps.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance             Skip pipeline advancement work.
+      --skip-drain               Skip pipeline-owned queue drain work.
+      --wait                     After one pipeline tick, wait for advanced pipeline jobs to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline timeout`

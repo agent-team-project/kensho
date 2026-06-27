@@ -6887,6 +6887,275 @@ func TestPipelineRepairWaitsForRepairedJobs(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-924-implement")
 }
 
+func TestPipelineTickDryRunScopesQueueAndPreviewRoutes(t *testing.T) {
+	root, _, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-306",
+			Ticket:    "SQU-306",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-306",
+			Ticket:    "OPS-306",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-pipeline-tick-preview",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-pipeline-tick-preview",
+			Payload:    map[string]any{"target": "worker", "name": "worker-pipeline-tick-preview", "job_id": "squ-306", "ticket": "SQU-306"},
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+		{
+			ID:         "q-ops-tick-preview",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-ops-tick-preview",
+			Payload:    map[string]any{"target": "worker", "name": "worker-ops-tick-preview", "job_id": "ops-306", "ticket": "OPS-306"},
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+	writeReadyAdvanceJob(t, teamDir, "squ-307")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "tick", "ticket_to_pr",
+		"--repo", root,
+		"--workspace", "repo",
+		"--dry-run",
+		"--preview-routes",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline tick dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result pipelineTickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline tick dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if result.Pipeline != "ticket_to_pr" || !result.Tick.DryRun {
+		t.Fatalf("pipeline tick result = %+v", result)
+	}
+	if result.Tick.Queue == nil || !result.Tick.Queue.DryRun || result.Tick.Queue.WouldDispatch != 1 || result.Tick.Queue.Pending != 1 || len(result.Tick.Queue.Outcomes) != 1 || result.Tick.Queue.Outcomes[0].InstanceID != "worker-pipeline-tick-preview" {
+		t.Fatalf("pipeline tick queue preview = %+v", result.Tick.Queue)
+	}
+	if len(result.Tick.Advance) != 1 || result.Tick.Advance[0].JobID != "squ-307" || result.Tick.Advance[0].Action != "would_advance" || !result.Tick.Advance[0].DryRun || result.Tick.Advance[0].Preview == nil {
+		t.Fatalf("pipeline tick advance preview = %+v", result.Tick.Advance)
+	}
+	dispatch := result.Tick.Advance[0].Preview.Dispatch
+	if dispatch == nil || dispatch.Preview == nil {
+		t.Fatalf("pipeline tick dispatch preview = %+v", result.Tick.Advance[0].Preview)
+	}
+	payload := dispatch.Preview.Payload
+	if payload["job_id"] != "squ-307" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
+		t.Fatalf("pipeline tick route preview payload = %+v", payload)
+	}
+	if strings.Contains(out.String(), "ops-306") || strings.Contains(out.String(), "q-ops-tick-preview") {
+		t.Fatalf("pipeline tick dry-run leaked other pipeline:\n%s", out.String())
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-pipeline-tick-preview"); err != nil {
+		t.Fatalf("pipeline tick dry-run removed queue item: %v", err)
+	}
+	unchanged, err := job.Read(teamDir, "squ-307")
+	if err != nil {
+		t.Fatalf("read dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || len(unchanged.Steps) != 1 || unchanged.Steps[0].Status != job.StatusBlocked {
+		t.Fatalf("pipeline tick dry-run mutated job = %+v", unchanged)
+	}
+}
+
+func TestPipelineTickScopesQueueAndWaitsForAdvancedJobs(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-308",
+			Ticket:    "SQU-308",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-308",
+			Ticket:    "OPS-308",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusQueued,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-pipeline-tick",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-pipeline-tick",
+			Payload:    map[string]any{"target": "worker", "name": "worker-pipeline-tick", "job_id": "squ-308", "ticket": "SQU-308"},
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+		{
+			ID:         "q-ops-tick",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-ops-tick",
+			Payload:    map[string]any{"target": "worker", "name": "worker-ops-tick", "job_id": "ops-308", "ticket": "OPS-308"},
+			QueuedAt:   now.Add(-time.Minute),
+			UpdatedAt:  now.Add(-time.Minute),
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("write queue item %s: %v", item.ID, err)
+		}
+	}
+	writeReadyAdvanceJob(t, teamDir, "squ-309")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "tick", "ticket_to_pr",
+		"--repo", root,
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline tick --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result pipelineTickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode pipeline tick wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Pipeline != "ticket_to_pr" || result.Tick.DryRun {
+		t.Fatalf("pipeline tick result = %+v", result)
+	}
+	if result.Tick.Queue == nil || result.Tick.Queue.Dispatched != 1 {
+		t.Fatalf("pipeline tick queue = %+v", result.Tick.Queue)
+	}
+	if len(result.Tick.Advance) != 1 || result.Tick.Advance[0].JobID != "squ-309" || result.Tick.Advance[0].Action != "advanced" || result.Tick.Advance[0].Job == nil || result.Tick.Advance[0].Job.Status != job.StatusRunning || result.Tick.Advance[0].Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("pipeline tick advance = %+v", result.Tick.Advance)
+	}
+	if result.Tick.Advance[0].Step == nil || result.Tick.Advance[0].Step.ID != "implement" || result.Tick.Advance[0].Step.Status != job.StatusRunning || result.Tick.Advance[0].Step.Instance != "worker-squ-309-implement" {
+		t.Fatalf("pipeline tick advance step = %+v", result.Tick.Advance[0].Step)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-pipeline-tick"); !os.IsNotExist(err) {
+		t.Fatalf("pipeline queue item still exists or unexpected err=%v", err)
+	}
+	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-ops-tick"); err != nil {
+		t.Fatalf("foreign queue item changed: %v", err)
+	}
+	stopAndWaitForTest(t, mgr, "worker-pipeline-tick")
+	stopAndWaitForTest(t, mgr, "worker-squ-309-implement")
+}
+
+func TestPipelineTickRejectsInvalidFlags(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format with json",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--format", "{{.Pipeline}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "negative wait timeout",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait", "--wait-timeout", "-1s"},
+			want: "--wait-timeout must be >= 0",
+		},
+		{
+			name: "negative wait interval",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait", "--wait-interval", "-1s"},
+			want: "--wait-interval must be >= 0",
+		},
+		{
+			name: "wait dry run",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "wait skip advance",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait", "--skip-advance"},
+			want: "--wait requires pipeline advancement",
+		},
+		{
+			name: "wait flag without wait",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "preview without dry run",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--preview-routes"},
+			want: "--preview-routes requires --dry-run",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			stderr := &bytes.Buffer{}
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("pipeline tick %s succeeded", tc.name)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestPipelineDrainScopesQueueAndWaitsForAdvancedJobs(t *testing.T) {
 	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
 	defer cleanup()
