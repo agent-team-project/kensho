@@ -88,6 +88,11 @@ func newPipelineAdoptCmd() *cobra.Command {
 					DryRun:        dryRun,
 					JSON:          jsonOut,
 					Format:        tmpl,
+					FollowUp: []daemonAdoptFollowUpScope{{
+						Kind: "pipeline",
+						Name: pipelineName,
+						Step: stepID,
+					}},
 				},
 			})
 		},

@@ -89,6 +89,11 @@ func newTeamAdoptCmd() *cobra.Command {
 					DryRun:        dryRun,
 					JSON:          jsonOut,
 					Format:        tmpl,
+					FollowUp: []daemonAdoptFollowUpScope{{
+						Kind: "team",
+						Name: team.Name,
+						Step: stepID,
+					}},
 				},
 			})
 		},

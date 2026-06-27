@@ -190,6 +190,15 @@ after = ["implement"]
 	if len(result.Job.Steps) != 2 || result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "manager-squ-801-review" {
 		t.Fatalf("adopted steps = %+v", result.Job.Steps)
 	}
+	for _, want := range []string{
+		"agent-team pipeline status ticket_to_pr",
+		"agent-team pipeline logs ticket_to_pr --follow",
+		"agent-team pipeline resume-plan ticket_to_pr --step review",
+	} {
+		if !containsString(result.Actions, want) {
+			t.Fatalf("pipeline adopt actions = %+v, missing %q", result.Actions, want)
+		}
+	}
 	updated, err := job.Read(teamDir, "squ-801")
 	if err != nil {
 		t.Fatalf("read job: %v", err)

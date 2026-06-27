@@ -38,6 +38,13 @@ type daemonAdoptOptions struct {
 	DryRun        bool
 	JSON          bool
 	Format        *template.Template
+	FollowUp      []daemonAdoptFollowUpScope
+}
+
+type daemonAdoptFollowUpScope struct {
+	Kind string
+	Name string
+	Step string
 }
 
 type daemonAdoptResult struct {
@@ -303,7 +310,7 @@ func runDaemonAdopt(cmd *cobra.Command, target, instance string, opts daemonAdop
 		Action:   "adopt",
 		Changed:  changed,
 		DryRun:   opts.DryRun,
-		Actions:  daemonAdoptFollowUpActions(meta),
+		Actions:  daemonAdoptFollowUpActions(meta, opts.FollowUp),
 		Metadata: meta,
 	}
 	if meta != nil {
@@ -579,7 +586,7 @@ func renderDaemonAdoptResult(w fmtWriter, result daemonAdoptResult, opts daemonA
 	return nil
 }
 
-func daemonAdoptFollowUpActions(meta *daemon.Metadata) []string {
+func daemonAdoptFollowUpActions(meta *daemon.Metadata, scopes []daemonAdoptFollowUpScope) []string {
 	if meta == nil {
 		return nil
 	}
@@ -605,5 +612,42 @@ func daemonAdoptFollowUpActions(meta *daemon.Metadata) []string {
 		}
 		actions = append(actions, "agent-team job resume-plan "+id)
 	}
+	for _, scope := range scopes {
+		actions = append(actions, daemonAdoptScopedFollowUpActions(meta, scope)...)
+	}
 	return actions
+}
+
+func daemonAdoptScopedFollowUpActions(meta *daemon.Metadata, scope daemonAdoptFollowUpScope) []string {
+	name := strings.TrimSpace(scope.Name)
+	if meta == nil || name == "" {
+		return nil
+	}
+	stepFlag := ""
+	if step := strings.TrimSpace(scope.Step); step != "" {
+		stepFlag = " --step " + step
+	}
+	codex := strings.TrimSpace(meta.Runtime) == string(runtimebin.KindCodex)
+	switch strings.TrimSpace(scope.Kind) {
+	case "pipeline":
+		actions := []string{
+			"agent-team pipeline status " + name,
+			"agent-team pipeline logs " + name + " --follow",
+		}
+		if codex {
+			actions = append(actions, "agent-team pipeline logs "+name+" --last-message")
+		}
+		return append(actions, "agent-team pipeline resume-plan "+name+stepFlag)
+	case "team":
+		actions := []string{
+			"agent-team team status " + name,
+			"agent-team team logs " + name + " --follow",
+		}
+		if codex {
+			actions = append(actions, "agent-team team logs "+name+" --last-message")
+		}
+		return append(actions, "agent-team team resume-plan "+name+stepFlag)
+	default:
+		return nil
+	}
 }

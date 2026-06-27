@@ -1128,6 +1128,15 @@ pipelines = ["ticket_to_pr"]
 	if len(result.Job.Steps) != 2 || result.Job.Steps[1].Status != job.StatusRunning || result.Job.Steps[1].Instance != "manager-squ-811-review" {
 		t.Fatalf("adopted steps = %+v", result.Job.Steps)
 	}
+	for _, want := range []string{
+		"agent-team team status delivery",
+		"agent-team team logs delivery --follow",
+		"agent-team team resume-plan delivery --step review",
+	} {
+		if !containsString(result.Actions, want) {
+			t.Fatalf("team adopt actions = %+v, missing %q", result.Actions, want)
+		}
+	}
 }
 
 func TestTeamTriageScopesStepAdoptionHint(t *testing.T) {
