@@ -6196,6 +6196,120 @@ target = "worker"
 	}
 }
 
+func TestPipelineWaitPollsNextStepState(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-806",
+			Ticket:    "SQU-806",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusQueued},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+		{
+			ID:        "squ-807",
+			Ticket:    "SQU-807",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(time.Second),
+			UpdatedAt: now.Add(time.Second),
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+
+	queued := NewRootCmd()
+	queuedOut, queuedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	queued.SetOut(queuedOut)
+	queued.SetErr(queuedErr)
+	queued.SetArgs([]string{"pipeline", "wait", "ticket_to_pr", "--repo", root, "--job", "squ-806", "--next-state", "all", "--step", "implement", "--format", "{{.ID}} {{.Status}}"})
+	if err := queued.Execute(); err != nil {
+		t.Fatalf("pipeline wait next-state all: %v\nstderr=%s", err, queuedErr.String())
+	}
+	if got, want := queuedOut.String(), "squ-806 running\n"; got != want {
+		t.Fatalf("pipeline wait next-state all output = %q, want %q", got, want)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		time.Sleep(25 * time.Millisecond)
+		for _, id := range []string{"squ-806", "squ-807"} {
+			updated, err := job.Read(teamDir, id)
+			if err != nil {
+				t.Errorf("read job %s in updater: %v", id, err)
+				return
+			}
+			updated.Status = job.StatusBlocked
+			updated.Steps[0].Status = job.StatusDone
+			updated.Steps[0].FinishedAt = time.Now().UTC()
+			updated.UpdatedAt = time.Now().UTC()
+			if err := job.Write(teamDir, updated); err != nil {
+				t.Errorf("write job %s in updater: %v", id, err)
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"pipeline", "wait", "ticket_to_pr", "--repo", root, "--next-state", "ready", "--step", "review", "--timeout", "2s", "--interval", "10ms", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline wait next-state ready: %v\nstderr=%s", err, stderr.String())
+	}
+	<-done
+	var got []job.Job
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode pipeline wait next-state json: %v\nbody=%s", err, out.String())
+	}
+	nextByJob := map[string]jobNextResult{}
+	for i := range got {
+		nextByJob[got[i].ID] = inspectNextJobStep(&got[i])
+	}
+	if len(got) != 2 ||
+		nextByJob["squ-806"].State != "ready" ||
+		jobWaitNextStep(nextByJob["squ-806"]) != "review" ||
+		nextByJob["squ-807"].State != "ready" ||
+		jobWaitNextStep(nextByJob["squ-807"]) != "review" {
+		t.Fatalf("pipeline wait next-state jobs = %+v next=%+v", got, nextByJob)
+	}
+}
+
 func TestPipelineWaitTimesOut(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -6248,6 +6362,37 @@ target = "worker"
 	}
 	if !strings.Contains(allErr.String(), "timed out waiting for all pipelines") || !strings.Contains(allErr.String(), "squ-803=running event=dispatched") {
 		t.Fatalf("all stderr = %q", allErr.String())
+	}
+
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-808",
+		Ticket:    "SQU-808",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		LastEvent: "dispatched",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusQueued},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}); err != nil {
+		t.Fatalf("write step job: %v", err)
+	}
+
+	nextCmd := NewRootCmd()
+	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	nextCmd.SetOut(nextOut)
+	nextCmd.SetErr(nextErr)
+	nextCmd.SetArgs([]string{"pipeline", "wait", "ticket_to_pr", "--repo", root, "--job", "squ-808", "--next-state", "ready", "--step", "review", "--timeout", "1ms", "--interval", "10ms"})
+	if err := nextCmd.Execute(); err == nil {
+		t.Fatalf("pipeline wait next-state timeout succeeded unexpectedly")
+	}
+	for _, want := range []string{"next-state=ready", "step=review", "squ-808=running", "next_state=queued", "step=implement"} {
+		if !strings.Contains(nextErr.String(), want) {
+			t.Fatalf("next-state stderr = %q, want %q", nextErr.String(), want)
+		}
 	}
 }
 
@@ -6340,6 +6485,11 @@ target = "worker"
 			name: "all with pipeline",
 			args: []string{"pipeline", "wait", "ticket_to_pr", "--all", "--repo", root},
 			want: "--all cannot be combined with a pipeline argument",
+		},
+		{
+			name: "invalid next state",
+			args: []string{"pipeline", "wait", "ticket_to_pr", "--repo", root, "--next-state", "stuck"},
+			want: "--next-state must be ready",
 		},
 		{
 			name: "multiple pipelines",

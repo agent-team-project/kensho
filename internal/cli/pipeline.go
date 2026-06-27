@@ -769,6 +769,8 @@ func newPipelineWaitCmd() *cobra.Command {
 		jobFilters   []string
 		statuses     []string
 		events       []string
+		nextStates   []string
+		step         string
 		all          bool
 		timeout      time.Duration
 		interval     time.Duration
@@ -780,9 +782,9 @@ func newPipelineWaitCmd() *cobra.Command {
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "wait [<pipeline>|--all]",
-		Short: "Wait for pipeline jobs to reach a lifecycle status or event.",
-		Long: "Wait for every selected pipeline-owned job to reach one of the requested lifecycle statuses and/or last events. " +
-			"By default this waits for terminal statuses: done or failed. When --event is set without --status, any status is accepted.",
+		Short: "Wait for pipeline jobs to reach a lifecycle status, event, or next step.",
+		Long: "Wait for every selected pipeline-owned job to reach one of the requested lifecycle statuses, last events, and/or pipeline next-step states. " +
+			"By default this waits for terminal statuses: done or failed. When --event, --next-state, or --step is set without --status, any status is accepted.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all && len(args) > 0 {
@@ -809,14 +811,25 @@ func newPipelineWaitCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline wait: --format cannot be combined with --quiet or --json.")
 				return exitErr(2)
 			}
+			nextStepFilter := strings.TrimSpace(step)
+			nextStateChanged := cmd.Flags().Changed("next-state")
+			nextStateFilter := map[string]bool{}
+			var err error
+			if nextStateChanged {
+				nextStateFilter, err = parseJobNextStateFilter(nextStates, false)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline wait: %s\n", strings.ReplaceAll(err.Error(), "--state", "--next-state"))
+					return exitErr(2)
+				}
+			}
 			waitEvents := parseJobWaitEvents(events)
-			waitStatuses, err := parseJobWaitStatuses(statuses, !cmd.Flags().Changed("status") && len(waitEvents) == 0)
+			waitStatuses, err := parseJobWaitStatuses(statuses, !cmd.Flags().Changed("status") && len(waitEvents) == 0 && !nextStateChanged && nextStepFilter == "")
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline wait: %v\n", err)
 				return exitErr(2)
 			}
-			if len(waitStatuses) == 0 && len(waitEvents) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline wait: pass at least one non-empty --status or --event.")
+			if len(waitStatuses) == 0 && len(waitEvents) == 0 && !nextStateChanged && nextStepFilter == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline wait: pass at least one non-empty --status, --event, --next-state, or --step.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -866,12 +879,12 @@ func newPipelineWaitCmd() *cobra.Command {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 			}
 			defer cancel()
-			finalJobs, err := runPipelineWait(ctx, teamDir, jobs, waitStatuses, waitEvents, interval)
+			finalJobs, err := runPipelineWait(ctx, teamDir, jobs, waitStatuses, waitEvents, nextStateFilter, nextStateChanged, nextStepFilter, interval)
 			if err != nil {
 				if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 					if !quiet {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline wait: timed out waiting for %s to reach %s: %s\n",
-							waitLabel, jobWaitConditionList(waitStatuses, waitEvents, nil, false, ""), pipelineWaitPendingSummary(timeoutErr.Pending))
+							waitLabel, jobWaitConditionList(waitStatuses, waitEvents, nextStateFilter, nextStateChanged, nextStepFilter), pipelineWaitPendingSummaryWithNext(timeoutErr.Pending, nextStateChanged || nextStepFilter != ""))
 					}
 					return exitErr(1)
 				}
@@ -905,6 +918,8 @@ func newPipelineWaitCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobFilters, "job", nil, "Only wait for these pipeline-owned job ids. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&events, "event", nil, "Last event to wait for, e.g. closed, adopted, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&nextStates, "next-state", nil, "Next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&step, "step", "", "Pipeline step id that must be the current next step for every selected job.")
 	cmd.Flags().BoolVar(&all, "all", false, "Wait for jobs across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&interval, "interval", 500*time.Millisecond, "Polling interval.")
@@ -6412,10 +6427,11 @@ func filterPipelineWaitJobs(jobs []*job.Job, filters []string) ([]*job.Job, erro
 	return out, nil
 }
 
-func runPipelineWait(ctx context.Context, teamDir string, jobs []*job.Job, statuses map[job.Status]bool, events map[string]bool, interval time.Duration) ([]*job.Job, error) {
+func runPipelineWait(ctx context.Context, teamDir string, jobs []*job.Job, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, interval time.Duration) ([]*job.Job, error) {
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
+	step = strings.TrimSpace(step)
 	ids := make([]string, 0, len(jobs))
 	for _, j := range jobs {
 		if j == nil {
@@ -6434,7 +6450,7 @@ func runPipelineWait(ctx context.Context, teamDir string, jobs []*job.Job, statu
 				return nil, err
 			}
 			last = append(last, j)
-			if !pipelineWaitJobMatches(j, statuses, events) {
+			if !pipelineWaitJobMatches(j, statuses, events, nextStates, nextStateSet, step) {
 				pending = append(pending, j)
 			}
 		}
@@ -6457,16 +6473,21 @@ func runPipelineWait(ctx context.Context, teamDir string, jobs []*job.Job, statu
 	}
 }
 
-func pipelineWaitJobMatches(j *job.Job, statuses map[job.Status]bool, events map[string]bool) bool {
+func pipelineWaitJobMatches(j *job.Job, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string) bool {
 	if j == nil {
 		return false
 	}
 	statusMatched := len(statuses) == 0 || statuses[j.Status]
 	eventMatched := len(events) == 0 || events[strings.TrimSpace(j.LastEvent)]
-	return statusMatched && eventMatched
+	nextMatched := jobWaitNextMatched(j, nextStates, nextStateSet, step)
+	return statusMatched && eventMatched && nextMatched
 }
 
 func pipelineWaitPendingSummary(jobs []*job.Job) string {
+	return pipelineWaitPendingSummaryWithNext(jobs, false)
+}
+
+func pipelineWaitPendingSummaryWithNext(jobs []*job.Job, includeNext bool) string {
 	if len(jobs) == 0 {
 		return "(none)"
 	}
@@ -6478,6 +6499,10 @@ func pipelineWaitPendingSummary(jobs []*job.Job) string {
 		part := fmt.Sprintf("%s=%s", j.ID, j.Status)
 		if event := strings.TrimSpace(j.LastEvent); event != "" {
 			part += " event=" + event
+		}
+		if includeNext {
+			next := inspectNextJobStep(j)
+			part += " next_state=" + next.State + " step=" + jobWaitNextStep(next)
 		}
 		parts = append(parts, part)
 	}
@@ -7498,7 +7523,7 @@ func waitForPipelineAdvanceResults(cmd *cobra.Command, teamDir string, results [
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, interval)
+	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, nil, false, "", interval)
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for advanced jobs to reach %s (pending=%s).\n",
@@ -7695,7 +7720,7 @@ func waitForPipelineApproveResults(cmd *cobra.Command, teamDir string, results [
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, interval)
+	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, nil, false, "", interval)
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for approved jobs to reach %s (pending=%s).\n",
@@ -8336,7 +8361,7 @@ func waitForPipelineRetryResults(cmd *cobra.Command, teamDir string, results []p
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, interval)
+	waited, err := runPipelineWait(ctx, teamDir, jobs, statuses, events, nil, false, "", interval)
 	if err != nil {
 		if timeoutErr, ok := err.(*pipelineWaitTimeoutError); ok {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for retried jobs to reach %s (pending=%s).\n",
