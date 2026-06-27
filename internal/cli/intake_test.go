@@ -2452,7 +2452,7 @@ gate = "pr"
 	}
 }
 
-func TestIntakeGitHubAdvanceWaitsForRequestedStatus(t *testing.T) {
+func TestIntakeGitHubAdvanceWaitsForNextStepState(t *testing.T) {
 	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
 	defer cleanup()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -2491,13 +2491,14 @@ func TestIntakeGitHubAdvanceWaitsForRequestedStatus(t *testing.T) {
 		"--advance",
 		"--workspace", "repo",
 		"--wait",
-		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
 	})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("intake github --advance --wait: %v\nstderr=%s", err, stderr.String())
+		t.Fatalf("intake github --advance --wait-next-state: %v\nstderr=%s", err, stderr.String())
 	}
 	var result intakePublishResult
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
@@ -2587,6 +2588,21 @@ func TestIntakeGitHubCleanupMergedRequiresReconcileJob(t *testing.T) {
 			name: "wait flag without wait",
 			args: []string{"intake", "github", "--payload", payload, "--wait-status", "running"},
 			want: "wait-related flags require --wait",
+		},
+		{
+			name: "next-state flag without wait",
+			args: []string{"intake", "github", "--payload", payload, "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait-step flag without wait",
+			args: []string{"intake", "github", "--payload", payload, "--wait-step", "review"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"intake", "github", "--payload", payload, "--reconcile-job", "--advance", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 		{
 			name: "negative wait timeout",

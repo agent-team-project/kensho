@@ -250,7 +250,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team schedule fire` | Fire due schedules |
 | `agent-team schedule run <name>` | Publish one schedule event |
 | `agent-team intake linear` | Normalize Linear payload |
-| `agent-team intake github` | Normalize GitHub payload, reconcile jobs, advance PR-gated work with `--wait`, and optionally verify PR cleanup |
+| `agent-team intake github` | Normalize GitHub payload, reconcile jobs, advance PR-gated work with `--wait-next-state`/`--wait-step`, and optionally verify PR cleanup |
 | `agent-team intake schedule` | Normalize schedule payload |
 | `agent-team intake serve` | Run local intake server with optional GitHub job reconciliation |
 | `agent-team intake service systemd|launchd|compose|kubernetes` | Print a systemd unit, launchd plist, compose service, or Kubernetes manifests for `intake serve` |

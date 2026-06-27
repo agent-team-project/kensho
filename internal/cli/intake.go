@@ -75,6 +75,8 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
+		waitNextState []string
+		waitStep      string
 		waitTimeout   time.Duration
 		waitInterval  time.Duration
 		failOnFailed  bool
@@ -120,7 +122,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: --wait requires --reconcile-job --advance.")
 					return exitErr(2)
 				}
-				if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-next-state") || cmd.Flags().Changed("wait-step") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: wait-related flags require --wait.")
 					return exitErr(2)
 				}
@@ -134,17 +136,11 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: %v\n", provider, err)
 				return exitErr(2)
 			}
-			waitEventsSet := map[string]bool{}
-			waitStatusesSet := map[job.Status]bool{}
+			waitFilters := jobWaitFilters{}
 			if provider == "github" && wait {
-				waitEventsSet = parseJobWaitEvents(waitEvents)
-				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake github: %v\n", err)
-					return exitErr(2)
-				}
-				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
-					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake github: pass at least one non-empty --wait-status or --wait-event.")
 					return exitErr(2)
 				}
 			}
@@ -179,7 +175,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 						}
 						reconcile, cleanup, advance, err = reconcileGitHubIntakeJob(cmd, teamDir, ev, cleanupMerged, verifyPR, advanceJob, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 						if err == nil && wait && advance != nil && advance.Job != nil {
-							waited, waitErr := waitForJobCommand(cmd, teamDir, advance.Job.ID, waitStatusesSet, waitEventsSet, nil, false, "", waitTimeout, waitInterval, "agent-team intake github")
+							waited, waitErr := waitForJobCommand(cmd, teamDir, advance.Job.ID, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team intake github")
 							if waitErr != nil {
 								if waitErr == context.Canceled {
 									return nil
@@ -230,9 +226,11 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance dispatch: auto, worktree, or repo.")
 		cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
 		cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
-		cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the reconciled job to reach a lifecycle status or event.")
+		cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the reconciled job to reach a lifecycle status, event, or next-step state.")
 		cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 		cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+		cmd.Flags().StringSliceVar(&waitNextState, "wait-next-state", nil, "With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+		cmd.Flags().StringVar(&waitStep, "wait-step", "", "With --wait, pipeline step id that must be the current next step.")
 		cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 		cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
 		cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if the reconciled job resolves to failed.")
