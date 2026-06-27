@@ -5797,6 +5797,7 @@ Flags:
 
 ```text
       --exit-code         Exit with status 1 when snapshots differ.
+      --format string     Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.
       --json              Emit snapshot diff as JSON.
       --section strings   Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
 ```

@@ -606,6 +606,21 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		}
 	}
 
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{
+		"snapshot", "diff", beforePath, afterPath,
+		"--format", "{{.Summary.Jobs.Added}}:{{.Summary.Queue.Changed}}:{{(index .Changes 0).Section}}:{{(index .Changes 0).ID}}",
+	})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("snapshot diff --format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got, want := formattedOut.String(), "1:1:provenance:command\n"; got != want {
+		t.Fatalf("snapshot diff --format output = %q, want %q", got, want)
+	}
+
 	changedExit := NewRootCmd()
 	changedExitOut, changedExitErr := &bytes.Buffer{}, &bytes.Buffer{}
 	changedExit.SetOut(changedExitOut)
@@ -812,6 +827,30 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git, runtime, health, plan, triage, next") {
 		t.Fatalf("invalid section stderr = %q", invalidSectionErr.String())
+	}
+
+	formatWithJSON := NewRootCmd()
+	formatWithJSONOut, formatWithJSONErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatWithJSON.SetOut(formatWithJSONOut)
+	formatWithJSON.SetErr(formatWithJSONErr)
+	formatWithJSON.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--format", "{{.Summary.TotalChanges}}", "--json"})
+	if err := formatWithJSON.Execute(); err == nil {
+		t.Fatalf("snapshot diff --format --json succeeded")
+	}
+	if !strings.Contains(formatWithJSONErr.String(), "--format cannot be combined with --json") {
+		t.Fatalf("format/json stderr = %q", formatWithJSONErr.String())
+	}
+
+	invalidFormat := NewRootCmd()
+	invalidFormatOut, invalidFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidFormat.SetOut(invalidFormatOut)
+	invalidFormat.SetErr(invalidFormatErr)
+	invalidFormat.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--format", "{{"})
+	if err := invalidFormat.Execute(); err == nil {
+		t.Fatalf("snapshot diff invalid format succeeded")
+	}
+	if !strings.Contains(invalidFormatErr.String(), "invalid --format template") {
+		t.Fatalf("invalid format stderr = %q", invalidFormatErr.String())
 	}
 }
 

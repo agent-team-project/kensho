@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"text/template"
 
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		jsonOut  bool
 		exitCode bool
 		sections []string
+		format   string
 	)
 	cmd := &cobra.Command{
 		Use:   "diff <before.json> <after.json>",
@@ -25,6 +27,15 @@ func newSnapshotDiffCmd() *cobra.Command {
 			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSnapshotDiffFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
+				return exitErr(2)
+			}
 			sectionSet, err := parseSnapshotDiffSections(sections)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
@@ -39,6 +50,10 @@ func newSnapshotDiffCmd() *cobra.Command {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 					return err
 				}
+			} else if formatTemplate != nil {
+				if err := renderSnapshotDiffFormat(cmd.OutOrStdout(), result, formatTemplate); err != nil {
+					return err
+				}
 			} else {
 				renderSnapshotDiff(cmd.OutOrStdout(), result)
 			}
@@ -51,6 +66,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
 	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
 	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.")
 	return cmd
 }
 
@@ -1483,6 +1499,25 @@ func renderSnapshotDiff(w io.Writer, result *snapshotDiffResult) {
 			emptyDash(change.After))
 	}
 	_ = tw.Flush()
+}
+
+func parseSnapshotDiffFormat(format string) (*template.Template, error) {
+	if format == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("snapshot-diff-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func renderSnapshotDiffFormat(w io.Writer, result *snapshotDiffResult, tmpl *template.Template) error {
+	if err := tmpl.Execute(w, result); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 func renderSnapshotDiffCounterLine(w io.Writer, label string, counters snapshotDiffCounters) {
