@@ -84,9 +84,16 @@ agent-team job dispatch squ-42 --wait --wait-status running --wait-timeout 30s
 agent-team job dispatch squ-42 --wait --wait-timeout 30m --fail-on-failed
 ```
 
-With `--wait`, create-and-dispatch and dispatch wait for terminal status by
-default. Add `--wait-status running`, `--wait-event dispatched`, or
-`--wait-event closed` when automation needs a different handoff point.
+Advance a pipeline job step and wait:
+
+```sh
+agent-team job advance squ-42 --wait --wait-status running --wait-timeout 30s
+```
+
+With `--wait`, create-and-dispatch, dispatch, and advance wait for terminal
+status by default. Add `--wait-status running`, `--wait-event dispatched`,
+`--wait-event advance_dispatched`, or `--wait-event closed` when automation
+needs a different handoff point.
 
 Preview first:
 

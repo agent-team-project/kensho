@@ -9516,6 +9516,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "invalid --format template",
 		},
 		{
+			name: "advance wait dry-run",
+			args: []string{"job", "advance", "squ-1", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "advance wait flag without wait",
+			args: []string{"job", "advance", "squ-1", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "advance negative wait timeout",
+			args: []string{"job", "advance", "squ-1", "--wait", "--wait-timeout", "-1s"},
+			want: "--wait-timeout must be >= 0",
+		},
+		{
 			name: "step format with json",
 			args: []string{"job", "step", "squ-1", "implement", "--format", "{{.ID}}", "--json"},
 			want: "--format cannot be combined",
@@ -9545,6 +9560,74 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestJobAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeReadyAdvanceJob(t, teamDir, "squ-914")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "advance", "squ-914",
+		"--repo", root,
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job advance wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("advance wait job = %+v", result.Job)
+	}
+	if result.Step == nil || result.Step.ID != "implement" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-914-implement" {
+		t.Fatalf("advance wait step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-914-implement")
+}
+
+func TestJobAdvanceWaitTimesOutForEvent(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeReadyAdvanceJob(t, teamDir, "squ-915")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "advance", "squ-915",
+		"--repo", root,
+		"--workspace", "repo",
+		"--wait",
+		"--wait-event", "closed",
+		"--wait-timeout", "1ms",
+		"--wait-interval", "10ms",
+	})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job advance --wait succeeded unexpectedly")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("advance wait timeout wrote stdout=%q", out.String())
+	}
+	if !strings.Contains(stderr.String(), "timed out waiting for squ-915 to reach event=closed") ||
+		!strings.Contains(stderr.String(), "current=running event=advance_dispatched") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-915-implement")
 }
 
 func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {

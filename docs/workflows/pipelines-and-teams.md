@@ -131,7 +131,8 @@ Job-level equivalents:
 agent-team job next squ-42
 agent-team job explain squ-42
 agent-team job ready
-agent-team job advance squ-42 --dry-run --preview-routes
+agent-team job advance squ-42 --dry-run --json
+agent-team job advance squ-42 --wait --wait-status running --wait-timeout 30s
 agent-team job hold squ-42 "waiting for product signoff"
 agent-team job release squ-42
 agent-team job step squ-42 implement --advance --dry-run

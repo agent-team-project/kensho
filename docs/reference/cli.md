@@ -117,7 +117,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention |
 | `agent-team job ready` | List or watch next pipeline steps; filter by `--step`, sort by `--sort`, and cap rows with `--limit` |
-| `agent-team job advance <job-id>` | Advance pipeline step |
+| `agent-team job advance <job-id>` | Advance a pipeline step; add `--wait` for bounded handoff |
 | `agent-team job events <job-id>` | Show job event log |
 
 ## Job Queue

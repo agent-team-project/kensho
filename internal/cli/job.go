@@ -5153,13 +5153,19 @@ func newJobRejectCmd() *cobra.Command {
 
 func newJobAdvanceCmd() *cobra.Command {
 	var (
-		repo        string
-		workspace   string
-		runtimeKind string
-		runtimeBin  string
-		dryRun      bool
-		jsonOut     bool
-		format      string
+		repo         string
+		workspace    string
+		runtimeKind  string
+		runtimeBin   string
+		dryRun       bool
+		wait         bool
+		waitStatuses []string
+		waitEvents   []string
+		waitTimeout  time.Duration
+		waitInterval time.Duration
+		failOnFailed bool
+		jsonOut      bool
+		format       string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -5171,10 +5177,40 @@ func newJobAdvanceCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if dryRun && wait {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: wait-related flags require --wait.")
+				return exitErr(2)
+			}
 			tmpl, err := parseJobAdvanceFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
 				return exitErr(2)
+			}
+			waitEventsSet := map[string]bool{}
+			waitStatusesSet := map[job.Status]bool{}
+			if wait {
+				waitEventsSet = parseJobWaitEvents(waitEvents)
+				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+					return exitErr(2)
+				}
+				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job advance: pass at least one non-empty --wait-status or --wait-event.")
+					return exitErr(2)
+				}
 			}
 			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
 			if err != nil {
@@ -5192,13 +5228,41 @@ func newJobAdvanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if wait && res.Job != nil {
+				waited, err := waitForJobCommand(cmd, teamDir, res.Job.ID, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team job advance")
+				if err != nil {
+					if err == context.Canceled {
+						return nil
+					}
+					return err
+				}
+				refreshJobAdvanceResultAfterWait(res, waited)
+			}
 			if jsonOut {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+					return err
+				}
+				if failOnFailed && res.Job != nil && res.Job.Status == job.StatusFailed {
+					return exitErr(1)
+				}
+				return nil
 			}
 			if tmpl != nil {
-				return renderJobAdvanceResultFormat(cmd.OutOrStdout(), res, tmpl)
+				if err := renderJobAdvanceResultFormat(cmd.OutOrStdout(), res, tmpl); err != nil {
+					return err
+				}
+				if failOnFailed && res.Job != nil && res.Job.Status == job.StatusFailed {
+					return exitErr(1)
+				}
+				return nil
 			}
-			return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+			if err := renderJobAdvanceResult(cmd.OutOrStdout(), res); err != nil {
+				return err
+			}
+			if failOnFailed && res.Job != nil && res.Job.Status == job.StatusFailed {
+				return exitErr(1)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -5206,6 +5270,12 @@ func newJobAdvanceCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the advanced step dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the next ready step dispatch without changing daemon or job state.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After advancing, wait for the job to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if the job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job and daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.")
 	return cmd

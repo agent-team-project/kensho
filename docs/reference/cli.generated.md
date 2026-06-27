@@ -1833,13 +1833,19 @@ agent-team job advance <job-id> [flags]
 Flags:
 
 ```text
-      --dry-run              Preview the next ready step dispatch without changing daemon or job state.
-      --format string        Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
-      --json                 Emit the updated job and daemon event outcome as JSON.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for the advanced step dispatch. Overrides env and repo config.
-      --workspace string     Workspace mode for the advanced step: auto, worktree, or repo. (default "auto")
+      --dry-run                  Preview the next ready step dispatch without changing daemon or job state.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
+      --json                     Emit the updated job and daemon event outcome as JSON.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for the advanced step dispatch. Overrides env and repo config.
+      --wait                     After advancing, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for the advanced step: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job approve`
