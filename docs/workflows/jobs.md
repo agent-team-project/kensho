@@ -167,6 +167,15 @@ job-owned runtime before attaching, messaging, or stopping work; add
 you need CPU and memory usage; add `--all` to include stopped or crashed
 metadata, or `--summary --json` for scripts.
 
+Use `job explain` when the question is what pipeline stage can run next, and
+`job watch` when that readiness view should refresh continuously:
+
+```sh
+agent-team job explain squ-42
+agent-team job explain squ-42 --state ready --step review
+agent-team job watch squ-42 --state all
+```
+
 ## Waiting For Jobs
 
 ```sh

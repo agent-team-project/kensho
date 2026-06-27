@@ -9278,6 +9278,19 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 		t.Fatalf("job explain watch output = %q", explainWatchOut.String())
 	}
 
+	watchAlias := NewRootCmd()
+	watchAliasOut, watchAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	watchAlias.SetContext(ctx)
+	watchAlias.SetOut(watchAliasOut)
+	watchAlias.SetErr(watchAliasErr)
+	watchAlias.SetArgs([]string{"job", "watch", "squ-204", "--repo", tmp, "--no-clear", "--interval", "1h", "--state", "ready", "--step", "review", "--format", "{{.JobID}} {{.State}} {{len .Steps}} {{(index .Steps 0).ID}}"})
+	if err := watchAlias.Execute(); err != nil {
+		t.Fatalf("job watch alias: %v\nstderr=%s", err, watchAliasErr.String())
+	}
+	if got := strings.TrimSpace(watchAliasOut.String()); got != "squ-204 ready 1 review" || strings.Contains(watchAliasOut.String(), watchClearSequence) {
+		t.Fatalf("job watch alias output = %q", watchAliasOut.String())
+	}
+
 	explainMissingStep := NewRootCmd()
 	explainMissingStepOut, explainMissingStepErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainMissingStep.SetOut(explainMissingStepOut)

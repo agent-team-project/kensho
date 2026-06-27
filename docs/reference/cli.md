@@ -101,6 +101,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, events, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, and formatted summary fields |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage |
+| `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed |
 | `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |

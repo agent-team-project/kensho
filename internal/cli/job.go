@@ -4753,12 +4753,16 @@ func newJobExplainCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "explain <job-id>",
-		Short: "Explain pipeline step readiness for one job.",
+		Use:     "explain <job-id>",
+		Aliases: []string{"watch"},
+		Short:   "Explain pipeline step readiness for one job.",
 		Long: "Explain one job's pipeline state from the durable job file, including every step, " +
 			"dependency blockers, gates, ready/running/failed state, and suggested next actions.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.CalledAs() == "watch" {
+				watch = true
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --format cannot be combined with --json.")
 				return exitErr(2)

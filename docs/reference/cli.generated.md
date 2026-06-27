@@ -2127,6 +2127,8 @@ Explain one job&#39;s pipeline state from the durable job file, including every 
 agent-team job explain <job-id> [flags]
 ```
 
+Aliases: `watch`
+
 Flags:
 
 ```text
