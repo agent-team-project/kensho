@@ -34,6 +34,7 @@ func newOutboxCmd() *cobra.Command {
 	cmd.AddCommand(newOutboxDropCmd())
 	cmd.AddCommand(newOutboxPruneCmd())
 	cmd.AddCommand(newOutboxDoctorCmd())
+	cmd.AddCommand(newOutboxQuarantineCmd())
 	return cmd
 }
 

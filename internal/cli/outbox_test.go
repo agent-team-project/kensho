@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -368,6 +369,115 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 	}
 	if len(listed) != 1 || listed[0].ID != "outbox-valid" {
 		t.Fatalf("outbox list after quarantine = %+v", listed)
+	}
+}
+
+func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	stamp := "20260627T120000.000000000Z"
+	writeQuarantinedOutboxFile(t, teamDir, stamp, daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-restorable",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"job_id": "SQU-710", "target": "worker"},
+		Source:    "manager",
+		CreatedAt: time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 27, 12, 1, 0, 0, time.UTC),
+	})
+	writeQuarantinedOutboxFile(t, teamDir, stamp, daemon.OutboxStateFailed, &daemon.OutboxItem{
+		ID:        "outbox-drop",
+		State:     daemon.OutboxStateFailed,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"job_id": "SQU-711", "target": "worker"},
+		Source:    "manager",
+		CreatedAt: time.Date(2026, 6, 27, 12, 2, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 6, 27, 12, 3, 0, 0, time.UTC),
+		FailedAt:  time.Date(2026, 6, 27, 12, 3, 0, 0, time.UTC),
+	})
+	writeRawOutboxFile(t, teamDir, filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateProcessed), "outbox-invalid.json", "{\n")
+	restorablePath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStatePending, "outbox-restorable.json")
+	dropPath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateFailed, "outbox-drop.json")
+	invalidPath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateProcessed, "outbox-invalid.json")
+
+	ls := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--json")
+	var listed []outboxQuarantineItem
+	if err := json.Unmarshal(ls.Bytes(), &listed); err != nil {
+		t.Fatalf("decode outbox quarantine ls: %v\n%s", err, ls.String())
+	}
+	wantPaths := []string{dropPath, invalidPath, restorablePath}
+	sort.Strings(wantPaths)
+	if len(listed) != 3 || outboxQuarantinePaths(listed) != strings.Join(wantPaths, ",") {
+		t.Fatalf("outbox quarantine list = %+v", listed)
+	}
+
+	filtered := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--job", "SQU-710", "--restorable", "--format", "{{.ID}} {{.Restorable}}")
+	if got, want := strings.TrimSpace(filtered.String()), "outbox-restorable true"; got != want {
+		t.Fatalf("outbox quarantine filtered output = %q, want %q", got, want)
+	}
+
+	show := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--target", target, restorablePath, "--json")
+	var shown outboxQuarantineShowResult
+	if err := json.Unmarshal(show.Bytes(), &shown); err != nil {
+		t.Fatalf("decode outbox quarantine show: %v\n%s", err, show.String())
+	}
+	if shown.ID != "outbox-restorable" || !shown.Restorable || shown.OutboxItem == nil || shown.OutboxItem.Payload["job_id"] != "SQU-710" {
+		t.Fatalf("shown outbox quarantine item = %+v", shown)
+	}
+	showText := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--target", target, restorablePath)
+	for _, want := range []string{"Path:", "outbox-restorable", "Actions:", "agent-team outbox quarantine restore", "Payload:", "SQU-710"} {
+		if !strings.Contains(showText.String(), want) {
+			t.Fatalf("outbox quarantine show text missing %q:\n%s", want, showText.String())
+		}
+	}
+
+	restoreAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, "--all", "--job", "SQU-710", "--dry-run", "--json")
+	var restoreAllRows []outboxQuarantineRestoreResult
+	if err := json.Unmarshal(restoreAllDry.Bytes(), &restoreAllRows); err != nil {
+		t.Fatalf("decode outbox quarantine restore --all dry-run: %v\n%s", err, restoreAllDry.String())
+	}
+	if len(restoreAllRows) != 1 || restoreAllRows[0].ID != "outbox-restorable" || restoreAllRows[0].Action != "would_restore" || !restoreAllRows[0].DryRun {
+		t.Fatalf("restore all dry-run rows = %+v", restoreAllRows)
+	}
+
+	dropAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, "--all", "--unrestorable", "--dry-run", "--json")
+	var dropAllRows []outboxQuarantineDropResult
+	if err := json.Unmarshal(dropAllDry.Bytes(), &dropAllRows); err != nil {
+		t.Fatalf("decode outbox quarantine drop --all dry-run: %v\n%s", err, dropAllDry.String())
+	}
+	if len(dropAllRows) != 1 || dropAllRows[0].Path != invalidPath || dropAllRows[0].Action != "would_drop" {
+		t.Fatalf("drop all dry-run rows = %+v", dropAllRows)
+	}
+
+	restore := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, restorablePath, "--json")
+	var restoreRow outboxQuarantineRestoreResult
+	if err := json.Unmarshal(restore.Bytes(), &restoreRow); err != nil {
+		t.Fatalf("decode outbox quarantine restore: %v\n%s", err, restore.String())
+	}
+	if restoreRow.ID != "outbox-restorable" || restoreRow.Action != "restored" {
+		t.Fatalf("restore row = %+v", restoreRow)
+	}
+	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-restorable"); err != nil {
+		t.Fatalf("restored outbox item is not readable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(daemon.OutboxRoot(teamDir), restorablePath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restored quarantine file should be gone, err=%v", err)
+	}
+
+	dropDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, dropPath, "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}")
+	if got, want := strings.TrimSpace(dropDry.String()), "outbox-drop would_drop true"; got != want {
+		t.Fatalf("outbox quarantine drop dry-run = %q, want %q", got, want)
+	}
+	drop := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, dropPath, "--json")
+	var dropRows []outboxQuarantineDropResult
+	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
+		t.Fatalf("decode outbox quarantine drop: %v\n%s", err, drop.String())
+	}
+	if len(dropRows) != 1 || dropRows[0].ID != "outbox-drop" || !dropRows[0].Dropped {
+		t.Fatalf("drop rows = %+v", dropRows)
+	}
+	if _, err := os.Stat(filepath.Join(daemon.OutboxRoot(teamDir), dropPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dropped quarantine file should be gone, err=%v", err)
 	}
 }
 
@@ -1195,6 +1305,27 @@ func writeRawOutboxFile(t *testing.T, teamDir, state, name, body string) {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeQuarantinedOutboxFile(t *testing.T, teamDir, stamp, state string, item *daemon.OutboxItem) {
+	t.Helper()
+	if item == nil {
+		t.Fatal("nil outbox item")
+	}
+	body, err := json.MarshalIndent(item, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRawOutboxFile(t, teamDir, filepath.Join(outboxQuarantineDir, stamp, state), item.ID+".json", string(append(body, '\n')))
+}
+
+func outboxQuarantinePaths(items []outboxQuarantineItem) string {
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		paths = append(paths, item.Path)
+	}
+	sort.Strings(paths)
+	return strings.Join(paths, ",")
 }
 
 func outboxDoctorHasCode(findings []outboxDoctorFinding, code string) bool {

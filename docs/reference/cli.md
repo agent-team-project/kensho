@@ -181,6 +181,12 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team outbox show <id>` | Inspect one outbox event and its payload |
 | `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down |
 | `agent-team outbox doctor` | Validate persisted outbox files without relying on normal listing paths; `--quarantine --dry-run` previews isolating malformed active files |
+| `agent-team outbox quarantine ls` | List quarantined outbox files; filter by state, type, source, job, or restorable state and sort/cap rows |
+| `agent-team outbox quarantine show <path>` | Inspect one quarantined outbox file and its payload when parseable |
+| `agent-team outbox quarantine restore <path>` | Restore one validated quarantined outbox file to the active outbox |
+| `agent-team outbox quarantine restore --all` | Restore matching restorable quarantined outbox files; filter, sort, and limit batch actions |
+| `agent-team outbox quarantine drop <path>` | Drop one quarantined outbox file after inspection |
+| `agent-team outbox quarantine drop --all` | Drop matching quarantined outbox files; filter by restorable state or age before deleting |
 | `agent-team outbox retry <id>` | Move a failed or processed outbox event back to pending |
 | `agent-team outbox retry --all` | Retry matching outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team outbox drop <id>` | Remove one outbox event after inspection |

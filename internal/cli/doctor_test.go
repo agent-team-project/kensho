@@ -672,6 +672,41 @@ func TestDoctorWarnsOnQueueQuarantine(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsOnOutboxQuarantine(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	writeQuarantinedOutboxFile(t, teamDir, "20260627T120000.000000000Z", daemon.OutboxStatePending, &daemon.OutboxItem{
+		ID:        "outbox-doctor-quarantined",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"target": "worker", "ticket": "SQU-111"},
+		Source:    "manager",
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now,
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor outbox quarantine warning should not fail: %v\nstderr=%s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if !result.OK || !containsDoctorMessage(result.Warnings, "outbox quarantine: 1 file") || !containsDoctorMessage(result.Warnings, "agent-team outbox quarantine ls") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write outbox quarantine warnings to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorFailsOnPipelineWorkflowProblem(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

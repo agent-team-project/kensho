@@ -3466,6 +3466,7 @@ Subcommands:
 - `agent-team outbox drop` - Drop one or more outbox events.
 - `agent-team outbox ls` - List sandboxed agent outbox events.
 - `agent-team outbox prune` - Prune old sandboxed agent outbox events.
+- `agent-team outbox quarantine` - Inspect, restore, and drop quarantined outbox files.
 - `agent-team outbox retry` - Retry one or more processed or failed outbox events.
 - `agent-team outbox show` - Show one outbox event.
 
@@ -3602,6 +3603,149 @@ Flags:
       --state string          Outbox state to prune: processed, failed, pending, or all. (default "processed")
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --type strings          Filter by event type before pruning; repeat or comma-separate values.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox quarantine`
+
+Inspect, restore, and drop quarantined outbox files.
+
+Inspect outbox files moved under `.agent_team/outbox/quarantine/`, restore validated entries to the active outbox, or explicitly drop preserved files.
+
+```text
+agent-team outbox quarantine
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team outbox quarantine drop` - Drop quarantined outbox files after inspection.
+- `agent-team outbox quarantine ls` - List quarantined outbox files.
+- `agent-team outbox quarantine restore` - Restore validated quarantined outbox files.
+- `agent-team outbox quarantine show` - Show one quarantined outbox file.
+
+## `agent-team outbox quarantine drop`
+
+Drop quarantined outbox files after inspection.
+
+Drop one quarantined outbox file by path, or drop a filtered batch with --all.
+
+```text
+agent-team outbox quarantine drop [quarantine-path] [flags]
+```
+
+Flags:
+
+```text
+      --all                   Drop all matching quarantined files instead of one path.
+      --dry-run               Preview quarantined files that would be dropped.
+      --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings           With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json                  Emit drop results as JSON.
+      --limit int             With --all, drop at most this many matching quarantined files; 0 means no limit.
+      --older-than duration   With --all, only drop files older than this duration based on file mtime.
+      --restorable            With --all, only drop quarantined files that can be restored.
+      --sort string           With --all, sort matching quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings        With --all, filter by source agent/instance; repeat or comma-separate values.
+      --state string          With --all, filter by outbox state: pending, processed, or failed.
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --type strings          With --all, filter by event type; repeat or comma-separate values.
+      --unrestorable          With --all, only drop quarantined files that cannot be restored.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox quarantine ls`
+
+List quarantined outbox files.
+
+```text
+agent-team outbox quarantine ls [flags]
+```
+
+Flags:
+
+```text
+      --format string    Render each quarantined outbox file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
+      --job strings      Filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit quarantined outbox files as JSON.
+      --limit int        Limit rows after filtering and sorting; 0 means no limit.
+      --restorable       Only show quarantined files that can be restored.
+      --sort string      Sort rows by path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings   Filter by source agent/instance; repeat or comma-separate values.
+      --state string     Filter by outbox state: pending, processed, or failed.
+      --target string    Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --type strings     Filter by event type; repeat or comma-separate values.
+      --unrestorable     Only show quarantined files that cannot be restored.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox quarantine restore`
+
+Restore validated quarantined outbox files.
+
+Restore one validated quarantined outbox file by path, or restore a filtered batch of restorable files with --all.
+
+```text
+agent-team outbox quarantine restore [quarantine-path] [flags]
+```
+
+Flags:
+
+```text
+      --all              Restore all matching restorable quarantined files instead of one path.
+      --dry-run          Preview the restore without moving files.
+      --force            Overwrite an existing active outbox file with the same restore path.
+      --format string    Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
+      --job strings      With --all, filter by job id or ticket; repeat or comma-separate values.
+      --json             Emit restore result as JSON.
+      --limit int        With --all, restore at most this many matching quarantined files; 0 means no limit.
+      --sort string      With --all, sort matching quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size. (default "path")
+      --source strings   With --all, filter by source agent/instance; repeat or comma-separate values.
+      --state string     With --all, filter by outbox state: pending, processed, or failed.
+      --target string    Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --type strings     With --all, filter by event type; repeat or comma-separate values.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outbox quarantine show`
+
+Show one quarantined outbox file.
+
+```text
+agent-team outbox quarantine show <quarantine-path> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the quarantined outbox file with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --json            Emit the quarantined outbox file as JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
