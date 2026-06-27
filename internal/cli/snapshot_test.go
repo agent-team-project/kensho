@@ -285,6 +285,33 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			Subagents:      true,
 			ConfigPath:     "/repo/.agent_team/config.toml",
 		},
+		Health: &healthResult{
+			Healthy: false,
+			Daemon:  healthDaemon{Running: false, Ready: false},
+			Summary: psSummaryJSON{
+				Total:     1,
+				Crashed:   1,
+				Unhealthy: 1,
+			},
+			Queue:    queueSummary{Total: 1, Dead: 1},
+			Intake:   overviewIntakeSummary{Deliveries: 1, Errors: 1},
+			Declared: healthDeclared{Persistent: 1, Missing: 1},
+			Issues: []healthIssue{
+				{Code: "daemon_down", Severity: "error"},
+			},
+		},
+		Plan: &planResult{
+			Daemon: planDaemon{Running: false},
+			Summary: planSummary{
+				Total:       2,
+				Start:       1,
+				Unsupported: 1,
+			},
+			Instances: []planRow{
+				{Instance: "manager", Agent: "manager", Kind: "persistent", Status: "missing", Phase: "unknown", Action: "start"},
+				{Instance: "worker", Agent: "worker", Kind: "on_demand", Status: "stopped", Phase: "idle", Action: "unsupported"},
+			},
+		},
 		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
 			Events:           intValuePtr(20),
 			IntakeDeliveries: intValuePtr(20),
@@ -349,6 +376,28 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			DirectResume:   true,
 			EnvRuntime:     "codex",
 			ConfigPath:     "/repo/.agent_team/config.toml",
+		},
+		Health: &healthResult{
+			Healthy: true,
+			Daemon:  healthDaemon{Running: true, Ready: true},
+			Summary: psSummaryJSON{
+				Total:   1,
+				Running: 1,
+			},
+			Intake:   overviewIntakeSummary{Deliveries: 1, Recovered: 1},
+			Declared: healthDeclared{Persistent: 1, Running: 1},
+		},
+		Plan: &planResult{
+			Daemon: planDaemon{Running: true},
+			Summary: planSummary{
+				Total:    2,
+				Keep:     1,
+				OnDemand: 1,
+			},
+			Instances: []planRow{
+				{Instance: "manager", Agent: "manager", Kind: "persistent", Status: "running", Phase: "idle", Action: "keep"},
+				{Instance: "worker", Agent: "worker", Kind: "on_demand", Status: "stopped", Phase: "idle", Action: "on-demand"},
+			},
 		},
 		Provenance: newSnapshotProvenance("agent-team team snapshot", "team", "delivery", snapshotProvenanceOptions{
 			Events:        intValuePtr(5),
@@ -432,6 +481,12 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Runtime.Added != 1 || result.Summary.Runtime.Changed != 6 {
 		t.Fatalf("runtime counters = %+v", result.Summary.Runtime)
 	}
+	if result.Summary.Health.Removed != 2 || result.Summary.Health.Changed != 12 {
+		t.Fatalf("health counters = %+v", result.Summary.Health)
+	}
+	if result.Summary.Plan.Changed != 7 {
+		t.Fatalf("plan counters = %+v", result.Summary.Plan)
+	}
 	if result.Summary.Jobs.Added != 1 || result.Summary.Jobs.Removed != 1 || result.Summary.Jobs.Changed != 1 {
 		t.Fatalf("job counters = %+v", result.Summary.Jobs)
 	}
@@ -470,6 +525,10 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "runtime", "runtime", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "runtime", "env_runtime", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "runtime", "subagents", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "health", "healthy", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "health", "issues.code.daemon_down", "removed") ||
+		!hasSnapshotDiffChange(result.Changes, "plan", "daemon.running", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "plan", "instance.manager", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-802", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
@@ -500,6 +559,8 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"provenance: added=1 removed=1 changed=5",
 		"git: added=0 removed=0 changed=7",
 		"runtime: added=1 removed=0 changed=6",
+		"health: added=0 removed=2 changed=12",
+		"plan: added=0 removed=0 changed=7",
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
 		"pipelines:",
@@ -610,6 +671,48 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		}
 	}
 
+	healthOnly := NewRootCmd()
+	healthOnlyOut, healthOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	healthOnly.SetOut(healthOnlyOut)
+	healthOnly.SetErr(healthOnlyErr)
+	healthOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "health", "--json"})
+	if err := healthOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff health section: %v\nstderr=%s", err, healthOnlyErr.String())
+	}
+	var healthOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(healthOnlyOut.Bytes(), &healthOnlyResult); err != nil {
+		t.Fatalf("decode health-only snapshot diff: %v\nbody=%s", err, healthOnlyOut.String())
+	}
+	if healthOnlyResult.Summary.TotalChanges != 14 || healthOnlyResult.Summary.Health.Removed != 2 || healthOnlyResult.Summary.Health.Changed != 12 || healthOnlyResult.Summary.Plan.Changed != 0 {
+		t.Fatalf("health-only diff summary = %+v", healthOnlyResult.Summary)
+	}
+	for _, change := range healthOnlyResult.Changes {
+		if change.Section != "health" {
+			t.Fatalf("health-only diff included %q change: %+v", change.Section, healthOnlyResult.Changes)
+		}
+	}
+
+	planOnly := NewRootCmd()
+	planOnlyOut, planOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	planOnly.SetOut(planOnlyOut)
+	planOnly.SetErr(planOnlyErr)
+	planOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "plan", "--json"})
+	if err := planOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff plan section: %v\nstderr=%s", err, planOnlyErr.String())
+	}
+	var planOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(planOnlyOut.Bytes(), &planOnlyResult); err != nil {
+		t.Fatalf("decode plan-only snapshot diff: %v\nbody=%s", err, planOnlyOut.String())
+	}
+	if planOnlyResult.Summary.TotalChanges != 7 || planOnlyResult.Summary.Plan.Changed != 7 || planOnlyResult.Summary.Health.Changed != 0 {
+		t.Fatalf("plan-only diff summary = %+v", planOnlyResult.Summary)
+	}
+	for _, change := range planOnlyResult.Changes {
+		if change.Section != "plan" {
+			t.Fatalf("plan-only diff included %q change: %+v", change.Section, planOnlyResult.Changes)
+		}
+	}
+
 	queueOnly := NewRootCmd()
 	queueOnlyOut, queueOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	queueOnly.SetOut(queueOnlyOut)
@@ -660,7 +763,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if err := invalidSection.Execute(); err == nil {
 		t.Fatalf("snapshot diff invalid section succeeded")
 	}
-	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git, runtime") {
+	if !strings.Contains(invalidSectionErr.String(), "--section must be provenance, git, runtime, health, plan") {
 		t.Fatalf("invalid section stderr = %q", invalidSectionErr.String())
 	}
 }

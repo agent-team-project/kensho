@@ -137,6 +137,8 @@ agent-team snapshot diff before-repair.json after-repair.json
 agent-team snapshot diff before-repair.json after-repair.json --section provenance
 agent-team snapshot diff before-repair.json after-repair.json --section git
 agent-team snapshot diff before-repair.json after-repair.json --section runtime
+agent-team snapshot diff before-repair.json after-repair.json --section health
+agent-team snapshot diff before-repair.json after-repair.json --section plan
 agent-team snapshot diff before-repair.json after-repair.json --section instances
 agent-team snapshot diff before-repair.json after-repair.json --section inbox
 agent-team snapshot diff before-repair.json after-repair.json --section queue
@@ -145,7 +147,7 @@ agent-team snapshot diff before-repair.json after-repair.json --section intake
 agent-team snapshot diff before-repair.json after-repair.json --exit-code
 ```
 
-Snapshots are redacted by default and are designed for debugging or handoff. Snapshot JSON includes a top-level `provenance` object with the command, scope, subject, redaction setting, and collection limits used to create the artifact. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, inbox summaries, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section provenance`, `--section git`, `--section runtime`, `--section instances`, `--section inbox`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference. Git diffs compare branch, commit, upstream, dirty-state, and ahead/behind counts. Runtime diffs compare selected profile, binary/path, env overrides, availability, and runtime capabilities. Inbox diffs compare instance-level mailbox counts, unread cursors, and latest-message identity; intake diffs include both delivery rows and duplicate request-id groups.
+Snapshots are redacted by default and are designed for debugging or handoff. Snapshot JSON includes a top-level `provenance` object with the command, scope, subject, redaction setting, and collection limits used to create the artifact. Use `pipeline snapshot` when the handoff only needs one workflow's pipeline status, explained jobs, owned jobs, inbox summaries, job-owned queue/quarantine state, and dry-run advance previews. Use `snapshot diff` to compare two saved artifacts after a tick, repair, or manual intervention; add `--section provenance`, `--section git`, `--section runtime`, `--section health`, `--section plan`, `--section instances`, `--section inbox`, `--section queue`, `--section queue_quarantine`, `--section schedules`, `--section intake`, `--section events`, or another section to focus the comparison, and add `--exit-code` when a script should fail on any detected difference. Git diffs compare branch, commit, upstream, dirty-state, and ahead/behind counts. Runtime diffs compare selected profile, binary/path, env overrides, availability, and runtime capabilities. Health diffs compare daemon readiness, instance/queue/intake/job summary counts, declared topology counts, and issue-code/severity counts. Plan diffs compare daemon state, desired action counts, and per-instance desired actions. Inbox diffs compare instance-level mailbox counts, unread cursors, and latest-message identity; intake diffs include both delivery rows and duplicate request-id groups.
 
 They include:
 
@@ -275,6 +277,8 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need focused artifact provenance comparison | `agent-team snapshot diff before.json after.json --section provenance` |
 | Need focused git context comparison | `agent-team snapshot diff before.json after.json --section git` |
 | Need focused runtime profile comparison | `agent-team snapshot diff before.json after.json --section runtime` |
+| Need focused health comparison | `agent-team snapshot diff before.json after.json --section health` |
+| Need focused desired-plan comparison | `agent-team snapshot diff before.json after.json --section plan` |
 | Need focused instance drift comparison | `agent-team snapshot diff before.json after.json --section instances` |
 | Need focused inbox drift comparison | `agent-team snapshot diff before.json after.json --section inbox` |
 | Need focused queue drift comparison | `agent-team snapshot diff before.json after.json --section queue` |
