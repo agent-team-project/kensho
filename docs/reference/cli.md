@@ -83,8 +83,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team plan` | Preview desired instance state |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances |
-| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps and `--wait` for one-shot bounded handoff; `team tick <team>` supports the same scoped handoff |
-| `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps and `--wait` for bounded handoff after drain cycles; `team drain <team>` supports the same scoped handoff |
+| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for one-shot stage-aware handoff; `team tick <team>` supports the same scoped handoff |
+| `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for bounded stage-aware handoff after drain cycles; `team drain <team>` supports the same scoped handoff |
 | `agent-team reload` | Top-level daemon topology reload |
 
 ## Jobs
@@ -196,9 +196,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline queue [<pipeline>]` | List active or quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
 | `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware recovery handoff |
-| `agent-team pipeline tick <pipeline>` | Run or preview one scoped queue drain and ready-step advance cycle for one pipeline; add `--wait` for bounded handoff |
+| `agent-team pipeline tick <pipeline>` | Run or preview one scoped queue drain and ready-step advance cycle for one pipeline; add `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |
 | `agent-team pipeline repair <pipeline>` | Scoped repair loop for one pipeline: queue retry, optional timeout/retry, ready-step advance, and `--wait` bounded handoff |
-| `agent-team pipeline drain <pipeline>` | Run scoped queue drain and ready-step advance cycles until one pipeline is idle; add `--wait` for bounded handoff |
+| `agent-team pipeline drain <pipeline>` | Run scoped queue drain and ready-step advance cycles until one pipeline is idle; add `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |
 
 ## Teams
 
@@ -216,7 +216,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts workspace/runtime overrides and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
 | `agent-team team jobs <team>` | Scoped job list, summary, or watch view; filter held state, mixed-runtime ownership, and cap output with `--limit` |
 | `agent-team team wait-jobs <team>` | Wait for team-owned jobs to reach a lifecycle status, event, or next-step state/stage |
-| `agent-team team tick <team>` | Scoped maintenance cycle; use `--workspace` and `--runtime` for advanced steps |
+| `agent-team team tick <team>` | Scoped maintenance cycle; use `--workspace`/`--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |
+| `agent-team team drain <team>` | Scoped drain-until-idle maintenance loop; add `--wait-next-state`/`--wait-step` for stage-aware bounded handoff |
 | `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; failed-step retry accepts pipeline/step filters, `--retry-force`, workspace/runtime overrides, and `--wait` bounded handoff |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team |

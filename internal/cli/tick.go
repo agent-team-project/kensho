@@ -34,6 +34,8 @@ func newTickCmd() *cobra.Command {
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
+		waitNextState []string
+		waitStep      string
 		waitTimeout   time.Duration
 		waitInterval  time.Duration
 		failOnFailed  bool
@@ -94,7 +96,7 @@ func newTickCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --wait requires pipeline advancement; remove --skip-advance.")
 				return exitErr(2)
 			}
-			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-next-state") || cmd.Flags().Changed("wait-step") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: wait-related flags require --wait.")
 				return exitErr(2)
 			}
@@ -115,17 +117,11 @@ func newTickCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
 				return exitErr(2)
 			}
-			waitEventsSet := map[string]bool{}
-			waitStatusesSet := map[job.Status]bool{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitEventsSet = parseJobWaitEvents(waitEvents)
-				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team tick: %v\n", err)
-					return exitErr(2)
-				}
-				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
-					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: pass at least one non-empty --wait-status or --wait-event.")
 					return exitErr(2)
 				}
 			}
@@ -177,7 +173,7 @@ func newTickCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if wait {
-				result.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Advance, waitStatusesSet, waitEventsSet, nil, false, "", waitTimeout, waitInterval, "agent-team tick")
+				result.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Advance, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team tick")
 				if err != nil {
 					if err == context.Canceled {
 						return nil
@@ -208,9 +204,11 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, queue, or pipeline work remains.")
-	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status or event.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitNextState, "wait-next-state", nil, "With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&waitStep, "wait-step", "", "With --wait, pipeline step id that must be the current next step for every advanced job.")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any advanced job resolves to failed.")
@@ -236,6 +234,8 @@ func newDrainCmd() *cobra.Command {
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
+		waitNextState []string
+		waitStep      string
 		waitTimeout   time.Duration
 		waitInterval  time.Duration
 		failOnFailed  bool
@@ -280,7 +280,7 @@ func newDrainCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: --wait requires pipeline advancement; remove --skip-advance.")
 				return exitErr(2)
 			}
-			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-next-state") || cmd.Flags().Changed("wait-step") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || failOnFailed) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: wait-related flags require --wait.")
 				return exitErr(2)
 			}
@@ -289,17 +289,11 @@ func newDrainCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team drain: %v\n", err)
 				return exitErr(2)
 			}
-			waitEventsSet := map[string]bool{}
-			waitStatusesSet := map[job.Status]bool{}
+			waitFilters := jobWaitFilters{}
 			if wait {
-				waitEventsSet = parseJobWaitEvents(waitEvents)
-				waitStatusesSet, err = parseJobWaitStatuses(waitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEventsSet) == 0)
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team drain: %v\n", err)
-					return exitErr(2)
-				}
-				if len(waitStatusesSet) == 0 && len(waitEventsSet) == 0 {
-					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team drain: pass at least one non-empty --wait-status or --wait-event.")
 					return exitErr(2)
 				}
 			}
@@ -325,7 +319,7 @@ func newDrainCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if wait {
-				if err := waitForTickUntilIdleResult(cmd, teamDir, result, waitStatusesSet, waitEventsSet, waitTimeout, waitInterval, "agent-team drain"); err != nil {
+				if err := waitForTickUntilIdleResult(cmd, teamDir, result, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team drain"); err != nil {
 					if err == context.Canceled {
 						return nil
 					}
@@ -351,9 +345,11 @@ func newDrainCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip queue draining.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in each drain cycle.")
-	cmd.Flags().BoolVar(&wait, "wait", false, "After drain reaches idle, wait for jobs advanced during drain cycles to reach a lifecycle status or event.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After drain reaches idle, wait for jobs advanced during drain cycles to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitNextState, "wait-next-state", nil, "With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&waitStep, "wait-step", "", "With --wait, pipeline step id that must be the current next step for every drain-advanced job.")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any drain-advanced job resolves to failed.")
@@ -473,12 +469,12 @@ func runTickUntilIdle(ctx context.Context, cmd *cobra.Command, teamDir, workspac
 	return result, nil
 }
 
-func waitForTickUntilIdleResult(cmd *cobra.Command, teamDir string, result *tickUntilIdleResult, statuses map[job.Status]bool, events map[string]bool, timeout, interval time.Duration, prefix string) error {
+func waitForTickUntilIdleResult(cmd *cobra.Command, teamDir string, result *tickUntilIdleResult, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, timeout, interval time.Duration, prefix string) error {
 	if result == nil {
 		return nil
 	}
 	for _, cycle := range result.Cycles {
-		if err := waitForTickResultAdvanceRows(cmd, teamDir, cycle, statuses, events, timeout, interval, prefix); err != nil {
+		if err := waitForTickResultAdvanceRows(cmd, teamDir, cycle, statuses, events, nextStates, nextStateSet, step, timeout, interval, prefix); err != nil {
 			return err
 		}
 	}

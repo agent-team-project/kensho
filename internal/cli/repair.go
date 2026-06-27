@@ -481,12 +481,12 @@ func waitForRepairResult(cmd *cobra.Command, teamDir string, result *repairResul
 	if err != nil {
 		return err
 	}
-	if err := waitForTickResultAdvanceRows(cmd, teamDir, result.Tick.Result, statuses, events, timeout, interval, "agent-team repair"); err != nil {
+	if err := waitForTickResultAdvanceRows(cmd, teamDir, result.Tick.Result, statuses, events, nil, false, "", timeout, interval, "agent-team repair"); err != nil {
 		return err
 	}
 	if result.Tick.UntilIdle != nil {
 		for _, cycle := range result.Tick.UntilIdle.Cycles {
-			if err := waitForTickResultAdvanceRows(cmd, teamDir, cycle, statuses, events, timeout, interval, "agent-team repair"); err != nil {
+			if err := waitForTickResultAdvanceRows(cmd, teamDir, cycle, statuses, events, nil, false, "", timeout, interval, "agent-team repair"); err != nil {
 				return err
 			}
 		}
@@ -501,12 +501,12 @@ func waitForRepairResult(cmd *cobra.Command, teamDir string, result *repairResul
 	return nil
 }
 
-func waitForTickResultAdvanceRows(cmd *cobra.Command, teamDir string, result *tickResult, statuses map[job.Status]bool, events map[string]bool, timeout, interval time.Duration, prefix string) error {
+func waitForTickResultAdvanceRows(cmd *cobra.Command, teamDir string, result *tickResult, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, timeout, interval time.Duration, prefix string) error {
 	if result == nil {
 		return nil
 	}
 	var err error
-	result.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Advance, statuses, events, nil, false, "", timeout, interval, prefix)
+	result.Advance, err = waitForPipelineAdvanceResults(cmd, teamDir, result.Advance, statuses, events, nextStates, nextStateSet, step, timeout, interval, prefix)
 	return err
 }
 

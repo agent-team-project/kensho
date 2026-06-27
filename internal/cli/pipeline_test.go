@@ -7499,6 +7499,8 @@ func TestPipelineTickScopesQueueAndWaitsForAdvancedJobs(t *testing.T) {
 		"--workspace", "repo",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -7567,6 +7569,21 @@ func TestPipelineTickRejectsInvalidFlags(t *testing.T) {
 			name: "wait flag without wait",
 			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait-status", "running"},
 			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait next-state without wait",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait step without wait",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait-step", "implement"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"pipeline", "tick", "ticket_to_pr", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 		{
 			name: "preview without dry run",
@@ -7658,6 +7675,8 @@ func TestPipelineDrainScopesQueueAndWaitsForAdvancedJobs(t *testing.T) {
 		"--workspace", "repo",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--interval", "0s",
@@ -7736,6 +7755,21 @@ func TestPipelineDrainRejectsInvalidFlags(t *testing.T) {
 			name: "wait flag without wait",
 			args: []string{"pipeline", "drain", "ticket_to_pr", "--wait-status", "running"},
 			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait next-state without wait",
+			args: []string{"pipeline", "drain", "ticket_to_pr", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait step without wait",
+			args: []string{"pipeline", "drain", "ticket_to_pr", "--wait-step", "implement"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"pipeline", "drain", "ticket_to_pr", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 	}
 	for _, tc := range cases {

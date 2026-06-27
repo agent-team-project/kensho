@@ -235,6 +235,8 @@ func TestTickWaitsForAdvancedJobs(t *testing.T) {
 		"--skip-drain",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -266,6 +268,9 @@ func TestTickWaitValidation(t *testing.T) {
 		{name: "until idle", args: []string{"tick", "--wait", "--until-idle"}, want: "--wait cannot be combined with --until-idle"},
 		{name: "skip advance", args: []string{"tick", "--wait", "--skip-advance"}, want: "--wait requires pipeline advancement"},
 		{name: "wait flag without wait", args: []string{"tick", "--wait-status", "running"}, want: "wait-related flags require --wait"},
+		{name: "wait next-state without wait", args: []string{"tick", "--wait-next-state", "running"}, want: "wait-related flags require --wait"},
+		{name: "wait step without wait", args: []string{"tick", "--wait-step", "implement"}, want: "wait-related flags require --wait"},
+		{name: "invalid wait next-state", args: []string{"tick", "--wait", "--wait-next-state", "missing"}, want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
 		{name: "negative wait timeout", args: []string{"tick", "--wait", "--wait-timeout", "-1s"}, want: "--wait-timeout must be >= 0"},
 	}
 	for _, tc := range cases {
@@ -623,6 +628,8 @@ func TestDrainWaitsForAdvancedJobs(t *testing.T) {
 		"--skip-drain",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--interval", "0s",
@@ -687,6 +694,9 @@ func TestDrainRejectsInvalidFlags(t *testing.T) {
 		{name: "format with json", args: []string{"drain", "--format", "{{.CyclesRun}}", "--json"}, want: "--format cannot be combined with --json"},
 		{name: "wait skip advance", args: []string{"drain", "--wait", "--skip-advance"}, want: "--wait requires pipeline advancement"},
 		{name: "wait flag without wait", args: []string{"drain", "--wait-status", "running"}, want: "wait-related flags require --wait"},
+		{name: "wait next-state without wait", args: []string{"drain", "--wait-next-state", "running"}, want: "wait-related flags require --wait"},
+		{name: "wait step without wait", args: []string{"drain", "--wait-step", "implement"}, want: "wait-related flags require --wait"},
+		{name: "invalid wait next-state", args: []string{"drain", "--wait", "--wait-next-state", "missing"}, want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

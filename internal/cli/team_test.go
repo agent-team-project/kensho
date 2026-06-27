@@ -8850,6 +8850,8 @@ pipelines = ["ticket_to_pr"]
 		"--skip-drain",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--json",
@@ -9026,6 +9028,8 @@ func TestTeamDrainWaitsForAdvancedJobs(t *testing.T) {
 		"--skip-drain",
 		"--wait",
 		"--wait-status", "running",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
 		"--wait-timeout", "2s",
 		"--wait-interval", "10ms",
 		"--interval", "0s",
@@ -9093,6 +9097,21 @@ func TestTeamTickRejectsInvalidLoopFlags(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "wait next-state without wait",
+			args: []string{"team", "tick", "delivery", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait step without wait",
+			args: []string{"team", "tick", "delivery", "--wait-step", "implement"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"team", "tick", "delivery", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
 			name: "negative wait timeout",
 			args: []string{"team", "tick", "delivery", "--wait", "--wait-timeout", "-1s"},
 			want: "--wait-timeout must be >= 0",
@@ -9145,6 +9164,21 @@ func TestTeamDrainRejectsInvalidFlags(t *testing.T) {
 			name: "wait flag without wait",
 			args: []string{"team", "drain", "delivery", "--wait-status", "running"},
 			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait next-state without wait",
+			args: []string{"team", "drain", "delivery", "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "wait step without wait",
+			args: []string{"team", "drain", "delivery", "--wait-step", "implement"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "invalid wait next-state",
+			args: []string{"team", "drain", "delivery", "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 	}
 	for _, tc := range cases {
