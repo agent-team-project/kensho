@@ -3689,6 +3689,44 @@ func TestPipelineApproveDispatchWaitsForRequestedStatus(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-905-review")
 }
 
+func TestPipelineApproveDispatchWaitsForNextStepState(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-918")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "approve", "ticket_to_pr",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline approve --dispatch --wait-next-state: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineApproveResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline approve next-state wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning {
+		t.Fatalf("approval next-state wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "review" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-918-review" {
+		t.Fatalf("approval next-state wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-918-review")
+}
+
 func TestPipelineApproveDispatchWaitTimesOutForEvent(t *testing.T) {
 	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
 	defer cleanup()
@@ -3720,6 +3758,31 @@ func TestPipelineApproveDispatchWaitTimesOutForEvent(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-906-review")
+}
+
+func TestPipelineApproveValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait-next-state", "running"}, "wait-related flags require --wait"},
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait-step", "review"}, "wait-related flags require --wait"},
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+	}
 }
 
 func setupManualGateApprovalRepo(t *testing.T, includeTeam bool) (root string, mgr *daemon.InstanceManager, cleanup func()) {
@@ -9323,6 +9386,44 @@ func TestPipelineRetryDispatchWaitsForRequestedStatus(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-908-implement")
 }
 
+func TestPipelineRetryDispatchWaitsForNextStepState(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeFailedRetryJob(t, teamDir, "squ-919")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"pipeline", "retry", "ticket_to_pr",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("pipeline retry --dispatch --wait-next-state: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineRetryResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline retry next-state wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning {
+		t.Fatalf("retry next-state wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "implement" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-919-implement" {
+		t.Fatalf("retry next-state wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-919-implement")
+}
+
 func TestPipelineRetryDispatchWaitTimesOutForEvent(t *testing.T) {
 	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
 	defer cleanup()
@@ -9599,7 +9700,10 @@ func TestPipelineRetryValidation(t *testing.T) {
 		{[]string{"pipeline", "retry", "ticket_triage", "--preview-routes", "--dry-run"}, "--preview-routes requires --dry-run and --dispatch"},
 		{[]string{"pipeline", "retry", "ticket_triage", "--wait", "--dry-run"}, "--wait cannot be combined with --dry-run"},
 		{[]string{"pipeline", "retry", "ticket_triage", "--wait-status", "running"}, "wait-related flags require --wait"},
+		{[]string{"pipeline", "retry", "ticket_triage", "--wait-next-state", "running"}, "wait-related flags require --wait"},
+		{[]string{"pipeline", "retry", "ticket_triage", "--wait-step", "review"}, "wait-related flags require --wait"},
 		{[]string{"pipeline", "retry", "ticket_triage", "--wait-timeout", "-1s", "--wait"}, "--wait-timeout must be >= 0"},
+		{[]string{"pipeline", "retry", "ticket_triage", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
 		{[]string{"pipeline", "retry", "ticket_triage", "--format", "{{.JobID}}", "--json"}, "--format cannot be combined with --json"},
 	}
 	for _, tc := range cases {

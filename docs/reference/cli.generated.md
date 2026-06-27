@@ -3447,26 +3447,28 @@ agent-team pipeline approve <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                      Approve manual gates across all pipelines.
-      --dispatch                 Dispatch each approved manual gate immediately.
-      --dry-run                  Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --fail-on-failed           With --wait, exit 1 if any approved job resolves to failed.
-      --format string            Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                     Emit approval results as JSON.
-      --limit int                Maximum manual gates to approve (0 = no limit).
-      --message string           Status message recorded on each approved job.
-      --message-file string      Read approval message from a file, or '-' for stdin.
-      --preview-routes           With --dry-run --dispatch, include route and payload previews.
-      --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
-      --step string              Approve only manual gates whose next blocked step has this id.
-      --wait                     After approving or dispatching, wait for approved jobs to reach a lifecycle status or event.
-      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
-      --wait-interval duration   Polling interval with --wait. (default 500ms)
-      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
-      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
-      --workspace string         Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --all                       Approve manual gates across all pipelines.
+      --dispatch                  Dispatch each approved manual gate immediately.
+      --dry-run                   Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --fail-on-failed            With --wait, exit 1 if any approved job resolves to failed.
+      --format string             Render each approval result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                      Emit approval results as JSON.
+      --limit int                 Maximum manual gates to approve (0 = no limit).
+      --message string            Status message recorded on each approved job.
+      --message-file string       Read approval message from a file, or '-' for stdin.
+      --preview-routes            With --dry-run --dispatch, include route and payload previews.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
+      --step string               Approve only manual gates whose next blocked step has this id.
+      --wait                      After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every approved job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
+      --workspace string          Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline cancel`
@@ -4207,27 +4209,29 @@ agent-team pipeline retry <pipeline>|--all [flags]
 Flags:
 
 ```text
-      --all                      Retry failed steps across all pipelines.
-      --dispatch                 Dispatch each reset failed step immediately.
-      --dry-run                  Preview failed-step resets and optional dispatches without writing job or daemon state.
-      --fail-on-failed           With --wait, exit 1 if any retried job resolves to failed.
-      --force                    Ignore step max_attempts caps for this explicit retry.
-      --format string            Render each retry result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                     Emit retry results as JSON.
-      --limit int                Maximum failed jobs to retry (0 = no limit).
-      --message string           Status message recorded on each retried job.
-      --message-file string      Read retry message from a file, or '-' for stdin.
-      --preview-routes           With --dry-run --dispatch, include route and payload previews.
-      --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
-      --step string              Retry only failed jobs whose next failed step has this id.
-      --wait                     After retrying or dispatching, wait for retried jobs to reach a lifecycle status or event.
-      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
-      --wait-interval duration   Polling interval with --wait. (default 500ms)
-      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
-      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
-      --workspace string         Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --all                       Retry failed steps across all pipelines.
+      --dispatch                  Dispatch each reset failed step immediately.
+      --dry-run                   Preview failed-step resets and optional dispatches without writing job or daemon state.
+      --fail-on-failed            With --wait, exit 1 if any retried job resolves to failed.
+      --force                     Ignore step max_attempts caps for this explicit retry.
+      --format string             Render each retry result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                      Emit retry results as JSON.
+      --limit int                 Maximum failed jobs to retry (0 = no limit).
+      --message string            Status message recorded on each retried job.
+      --message-file string       Read retry message from a file, or '-' for stdin.
+      --preview-routes            With --dry-run --dispatch, include route and payload previews.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
+      --step string               Retry only failed jobs whose next failed step has this id.
+      --wait                      After retrying or dispatching, wait for retried jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every retried job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
+      --workspace string          Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline run`
@@ -6110,25 +6114,27 @@ agent-team team approve <team> [flags]
 Flags:
 
 ```text
-      --dispatch                 Dispatch each approved manual gate immediately.
-      --dry-run                  Preview manual gate approvals and optional dispatches without writing job or daemon state.
-      --fail-on-failed           With --wait, exit 1 if any approved job resolves to failed.
-      --format string            Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                     Emit approval results as JSON.
-      --limit int                Approve at most this many manual gates; 0 means no limit.
-      --message string           Status message recorded on each approved team job.
-      --message-file string      Read approval message from a file, or '-' for stdin.
-      --preview-routes           With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
-      --step string              Approve only manual gates whose next blocked step has this id.
-      --wait                     After approving or dispatching, wait for approved jobs to reach a lifecycle status or event.
-      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
-      --wait-interval duration   Polling interval with --wait. (default 500ms)
-      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
-      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
-      --workspace string         Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
+      --dispatch                  Dispatch each approved manual gate immediately.
+      --dry-run                   Preview manual gate approvals and optional dispatches without writing job or daemon state.
+      --fail-on-failed            With --wait, exit 1 if any approved job resolves to failed.
+      --format string             Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                      Emit approval results as JSON.
+      --limit int                 Approve at most this many manual gates; 0 means no limit.
+      --message string            Status message recorded on each approved team job.
+      --message-file string       Read approval message from a file, or '-' for stdin.
+      --preview-routes            With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
+      --step string               Approve only manual gates whose next blocked step has this id.
+      --wait                      After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every approved job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
+      --workspace string          Workspace mode for approved dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team cancel`
@@ -7054,26 +7060,28 @@ agent-team team retry <team> [flags]
 Flags:
 
 ```text
-      --dispatch                 Dispatch each reset failed step immediately.
-      --dry-run                  Preview failed-step resets and optional dispatches without writing job or daemon state.
-      --fail-on-failed           With --wait, exit 1 if any retried job resolves to failed.
-      --force                    Ignore step max_attempts caps for this explicit team retry.
-      --format string            Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
-      --json                     Emit retry results as JSON.
-      --limit int                Retry at most this many failed team jobs; 0 means no limit.
-      --message string           Status message recorded on each retried team job.
-      --message-file string      Read retry message from a file, or '-' for stdin.
-      --preview-routes           With --dry-run --dispatch, include local topology route and dispatch payload previews.
-      --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
-      --step string              Retry only failed team jobs whose next failed step has this id.
-      --wait                     After retrying or dispatching, wait for retried jobs to reach a lifecycle status or event.
-      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
-      --wait-interval duration   Polling interval with --wait. (default 500ms)
-      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
-      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
-      --workspace string         Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
+      --dispatch                  Dispatch each reset failed step immediately.
+      --dry-run                   Preview failed-step resets and optional dispatches without writing job or daemon state.
+      --fail-on-failed            With --wait, exit 1 if any retried job resolves to failed.
+      --force                     Ignore step max_attempts caps for this explicit team retry.
+      --format string             Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
+      --json                      Emit retry results as JSON.
+      --limit int                 Retry at most this many failed team jobs; 0 means no limit.
+      --message string            Status message recorded on each retried team job.
+      --message-file string       Read retry message from a file, or '-' for stdin.
+      --preview-routes            With --dry-run --dispatch, include local topology route and dispatch payload previews.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
+      --step string               Retry only failed team jobs whose next failed step has this id.
+      --wait                      After retrying or dispatching, wait for retried jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every retried job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
+      --workspace string          Workspace mode for retried dispatches: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team run`

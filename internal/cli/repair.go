@@ -477,7 +477,7 @@ func waitForRepairResult(cmd *cobra.Command, teamDir string, result *repairResul
 		return nil
 	}
 	var err error
-	result.PipelineRetry.Results, err = waitForPipelineRetryResults(cmd, teamDir, result.PipelineRetry.Results, statuses, events, timeout, interval, "agent-team repair")
+	result.PipelineRetry.Results, err = waitForPipelineRetryResults(cmd, teamDir, result.PipelineRetry.Results, statuses, events, nil, false, "", timeout, interval, "agent-team repair")
 	if err != nil {
 		return err
 	}

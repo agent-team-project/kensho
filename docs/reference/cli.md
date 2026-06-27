@@ -181,7 +181,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline |
 | `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline; add `--expired` to release only elapsed deadlines |
 | `agent-team pipeline advance <pipeline>` | Advance ready work; use `--workspace`/`--runtime` for dispatched steps and `--wait-next-state`/`--wait-step` for stage-aware handoff |
-| `agent-team pipeline approve <pipeline>` | Approve blocked manual gates; add `--dispatch --wait` for bounded approval handoff |
+| `agent-team pipeline approve <pipeline>` | Approve blocked manual gates; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware approval handoff |
 | `agent-team pipeline reject <pipeline>` | Reject blocked manual gates |
 | `agent-team pipeline skip <pipeline> --step <id>` | Mark matching non-running steps intentionally skipped |
 | `agent-team pipeline cancel <pipeline>` | Cancel non-terminal pipeline jobs without stopping instances |
@@ -195,7 +195,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline cleanup <pipeline>` | Scoped job cleanup for done jobs in one pipeline |
 | `agent-team pipeline queue [<pipeline>]` | List active or quarantined queue items owned by one or all pipelines; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
 | `agent-team pipeline timeout <pipeline>` | Mark stale running steps failed; add `--target-agent` to scope by role |
-| `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--dispatch --wait` for bounded recovery handoff |
+| `agent-team pipeline retry <pipeline>` | Retry failed steps, honoring step `max_attempts` caps; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware recovery handoff |
 | `agent-team pipeline tick <pipeline>` | Run or preview one scoped queue drain and ready-step advance cycle for one pipeline; add `--wait` for bounded handoff |
 | `agent-team pipeline repair <pipeline>` | Scoped repair loop for one pipeline: queue retry, optional timeout/retry, ready-step advance, and `--wait` bounded handoff |
 | `agent-team pipeline drain <pipeline>` | Run scoped queue drain and ready-step advance cycles until one pipeline is idle; add `--wait` for bounded handoff |
@@ -231,12 +231,12 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines |
 | `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs and `--target-agent` to scope by role |
 | `agent-team team advance <team>` | Scoped pipeline advance; use `--runtime` for dispatched steps and `--wait-next-state`/`--wait-step` for stage-aware handoff |
-| `agent-team team approve <team>` | Scoped manual-gate approval; add `--dispatch --wait` for bounded approval handoff |
+| `agent-team team approve <team>` | Scoped manual-gate approval; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware approval handoff |
 | `agent-team team reject <team>` | Scoped manual-gate rejection |
 | `agent-team team skip <team> --step <id>` | Scoped intentional step skip |
 | `agent-team team cancel <team>` | Cancel non-terminal team pipeline jobs without stopping instances |
 | `agent-team team adopt <team> <job-id>` | Adopt a live external process for a job after verifying team ownership |
-| `agent-team team retry <team>` | Scoped failed-step retry, honoring step `max_attempts` caps; add `--dispatch --wait` for bounded recovery handoff |
+| `agent-team team retry <team>` | Scoped failed-step retry, honoring step `max_attempts` caps; add `--dispatch --wait-next-state`/`--wait-step` for stage-aware recovery handoff |
 | `agent-team team cleanup <team>` | Scoped job cleanup, optionally verifying PRs with `gh` |
 | `agent-team team snapshot <team>` | Scoped diagnostic artifact |
 

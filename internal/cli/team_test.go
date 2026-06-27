@@ -2243,6 +2243,44 @@ func TestTeamRetryDispatchWaitsForRequestedStatus(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-910-implement")
 }
 
+func TestTeamRetryDispatchWaitsForNextStepState(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, true)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeFailedRetryJob(t, teamDir, "squ-921")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"team", "retry", "delivery",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-next-state", "running",
+		"--wait-step", "implement",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team retry --dispatch --wait-next-state: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineRetryResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team retry next-state wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Pipeline != "ticket_to_pr" || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning {
+		t.Fatalf("team retry next-state wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "implement" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-921-implement" {
+		t.Fatalf("team retry next-state wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-921-implement")
+}
+
 func TestTeamRetryStepFilter(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -3184,6 +3222,69 @@ func TestTeamApproveDispatchWaitsForRequestedStatus(t *testing.T) {
 	stopAndWaitForTest(t, mgr, "worker-squ-907-review")
 }
 
+func TestTeamApproveDispatchWaitsForNextStepState(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, true)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-920")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"team", "approve", "delivery",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-next-state", "running",
+		"--wait-step", "review",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team approve --dispatch --wait-next-state: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []pipelineApproveResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team approve next-state wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Pipeline != "ticket_to_pr" || rows[0].Action != "dispatched" || rows[0].Job == nil || rows[0].Job.Status != job.StatusRunning {
+		t.Fatalf("team approval next-state wait rows = %+v", rows)
+	}
+	if rows[0].Step == nil || rows[0].Step.ID != "review" || rows[0].Step.Status != job.StatusRunning || rows[0].Step.Instance != "worker-squ-920-review" {
+		t.Fatalf("team approval next-state wait step = %+v", rows[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-920-review")
+}
+
+func TestTeamApproveValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"team", "approve", "delivery", "--wait-next-state", "running"}, "wait-related flags require --wait"},
+		{[]string{"team", "approve", "delivery", "--wait-step", "review"}, "wait-related flags require --wait"},
+		{[]string{"team", "approve", "delivery", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+	}
+}
+
 func TestTeamRejectManualGateScopesToTeam(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -3898,7 +3999,10 @@ func TestTeamRetryValidation(t *testing.T) {
 		{[]string{"team", "retry", "delivery", "--preview-routes", "--dry-run"}, "--preview-routes requires --dry-run and --dispatch"},
 		{[]string{"team", "retry", "delivery", "--wait", "--dry-run"}, "--wait cannot be combined with --dry-run"},
 		{[]string{"team", "retry", "delivery", "--wait-status", "running"}, "wait-related flags require --wait"},
+		{[]string{"team", "retry", "delivery", "--wait-next-state", "running"}, "wait-related flags require --wait"},
+		{[]string{"team", "retry", "delivery", "--wait-step", "review"}, "wait-related flags require --wait"},
 		{[]string{"team", "retry", "delivery", "--wait-timeout", "-1s", "--wait"}, "--wait-timeout must be >= 0"},
+		{[]string{"team", "retry", "delivery", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
 		{[]string{"team", "retry", "delivery", "--format", "{{.JobID}}", "--json"}, "--format cannot be combined with --json"},
 	}
 	for _, tc := range cases {
