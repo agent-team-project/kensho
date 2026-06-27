@@ -1861,17 +1861,23 @@ agent-team job approve <job-id> [message...] [flags]
 Flags:
 
 ```text
-      --advance               After approval, dispatch the newly ready step.
-      --dry-run               Preview approval and optional advance dispatch without writing job or daemon state.
-      --format string         Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
-      --json                  Emit the updated job or advance result as JSON.
-      --message string        Approval message recorded on the job.
-      --message-file string   Read approval message from a file, or '-' for stdin.
-      --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime string        Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string    Runtime binary for --advance dispatch. Overrides env and repo config.
-      --step string           Manual gate step id to approve. Defaults to the next blocked manual gate.
-      --workspace string      Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
+      --advance                  After approval, dispatch the newly ready step.
+      --dry-run                  Preview approval and optional advance dispatch without writing job or daemon state.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
+      --json                     Emit the updated job or advance result as JSON.
+      --message string           Approval message recorded on the job.
+      --message-file string      Read approval message from a file, or '-' for stdin.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --advance dispatch. Overrides env and repo config.
+      --step string              Manual gate step id to approve. Defaults to the next blocked manual gate.
+      --wait                     With --advance, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team job attach`
@@ -2898,22 +2904,28 @@ agent-team job step <job-id> <step-id> [flags]
 Flags:
 
 ```text
-      --advance              After marking the step done, dispatch the next ready step.
-      --branch string        Branch name to record on the job.
-      --dry-run              Preview the step update and optional advance dispatch without writing job or daemon state.
-  -f, --force                Allow marking a step running without an owning instance.
-      --format string        Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
-      --instance string      Instance that owns or completed this step.
-      --json                 Emit the updated job or advance result as JSON.
-      --message string       Status message recorded on the job.
-      --pr string            PR URL to record on the job.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for --advance dispatch. Overrides env and repo config.
-      --skip                 Mark this step as intentionally skipped; stored as done so dependent steps can continue.
-      --status string        Step status: queued, running, blocked, done, or failed. (default "done")
-      --workspace string     Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
-      --worktree string      Worktree path to record on the job.
+      --advance                  After marking the step done, dispatch the next ready step.
+      --branch string            Branch name to record on the job.
+      --dry-run                  Preview the step update and optional advance dispatch without writing job or daemon state.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+  -f, --force                    Allow marking a step running without an owning instance.
+      --format string            Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
+      --instance string          Instance that owns or completed this step.
+      --json                     Emit the updated job or advance result as JSON.
+      --message string           Status message recorded on the job.
+      --pr string                PR URL to record on the job.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --advance dispatch. Overrides env and repo config.
+      --skip                     Mark this step as intentionally skipped; stored as done so dependent steps can continue.
+      --status string            Step status: queued, running, blocked, done, or failed. (default "done")
+      --wait                     With --advance, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for an advanced step: auto, worktree, or repo. (default "auto")
+      --worktree string          Worktree path to record on the job.
 ```
 
 ## `agent-team job stop`
@@ -3029,23 +3041,29 @@ agent-team job update <job-id> [flags]
 Flags:
 
 ```text
-      --advance              After updating metadata, dispatch the next ready pipeline step.
-      --branch string        Set branch.
-      --clear strings        Clear metadata fields: ticket-url, instance, branch, worktree, pr, or pipeline. Can repeat or comma-separate.
-      --dry-run              Preview metadata updates and optional advance dispatch without writing job or daemon state.
-      --format string        Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
-      --instance string      Set owning instance.
-      --json                 Emit the updated job or advance result as JSON.
-      --message string       Status message recorded on the job.
-      --pr string            Set PR URL or number.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for --advance dispatch. Overrides env and repo config.
-      --status string        Set lifecycle status: queued, running, blocked, done, or failed.
-      --target string        Set target agent.
-      --ticket-url string    Set ticket URL.
-      --workspace string     Workspace mode for --advance: auto, worktree, or repo. (default "auto")
-      --worktree string      Set worktree path.
+      --advance                  After updating metadata, dispatch the next ready pipeline step.
+      --branch string            Set branch.
+      --clear strings            Clear metadata fields: ticket-url, instance, branch, worktree, pr, or pipeline. Can repeat or comma-separate.
+      --dry-run                  Preview metadata updates and optional advance dispatch without writing job or daemon state.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
+      --instance string          Set owning instance.
+      --json                     Emit the updated job or advance result as JSON.
+      --message string           Status message recorded on the job.
+      --pr string                Set PR URL or number.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --advance dispatch. Overrides env and repo config.
+      --status string            Set lifecycle status: queued, running, blocked, done, or failed.
+      --target string            Set target agent.
+      --ticket-url string        Set ticket URL.
+      --wait                     With --advance, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for --advance: auto, worktree, or repo. (default "auto")
+      --worktree string          Set worktree path.
 ```
 
 ## `agent-team job wait`

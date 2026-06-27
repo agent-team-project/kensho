@@ -100,15 +100,16 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, events, inboxes, queue ownership, state files, and optional log tails |
 | `agent-team job explain <job-id>` | Explain or watch every pipeline step's readiness, blockers, gates, and next actions |
-| `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate, optionally advancing it |
+| `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--advance --wait` for bounded handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed |
+| `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--advance --wait` after marking a step done |
 | `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection and `--wait` for bounded automation |
 | `agent-team job send <job-id>` | Send message to job instance |
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |
 | `agent-team job block <job-id>` | Mark a job blocked and record the reason |
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
 | `agent-team job retry <job-id>` | Reopen/retry a failed or closed job; add `--dispatch --wait` for bounded recovery handoff |
-| `agent-team job update <job-id>` | Update job metadata; use `--advance --dry-run` to preview unblocked pipeline steps |
+| `agent-team job update <job-id>` | Update job metadata; use `--advance --dry-run` to preview unblocked steps or `--advance --wait` for bounded PR-gate handoff |
 | `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; use `--all` for repo-wide freezes, and add `--for` or `--until` for a deadline |
 | `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds |
 | `agent-team job close <job-id>` | Mark done or failed; use `--dry-run` to preview |

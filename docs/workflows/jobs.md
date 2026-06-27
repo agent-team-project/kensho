@@ -88,12 +88,30 @@ Advance a pipeline job step and wait:
 
 ```sh
 agent-team job advance squ-42 --wait --wait-status running --wait-timeout 30s
+agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 \
+  --advance \
+  --wait \
+  --wait-status running \
+  --wait-timeout 30s
+agent-team job step squ-42 implement \
+  --status done \
+  --advance \
+  --wait \
+  --wait-status running \
+  --wait-timeout 30s
+agent-team job approve squ-42 \
+  --step review \
+  --advance \
+  --wait \
+  --wait-status running \
+  --wait-timeout 30s
 ```
 
-With `--wait`, create-and-dispatch, dispatch, and advance wait for terminal
-status by default. Add `--wait-status running`, `--wait-event dispatched`,
-`--wait-event advance_dispatched`, or `--wait-event closed` when automation
-needs a different handoff point.
+With `--wait`, create-and-dispatch, dispatch, advance, update-with-advance,
+step-with-advance, and approve-with-advance wait for terminal status by default.
+Add `--wait-status running`, `--wait-event dispatched`,
+`--wait-event advance_dispatched`, or `--wait-event closed` when automation needs
+a different handoff point.
 
 Preview first:
 

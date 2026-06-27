@@ -9531,6 +9531,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "--wait-timeout must be >= 0",
 		},
 		{
+			name: "update wait without advance",
+			args: []string{"job", "update", "squ-1", "--wait"},
+			want: "--wait requires --advance",
+		},
+		{
+			name: "update wait dry-run",
+			args: []string{"job", "update", "squ-1", "--advance", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "update wait flag without wait",
+			args: []string{"job", "update", "squ-1", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
 			name: "step format with json",
 			args: []string{"job", "step", "squ-1", "implement", "--format", "{{.ID}}", "--json"},
 			want: "--format cannot be combined",
@@ -9539,6 +9554,36 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			name: "step invalid format",
 			args: []string{"job", "step", "squ-1", "implement", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			name: "step wait dry-run",
+			args: []string{"job", "step", "squ-1", "implement", "--advance", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "step wait flag without wait",
+			args: []string{"job", "step", "squ-1", "implement", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "step wait requires done advance",
+			args: []string{"job", "step", "squ-1", "implement", "--status", "failed", "--advance", "--wait"},
+			want: "--wait requires --advance with a done step",
+		},
+		{
+			name: "approve wait without advance",
+			args: []string{"job", "approve", "squ-1", "--wait"},
+			want: "--wait requires --advance",
+		},
+		{
+			name: "approve wait dry-run",
+			args: []string{"job", "approve", "squ-1", "--advance", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "approve wait flag without wait",
+			args: []string{"job", "approve", "squ-1", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -9628,6 +9673,156 @@ func TestJobAdvanceWaitTimesOutForEvent(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-915-implement")
+}
+
+func TestJobUpdateAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "squ-916",
+		Ticket:     "SQU-916",
+		Target:     "worker",
+		Kickoff:    "dispatch review after PR metadata",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusBlocked,
+		LastEvent:  "step_blocked",
+		LastStatus: "review waiting for PR",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"implement"}, Gate: job.StepGatePR},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write PR-gated job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "update", "squ-916",
+		"--repo", root,
+		"--pr", "https://github.com/acme/repo/pull/916",
+		"--advance",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job update --advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job update advance wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" || result.Job.PR == "" {
+		t.Fatalf("update advance wait job = %+v", result.Job)
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-916-review" {
+		t.Fatalf("update advance wait step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-916-review")
+}
+
+func TestJobStepAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-917",
+		Ticket:    "SQU-917",
+		Target:    "worker",
+		Kickoff:   "dispatch review after implementation finishes",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-917-implement", StartedAt: now.Add(-time.Hour)},
+			{ID: "review", Target: "worker", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write step-advance job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "step", "squ-917", "implement",
+		"--repo", root,
+		"--status", "done",
+		"--advance",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job step --advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job step advance wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("step advance wait job = %+v", result.Job)
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-917-review" {
+		t.Fatalf("step advance wait step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-917-review")
+}
+
+func TestJobApproveAdvanceWaitsForRequestedStatus(t *testing.T) {
+	root, mgr, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-918")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "approve", "squ-918",
+		"--repo", root,
+		"--step", "review",
+		"--advance",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job approve --advance --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode job approve advance wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("approve advance wait job = %+v", result.Job)
+	}
+	if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-918-review" {
+		t.Fatalf("approve advance wait step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-918-review")
 }
 
 func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
