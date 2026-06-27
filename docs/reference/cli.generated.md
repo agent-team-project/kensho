@@ -4112,18 +4112,24 @@ agent-team pipeline run <pipeline> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
-      --dispatch              Dispatch the first ready pipeline step immediately using the running daemon.
-      --dry-run               Preview the pipeline job that would be created without writing it.
-      --format string         Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --id string             Override the normalized job id (default: ticket slug).
-      --json                  Emit the created job or advance result as JSON.
-      --kickoff string        Kickoff text for the first pipeline step.
-      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
-      --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
-      --ticket-url string     Canonical ticket URL to store on the job.
-      --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --dispatch                 Dispatch the first ready pipeline step immediately using the running daemon.
+      --dry-run                  Preview the pipeline job that would be created without writing it.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --id string                Override the normalized job id (default: ticket slug).
+      --json                     Emit the created job or advance result as JSON.
+      --kickoff string           Kickoff text for the first pipeline step.
+      --kickoff-file string      Read kickoff text from a file, or '-' for stdin.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
+      --ticket-url string        Canonical ticket URL to store on the job.
+      --wait                     After creating or dispatching, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team pipeline send`
@@ -6872,19 +6878,25 @@ agent-team team run <team> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
-      --dispatch              Dispatch the first ready pipeline step immediately using the running daemon.
-      --dry-run               Preview the pipeline job that would be created without writing it.
-      --format string         Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Pipeline}}'.
-      --id string             Override the normalized job id (default: ticket slug).
-      --json                  Emit the created job or advance result as JSON.
-      --kickoff string        Kickoff text for the first pipeline step.
-      --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
-      --pipeline string       Team pipeline to use when the team declares more than one.
-      --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime string        Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
-      --runtime-bin string    Runtime binary for --dispatch. Overrides env and repo config.
-      --ticket-url string     Canonical ticket URL to store on the job.
-      --workspace string      Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+      --dispatch                 Dispatch the first ready pipeline step immediately using the running daemon.
+      --dry-run                  Preview the pipeline job that would be created without writing it.
+      --fail-on-failed           With --wait, exit 1 if the job resolves to failed.
+      --format string            Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Pipeline}}'.
+      --id string                Override the normalized job id (default: ticket slug).
+      --json                     Emit the created job or advance result as JSON.
+      --kickoff string           Kickoff text for the first pipeline step.
+      --kickoff-file string      Read kickoff text from a file, or '-' for stdin.
+      --pipeline string          Team pipeline to use when the team declares more than one.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for --dispatch. Overrides env and repo config.
+      --ticket-url string        Canonical ticket URL to store on the job.
+      --wait                     After creating or dispatching, wait for the job to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+      --workspace string         Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team runtime`

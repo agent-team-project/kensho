@@ -3677,18 +3677,24 @@ func newPipelineReleaseCmd() *cobra.Command {
 
 func newPipelineRunCmd() *cobra.Command {
 	var (
-		repo        string
-		id          string
-		ticketURL   string
-		kickoff     string
-		kickoffFile string
-		dispatchNow bool
-		workspace   string
-		runtimeKind string
-		runtimeBin  string
-		dryRun      bool
-		jsonOut     bool
-		format      string
+		repo         string
+		id           string
+		ticketURL    string
+		kickoff      string
+		kickoffFile  string
+		dispatchNow  bool
+		workspace    string
+		runtimeKind  string
+		runtimeBin   string
+		dryRun       bool
+		wait         bool
+		waitStatuses []string
+		waitEvents   []string
+		waitTimeout  time.Duration
+		waitInterval time.Duration
+		failOnFailed bool
+		jsonOut      bool
+		format       string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -3701,17 +3707,23 @@ func newPipelineRunCmd() *cobra.Command {
 				return err
 			}
 			return runPipelineJobCreate(cmd, teamDir, args[0], args[1], args[2:], pipelineRunOptions{
-				ID:          id,
-				TicketURL:   ticketURL,
-				Kickoff:     kickoff,
-				KickoffFile: kickoffFile,
-				DispatchNow: dispatchNow,
-				Workspace:   workspace,
-				Runtime:     runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
-				DryRun:      dryRun,
-				JSON:        jsonOut,
-				Format:      format,
-				ErrPrefix:   "agent-team pipeline run",
+				ID:           id,
+				TicketURL:    ticketURL,
+				Kickoff:      kickoff,
+				KickoffFile:  kickoffFile,
+				DispatchNow:  dispatchNow,
+				Workspace:    workspace,
+				Runtime:      runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+				DryRun:       dryRun,
+				Wait:         wait,
+				WaitStatuses: waitStatuses,
+				WaitEvents:   waitEvents,
+				WaitTimeout:  waitTimeout,
+				WaitInterval: waitInterval,
+				FailOnFailed: failOnFailed,
+				JSON:         jsonOut,
+				Format:       format,
+				ErrPrefix:    "agent-team pipeline run",
 			})
 		},
 	}
@@ -3725,23 +3737,35 @@ func newPipelineRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the pipeline job that would be created without writing it.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After creating or dispatching, wait for the job to reach a lifecycle status or event.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if the job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the created job or advance result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
 
 type pipelineRunOptions struct {
-	ID          string
-	TicketURL   string
-	Kickoff     string
-	KickoffFile string
-	DispatchNow bool
-	Workspace   string
-	Runtime     runtimeSelection
-	DryRun      bool
-	JSON        bool
-	Format      string
-	ErrPrefix   string
+	ID           string
+	TicketURL    string
+	Kickoff      string
+	KickoffFile  string
+	DispatchNow  bool
+	Workspace    string
+	Runtime      runtimeSelection
+	DryRun       bool
+	Wait         bool
+	WaitStatuses []string
+	WaitEvents   []string
+	WaitTimeout  time.Duration
+	WaitInterval time.Duration
+	FailOnFailed bool
+	JSON         bool
+	Format       string
+	ErrPrefix    string
 }
 
 func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket string, positional []string, opts pipelineRunOptions) error {
@@ -3753,10 +3777,40 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", prefix)
 		return exitErr(2)
 	}
+	if opts.WaitInterval < 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --wait-interval must be >= 0.\n", prefix)
+		return exitErr(2)
+	}
+	if opts.WaitTimeout < 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --wait-timeout must be >= 0.\n", prefix)
+		return exitErr(2)
+	}
+	if opts.DryRun && opts.Wait {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --wait cannot be combined with --dry-run.\n", prefix)
+		return exitErr(2)
+	}
+	if !opts.Wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || opts.FailOnFailed) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: wait-related flags require --wait.\n", prefix)
+		return exitErr(2)
+	}
 	tmpl, err := parseJobFormat(opts.Format)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 		return exitErr(2)
+	}
+	waitEvents := map[string]bool{}
+	waitStatuses := map[job.Status]bool{}
+	if opts.Wait {
+		waitEvents = parseJobWaitEvents(opts.WaitEvents)
+		waitStatuses, err = parseJobWaitStatuses(opts.WaitStatuses, !cmd.Flags().Changed("wait-status") && len(waitEvents) == 0)
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+			return exitErr(2)
+		}
+		if len(waitStatuses) == 0 && len(waitEvents) == 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: pass at least one non-empty --wait-status or --wait-event.\n", prefix)
+			return exitErr(2)
+		}
 	}
 	pipelineDef, err := loadJobCreatePipeline(teamDir, pipelineName)
 	if err != nil {
@@ -3819,15 +3873,90 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 		if err != nil {
 			return err
 		}
+		if opts.Wait {
+			waited, err := waitForPipelineRunJob(cmd, teamDir, res.Job.ID, waitStatuses, waitEvents, opts, prefix)
+			if err != nil {
+				if err == context.Canceled {
+					return nil
+				}
+				return err
+			}
+			res.Job = waited
+		}
 		if opts.JSON {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(res); err != nil {
+				return err
+			}
+			if opts.FailOnFailed && res.Job.Status == job.StatusFailed {
+				return exitErr(1)
+			}
+			return nil
 		}
 		if tmpl != nil {
-			return renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl)
+			if err := renderJobTemplate(cmd.OutOrStdout(), res.Job, tmpl); err != nil {
+				return err
+			}
+			if opts.FailOnFailed && res.Job.Status == job.StatusFailed {
+				return exitErr(1)
+			}
+			return nil
 		}
-		return renderJobAdvanceResult(cmd.OutOrStdout(), res)
+		if err := renderJobAdvanceResult(cmd.OutOrStdout(), res); err != nil {
+			return err
+		}
+		if opts.FailOnFailed && res.Job.Status == job.StatusFailed {
+			return exitErr(1)
+		}
+		return nil
 	}
-	return renderJobResult(cmd.OutOrStdout(), j, opts.JSON, tmpl)
+	if opts.Wait {
+		waited, err := waitForPipelineRunJob(cmd, teamDir, j.ID, waitStatuses, waitEvents, opts, prefix)
+		if err != nil {
+			if err == context.Canceled {
+				return nil
+			}
+			return err
+		}
+		j = waited
+	}
+	if err := renderJobResult(cmd.OutOrStdout(), j, opts.JSON, tmpl); err != nil {
+		return err
+	}
+	if opts.FailOnFailed && j.Status == job.StatusFailed {
+		return exitErr(1)
+	}
+	return nil
+}
+
+func waitForPipelineRunJob(cmd *cobra.Command, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, opts pipelineRunOptions, prefix string) (*job.Job, error) {
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+	defer stop()
+	cancel := func() {}
+	if opts.WaitTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, opts.WaitTimeout)
+	}
+	defer cancel()
+	waited, err := runJobWait(ctx, teamDir, id, statuses, events, opts.WaitInterval)
+	if err == nil {
+		return waited, nil
+	}
+	if timeoutErr, ok := err.(*jobWaitTimeoutError); ok {
+		status := "unknown"
+		event := ""
+		if timeoutErr.Job != nil {
+			status = string(timeoutErr.Job.Status)
+			event = strings.TrimSpace(timeoutErr.Job.LastEvent)
+		}
+		if len(events) > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for %s to reach %s (current=%s event=%s).\n",
+				prefix, id, jobWaitConditionList(statuses, events), status, emptyDash(event))
+		} else {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: timed out waiting for %s to reach %s (current=%s).\n",
+				prefix, id, jobWaitStatusList(statuses), status)
+		}
+		return nil, exitErr(1)
+	}
+	return nil, err
 }
 
 type pipelineInfo struct {

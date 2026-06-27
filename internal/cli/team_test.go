@@ -4254,6 +4254,52 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	}
 }
 
+func TestTeamRunDispatchWaitsForRequestedStatus(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "agent-team-team-run-wait-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"team", "run", "delivery", "SQU-813",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team run --dispatch --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team run dispatch wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Step == nil {
+		t.Fatalf("result missing job/step = %+v", result)
+	}
+	if result.Job.Status != job.StatusRunning || result.Job.Pipeline != "ticket_to_pr" || result.Job.Instance != "worker-squ-813-implement" {
+		t.Fatalf("waited team job = %+v", result.Job)
+	}
+	if result.Step.ID != "implement" || result.Step.Status != job.StatusRunning || result.Step.Instance != "worker-squ-813-implement" {
+		t.Fatalf("waited team step = %+v", result.Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-813-implement")
+}
+
 func TestTeamRunSelectsPipelineForMultiPipelineTeam(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
