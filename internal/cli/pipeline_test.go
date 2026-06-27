@@ -2725,6 +2725,14 @@ target = "worker"
 				{ID: "audit", Target: "worker", Status: job.StatusFailed},
 			},
 		},
+		{
+			ID:        "adhoc-830",
+			Ticket:    "ADHOC-830",
+			Target:    "worker",
+			Status:    job.StatusFailed,
+			CreatedAt: old,
+			UpdatedAt: old,
+		},
 	} {
 		if err := job.Write(teamDir, j); err != nil {
 			t.Fatalf("write %s: %v", j.ID, err)
@@ -2827,6 +2835,64 @@ target = "worker"
 	if !containsString(ready["squ-832"].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") ||
 		!containsString(ready["squ-834"].Actions, "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") {
 		t.Fatalf("ready actions = %+v", snapshot.ReadySteps)
+	}
+
+	allCmd := NewRootCmd()
+	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allCmd.SetOut(allOut)
+	allCmd.SetErr(allErr)
+	allCmd.SetArgs([]string{"pipeline", "triage", "--repo", root, "--stale-after", "24h", "--json"})
+	if err := allCmd.Execute(); err != nil {
+		t.Fatalf("pipeline triage all default: %v\nstderr=%s", err, allErr.String())
+	}
+	var allSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(allOut.Bytes(), &allSnapshot); err != nil {
+		t.Fatalf("decode pipeline triage all json: %v\nbody=%s", err, allOut.String())
+	}
+	if allSnapshot.Summary.Total != 6 || allSnapshot.Queue.Dead != 2 || allSnapshot.Queue.Quarantined != 1 {
+		t.Fatalf("all pipeline triage summary = %+v queue=%+v", allSnapshot.Summary, allSnapshot.Queue)
+	}
+	allAttention := map[string]jobTriageItem{}
+	for _, item := range allSnapshot.Attention {
+		allAttention[item.JobID] = item
+	}
+	if _, ok := allAttention["adhoc-830"]; ok {
+		t.Fatalf("all pipeline triage included non-pipeline job: %+v", allSnapshot.Attention)
+	}
+	if !containsString(allAttention["squ-830"].Actions, "agent-team pipeline retry ticket_to_pr --step implement --dry-run --dispatch --preview-routes") {
+		t.Fatalf("all pipeline triage ticket actions = %+v", allAttention["squ-830"].Actions)
+	}
+	if !containsString(allAttention["ops-830"].Actions, "agent-team pipeline retry ops_review --step audit --dry-run --dispatch --preview-routes") {
+		t.Fatalf("all pipeline triage ops actions = %+v", allAttention["ops-830"].Actions)
+	}
+
+	explicitAllCmd := NewRootCmd()
+	explicitAllOut, explicitAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explicitAllCmd.SetOut(explicitAllOut)
+	explicitAllCmd.SetErr(explicitAllErr)
+	explicitAllCmd.SetArgs([]string{"pipeline", "triage", "--all", "--repo", root, "--stale-after", "24h", "--json"})
+	if err := explicitAllCmd.Execute(); err != nil {
+		t.Fatalf("pipeline triage --all: %v\nstderr=%s", err, explicitAllErr.String())
+	}
+	var explicitAllSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(explicitAllOut.Bytes(), &explicitAllSnapshot); err != nil {
+		t.Fatalf("decode pipeline triage --all json: %v\nbody=%s", err, explicitAllOut.String())
+	}
+	if explicitAllSnapshot.Summary.Total != allSnapshot.Summary.Total ||
+		len(explicitAllSnapshot.Attention) != len(allSnapshot.Attention) {
+		t.Fatalf("pipeline triage --all = %+v, want equivalent to default all %+v", explicitAllSnapshot, allSnapshot)
+	}
+
+	invalidMany := NewRootCmd()
+	invalidManyOut, invalidManyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidMany.SetOut(invalidManyOut)
+	invalidMany.SetErr(invalidManyErr)
+	invalidMany.SetArgs([]string{"pipeline", "triage", "ticket_to_pr", "ops_review", "--repo", root})
+	if err := invalidMany.Execute(); err == nil {
+		t.Fatalf("pipeline triage accepted multiple pipeline names: stdout=%s", invalidManyOut.String())
+	}
+	if !strings.Contains(invalidManyErr.String(), "pass at most one pipeline name") {
+		t.Fatalf("multiple pipeline error = %q", invalidManyErr.String())
 	}
 }
 

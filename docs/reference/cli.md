@@ -166,7 +166,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline doctor --all` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts workspace and runtime overrides |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/quarantine counts; sort rows and cap output with `--limit` |
-| `agent-team pipeline triage <pipeline>` | Show pipeline-owned jobs needing attention, including queue/quarantine and ready-step recovery hints |
+| `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/quarantine and ready-step recovery hints |
 | `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; add `--step` to focus one stage |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, explained jobs, inboxes, queue ownership, and dry-run advance previews |
 | `agent-team pipeline next` | Print or watch recommended pipeline actions |

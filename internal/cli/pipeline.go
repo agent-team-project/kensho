@@ -450,6 +450,7 @@ func newPipelineStatusCmd() *cobra.Command {
 func newPipelineTriageCmd() *cobra.Command {
 	var (
 		repo        string
+		all         bool
 		staleAfter  time.Duration
 		minSeverity string
 		reasons     []string
@@ -461,12 +462,21 @@ func newPipelineTriageCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "triage <pipeline>",
+		Use:   "triage [<pipeline>|--all]",
 		Short: "Show pipeline-owned jobs that need operator attention.",
 		Long: "Show a compact pipeline-scoped work queue triage view from durable jobs, " +
-			"persisted daemon queue items, status-file update previews, and ready pipeline steps.",
-		Args: cobra.ExactArgs(1),
+			"persisted daemon queue items, status-file update previews, and ready pipeline steps. " +
+			"With no pipeline, all pipeline-owned jobs are considered.",
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline triage: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline triage: pass at most one pipeline name.")
+				return exitErr(2)
+			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline triage: --interval must be >= 0.")
 				return exitErr(2)
@@ -501,12 +511,20 @@ func newPipelineTriageCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline triage: --stale-after must be >= 0.")
 				return exitErr(2)
 			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline triage: pipeline name is required.")
+				return exitErr(2)
+			}
 			if watch {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
-				return runPipelineTriageWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], staleAfter, filters, jsonOut, interval, !noClear)
+				return runPipelineTriageWatch(ctx, cmd.OutOrStdout(), teamDir, pipelineName, staleAfter, filters, jsonOut, interval, !noClear)
 			}
-			snapshot, err := collectPipelineTriage(teamDir, args[0], time.Now().UTC(), staleAfter, filters)
+			snapshot, err := collectPipelineTriage(teamDir, pipelineName, time.Now().UTC(), staleAfter, filters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline triage: %v\n", err)
 				return exitErr(1)
@@ -515,6 +533,7 @@ func newPipelineTriageCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Triage all pipeline-owned jobs. This is the default when no pipeline is passed.")
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks).")
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
@@ -4852,9 +4871,6 @@ func selectedPipelineJobs(teamDir, pipeline string) ([]*job.Job, error) {
 
 func collectPipelineTriage(teamDir, pipeline string, now time.Time, staleAfter time.Duration, filters jobTriageFilters) (jobTriageSnapshot, error) {
 	pipeline = strings.TrimSpace(pipeline)
-	if pipeline == "" {
-		return jobTriageSnapshot{}, fmt.Errorf("pipeline name is required")
-	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -4882,7 +4898,13 @@ func collectPipelineTriage(teamDir, pipeline string, now time.Time, staleAfter t
 	snapshot.Queue = summarizeQueueItems(pipelineQueue, now)
 	applyQueueQuarantineSummary(&snapshot.Queue, pipelineQuarantine)
 	snapshot.Attention = scopePipelineTriageActions(pipeline, filterJobTriageItemsByJobIDs(snapshot.Attention, ownedIDs))
+	if pipeline == "" {
+		snapshot.Attention = scopePipelineTriageActionsByOwner(snapshot.Attention)
+	}
 	snapshot.ReadySteps = scopePipelineReadyRows(pipeline, filterJobReadyRowsByJobIDs(snapshot.ReadySteps, ownedIDs))
+	if pipeline == "" {
+		snapshot.ReadySteps = scopePipelineReadyRowsByOwner(snapshot.ReadySteps)
+	}
 	snapshot.StatusPreviews = filterJobStatusPreviewsByJobIDs(snapshot.StatusPreviews, ownedIDs)
 	return filterJobTriageSnapshot(snapshot, filters), nil
 }
@@ -4968,6 +4990,22 @@ func scopePipelineTriageActions(pipeline string, items []jobTriageItem) []jobTri
 	copy(out, items)
 	for idx := range out {
 		out[idx].Actions = scopePipelineTriageItemActions(pipeline, out[idx])
+	}
+	return out
+}
+
+func scopePipelineTriageActionsByOwner(items []jobTriageItem) []jobTriageItem {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]jobTriageItem, 0, len(items))
+	for _, item := range items {
+		pipeline := strings.TrimSpace(item.Pipeline)
+		if pipeline == "" {
+			continue
+		}
+		item.Actions = scopePipelineTriageItemActions(pipeline, item)
+		out = append(out, item)
 	}
 	return out
 }

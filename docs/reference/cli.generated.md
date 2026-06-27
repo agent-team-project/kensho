@@ -4140,15 +4140,16 @@ Flags:
 
 Show pipeline-owned jobs that need operator attention.
 
-Show a compact pipeline-scoped work queue triage view from durable jobs, persisted daemon queue items, status-file update previews, and ready pipeline steps.
+Show a compact pipeline-scoped work queue triage view from durable jobs, persisted daemon queue items, status-file update previews, and ready pipeline steps. With no pipeline, all pipeline-owned jobs are considered.
 
 ```text
-agent-team pipeline triage <pipeline> [flags]
+agent-team pipeline triage [<pipeline>|--all] [flags]
 ```
 
 Flags:
 
 ```text
+      --all                    Triage all pipeline-owned jobs. This is the default when no pipeline is passed.
       --format string          Render the pipeline triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit pipeline triage snapshot as JSON.
