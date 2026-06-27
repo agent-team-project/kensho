@@ -7228,23 +7228,29 @@ agent-team team tick <team> [flags]
 Flags:
 
 ```text
-      --all-ready-steps      Advance every currently ready independent team pipeline step in this tick.
-      --dry-run              Preview team-owned maintenance work without mutating state.
-      --format string        Render the team tick result with a Go template, e.g. '{{.Team.Name}} {{.Tick.Queue.WouldDispatch}}'.
-      --interval duration    Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
-      --json                 Emit machine-readable JSON.
-      --limit int            Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
-      --max-cycles int       With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
-      --preview-routes       With --dry-run, include route and dispatch payload previews for ready pipeline steps.
-      --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
-      --runtime-bin string   Runtime binary for advanced step dispatches. Overrides env and repo config.
-      --skip-advance         Skip pipeline advancement work.
-      --skip-drain           Skip queue drain work.
-      --skip-schedules       Skip due schedule work.
-      --until-idle           Run team tick cycles until no immediate team schedule, queue, or pipeline work remains.
-  -w, --watch                Run the team tick repeatedly until interrupted.
-      --workspace string     Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+      --all-ready-steps          Advance every currently ready independent team pipeline step in this tick.
+      --dry-run                  Preview team-owned maintenance work without mutating state.
+      --fail-on-failed           With --wait, exit 1 if any advanced team pipeline job resolves to failed.
+      --format string            Render the team tick result with a Go template, e.g. '{{.Team.Name}} {{.Tick.Queue.WouldDispatch}}'.
+      --interval duration        Refresh interval for --watch, or delay between --until-idle cycles. (default 2s)
+      --json                     Emit machine-readable JSON.
+      --limit int                Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
+      --max-cycles int           With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
+      --preview-routes           With --dry-run, include route and dispatch payload previews for ready pipeline steps.
+      --repo string              Repo root containing .agent_team. (default "<repo>")
+      --runtime string           Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime-bin string       Runtime binary for advanced step dispatches. Overrides env and repo config.
+      --skip-advance             Skip pipeline advancement work.
+      --skip-drain               Skip queue drain work.
+      --skip-schedules           Skip due schedule work.
+      --until-idle               Run team tick cycles until no immediate team schedule, queue, or pipeline work remains.
+      --wait                     After one team tick, wait for advanced team pipeline jobs to reach a lifecycle status or event.
+      --wait-event strings       With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration   Polling interval with --wait. (default 500ms)
+      --wait-status strings      With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-timeout duration    Maximum time to wait with --wait (0 = no timeout).
+  -w, --watch                    Run the team tick repeatedly until interrupted.
+      --workspace string         Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
 ```
 
 ## `agent-team team timeout`

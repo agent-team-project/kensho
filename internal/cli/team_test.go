@@ -8316,6 +8316,85 @@ schedules = ["platform_due"]
 	stopAndWaitForTest(t, mgr, teamJob.Steps[0].Instance)
 }
 
+func TestTeamTickWaitsForAdvancedJobs(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "triage"
+target = "manager"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+after = ["triage"]
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-422",
+		Ticket:    "SQU-422",
+		Target:    "worker",
+		Kickoff:   "SQU-422: implement",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write ready team job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"team",
+		"tick",
+		"delivery",
+		"--repo", target,
+		"--workspace", "repo",
+		"--skip-schedules",
+		"--skip-drain",
+		"--wait",
+		"--wait-status", "running",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team tick --wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result teamTickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode team tick wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Team.Name != "delivery" {
+		t.Fatalf("team tick wait team = %+v", result.Team)
+	}
+	if len(result.Tick.Advance) != 1 || result.Tick.Advance[0].Action != "advanced" || result.Tick.Advance[0].Job == nil || result.Tick.Advance[0].Job.Status != job.StatusRunning || result.Tick.Advance[0].Job.LastEvent != "advance_dispatched" {
+		t.Fatalf("team tick wait advance = %+v", result.Tick.Advance)
+	}
+	if result.Tick.Advance[0].Step == nil || result.Tick.Advance[0].Step.ID != "implement" || result.Tick.Advance[0].Step.Status != job.StatusRunning || result.Tick.Advance[0].Step.Instance != "worker-squ-422-implement" {
+		t.Fatalf("team tick wait step = %+v", result.Tick.Advance[0].Step)
+	}
+	stopAndWaitForTest(t, mgr, "worker-squ-422-implement")
+}
+
 func TestTeamTickUntilIdleScopesQueueWork(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "agent-team-team-tick-idle-")
 	if err != nil {
@@ -8466,6 +8545,36 @@ func TestTeamTickRejectsInvalidLoopFlags(t *testing.T) {
 			name: "dry until idle",
 			args: []string{"team", "tick", "delivery", "--until-idle", "--dry-run"},
 			want: "--until-idle cannot be combined with --dry-run",
+		},
+		{
+			name: "wait dry run",
+			args: []string{"team", "tick", "delivery", "--wait", "--dry-run"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "wait watch",
+			args: []string{"team", "tick", "delivery", "--wait", "--watch"},
+			want: "--wait cannot be combined with --watch",
+		},
+		{
+			name: "wait until idle",
+			args: []string{"team", "tick", "delivery", "--wait", "--until-idle"},
+			want: "--wait cannot be combined with --until-idle",
+		},
+		{
+			name: "wait skip advance",
+			args: []string{"team", "tick", "delivery", "--wait", "--skip-advance"},
+			want: "--wait requires pipeline advancement",
+		},
+		{
+			name: "wait flag without wait",
+			args: []string{"team", "tick", "delivery", "--wait-status", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "negative wait timeout",
+			args: []string{"team", "tick", "delivery", "--wait", "--wait-timeout", "-1s"},
+			want: "--wait-timeout must be >= 0",
 		},
 		{
 			name: "max cycles without until idle",

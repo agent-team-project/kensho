@@ -124,6 +124,7 @@ agent-team repair --timeout-pipelines --timeout-target-agent worker --dry-run
 agent-team repair --retry-pipelines --retry-pipeline ticket_to_pr --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
 agent-team tick --wait --wait-status running --wait-timeout 30s
+agent-team team tick delivery --wait --wait-status running --wait-timeout 30s
 ```
 
 Job-level equivalents:
@@ -232,6 +233,7 @@ agent-team team timeout delivery --jobs --dry-run
 agent-team team timeout delivery --jobs --target-agent worker --dry-run
 agent-team team tick delivery --runtime codex --dry-run
 agent-team team tick delivery --all-ready-steps --dry-run
+agent-team team tick delivery --wait --wait-status running --wait-timeout 30s
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --all-ready-steps --dry-run --preview-routes
 agent-team team repair delivery --timeout-jobs --dry-run
@@ -249,7 +251,7 @@ agent-team team snapshot delivery --output delivery.json
 ```
 
 `team adopt <team> <job-id>` applies the same external-process adoption flow as `job adopt`, but first verifies the job belongs to the team through its declared pipelines or instance agents. Use it when recovery should stay inside a team boundary.
-`team advance <team> --wait --wait-status running` applies the same bounded handoff as pipeline advance, but only for pipelines declared on that team. `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`. Use it when one team owns a job with independent stages that can run at the same time.
+`team advance <team> --wait --wait-status running` applies the same bounded handoff as pipeline advance, but only for pipelines declared on that team. `team tick <team> --wait --wait-status running` applies the same one-shot maintenance handoff as global `tick --wait`, but only for jobs advanced by that team's tick. `team advance <team> --all-ready-steps` applies the same parallel-ready fan-out as `pipeline advance --all-ready-steps`. Use it when one team owns a job with independent stages that can run at the same time.
 Use `team timeout <team> --dry-run` for the same stale running-step expiration flow as `pipeline timeout`, scoped to the pipelines declared on that team. Add `--jobs` when the same direct sweep should also catch stale step-less jobs whose target instance belongs to the team, and add `--target-agent` to expire only one team role's stale work. Use `team repair <team> --timeout-jobs --dry-run` when the timeout should run inside the broader repair loop; add `--timeout-pipeline` or `--timeout-target-agent` with either timeout mode to keep repair inside one team-owned workflow or agent role.
 `team pipelines <team>` includes queue and quarantine counts for the team's workflows, and its actions use `team queue ...` recovery commands. `pipeline next <pipeline> --team <team>` renders the same scoped recovery commands when a multi-team operator wants one workflow's next actions without leaving the team boundary.
 `tick --all-ready-steps`, `drain --all-ready-steps`, `repair --all-ready-steps`, `team tick <team> --all-ready-steps`, `team repair <team> --all-ready-steps`, and `team drain <team> --all-ready-steps` apply that fan-out during maintenance and recovery cycles, including watch and until-idle loops.

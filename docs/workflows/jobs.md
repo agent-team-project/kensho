@@ -118,6 +118,7 @@ For a broader maintenance pass that may advance several ready jobs, use one-shot
 
 ```sh
 agent-team tick --wait --wait-status running --wait-timeout 30s
+agent-team team tick delivery --wait --wait-status running --wait-timeout 30s
 ```
 
 Preview first:
