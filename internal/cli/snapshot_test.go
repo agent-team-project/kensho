@@ -775,6 +775,39 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		t.Fatalf("snapshot diff --limit --format output = %q, want %q", got, want)
 	}
 
+	sortedLimited := NewRootCmd()
+	sortedLimitedOut, sortedLimitedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sortedLimited.SetOut(sortedLimitedOut)
+	sortedLimited.SetErr(sortedLimitedErr)
+	sortedLimited.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--sort", "action", "--limit", "4", "--json"})
+	if err := sortedLimited.Execute(); err != nil {
+		t.Fatalf("snapshot diff --sort action --limit json: %v\nstderr=%s", err, sortedLimitedErr.String())
+	}
+	var sortedLimitedResult snapshotDiffResult
+	if err := json.Unmarshal(sortedLimitedOut.Bytes(), &sortedLimitedResult); err != nil {
+		t.Fatalf("decode sorted limited snapshot diff json: %v\nbody=%s", err, sortedLimitedOut.String())
+	}
+	if sortedLimitedResult.Summary.DetailSort != "action" || sortedLimitedResult.Summary.DetailLimit != 4 || len(sortedLimitedResult.Changes) != 4 || sortedLimitedResult.Summary.TotalChanges != result.Summary.TotalChanges {
+		t.Fatalf("sorted limited summary = %+v changes=%d total=%d", sortedLimitedResult.Summary, len(sortedLimitedResult.Changes), result.Summary.TotalChanges)
+	}
+	for _, change := range sortedLimitedResult.Changes {
+		if change.Action != "added" {
+			t.Fatalf("sorted limited change action = %q, want added: %+v", change.Action, sortedLimitedResult.Changes)
+		}
+	}
+
+	sortedText := NewRootCmd()
+	sortedTextOut, sortedTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	sortedText.SetOut(sortedTextOut)
+	sortedText.SetErr(sortedTextErr)
+	sortedText.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--sort", "action", "--limit", "2"})
+	if err := sortedText.Execute(); err != nil {
+		t.Fatalf("snapshot diff --sort action --limit text: %v\nstderr=%s", err, sortedTextErr.String())
+	}
+	if !strings.Contains(sortedTextOut.String(), "details: sort=action showing=2 omitted=") {
+		t.Fatalf("sorted text output unexpected:\n%s", sortedTextOut.String())
+	}
+
 	changedExit := NewRootCmd()
 	changedExitOut, changedExitErr := &bytes.Buffer{}, &bytes.Buffer{}
 	changedExit.SetOut(changedExitOut)
@@ -1017,6 +1050,18 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	if !strings.Contains(invalidLimitErr.String(), "--limit must be >= 0") {
 		t.Fatalf("invalid limit stderr = %q", invalidLimitErr.String())
+	}
+
+	invalidSort := NewRootCmd()
+	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidSort.SetOut(invalidSortOut)
+	invalidSort.SetErr(invalidSortErr)
+	invalidSort.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--sort", "age"})
+	if err := invalidSort.Execute(); err == nil {
+		t.Fatalf("snapshot diff invalid sort succeeded")
+	}
+	if !strings.Contains(invalidSortErr.String(), "--sort must be section, action, or id") {
+		t.Fatalf("invalid sort stderr = %q", invalidSortErr.String())
 	}
 }
 

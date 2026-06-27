@@ -20,6 +20,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		sections []string
 		format   string
 		limit    int
+		sortBy   string
 	)
 	cmd := &cobra.Command{
 		Use:   "diff <before.json> <after.json>",
@@ -34,6 +35,11 @@ func newSnapshotDiffCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseSnapshotDiffSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(2)
 			}
 			formatTemplate, err := parseSnapshotDiffFormat(format)
@@ -51,6 +57,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(1)
 			}
+			sortSnapshotDiffResult(result, sortMode)
 			limitSnapshotDiffResult(result, limit)
 			if jsonOut {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
@@ -74,8 +81,15 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
+	cmd.Flags().StringVar(&sortBy, "sort", "section", "Sort emitted change detail rows by section, action, or id before applying --limit.")
 	return cmd
 }
+
+const (
+	snapshotDiffSortSection = "section"
+	snapshotDiffSortAction  = "action"
+	snapshotDiffSortID      = "id"
+)
 
 type snapshotDiffInput struct {
 	Version          string                        `json:"version,omitempty"`
@@ -363,6 +377,7 @@ type snapshotDiffSummary struct {
 	ShownChanges    int                  `json:"shown_changes,omitempty"`
 	OmittedChanges  int                  `json:"omitted_changes,omitempty"`
 	DetailLimit     int                  `json:"detail_limit,omitempty"`
+	DetailSort      string               `json:"detail_sort,omitempty"`
 	Provenance      snapshotDiffCounters `json:"provenance"`
 	Git             snapshotDiffCounters `json:"git"`
 	Runtime         snapshotDiffCounters `json:"runtime"`
@@ -492,6 +507,87 @@ func diffSnapshotFiles(beforePath, afterPath string, opts snapshotDiffOptions) (
 	}
 	result.Summary.TotalChanges = len(result.Changes)
 	return result, nil
+}
+
+func parseSnapshotDiffSort(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", snapshotDiffSortSection:
+		return snapshotDiffSortSection, nil
+	case snapshotDiffSortAction:
+		return snapshotDiffSortAction, nil
+	case snapshotDiffSortID:
+		return snapshotDiffSortID, nil
+	default:
+		return "", fmt.Errorf("--sort must be section, action, or id")
+	}
+}
+
+func sortSnapshotDiffResult(result *snapshotDiffResult, sortMode string) {
+	if result == nil || sortMode == "" || sortMode == snapshotDiffSortSection {
+		return
+	}
+	result.Summary.DetailSort = sortMode
+	switch sortMode {
+	case snapshotDiffSortAction:
+		sort.SliceStable(result.Changes, func(i, j int) bool {
+			left, right := result.Changes[i], result.Changes[j]
+			leftRank, rightRank := snapshotDiffActionRank(left.Action), snapshotDiffActionRank(right.Action)
+			if leftRank != rightRank {
+				return leftRank < rightRank
+			}
+			if left.Action != right.Action {
+				return left.Action < right.Action
+			}
+			return snapshotDiffChangeLess(left, right)
+		})
+	case snapshotDiffSortID:
+		sort.SliceStable(result.Changes, func(i, j int) bool {
+			left, right := result.Changes[i], result.Changes[j]
+			if left.ID != right.ID {
+				return left.ID < right.ID
+			}
+			if left.Section != right.Section {
+				return left.Section < right.Section
+			}
+			leftRank, rightRank := snapshotDiffActionRank(left.Action), snapshotDiffActionRank(right.Action)
+			if leftRank != rightRank {
+				return leftRank < rightRank
+			}
+			if left.Action != right.Action {
+				return left.Action < right.Action
+			}
+			if left.Before != right.Before {
+				return left.Before < right.Before
+			}
+			return left.After < right.After
+		})
+	}
+}
+
+func snapshotDiffActionRank(action string) int {
+	switch action {
+	case "added":
+		return 0
+	case "removed":
+		return 1
+	case "changed":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func snapshotDiffChangeLess(left, right snapshotDiffChange) bool {
+	if left.Section != right.Section {
+		return left.Section < right.Section
+	}
+	if left.ID != right.ID {
+		return left.ID < right.ID
+	}
+	if left.Before != right.Before {
+		return left.Before < right.Before
+	}
+	return left.After < right.After
 }
 
 func limitSnapshotDiffResult(result *snapshotDiffResult, limit int) {
@@ -1516,13 +1612,21 @@ func renderSnapshotDiff(w io.Writer, result *snapshotDiffResult) {
 	if len(result.Changes) == 0 {
 		if result.Summary.OmittedChanges > 0 {
 			fmt.Fprintf(w, "details: none shown (omitted=%d limit=%d)\n", result.Summary.OmittedChanges, result.Summary.DetailLimit)
+		} else if result.Summary.DetailSort != "" {
+			fmt.Fprintf(w, "details: none (sort=%s)\n", result.Summary.DetailSort)
 		} else {
 			fmt.Fprintln(w, "details: none")
 		}
 		return
 	}
 	if result.Summary.OmittedChanges > 0 {
-		fmt.Fprintf(w, "details: showing=%d omitted=%d limit=%d\n", len(result.Changes), result.Summary.OmittedChanges, result.Summary.DetailLimit)
+		if result.Summary.DetailSort != "" {
+			fmt.Fprintf(w, "details: sort=%s showing=%d omitted=%d limit=%d\n", result.Summary.DetailSort, len(result.Changes), result.Summary.OmittedChanges, result.Summary.DetailLimit)
+		} else {
+			fmt.Fprintf(w, "details: showing=%d omitted=%d limit=%d\n", len(result.Changes), result.Summary.OmittedChanges, result.Summary.DetailLimit)
+		}
+	} else if result.Summary.DetailSort != "" {
+		fmt.Fprintf(w, "details: sort=%s\n", result.Summary.DetailSort)
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "SECTION\tID\tACTION\tBEFORE\tAFTER")

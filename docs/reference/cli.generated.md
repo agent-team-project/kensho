@@ -5804,6 +5804,7 @@ Flags:
       --json              Emit snapshot diff as JSON.
       --limit int         Limit emitted change detail rows after summarizing all changes; 0 means all.
       --section strings   Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
+      --sort string       Sort emitted change detail rows by section, action, or id before applying --limit. (default "section")
 ```
 
 Inherited Flags:
