@@ -11427,11 +11427,15 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 	if err != nil {
 		return err
 	}
+	outboxItems, err := outboxItemsForJob(teamDir, j)
+	if err != nil {
+		return err
+	}
 	statusPreviews, err := statusPreviewsForJob(teamDir, j)
 	if err != nil {
 		return err
 	}
-	renderJobDetailWithRuntime(w, teamDir, j, queueItems, statusPreviews, quarantineItems)
+	renderJobDetailWithRuntime(w, teamDir, j, queueItems, outboxItems, statusPreviews, quarantineItems)
 	if includeEvents {
 		events, err := job.ListEvents(teamDir, j.ID)
 		if err != nil {
@@ -11615,11 +11619,11 @@ func renderJobStatusReconcileResults(w io.Writer, results []jobStatusReconcileRe
 }
 
 func renderJobDetail(w io.Writer, j *job.Job) {
-	renderJobDetailWithRuntime(w, "", j, nil, nil, nil)
+	renderJobDetailWithRuntime(w, "", j, nil, nil, nil, nil)
 }
 
 func renderJobDetailWithQueue(w io.Writer, j *job.Job, queueItems []*daemon.QueueItem) {
-	renderJobDetailWithRuntime(w, "", j, queueItems, nil, nil)
+	renderJobDetailWithRuntime(w, "", j, queueItems, nil, nil, nil)
 }
 
 func renderJobRecentEvents(w io.Writer, events []job.Event) {
@@ -11627,8 +11631,8 @@ func renderJobRecentEvents(w io.Writer, events []job.Event) {
 	renderJobEventTable(w, events, true)
 }
 
-func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem) {
-	actions := jobDetailActions(j, teamDir, queueItems, statusPreviews, quarantineItems, time.Now().UTC())
+func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueItems []*daemon.QueueItem, outboxItems []*daemon.OutboxItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem) {
+	actions := jobDetailActions(j, teamDir, queueItems, outboxItems, statusPreviews, quarantineItems, time.Now().UTC())
 	runtimeMeta := jobRuntimeMetadataForDetail(teamDir, j)
 	fmt.Fprintf(w, "ID:          %s\n", j.ID)
 	fmt.Fprintf(w, "Status:      %s\n", j.Status)
@@ -11756,6 +11760,22 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 				emptyDash(item.Problem))
 		}
 	}
+	if len(outboxItems) > 0 {
+		fmt.Fprintln(w, "Outbox:")
+		for _, item := range outboxItems {
+			if item == nil {
+				continue
+			}
+			fmt.Fprintf(w, "  %s  state=%s type=%s source=%s job=%s updated=%s error=%s\n",
+				item.ID,
+				item.State,
+				item.Type,
+				emptyDash(item.Source),
+				emptyDash(outboxItemJob(item)),
+				outboxTime(item.UpdatedAt),
+				emptyDash(item.LastError))
+		}
+	}
 	if len(statusPreviews) > 0 {
 		fmt.Fprintln(w, "Status Preview:")
 		for _, preview := range statusPreviews {
@@ -11812,7 +11832,7 @@ func jobRuntimeMetadataForDetail(teamDir string, j *job.Job) map[string]*daemon.
 	return out
 }
 
-func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem, now time.Time) []string {
+func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem, outboxItems []*daemon.OutboxItem, statusPreviews []jobStatusReconcileResult, quarantineItems []queueQuarantineItem, now time.Time) []string {
 	if j == nil {
 		return nil
 	}
@@ -11851,6 +11871,11 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 			add(action)
 		}
 	}
+	for _, item := range outboxItems {
+		for _, action := range jobOutboxItemActions(j.ID, item) {
+			add(action)
+		}
+	}
 	if strings.TrimSpace(teamDir) != "" && strings.TrimSpace(j.Instance) != "" {
 		if st, err := os.Stat(lastMessagePathForInstance(teamDir, j.Instance)); err == nil && !st.IsDir() {
 			add(fmt.Sprintf("agent-team job logs %s --last-message", j.ID))
@@ -11875,6 +11900,33 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 		add(fmt.Sprintf("agent-team job dispatch %s", j.ID))
 	}
 	return actions
+}
+
+func jobOutboxItemActions(jobID string, item *daemon.OutboxItem) []string {
+	if item == nil {
+		return nil
+	}
+	id := job.NormalizeID(jobID)
+	if id == "" {
+		id = normalizeOutboxJob(outboxItemJob(item))
+	}
+	if id == "" {
+		return nil
+	}
+	switch item.State {
+	case daemon.OutboxStateFailed:
+		return []string{
+			fmt.Sprintf("agent-team job outbox retry %s %s", id, item.ID),
+			fmt.Sprintf("agent-team job outbox drop %s %s --dry-run", id, item.ID),
+		}
+	case daemon.OutboxStatePending:
+		return []string{
+			fmt.Sprintf("agent-team job outbox %s --state pending", id),
+			"agent-team outbox drain --dry-run",
+		}
+	default:
+		return nil
+	}
 }
 
 func jobUnblockAction(jobID, stepID string) string {

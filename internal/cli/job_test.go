@@ -1217,6 +1217,34 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 		QueuedAt:  now.Add(-30 * time.Minute),
 		UpdatedAt: now.Add(-30 * time.Minute),
 	})
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-job-show-failed",
+		State:     daemon.OutboxStateFailed,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-109", "ticket": "SQU-109", "target": "worker"},
+		LastError: "daemon unavailable",
+		CreatedAt: now.Add(-20 * time.Minute),
+		UpdatedAt: now.Add(-20 * time.Minute),
+	})
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-job-show-pending",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-109", "ticket": "SQU-109", "target": "worker"},
+		CreatedAt: now.Add(-10 * time.Minute),
+		UpdatedAt: now.Add(-10 * time.Minute),
+	})
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-job-show-other",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Source:    "manager",
+		Payload:   map[string]any{"job_id": "squ-999", "ticket": "SQU-999", "target": "worker"},
+		CreatedAt: now.Add(-5 * time.Minute),
+		UpdatedAt: now.Add(-5 * time.Minute),
+	})
 
 	show := NewRootCmd()
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1235,10 +1263,20 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 		quarantinePath,
 		"q-job-show-quarantined",
 		"restorable=yes",
+		"Outbox:",
+		"outbox-job-show-failed",
+		"state=failed",
+		"error=daemon unavailable",
+		"outbox-job-show-pending",
+		"state=pending",
 		"Actions:",
 		"agent-team job queue retry squ-109 q-job-show",
 		"agent-team job queue quarantine squ-109",
 		fmt.Sprintf("agent-team job queue quarantine restore squ-109 %s --dry-run", quarantinePath),
+		"agent-team job outbox retry squ-109 outbox-job-show-failed",
+		"agent-team job outbox drop squ-109 outbox-job-show-failed --dry-run",
+		"agent-team job outbox squ-109 --state pending",
+		"agent-team outbox drain --dry-run",
 	} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
@@ -1246,6 +1284,9 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	}
 	if strings.Contains(showOut.String(), "q-job-show-other") {
 		t.Fatalf("job show leaked unrelated quarantined item:\n%s", showOut.String())
+	}
+	if strings.Contains(showOut.String(), "outbox-job-show-other") {
+		t.Fatalf("job show leaked unrelated outbox item:\n%s", showOut.String())
 	}
 
 	showJSON := NewRootCmd()
