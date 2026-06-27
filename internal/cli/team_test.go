@@ -724,6 +724,22 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team explain text included outside job:\n%s", explainTextOut.String())
 	}
 
+	explainCommands := NewRootCmd()
+	explainCommandsOut, explainCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainCommands.SetOut(explainCommandsOut)
+	explainCommands.SetErr(explainCommandsErr)
+	explainCommands.SetArgs([]string{"team", "explain", "delivery", "--repo", root, "--commands"})
+	if err := explainCommands.Execute(); err != nil {
+		t.Fatalf("team explain --commands: %v\nstderr=%s", err, explainCommandsErr.String())
+	}
+	var wantExplainCommands bytes.Buffer
+	if err := renderPipelineExplainCommands(&wantExplainCommands, explainRows); err != nil {
+		t.Fatalf("render expected team explain commands: %v", err)
+	}
+	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
+		t.Fatalf("team explain --commands = %q, want %q", got, want)
+	}
+
 	explainFormat := NewRootCmd()
 	explainFormatOut, explainFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainFormat.SetOut(explainFormatOut)
@@ -773,6 +789,40 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if !strings.Contains(explainSortErr.String(), "--sort must be job") {
 		t.Fatalf("team explain invalid sort stderr = %q", explainSortErr.String())
+	}
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"team", "explain", "delivery", "--repo", root, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"team", "explain", "delivery", "--repo", root, "--commands", "--format", "{{.Pipeline}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "watch",
+			args: []string{"team", "explain", "delivery", "--repo", root, "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
+		},
+	} {
+		cmd := NewRootCmd()
+		invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(invalidOut)
+		cmd.SetErr(invalidErr)
+		cmd.SetArgs(tt.args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("team explain --commands with %s succeeded", tt.name)
+		}
+		if !strings.Contains(invalidErr.String(), tt.want) {
+			t.Fatalf("team explain --commands with %s stderr = %q", tt.name, invalidErr.String())
+		}
 	}
 
 	explainReady := NewRootCmd()

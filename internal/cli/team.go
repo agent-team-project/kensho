@@ -4323,6 +4323,7 @@ func newTeamExplainCmd() *cobra.Command {
 		noClear  bool
 		interval time.Duration
 		jsonOut  bool
+		commands bool
 		format   string
 	)
 	cwd, _ := os.Getwd()
@@ -4335,6 +4336,18 @@ func newTeamExplainCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team explain: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if limit < 0 {
@@ -4372,7 +4385,7 @@ func newTeamExplainCmd() *cobra.Command {
 				defer stop()
 				return runTeamExplainWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], limit, stateFilter, step, sortMode, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err := runTeamExplain(cmd.OutOrStdout(), teamDir, args[0], limit, stateFilter, step, sortMode, jsonOut, tmpl); err != nil {
+			if err := runTeamExplain(cmd.OutOrStdout(), teamDir, args[0], limit, stateFilter, step, sortMode, jsonOut, commands, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team explain: %v\n", err)
 				return exitErr(1)
 			}
@@ -4388,6 +4401,7 @@ func newTeamExplainCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team pipeline explanations as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands, one per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
 }
@@ -8040,10 +8054,13 @@ func collectTeamPipelineExplain(teamDir, name string, limit int, stateFilter map
 	return teamPipelineExplain(team, rows), nil
 }
 
-func runTeamExplain(w io.Writer, teamDir, name string, limit int, stateFilter map[string]bool, stepFilter string, sortMode string, jsonOut bool, tmpl *template.Template) error {
+func runTeamExplain(w io.Writer, teamDir, name string, limit int, stateFilter map[string]bool, stepFilter string, sortMode string, jsonOut, commands bool, tmpl *template.Template) error {
 	rows, err := collectTeamPipelineExplain(teamDir, name, limit, stateFilter, stepFilter, sortMode)
 	if err != nil {
 		return err
+	}
+	if commands {
+		return renderPipelineExplainCommands(w, rows)
 	}
 	return renderPipelineExplainRows(w, rows, jsonOut, tmpl)
 }
@@ -8060,7 +8077,7 @@ func runTeamExplainWatch(ctx context.Context, w io.Writer, teamDir, name string,
 				return err
 			}
 		}
-		if err := runTeamExplain(w, teamDir, name, limit, stateFilter, stepFilter, sortMode, jsonOut, tmpl); err != nil {
+		if err := runTeamExplain(w, teamDir, name, limit, stateFilter, stepFilter, sortMode, jsonOut, false, tmpl); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {

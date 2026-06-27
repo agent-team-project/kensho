@@ -4818,6 +4818,7 @@ func newJobExplainCmd() *cobra.Command {
 		noClear  bool
 		interval time.Duration
 		jsonOut  bool
+		commands bool
 		format   string
 	)
 	cwd, _ := os.Getwd()
@@ -4834,6 +4835,18 @@ func newJobExplainCmd() *cobra.Command {
 			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if interval < 0 {
@@ -4865,7 +4878,7 @@ func newJobExplainCmd() *cobra.Command {
 				defer stop()
 				return runJobExplainWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err := runJobExplain(cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, tmpl); err != nil {
+			if err := runJobExplain(cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, commands, tmpl); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job explain: %v\n", err)
 				return exitErr(1)
 			}
@@ -4879,6 +4892,7 @@ func newJobExplainCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline explanation as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands, one per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.")
 	return cmd
 }
@@ -10710,7 +10724,21 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	return nil
 }
 
-func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool, step string, jsonOut bool, tmpl *template.Template) error {
+func jobExplainCommandActions(res jobExplainResult) []string {
+	actions := make([]string, 0, len(res.Actions)+len(res.Next.Actions))
+	actions = append(actions, res.Actions...)
+	actions = append(actions, res.Next.Actions...)
+	for _, step := range res.Steps {
+		actions = append(actions, step.Actions...)
+	}
+	return commandActionsOnly(actions)
+}
+
+func renderJobExplainCommands(w io.Writer, res jobExplainResult) error {
+	return renderActionCommands(w, jobExplainCommandActions(res))
+}
+
+func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool, step string, jsonOut, commands bool, tmpl *template.Template) error {
 	j, err := job.Read(teamDir, id)
 	if err != nil {
 		return err
@@ -10727,6 +10755,9 @@ func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool,
 	if len(stateFilter) > 0 && !stateFilter[explained.State] {
 		return fmt.Errorf("job %q next-step state is %q; does not match --state", explained.JobID, explained.State)
 	}
+	if commands {
+		return renderJobExplainCommands(w, explained)
+	}
 	return renderJobExplainResult(w, explained, jsonOut, tmpl)
 }
 
@@ -10742,7 +10773,7 @@ func runJobExplainWatch(ctx context.Context, w io.Writer, teamDir, id string, st
 				return err
 			}
 		}
-		if err := runJobExplain(w, teamDir, id, stateFilter, step, jsonOut, tmpl); err != nil {
+		if err := runJobExplain(w, teamDir, id, stateFilter, step, jsonOut, false, tmpl); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {

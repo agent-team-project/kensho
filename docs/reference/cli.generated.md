@@ -2165,6 +2165,7 @@ Aliases: `watch`
 Flags:
 
 ```text
+      --commands            Print recommended commands, one per line.
       --format string       Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit the pipeline explanation as JSON.
@@ -4392,6 +4393,7 @@ Flags:
 
 ```text
       --all                 Explain all pipelines. This is the default when no pipeline is passed.
+      --commands            Print recommended commands, one per line.
       --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit pipeline explanations as JSON.
@@ -7391,6 +7393,7 @@ agent-team team explain <team> [flags]
 Flags:
 
 ```text
+      --commands            Print recommended commands, one per line.
       --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team pipeline explanations as JSON.

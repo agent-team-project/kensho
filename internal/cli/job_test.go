@@ -9760,6 +9760,22 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 		t.Fatalf("explain steps = %+v", explained.Steps)
 	}
 
+	explainCommands := NewRootCmd()
+	explainCommandsOut, explainCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainCommands.SetOut(explainCommandsOut)
+	explainCommands.SetErr(explainCommandsErr)
+	explainCommands.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--commands"})
+	if err := explainCommands.Execute(); err != nil {
+		t.Fatalf("job explain commands: %v\nstderr=%s", err, explainCommandsErr.String())
+	}
+	var wantExplainCommands bytes.Buffer
+	if err := renderJobExplainCommands(&wantExplainCommands, explained); err != nil {
+		t.Fatalf("render expected job explain commands: %v", err)
+	}
+	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
+		t.Fatalf("job explain commands = %q, want %q", got, want)
+	}
+
 	explainStep := NewRootCmd()
 	explainStepOut, explainStepErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainStep.SetOut(explainStepOut)
@@ -9842,6 +9858,42 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 	}
 	if got := strings.TrimSpace(watchAliasOut.String()); got != "squ-204 ready 1 review" || strings.Contains(watchAliasOut.String(), watchClearSequence) {
 		t.Fatalf("job watch alias output = %q", watchAliasOut.String())
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"job", "explain", "squ-204", "--repo", tmp, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"job", "explain", "squ-204", "--repo", tmp, "--commands", "--format", "{{.State}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "watch",
+			args: []string{"job", "explain", "squ-204", "--repo", tmp, "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
+		},
+	} {
+		t.Run("explain-commands-conflict-"+tc.name, func(t *testing.T) {
+			conflict := NewRootCmd()
+			conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+			conflict.SetOut(conflictOut)
+			conflict.SetErr(conflictErr)
+			conflict.SetArgs(tc.args)
+			if err := conflict.Execute(); err == nil {
+				t.Fatalf("job explain accepted %s conflict: stdout=%s", tc.name, conflictOut.String())
+			}
+			if !strings.Contains(conflictErr.String(), tc.want) {
+				t.Fatalf("job explain %s conflict stderr = %q, want %q", tc.name, conflictErr.String(), tc.want)
+			}
+		})
 	}
 
 	explainMissingStep := NewRootCmd()

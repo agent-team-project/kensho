@@ -1366,6 +1366,22 @@ target = "manager"
 		}
 	}
 
+	explainCommands := NewRootCmd()
+	explainCommandsOut, explainCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	explainCommands.SetOut(explainCommandsOut)
+	explainCommands.SetErr(explainCommandsErr)
+	explainCommands.SetArgs([]string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--commands"})
+	if err := explainCommands.Execute(); err != nil {
+		t.Fatalf("pipeline explain --commands: %v\nstderr=%s", err, explainCommandsErr.String())
+	}
+	var wantExplainCommands bytes.Buffer
+	if err := renderPipelineExplainCommands(&wantExplainCommands, explainedRows); err != nil {
+		t.Fatalf("render expected pipeline explain commands: %v", err)
+	}
+	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
+		t.Fatalf("pipeline explain --commands = %q, want %q", got, want)
+	}
+
 	explainFormat := NewRootCmd()
 	explainFormatOut, explainFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	explainFormat.SetOut(explainFormatOut)
@@ -1496,6 +1512,40 @@ target = "manager"
 	}
 	if !strings.Contains(explainInvalidSortErr.String(), "--sort must be job") {
 		t.Fatalf("invalid sort stderr = %q", explainInvalidSortErr.String())
+	}
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--commands", "--format", "{{.Pipeline}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "watch",
+			args: []string{"pipeline", "explain", "ticket_to_pr", "--repo", root, "--commands", "--watch"},
+			want: "--commands cannot be combined with --watch",
+		},
+	} {
+		cmd := NewRootCmd()
+		invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(invalidOut)
+		cmd.SetErr(invalidErr)
+		cmd.SetArgs(tt.args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("pipeline explain --commands with %s succeeded", tt.name)
+		}
+		if !strings.Contains(invalidErr.String(), tt.want) {
+			t.Fatalf("pipeline explain --commands with %s stderr = %q", tt.name, invalidErr.String())
+		}
 	}
 
 	for _, tt := range []struct {
