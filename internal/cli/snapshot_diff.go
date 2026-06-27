@@ -10,31 +10,70 @@ import (
 	"strings"
 	"text/tabwriter"
 	"text/template"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 func newSnapshotDiffCmd() *cobra.Command {
 	var (
-		jsonOut  bool
-		exitCode bool
-		output   string
-		sections []string
-		actions  []string
-		format   string
-		limit    int
-		sortBy   string
-		summary  bool
+		jsonOut       bool
+		exitCode      bool
+		output        string
+		sections      []string
+		actions       []string
+		format        string
+		limit         int
+		sortBy        string
+		summary       bool
+		currentAfter  bool
+		currentBefore bool
+		eventLimit    int
+		intakeLimit   int
+		scheduleLimit int
+		noRedact      bool
 	)
+	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "diff <before.json> <after.json>",
+		Use:   "diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before)",
 		Short: "Compare two saved diagnostic snapshots.",
 		Long: "Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize " +
-			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.",
-		Args: cobra.ExactArgs(2),
+			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes. " +
+			"Use --current-after or --current-before to compare one saved snapshot against the current repo state.",
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if currentAfter && currentBefore {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: choose one of --current-after or --current-before.")
+				return exitErr(2)
+			}
+			currentRequested := currentAfter || currentBefore
+			if currentRequested {
+				if len(args) != 1 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: pass exactly one snapshot file with --current-after or --current-before.")
+					return exitErr(2)
+				}
+			} else if len(args) != 2 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: pass two snapshot files, or one file with --current-after/--current-before.")
+				return exitErr(2)
+			}
+			if !currentRequested && (cmd.Flags().Changed("events") || cmd.Flags().Changed("intake-deliveries") || cmd.Flags().Changed("schedule-limit") || cmd.Flags().Changed("no-redact")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: current snapshot options require --current-after or --current-before.")
+				return exitErr(2)
+			}
+			if eventLimit < -1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --events must be >= -1.")
+				return exitErr(2)
+			}
+			if intakeLimit < -1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --intake-deliveries must be >= -1.")
+				return exitErr(2)
+			}
+			if scheduleLimit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --schedule-limit must be >= 0.")
 				return exitErr(2)
 			}
 			if jsonOut && output != "" && output != "-" {
@@ -81,7 +120,14 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(2)
 			}
-			result, err := diffSnapshotFiles(args[0], args[1], snapshotDiffOptions{Sections: sectionSet})
+			result, err := diffSnapshotInputs(cmd, cwd, args, snapshotDiffOptions{Sections: sectionSet}, snapshotDiffCurrentOptions{
+				Events:           eventLimit,
+				IntakeDeliveries: intakeLimit,
+				ScheduleLimit:    scheduleLimit,
+				Redact:           !noRedact,
+				CurrentAfter:     currentAfter,
+				CurrentBefore:    currentBefore,
+			})
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(1)
@@ -125,7 +171,22 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
 	cmd.Flags().StringVar(&sortBy, "sort", "section", "Sort emitted change detail rows by section, action, or id before applying --limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Only emit metadata and summary counters; suppress change detail rows.")
+	cmd.Flags().BoolVar(&currentAfter, "current-after", false, "Compare the saved snapshot argument against the current repo state as the after snapshot.")
+	cmd.Flags().BoolVar(&currentBefore, "current-before", false, "Compare the current repo state as the before snapshot against the saved snapshot argument.")
+	cmd.Flags().IntVar(&eventLimit, "events", 50, "With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
+	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
+	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all.")
+	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "With --current-after/--current-before, include raw payload values instead of redacting sensitive keys.")
 	return cmd
+}
+
+type snapshotDiffCurrentOptions struct {
+	Events           int
+	IntakeDeliveries int
+	ScheduleLimit    int
+	Redact           bool
+	CurrentAfter     bool
+	CurrentBefore    bool
 }
 
 const (
@@ -483,6 +544,24 @@ type snapshotDiffOptions struct {
 	Sections map[string]bool
 }
 
+func diffSnapshotInputs(cmd *cobra.Command, defaultRepo string, args []string, opts snapshotDiffOptions, current snapshotDiffCurrentOptions) (*snapshotDiffResult, error) {
+	if current.CurrentAfter || current.CurrentBefore {
+		currentComparable, err := collectCurrentSnapshotDiffComparable(cmd, defaultRepo, current)
+		if err != nil {
+			return nil, err
+		}
+		fileComparable, err := readSnapshotDiffComparable(args[0])
+		if err != nil {
+			return nil, err
+		}
+		if current.CurrentBefore {
+			return diffSnapshotComparables(currentComparable, fileComparable, opts), nil
+		}
+		return diffSnapshotComparables(fileComparable, currentComparable, opts), nil
+	}
+	return diffSnapshotFiles(args[0], args[1], opts)
+}
+
 func diffSnapshotFiles(beforePath, afterPath string, opts snapshotDiffOptions) (*snapshotDiffResult, error) {
 	before, err := readSnapshotDiffComparable(beforePath)
 	if err != nil {
@@ -492,6 +571,10 @@ func diffSnapshotFiles(beforePath, afterPath string, opts snapshotDiffOptions) (
 	if err != nil {
 		return nil, err
 	}
+	return diffSnapshotComparables(before, after, opts), nil
+}
+
+func diffSnapshotComparables(before, after snapshotDiffComparable, opts snapshotDiffOptions) *snapshotDiffResult {
 	result := &snapshotDiffResult{
 		Before: before.Meta,
 		After:  after.Meta,
@@ -551,7 +634,44 @@ func diffSnapshotFiles(beforePath, afterPath string, opts snapshotDiffOptions) (
 		result.Changes = append(result.Changes, diffSnapshotStringMaps("section_errors", before.SectionErrors, after.SectionErrors, &result.Summary.SectionErrors)...)
 	}
 	result.Summary.TotalChanges = len(result.Changes)
-	return result, nil
+	return result
+}
+
+func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string, opts snapshotDiffCurrentOptions) (snapshotDiffComparable, error) {
+	teamDir, err := resolveTeamDir(cmd, defaultRepo)
+	if err != nil {
+		return snapshotDiffComparable{}, err
+	}
+	repoRoot, err := filepath.Abs(effectiveRepoTarget(cmd, defaultRepo))
+	if err != nil {
+		return snapshotDiffComparable{}, err
+	}
+	snapshot := collectSnapshot(teamDir, repoRoot, snapshotOptions{
+		EventLimit:    opts.Events,
+		IntakeLimit:   opts.IntakeDeliveries,
+		ScheduleLimit: opts.ScheduleLimit,
+		Redact:        opts.Redact,
+		Now:           time.Now().UTC(),
+	})
+	setSnapshotProvenance(snapshot, cmd.CommandPath(), "global", "", snapshotProvenanceOptions{
+		Events:           intValuePtr(opts.Events),
+		IntakeDeliveries: intValuePtr(opts.IntakeDeliveries),
+		ScheduleLimit:    intValuePtr(opts.ScheduleLimit),
+		Redacted:         opts.Redact,
+	})
+	return snapshotDiffComparableFromSnapshot("<current>", snapshot)
+}
+
+func snapshotDiffComparableFromSnapshot(path string, snapshot *snapshotResult) (snapshotDiffComparable, error) {
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return snapshotDiffComparable{}, err
+	}
+	var input snapshotDiffInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return snapshotDiffComparable{}, err
+	}
+	return snapshotDiffComparableFromInput(path, input), nil
 }
 
 func parseSnapshotDiffSort(value string) (string, error) {

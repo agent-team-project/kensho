@@ -5790,24 +5790,30 @@ Subcommands:
 
 Compare two saved diagnostic snapshots.
 
-Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes.
+Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes. Use --current-after or --current-before to compare one saved snapshot against the current repo state.
 
 ```text
-agent-team snapshot diff <before.json> <after.json> [flags]
+agent-team snapshot diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before) [flags]
 ```
 
 Flags:
 
 ```text
-      --action strings    Only compare change actions: added, removed, or changed. Can repeat or comma-separate.
-      --exit-code         Exit with status 1 when snapshots differ.
-      --format string     Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.
-      --json              Emit snapshot diff as JSON.
-      --limit int         Limit emitted change detail rows after summarizing all changes; 0 means all.
-  -o, --output string     Write the JSON snapshot diff to this file. Use '-' for stdout.
-      --section strings   Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
-      --sort string       Sort emitted change detail rows by section, action, or id before applying --limit. (default "section")
-      --summary           Only emit metadata and summary counters; suppress change detail rows.
+      --action strings          Only compare change actions: added, removed, or changed. Can repeat or comma-separate.
+      --current-after           Compare the saved snapshot argument against the current repo state as the after snapshot.
+      --current-before          Compare the current repo state as the before snapshot against the saved snapshot argument.
+      --events int              With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events. (default 50)
+      --exit-code               Exit with status 1 when snapshots differ.
+      --format string           Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.
+      --intake-deliveries int   With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries. (default 50)
+      --json                    Emit snapshot diff as JSON.
+      --limit int               Limit emitted change detail rows after summarizing all changes; 0 means all.
+      --no-redact               With --current-after/--current-before, include raw payload values instead of redacting sensitive keys.
+  -o, --output string           Write the JSON snapshot diff to this file. Use '-' for stdout.
+      --schedule-limit int      With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all. (default 10)
+      --section strings         Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.
+      --sort string             Sort emitted change detail rows by section, action, or id before applying --limit. (default "section")
+      --summary                 Only emit metadata and summary counters; suppress change detail rows.
 ```
 
 Inherited Flags:

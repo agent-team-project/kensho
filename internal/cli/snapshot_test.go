@@ -1285,6 +1285,109 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 }
 
+func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	beforePath := filepath.Join(tmp, "before.json")
+	afterPath := filepath.Join(tmp, "after.json")
+	empty := snapshotDiffInput{
+		CapturedAt: "2026-06-25T12:00:00Z",
+		Repo:       tmp,
+		Provenance: newSnapshotProvenance("agent-team snapshot", "global", "", snapshotProvenanceOptions{
+			Events:        intValuePtr(0),
+			ScheduleLimit: intValuePtr(0),
+			Redacted:      true,
+		}),
+	}
+	writeSnapshotDiffInput(t, beforePath, empty)
+	writeSnapshotDiffInput(t, afterPath, empty)
+
+	j, err := job.New("SQU-260", "worker", "compare current snapshot", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Pipeline = "ticket_to_pr"
+	j.Status = job.StatusQueued
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	currentAfter := NewRootCmd()
+	currentAfterOut, currentAfterErr := &bytes.Buffer{}, &bytes.Buffer{}
+	currentAfter.SetOut(currentAfterOut)
+	currentAfter.SetErr(currentAfterErr)
+	currentAfter.SetArgs([]string{"--repo", tmp, "snapshot", "diff", beforePath, "--current-after", "--section", "jobs", "--events", "0", "--intake-deliveries", "0", "--schedule-limit", "0", "--json"})
+	if err := currentAfter.Execute(); err != nil {
+		t.Fatalf("snapshot diff --current-after: %v\nstderr=%s", err, currentAfterErr.String())
+	}
+	var afterResult snapshotDiffResult
+	if err := json.Unmarshal(currentAfterOut.Bytes(), &afterResult); err != nil {
+		t.Fatalf("decode current-after diff: %v\nbody=%s", err, currentAfterOut.String())
+	}
+	if afterResult.Before.Path != beforePath || afterResult.After.Path != "<current>" || afterResult.After.Kind != "repo" {
+		t.Fatalf("current-after metadata = %+v -> %+v", afterResult.Before, afterResult.After)
+	}
+	if afterResult.Summary.TotalChanges != 1 || afterResult.Summary.Jobs.Added != 1 || !hasSnapshotDiffChange(afterResult.Changes, "jobs", "squ-260", "added") {
+		t.Fatalf("current-after result = %+v changes=%+v", afterResult.Summary, afterResult.Changes)
+	}
+
+	currentBefore := NewRootCmd()
+	currentBeforeOut, currentBeforeErr := &bytes.Buffer{}, &bytes.Buffer{}
+	currentBefore.SetOut(currentBeforeOut)
+	currentBefore.SetErr(currentBeforeErr)
+	currentBefore.SetArgs([]string{"--repo", tmp, "snapshot", "diff", afterPath, "--current-before", "--section", "jobs", "--events", "0", "--intake-deliveries", "0", "--schedule-limit", "0", "--json"})
+	if err := currentBefore.Execute(); err != nil {
+		t.Fatalf("snapshot diff --current-before: %v\nstderr=%s", err, currentBeforeErr.String())
+	}
+	var beforeResult snapshotDiffResult
+	if err := json.Unmarshal(currentBeforeOut.Bytes(), &beforeResult); err != nil {
+		t.Fatalf("decode current-before diff: %v\nbody=%s", err, currentBeforeOut.String())
+	}
+	if beforeResult.Before.Path != "<current>" || beforeResult.After.Path != afterPath {
+		t.Fatalf("current-before metadata = %+v -> %+v", beforeResult.Before, beforeResult.After)
+	}
+	if beforeResult.Summary.TotalChanges != 1 || beforeResult.Summary.Jobs.Removed != 1 || !hasSnapshotDiffChange(beforeResult.Changes, "jobs", "squ-260", "removed") {
+		t.Fatalf("current-before result = %+v changes=%+v", beforeResult.Summary, beforeResult.Changes)
+	}
+
+	both := NewRootCmd()
+	bothOut, bothErr := &bytes.Buffer{}, &bytes.Buffer{}
+	both.SetOut(bothOut)
+	both.SetErr(bothErr)
+	both.SetArgs([]string{"snapshot", "diff", beforePath, "--current-before", "--current-after"})
+	if err := both.Execute(); err == nil {
+		t.Fatalf("snapshot diff both current flags succeeded")
+	}
+	if !strings.Contains(bothErr.String(), "choose one of --current-after or --current-before") {
+		t.Fatalf("both current flags stderr = %q", bothErr.String())
+	}
+
+	wrongArgs := NewRootCmd()
+	wrongArgsOut, wrongArgsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	wrongArgs.SetOut(wrongArgsOut)
+	wrongArgs.SetErr(wrongArgsErr)
+	wrongArgs.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--current-after"})
+	if err := wrongArgs.Execute(); err == nil {
+		t.Fatalf("snapshot diff current-after with two files succeeded")
+	}
+	if !strings.Contains(wrongArgsErr.String(), "pass exactly one snapshot file") {
+		t.Fatalf("wrong arg count stderr = %q", wrongArgsErr.String())
+	}
+
+	unusedCurrentOption := NewRootCmd()
+	unusedCurrentOptionOut, unusedCurrentOptionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unusedCurrentOption.SetOut(unusedCurrentOptionOut)
+	unusedCurrentOption.SetErr(unusedCurrentOptionErr)
+	unusedCurrentOption.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--events", "0"})
+	if err := unusedCurrentOption.Execute(); err == nil {
+		t.Fatalf("snapshot diff unused current option succeeded")
+	}
+	if !strings.Contains(unusedCurrentOptionErr.String(), "current snapshot options require") {
+		t.Fatalf("unused current option stderr = %q", unusedCurrentOptionErr.String())
+	}
+}
+
 func TestSnapshotDiffCommandReportsTriageChanges(t *testing.T) {
 	tmp := t.TempDir()
 	beforePath := filepath.Join(tmp, "triage-before.json")
