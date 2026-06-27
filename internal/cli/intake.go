@@ -1338,6 +1338,7 @@ type intakePublishResult struct {
 	CleanupPreview *jobCleanupPreview   `json:"cleanup_preview,omitempty"`
 	Advance        *jobAdvanceResult    `json:"advance,omitempty"`
 	AdvancePreview *jobAdvancePreview   `json:"advance_preview,omitempty"`
+	WaitedJobs     []scheduleWaitJob    `json:"waited_jobs,omitempty"`
 	Preview        *eventPublishPreview `json:"preview,omitempty"`
 	DryRun         bool                 `json:"dry_run,omitempty"`
 }

@@ -104,6 +104,9 @@ type EventOutcome struct {
 	Action     string `json:"action"` // "dispatched" | "queued" | "messaged" | "blocked" | "rejected"
 	InstanceID string `json:"instance_id,omitempty"`
 	Reason     string `json:"reason,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
+	Pipeline   string `json:"pipeline,omitempty"`
+	Step       string `json:"step,omitempty"`
 }
 
 // EventResult is the full resolver outcome, including side-effect metadata
@@ -167,10 +170,13 @@ func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any)
 }
 
 func (r *EventResolver) actuate(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {
+	var outcome EventOutcome
 	if inst.Ephemeral {
-		return r.actuateEphemeral(inst, eventType, payload)
+		outcome = r.actuateEphemeral(inst, eventType, payload)
+	} else {
+		outcome = r.actuatePersistent(inst, eventType, payload)
 	}
-	return r.actuatePersistent(inst, eventType, payload)
+	return annotateOutcomeFromPayload(outcome, payload)
 }
 
 func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType string, payload map[string]any) []EventOutcome {
@@ -182,7 +188,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	kickoff := pipelineKickoff(eventType, payload)
 	j, err := jobstore.New(ticket, pipeline.Steps[0].Target, kickoff, now)
 	if err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error()}}
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), Pipeline: pipeline.Name}}
 	}
 	j.Pipeline = pipeline.Name
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
@@ -205,7 +211,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	j.LastEvent = pipelineEvent
 	j.LastStatus = "pipeline " + pipeline.Name
 	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error()}}
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	data := map[string]string{
 		"pipeline": pipeline.Name,
@@ -215,7 +221,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		data["ticket_url"] = j.TicketURL
 	}
 	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, pipelineEvent, "daemon", "", data); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error()}}
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	step := firstRunnablePipelineStep(pipeline)
 	if step == nil {
@@ -224,9 +230,12 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 				Instance: "pipeline:" + pipeline.Name,
 				Action:   "blocked",
 				Reason:   pipelineStepGateBlockedReason(blocked),
+				JobID:    j.ID,
+				Pipeline: pipeline.Name,
+				Step:     blocked.ID,
 			}}
 		}
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: "no runnable step"}}
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: "no runnable step", JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	outcomes := r.dispatchPipelineStep(pipeline, step, j, payload)
 	if latest, err := jobstore.Read(r.teamDir, j.ID); err == nil {
@@ -287,6 +296,19 @@ func copyPayload(payload map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func annotateOutcomeFromPayload(outcome EventOutcome, payload map[string]any) EventOutcome {
+	if outcome.JobID == "" {
+		outcome.JobID = firstPayloadString(payload, "job_id", "job")
+	}
+	if outcome.Pipeline == "" {
+		outcome.Pipeline = payloadString(payload, "pipeline")
+	}
+	if outcome.Step == "" {
+		outcome.Step = payloadString(payload, "pipeline_step")
+	}
+	return outcome
 }
 
 func pipelineTicket(pipeline string, payload map[string]any) string {

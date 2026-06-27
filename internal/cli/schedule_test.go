@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 )
 
 func TestScheduleListShowAndDryRun(t *testing.T) {
@@ -393,6 +394,105 @@ func TestScheduleFireUsesDaemonAndPreservesDryRun(t *testing.T) {
 	}
 }
 
+func TestScheduleRunWaitsForPipelineJob(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-schedule-wait-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	writeSchedulePipelineTopology(t, tmp, "")
+	teamDir := filepath.Join(tmp, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"schedule", "run", "nightly",
+		"--repo", tmp,
+		"--payload", `{"ticket":"SQU-610"}`,
+		"--wait",
+		"--wait-next-state", "queued",
+		"--wait-step", "triage",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("schedule run wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode schedule run wait json: %v\nbody=%s", err, out.String())
+	}
+	if len(result.WaitedJobs) != 1 || result.WaitedJobs[0].ID != "squ-610" || result.WaitedJobs[0].Status != job.StatusQueued || result.WaitedJobs[0].NextState != "queued" || result.WaitedJobs[0].NextStep != "triage" {
+		t.Fatalf("waited jobs = %+v", result.WaitedJobs)
+	}
+	if result.Outcome == nil || len(result.Outcome.Outcomes) != 1 || result.Outcome.Outcomes[0].JobID != "squ-610" || result.Outcome.Outcomes[0].Pipeline != "nightly_pipeline" || result.Outcome.Outcomes[0].Step != "triage" {
+		t.Fatalf("outcome metadata = %+v", result.Outcome)
+	}
+	j, err := job.Read(teamDir, "squ-610")
+	if err != nil {
+		t.Fatalf("read schedule-created job: %v", err)
+	}
+	if j.Pipeline != "nightly_pipeline" || j.Status != job.StatusQueued || len(j.Steps) != 1 || j.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("schedule-created job = %+v", j)
+	}
+}
+
+func TestScheduleFireWaitsForPipelineJobs(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-schedule-fire-wait-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	writeSchedulePipelineTopology(t, tmp, `payload.ticket = "SQU-611"`)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"schedule", "fire",
+		"--repo", tmp,
+		"--wait",
+		"--wait-next-state", "queued",
+		"--wait-step", "triage",
+		"--wait-timeout", "2s",
+		"--wait-interval", "10ms",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("schedule fire wait: %v\nstderr=%s", err, stderr.String())
+	}
+	var result struct {
+		daemon.ScheduleFireResult
+		WaitedJobs []scheduleWaitJob `json:"waited_jobs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode schedule fire wait json: %v\nbody=%s", err, out.String())
+	}
+	if result.Fired != 1 || len(result.Schedules) != 1 {
+		t.Fatalf("fire result = %+v", result.ScheduleFireResult)
+	}
+	if len(result.WaitedJobs) != 1 || result.WaitedJobs[0].ID != "squ-611" || result.WaitedJobs[0].NextState != "queued" || result.WaitedJobs[0].NextStep != "triage" {
+		t.Fatalf("waited jobs = %+v", result.WaitedJobs)
+	}
+	outcomes := result.Schedules[0].Outcomes
+	if len(outcomes) != 1 || outcomes[0].JobID != "squ-611" || outcomes[0].Pipeline != "nightly_pipeline" || outcomes[0].Step != "triage" {
+		t.Fatalf("schedule outcome metadata = %+v", outcomes)
+	}
+}
+
 func TestScheduleFireDryRunDoesNotRequireDaemonAndCanPreviewRoutes(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -482,6 +582,69 @@ func TestScheduleFirePreviewTriggersRequiresDryRun(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--preview-triggers requires --dry-run") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestScheduleWaitFlagValidation(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeScheduleTopology(t, tmp)
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "run wait with dry-run",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--dry-run", "--wait"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "run wait next-state without wait",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--wait-next-state", "running"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "run fail-on-failed without wait",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--fail-on-failed"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "run invalid wait next-state",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--wait", "--wait-next-state", "missing"},
+			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
+			name: "fire wait with dry-run",
+			args: []string{"schedule", "fire", "--repo", tmp, "--dry-run", "--wait"},
+			want: "--wait cannot be combined with --dry-run",
+		},
+		{
+			name: "fire wait step without wait",
+			args: []string{"schedule", "fire", "--repo", tmp, "--wait-step", "triage"},
+			want: "wait-related flags require --wait",
+		},
+		{
+			name: "fire invalid wait interval",
+			args: []string{"schedule", "fire", "--repo", tmp, "--wait", "--wait-interval", "-1s"},
+			want: "--wait-interval must be >= 0",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("schedule wait validation succeeded: stdout=%s", out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
 	}
 }
 
@@ -639,6 +802,33 @@ every = "1h"
 payload.workspace = "repo"
 payload.kind = "hourly"
 `
+	if err := os.WriteFile(filepath.Join(repo, ".agent_team", "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+}
+
+func writeSchedulePipelineTopology(t *testing.T, repo, extraPayload string) {
+	t.Helper()
+	body := `
+[instances.manager]
+agent = "manager"
+
+[pipelines.nightly_pipeline]
+trigger.event = "schedule"
+trigger.match.name = "nightly"
+
+[[pipelines.nightly_pipeline.steps]]
+id = "triage"
+target = "manager"
+
+[schedules.nightly]
+every = "24h"
+run_on_start = true
+payload.kind = "nightly"
+`
+	if strings.TrimSpace(extraPayload) != "" {
+		body += extraPayload + "\n"
+	}
 	if err := os.WriteFile(filepath.Join(repo, ".agent_team", "instances.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write instances.toml: %v", err)
 	}

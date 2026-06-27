@@ -104,6 +104,8 @@ POST /v1/schedules/fire?dry_run=true
 
 Used by `schedule fire` and `tick`.
 
+Schedule fire responses include per-schedule event `outcomes`; pipeline outcomes carry `job_id`, `pipeline`, and `step` metadata when the event creates or updates a durable job. The CLI uses that metadata for `schedule fire --wait` and `schedule run <name> --wait`.
+
 ## Compatibility Notes
 
 - The API is local to one repo.

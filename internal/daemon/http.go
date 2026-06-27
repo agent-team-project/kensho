@@ -679,6 +679,7 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 		"messaged":   messaged,
 		"blocked":    blocked,
 		"rejected":   rejected,
+		"outcomes":   outcomes,
 	}
 }
 

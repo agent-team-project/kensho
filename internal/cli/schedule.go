@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -203,6 +205,14 @@ func newScheduleFireCmd() *cobra.Command {
 		repo          string
 		dryRun        bool
 		previewRoutes bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitNextState []string
+		waitStep      string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
 		jsonOut       bool
 		format        string
 	)
@@ -220,10 +230,34 @@ func newScheduleFireCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --preview-triggers requires --dry-run.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if wait && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-next-state") || cmd.Flags().Changed("wait-step") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || cmd.Flags().Changed("fail-on-failed")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: wait-related flags require --wait.")
+				return exitErr(2)
+			}
 			tmpl, err := parseScheduleFireFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
 				return exitErr(2)
+			}
+			waitFilters := jobWaitFilters{}
+			if wait {
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
+					return exitErr(2)
+				}
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -251,12 +285,36 @@ func newScheduleFireCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
 				return exitErr(1)
 			}
-			return renderScheduleFireResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
+			var waited []scheduleWaitJob
+			if wait {
+				waited, err = waitForScheduleOutcomeJobs(cmd, teamDir, scheduleFireJobIDs(result), waitFilters, waitTimeout, waitInterval, "agent-team schedule fire")
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return nil
+					}
+					return err
+				}
+			}
+			if err := renderScheduleFireCommandResult(cmd.OutOrStdout(), result, waited, jsonOut, tmpl); err != nil {
+				return err
+			}
+			if failOnFailed && scheduleWaitJobsHaveFailed(waited) {
+				return exitErr(1)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview due schedules without publishing events or writing schedule clocks.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After schedules publish pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitNextState, "wait-next-state", nil, "With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&waitStep, "wait-step", "", "With --wait, pipeline step id that must be the current next step for every schedule-created job.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any schedule-created job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit fire results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.")
 	return cmd
@@ -269,6 +327,14 @@ func newScheduleRunCmd() *cobra.Command {
 		payloadFile   string
 		dryRun        bool
 		previewRoutes bool
+		wait          bool
+		waitStatuses  []string
+		waitEvents    []string
+		waitNextState []string
+		waitStep      string
+		waitTimeout   time.Duration
+		waitInterval  time.Duration
+		failOnFailed  bool
 		jsonOut       bool
 		format        string
 	)
@@ -286,10 +352,34 @@ func newScheduleRunCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --preview-triggers requires --dry-run.")
 				return exitErr(2)
 			}
+			if waitInterval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --wait-interval must be >= 0.")
+				return exitErr(2)
+			}
+			if waitTimeout < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --wait-timeout must be >= 0.")
+				return exitErr(2)
+			}
+			if wait && dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --wait cannot be combined with --dry-run.")
+				return exitErr(2)
+			}
+			if !wait && (cmd.Flags().Changed("wait-status") || cmd.Flags().Changed("wait-event") || cmd.Flags().Changed("wait-next-state") || cmd.Flags().Changed("wait-step") || cmd.Flags().Changed("wait-timeout") || cmd.Flags().Changed("wait-interval") || cmd.Flags().Changed("fail-on-failed")) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: wait-related flags require --wait.")
+				return exitErr(2)
+			}
 			tmpl, err := parseIntakeFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
 				return exitErr(2)
+			}
+			waitFilters := jobWaitFilters{}
+			if wait {
+				waitFilters, err = parseJobCommandWaitFilters(cmd, waitStatuses, waitEvents, waitNextState, waitStep)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
+					return exitErr(2)
+				}
 			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -322,7 +412,7 @@ func newScheduleRunCmd() *cobra.Command {
 				}
 				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil, triggerPreview)
 			}
-			return publishScheduleEvent(cmd, repo, ev, jsonOut, tmpl)
+			return publishScheduleEvent(cmd, repo, ev, wait, waitFilters, waitTimeout, waitInterval, failOnFailed, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -330,6 +420,14 @@ func newScheduleRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the schedule event without publishing it.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&wait, "wait", false, "After the schedule publishes pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.")
+	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&waitNextState, "wait-next-state", nil, "With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&waitStep, "wait-step", "", "With --wait, pipeline step id that must be the current next step for every schedule-created job.")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
+	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
+	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if any schedule-created job resolves to failed.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the event and outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the event result with a Go template, e.g. '{{.Event.Type}} {{.DryRun}}'.")
 	return cmd
@@ -717,6 +815,22 @@ type scheduleFireResultWithPreviews struct {
 	Previews map[string]*eventPublishPreview `json:"previews,omitempty"`
 }
 
+type scheduleFireCommandResult struct {
+	*daemon.ScheduleFireResult
+	WaitedJobs []scheduleWaitJob `json:"waited_jobs,omitempty"`
+}
+
+type scheduleWaitJob struct {
+	ID         string     `json:"id"`
+	Ticket     string     `json:"ticket,omitempty"`
+	Pipeline   string     `json:"pipeline,omitempty"`
+	Status     job.Status `json:"status"`
+	LastEvent  string     `json:"last_event,omitempty"`
+	LastStatus string     `json:"last_status,omitempty"`
+	NextState  string     `json:"next_state,omitempty"`
+	NextStep   string     `json:"next_step,omitempty"`
+}
+
 func renderScheduleFireResultWithPreviews(w io.Writer, result *daemon.ScheduleFireResult, previews map[string]*eventPublishPreview, jsonOut bool, tmpl *template.Template) error {
 	if result == nil {
 		result = &daemon.ScheduleFireResult{Schedules: []daemon.ScheduleFireItem{}}
@@ -750,6 +864,28 @@ func renderScheduleFireResultWithPreviews(w io.Writer, result *daemon.ScheduleFi
 	return nil
 }
 
+func renderScheduleFireCommandResult(w io.Writer, result *daemon.ScheduleFireResult, waited []scheduleWaitJob, jsonOut bool, tmpl *template.Template) error {
+	if len(waited) == 0 {
+		return renderScheduleFireResult(w, result, jsonOut, tmpl)
+	}
+	wrapped := scheduleFireCommandResult{ScheduleFireResult: result, WaitedJobs: waited}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(wrapped)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, wrapped); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	if err := renderScheduleFireResult(w, result, false, nil); err != nil {
+		return err
+	}
+	renderScheduleWaitJobs(w, waited)
+	return nil
+}
+
 func summariseScheduleFireOutcomes(outcomes []daemon.EventOutcome) string {
 	if len(outcomes) == 0 {
 		return "-"
@@ -776,7 +912,7 @@ func summariseScheduleFireOutcomes(outcomes []daemon.EventOutcome) string {
 	return strings.Join(parts, ",")
 }
 
-func publishScheduleEvent(cmd *cobra.Command, target string, ev *intake.Event, jsonOut bool, tmpl *template.Template) error {
+func publishScheduleEvent(cmd *cobra.Command, target string, ev *intake.Event, wait bool, waitFilters jobWaitFilters, waitTimeout, waitInterval time.Duration, failOnFailed bool, jsonOut bool, tmpl *template.Template) error {
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -791,15 +927,164 @@ func publishScheduleEvent(cmd *cobra.Command, target string, ev *intake.Event, j
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule run: %v\n", err)
 		return exitErr(1)
 	}
-	result := intakePublishResult{Event: ev, Outcome: res}
+	var waited []scheduleWaitJob
+	if wait {
+		waited, err = waitForScheduleOutcomeJobs(cmd, teamDir, eventResponseJobIDs(res), waitFilters, waitTimeout, waitInterval, "agent-team schedule run")
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		}
+	}
+	result := intakePublishResult{Event: ev, Outcome: res, WaitedJobs: waited}
 	if jsonOut {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+			return err
+		}
+		if failOnFailed && scheduleWaitJobsHaveFailed(waited) {
+			return exitErr(1)
+		}
+		return nil
 	}
 	if tmpl != nil {
-		return renderIntakeTemplate(cmd.OutOrStdout(), result, tmpl)
+		if err := renderIntakeTemplate(cmd.OutOrStdout(), result, tmpl); err != nil {
+			return err
+		}
+		if failOnFailed && scheduleWaitJobsHaveFailed(waited) {
+			return exitErr(1)
+		}
+		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Event: %s\n", ev.Type)
-	return renderIntakeOutcome(cmd.OutOrStdout(), res)
+	if err := renderIntakeOutcome(cmd.OutOrStdout(), res); err != nil {
+		return err
+	}
+	if len(waited) > 0 {
+		renderScheduleWaitJobs(cmd.OutOrStdout(), waited)
+	}
+	if failOnFailed && scheduleWaitJobsHaveFailed(waited) {
+		return exitErr(1)
+	}
+	return nil
+}
+
+func scheduleFireJobIDs(result *daemon.ScheduleFireResult) []string {
+	if result == nil {
+		return nil
+	}
+	ids := make([]string, 0)
+	for _, item := range result.Schedules {
+		ids = append(ids, eventOutcomeJobIDs(item.Outcomes)...)
+	}
+	return uniqueNonEmptyStrings(ids)
+}
+
+func eventResponseJobIDs(res *eventResponse) []string {
+	if res == nil {
+		return nil
+	}
+	return eventOutcomeJobIDs(res.Outcomes)
+}
+
+func eventOutcomeJobIDs(outcomes []daemon.EventOutcome) []string {
+	ids := make([]string, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		if id := job.NormalizeID(outcome.JobID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return uniqueNonEmptyStrings(ids)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func waitForScheduleOutcomeJobs(cmd *cobra.Command, teamDir string, ids []string, filters jobWaitFilters, timeout, interval time.Duration, prefix string) ([]scheduleWaitJob, error) {
+	ids = uniqueNonEmptyStrings(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	jobs := make([]*job.Job, 0, len(ids))
+	for _, id := range ids {
+		j, err := job.Read(teamDir, id)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	ctx := cmd.Context()
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	waited, err := runPipelineWait(ctx, teamDir, jobs, filters.statuses, filters.events, filters.nextStates, filters.nextStateSet, filters.step, interval)
+	if err != nil {
+		var timeoutErr *pipelineWaitTimeoutError
+		if errors.As(err, &timeoutErr) {
+			return nil, fmt.Errorf("%s: timed out waiting for %s; pending: %s", prefix, jobWaitConditionList(filters.statuses, filters.events, filters.nextStates, filters.nextStateSet, filters.step), pipelineWaitPendingSummaryWithNext(timeoutErr.Pending, filters.nextStateSet || strings.TrimSpace(filters.step) != ""))
+		}
+		return nil, err
+	}
+	return scheduleWaitJobsFromJobs(waited), nil
+}
+
+func scheduleWaitJobsFromJobs(jobs []*job.Job) []scheduleWaitJob {
+	rows := make([]scheduleWaitJob, 0, len(jobs))
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		next := inspectNextJobStep(j)
+		rows = append(rows, scheduleWaitJob{
+			ID:         j.ID,
+			Ticket:     j.Ticket,
+			Pipeline:   j.Pipeline,
+			Status:     j.Status,
+			LastEvent:  j.LastEvent,
+			LastStatus: j.LastStatus,
+			NextState:  next.State,
+			NextStep:   jobWaitNextStep(next),
+		})
+	}
+	return rows
+}
+
+func renderScheduleWaitJobs(w io.Writer, rows []scheduleWaitJob) {
+	if len(rows) == 0 {
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "WAITED JOB\tSTATUS\tPIPELINE\tNEXT\tLAST EVENT")
+	for _, row := range rows {
+		next := row.NextState
+		if row.NextStep != "" {
+			next = next + ":" + row.NextStep
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", row.ID, row.Status, emptyDash(row.Pipeline), emptyDash(next), emptyDash(row.LastEvent))
+	}
+	_ = tw.Flush()
+}
+
+func scheduleWaitJobsHaveFailed(rows []scheduleWaitJob) bool {
+	for _, row := range rows {
+		if row.Status == job.StatusFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func summariseSchedulePayload(payload map[string]any) string {

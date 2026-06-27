@@ -5612,11 +5612,19 @@ agent-team schedule fire [flags]
 Flags:
 
 ```text
-      --dry-run            Preview due schedules without publishing events or writing schedule clocks.
-      --format string      Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.
-      --json               Emit fire results as JSON.
-      --preview-triggers   With --dry-run, include local topology instance and pipeline matches.
-      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --dry-run                   Preview due schedules without publishing events or writing schedule clocks.
+      --fail-on-failed            With --wait, exit 1 if any schedule-created job resolves to failed.
+      --format string             Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.
+      --json                      Emit fire results as JSON.
+      --preview-triggers          With --dry-run, include local topology instance and pipeline matches.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --wait                      After schedules publish pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every schedule-created job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
 ```
 
 ## `agent-team schedule ls`
@@ -5663,13 +5671,21 @@ agent-team schedule run <schedule> [flags]
 Flags:
 
 ```text
-      --dry-run               Preview the schedule event without publishing it.
-      --format string         Render the event result with a Go template, e.g. '{{.Event.Type}} {{.DryRun}}'.
-      --json                  Emit the event and outcome as JSON.
-      --payload string        Additional JSON object merged into the declared schedule payload.
-      --payload-file string   Read additional schedule payload JSON from a file, or '-' for stdin.
-      --preview-triggers      With --dry-run, include local topology instance and pipeline matches.
-      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --dry-run                   Preview the schedule event without publishing it.
+      --fail-on-failed            With --wait, exit 1 if any schedule-created job resolves to failed.
+      --format string             Render the event result with a Go template, e.g. '{{.Event.Type}} {{.DryRun}}'.
+      --json                      Emit the event and outcome as JSON.
+      --payload string            Additional JSON object merged into the declared schedule payload.
+      --payload-file string       Read additional schedule payload JSON from a file, or '-' for stdin.
+      --preview-triggers          With --dry-run, include local topology instance and pipeline matches.
+      --repo string               Repo root containing .agent_team. (default "<repo>")
+      --wait                      After the schedule publishes pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.
+      --wait-event strings        With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
+      --wait-interval duration    Polling interval with --wait. (default 500ms)
+      --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
+      --wait-status strings       With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.
+      --wait-step string          With --wait, pipeline step id that must be the current next step for every schedule-created job.
+      --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
 ```
 
 ## `agent-team schedule show`

@@ -439,6 +439,7 @@ type eventResponse struct {
 	Messaged   []string                 `json:"messaged"`
 	Blocked    []map[string]interface{} `json:"blocked"`
 	Rejected   []map[string]interface{} `json:"rejected"`
+	Outcomes   []daemon.EventOutcome    `json:"outcomes,omitempty"`
 }
 
 // PublishEvent posts an event to the daemon's resolver and returns the
