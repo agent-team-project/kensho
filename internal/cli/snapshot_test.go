@@ -824,6 +824,46 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		t.Fatalf("no removed queue diff output = %s", noRemovedQueueExitOut.String())
 	}
 
+	outputPath := filepath.Join(tmp, "diffs", "jobs-added.json")
+	outputFile := NewRootCmd()
+	outputFileOut, outputFileErr := &bytes.Buffer{}, &bytes.Buffer{}
+	outputFile.SetOut(outputFileOut)
+	outputFile.SetErr(outputFileErr)
+	outputFile.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "jobs", "--action", "added", "--output", outputPath})
+	if err := outputFile.Execute(); err != nil {
+		t.Fatalf("snapshot diff --output: %v\nstderr=%s", err, outputFileErr.String())
+	}
+	if !strings.Contains(outputFileOut.String(), "Wrote snapshot diff to") {
+		t.Fatalf("snapshot diff --output stdout = %q", outputFileOut.String())
+	}
+	outputBody, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read diff output: %v", err)
+	}
+	var outputResult snapshotDiffResult
+	if err := json.Unmarshal(outputBody, &outputResult); err != nil {
+		t.Fatalf("decode diff output file: %v\nbody=%s", err, string(outputBody))
+	}
+	if outputResult.Summary.TotalChanges != 1 || outputResult.Summary.Jobs.Added != 1 || strings.Join(outputResult.Summary.ActionFilter, ",") != "added" || len(outputResult.Changes) != 1 || outputResult.Changes[0].Action != "added" {
+		t.Fatalf("diff output result = %+v changes=%+v", outputResult.Summary, outputResult.Changes)
+	}
+
+	outputStdout := NewRootCmd()
+	outputStdoutOut, outputStdoutErr := &bytes.Buffer{}, &bytes.Buffer{}
+	outputStdout.SetOut(outputStdoutOut)
+	outputStdout.SetErr(outputStdoutErr)
+	outputStdout.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "queue", "--summary", "--output", "-"})
+	if err := outputStdout.Execute(); err != nil {
+		t.Fatalf("snapshot diff --output -: %v\nstderr=%s", err, outputStdoutErr.String())
+	}
+	var outputStdoutResult snapshotDiffResult
+	if err := json.Unmarshal(outputStdoutOut.Bytes(), &outputStdoutResult); err != nil {
+		t.Fatalf("decode diff output stdout: %v\nbody=%s", err, outputStdoutOut.String())
+	}
+	if !outputStdoutResult.Summary.SummaryOnly || len(outputStdoutResult.Changes) != 0 || outputStdoutResult.Summary.Queue.Added != 1 || outputStdoutResult.Summary.Queue.Changed != 1 {
+		t.Fatalf("diff output stdout summary = %+v changes=%+v", outputStdoutResult.Summary, outputStdoutResult.Changes)
+	}
+
 	summaryText := NewRootCmd()
 	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryText.SetOut(summaryTextOut)
@@ -1134,6 +1174,30 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	}
 	if !strings.Contains(formatWithJSONErr.String(), "--format cannot be combined with --json") {
 		t.Fatalf("format/json stderr = %q", formatWithJSONErr.String())
+	}
+
+	jsonWithOutput := NewRootCmd()
+	jsonWithOutputOut, jsonWithOutputErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonWithOutput.SetOut(jsonWithOutputOut)
+	jsonWithOutput.SetErr(jsonWithOutputErr)
+	jsonWithOutput.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--json", "--output", "diff.json"})
+	if err := jsonWithOutput.Execute(); err == nil {
+		t.Fatalf("snapshot diff --json --output succeeded")
+	}
+	if !strings.Contains(jsonWithOutputErr.String(), "choose one of --json or --output") {
+		t.Fatalf("json/output stderr = %q", jsonWithOutputErr.String())
+	}
+
+	formatWithOutput := NewRootCmd()
+	formatWithOutputOut, formatWithOutputErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatWithOutput.SetOut(formatWithOutputOut)
+	formatWithOutput.SetErr(formatWithOutputErr)
+	formatWithOutput.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--format", "{{.Summary.TotalChanges}}", "--output", "diff.json"})
+	if err := formatWithOutput.Execute(); err == nil {
+		t.Fatalf("snapshot diff --format --output succeeded")
+	}
+	if !strings.Contains(formatWithOutputErr.String(), "--format cannot be combined with --output") {
+		t.Fatalf("format/output stderr = %q", formatWithOutputErr.String())
 	}
 
 	invalidFormat := NewRootCmd()

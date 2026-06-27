@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,6 +18,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	var (
 		jsonOut  bool
 		exitCode bool
+		output   string
 		sections []string
 		actions  []string
 		format   string
@@ -33,6 +35,14 @@ func newSnapshotDiffCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if jsonOut && output != "" && output != "-" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if format != "" && output != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --format cannot be combined with --output.")
 				return exitErr(2)
 			}
 			if format != "" && summary {
@@ -83,10 +93,16 @@ func newSnapshotDiffCmd() *cobra.Command {
 				sortSnapshotDiffResult(result, sortMode)
 				limitSnapshotDiffResult(result, limit)
 			}
-			if jsonOut {
-				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+			if jsonOut || output == "-" {
+				if err := writeSnapshotDiffResultJSON(cmd.OutOrStdout(), result); err != nil {
 					return err
 				}
+			} else if output != "" {
+				path, err := writeSnapshotDiffFile(output, result)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Wrote snapshot diff to %s\n", path)
 			} else if formatTemplate != nil {
 				if err := renderSnapshotDiffFormat(cmd.OutOrStdout(), result, formatTemplate); err != nil {
 					return err
@@ -101,6 +117,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the JSON snapshot diff to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
 	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, pipelines, inbox, queue, queue_quarantine, schedules, intake, events, advance, section_errors, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only compare change actions: added, removed, or changed. Can repeat or comma-separate.")
@@ -1816,6 +1833,42 @@ func parseSnapshotDiffFormat(format string) (*template.Template, error) {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
 	return tmpl, nil
+}
+
+func writeSnapshotDiffFile(path string, result *snapshotDiffResult) (string, error) {
+	path = filepath.Clean(path)
+	body, err := snapshotDiffJSON(result)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, nil
+	}
+	return abs, nil
+}
+
+func writeSnapshotDiffResultJSON(w io.Writer, result *snapshotDiffResult) error {
+	body, err := snapshotDiffJSON(result)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(body)
+	return err
+}
+
+func snapshotDiffJSON(result *snapshotDiffResult) ([]byte, error) {
+	body, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(body, '\n'), nil
 }
 
 func renderSnapshotDiffFormat(w io.Writer, result *snapshotDiffResult, tmpl *template.Template) error {
