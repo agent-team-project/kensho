@@ -45,8 +45,9 @@ func newHealthCmd() *cobra.Command {
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "health",
-		Short: "Check daemon, instance, queue, and outbox health.",
+		Short: "Check daemon, instance, queue, job, and outbox health.",
 		Long: "Check the daemon, declared persistent instances, crashed instances, and stale status files. " +
+			"Queue, job-file quarantine, outbox quarantine, intake, and optional durable job checks are included in the same health result. " +
 			"One-shot checks exit 0 when healthy and 1 when unhealthy.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
@@ -205,6 +206,7 @@ type healthResult struct {
 	Daemon           healthDaemon               `json:"daemon"`
 	Summary          psSummaryJSON              `json:"summary"`
 	Queue            queueSummary               `json:"queue"`
+	JobQuarantine    jobQuarantineSummary       `json:"job_quarantine"`
 	OutboxQuarantine outboxQuarantineSummary    `json:"outbox_quarantine"`
 	Intake           overviewIntakeSummary      `json:"intake"`
 	Jobs             *jobTriageSnapshot         `json:"jobs,omitempty"`
@@ -392,6 +394,9 @@ func collectHealthWithOptions(teamDir string, now time.Time, opts healthOptions)
 		return nil, err
 	}
 	if err := addQueueHealth(result, teamDir, now); err != nil {
+		return nil, err
+	}
+	if err := addJobQuarantineHealth(result, teamDir); err != nil {
 		return nil, err
 	}
 	if err := addOutboxQuarantineHealth(result, teamDir); err != nil {
@@ -589,6 +594,43 @@ func queueDeadLetterHealthActions(teamDir string, items []*daemon.QueueItem) []s
 		retry = pipelineQueueRetryAllRecoveryAction(pipelineName, false)
 	}
 	return []string{retry, "agent-team repair --skip-tick"}
+}
+
+func addJobQuarantineHealth(result *healthResult, teamDir string) error {
+	if result == nil {
+		return nil
+	}
+	items, err := listJobQuarantine(teamDir)
+	if err != nil {
+		return err
+	}
+	result.JobQuarantine = summarizeJobQuarantineItems(items)
+	if result.JobQuarantine.Quarantined == 0 {
+		return nil
+	}
+	result.addIssueWithSeverityAndActions(
+		"job_quarantined",
+		"warning",
+		"",
+		"",
+		"",
+		"",
+		fmt.Sprintf("jobs have %d quarantined file(s) (%d restorable, %d unrestorable)", result.JobQuarantine.Quarantined, result.JobQuarantine.Restorable, result.JobQuarantine.Unrestorable),
+		jobQuarantineHealthActions(result.JobQuarantine),
+	)
+	return nil
+}
+
+func jobQuarantineHealthActions(summary jobQuarantineSummary) []string {
+	actions := []string{"agent-team job quarantine"}
+	if summary.Unrestorable > 0 {
+		actions = append(actions, "agent-team job quarantine --unrestorable")
+	}
+	if summary.Restorable > 0 {
+		actions = append(actions, "agent-team job quarantine --restorable")
+	}
+	actions = append(actions, "agent-team snapshot --json")
+	return actions
 }
 
 func singleDeadQueueJobID(teamDir string, items []*daemon.QueueItem) string {
@@ -1301,6 +1343,9 @@ func renderHealth(w io.Writer, result *healthResult) {
 	)
 	if result.Queue.Total > 0 || result.Queue.Quarantined > 0 {
 		fmt.Fprintln(w, queueSummaryLine(result.Queue))
+	}
+	if result.JobQuarantine.Quarantined > 0 {
+		fmt.Fprintln(w, jobQuarantineSummaryLine(result.JobQuarantine))
 	}
 	if result.OutboxQuarantine.Quarantined > 0 {
 		fmt.Fprintln(w, outboxQuarantineSummaryLine(result.OutboxQuarantine))

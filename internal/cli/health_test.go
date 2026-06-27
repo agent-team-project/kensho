@@ -969,6 +969,65 @@ func TestHealthCommandReportsOutboxQuarantine(t *testing.T) {
 	}
 }
 
+func TestHealthCommandReportsJobQuarantine(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeQuarantinedJobFile(t, teamDir, "20260627T230000.000000000Z", "squ-230.toml", []byte(`id = "squ-230"
+ticket = "SQU-230"
+target = "worker"
+status = "queued"
+created_at = 2026-06-27T23:00:00Z
+updated_at = 2026-06-27T23:00:00Z
+`))
+	writeQuarantinedJobFile(t, teamDir, "20260627T230000.000000000Z", "broken.toml", []byte("id = [\n"))
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health job quarantine json: %v\nbody=%s", err, stdout.String())
+	}
+	if body.JobQuarantine.Quarantined != 2 || body.JobQuarantine.Restorable != 1 || body.JobQuarantine.Unrestorable != 1 {
+		t.Fatalf("job quarantine = %+v, want mixed restorable/unrestorable", body.JobQuarantine)
+	}
+	var sawQuarantineIssue bool
+	for _, issue := range body.Issues {
+		if issue.Code == "job_quarantined" {
+			if issue.Severity != "warning" || !containsString(issue.Actions, "agent-team job quarantine") || !containsString(issue.Actions, "agent-team job quarantine --restorable") || !containsString(issue.Actions, "agent-team job quarantine --unrestorable") || !containsString(issue.Actions, "agent-team snapshot --json") {
+				t.Fatalf("job quarantine issue = %+v", issue)
+			}
+			sawQuarantineIssue = true
+			break
+		}
+	}
+	if !sawQuarantineIssue {
+		t.Fatalf("issues = %+v, missing job_quarantined", body.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"health", "--target", tmp})
+	if err := text.Execute(); err == nil {
+		t.Fatal("health text succeeded unexpectedly")
+	}
+	for _, want := range []string{"job quarantine: quarantined=2 restorable=1 unrestorable=1", "job_quarantined", "agent-team job quarantine --restorable", "agent-team job quarantine --unrestorable"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("health text missing %q:\n%s\nstderr=%s", want, textOut.String(), textErr.String())
+		}
+	}
+}
+
 func TestHealthCommandSuggestsJobScopedOutboxQuarantine(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

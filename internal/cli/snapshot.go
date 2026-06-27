@@ -36,7 +36,7 @@ func newSnapshotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "snapshot",
 		Short: "Capture a read-only orchestration diagnostic report.",
-		Long: "Capture a read-only diagnostic report with health, plan, instance, job, job status preview, outbox, queue, " +
+		Long: "Capture a read-only diagnostic report with health, plan, instance, job, job quarantine, job status preview, outbox, queue, " +
 			"inbox, schedule, runtime, recent lifecycle event state, and command provenance. Use --json for stdout or --output to write a JSON file.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -141,6 +141,8 @@ type snapshotResult struct {
 	Instances               []psJSONRow                `json:"instances,omitempty"`
 	Jobs                    []*job.Job                 `json:"jobs,omitempty"`
 	JobTriage               *jobTriageSnapshot         `json:"job_triage,omitempty"`
+	JobQuarantine           []jobQuarantineItem        `json:"job_quarantine,omitempty"`
+	JobQuarantineSummary    *jobQuarantineSummary      `json:"job_quarantine_summary,omitempty"`
 	JobStatus               []jobStatusReconcileResult `json:"job_status_preview,omitempty"`
 	PipelineStatus          []pipelineStatusRow        `json:"pipeline_status,omitempty"`
 	PipelineExplain         []pipelineExplainRow       `json:"pipeline_explain,omitempty"`
@@ -232,6 +234,13 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.addError("job_triage", err)
 	} else {
 		out.JobTriage = &triage
+	}
+	if quarantine, err := listJobQuarantine(teamDir); err != nil {
+		out.addError("job_quarantine", err)
+	} else {
+		out.JobQuarantine = quarantine
+		summary := summarizeJobQuarantineItems(quarantine)
+		out.JobQuarantineSummary = &summary
 	}
 	if status, err := reconcileJobsFromStatus(teamDir, true, now); err != nil {
 		out.addError("job_status_preview", err)
@@ -979,6 +988,9 @@ func renderSnapshotSummary(w io.Writer, snapshot *snapshotResult) {
 	renderSnapshotJobSummary(w, snapshot.Jobs)
 	if snapshot.JobTriage != nil {
 		fmt.Fprintf(w, "job triage: attention=%d ready_steps=%d\n", len(snapshot.JobTriage.Attention), len(snapshot.JobTriage.ReadySteps))
+	}
+	if snapshot.JobQuarantineSummary != nil && snapshot.JobQuarantineSummary.Quarantined > 0 {
+		fmt.Fprintln(w, jobQuarantineSummaryLine(*snapshot.JobQuarantineSummary))
 	}
 	if snapshot.JobStatus != nil {
 		fmt.Fprintf(w, "job status: previews=%d changes=%d\n", len(snapshot.JobStatus), countChangedJobStatusPreviews(snapshot.JobStatus))

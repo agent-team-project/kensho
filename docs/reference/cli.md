@@ -340,10 +340,10 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | --- | --- |
 | `agent-team overview` | Compact state and action hints, including queue/outbox quarantine recovery; JSON includes structured `action_details` |
 | `agent-team next` | Recommended next commands with structured JSON `action_details`; filter quarantine recovery with `--reason quarantined`, `queue_quarantined`, or `outbox_quarantined` |
-| `agent-team health` | Scriptable health check with queue/outbox quarantine warnings and scoped recovery actions |
+| `agent-team health` | Scriptable health check with queue, job, and outbox quarantine warnings plus scoped recovery actions |
 | `agent-team monitor` | Operator dashboard with health, queue/outbox recovery, inbox, instances, and resources |
 | `agent-team watch` | Continuous monitor with health, queue/outbox recovery, inbox, instances, and resources |
-| `agent-team snapshot` | Redacted diagnostic artifact with command provenance, queue/outbox quarantine inventory, and formatted summary fields |
+| `agent-team snapshot` | Redacted diagnostic artifact with command provenance, job/queue/outbox quarantine inventory, and formatted summary fields |
 | `agent-team snapshot diff <before.json> <after.json>` | Compare saved global, team, pipeline, or job diagnostic artifacts, or compare one saved artifact with the current repo state using `--current-after` / `--current-before`; includes provenance, git/runtime context, health, plan, triage, next-action hints, job state, inboxes, outbox, outbox quarantine, queue, queue quarantine, schedules, intake, events, pipeline state, saved JSON output, action filters, summary-only output, sorted/bounded detail rows, and formatted counters for scripts |
 | `agent-team repair` | Start/reconcile/timeout/retry/tick recovery loop; timeout repair accepts filters, and failed-step retry accepts pipeline/step filters, `--retry-force`, runtime overrides, and `--wait-next-state`/`--wait-step` stage-aware bounded handoff |
 

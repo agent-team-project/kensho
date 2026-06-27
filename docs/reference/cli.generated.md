@@ -40,7 +40,7 @@ Subcommands:
 - `agent-team drain` - Run maintenance cycles until idle.
 - `agent-team event` - Publish manual topology events to the daemon (for testing trigger matching).
 - `agent-team events` - Show daemon lifecycle events.
-- `agent-team health` - Check daemon, instance, queue, and outbox health.
+- `agent-team health` - Check daemon, instance, queue, job, and outbox health.
 - `agent-team help` - Help about any command
 - `agent-team inbox` - Inspect and acknowledge daemon mailbox messages.
 - `agent-team init` - Vendor a starter team template into the current repo (creates .agent_team/).
@@ -966,9 +966,9 @@ Inherited Flags:
 
 ## `agent-team health`
 
-Check daemon, instance, queue, and outbox health.
+Check daemon, instance, queue, job, and outbox health.
 
-Check the daemon, declared persistent instances, crashed instances, and stale status files. One-shot checks exit 0 when healthy and 1 when unhealthy.
+Check the daemon, declared persistent instances, crashed instances, and stale status files. Queue, job-file quarantine, outbox quarantine, intake, and optional durable job checks are included in the same health result. One-shot checks exit 0 when healthy and 1 when unhealthy.
 
 ```text
 agent-team health [flags]
@@ -6722,7 +6722,7 @@ Inherited Flags:
 
 Capture a read-only orchestration diagnostic report.
 
-Capture a read-only diagnostic report with health, plan, instance, job, job status preview, outbox, queue, inbox, schedule, runtime, recent lifecycle event state, and command provenance. Use --json for stdout or --output to write a JSON file.
+Capture a read-only diagnostic report with health, plan, instance, job, job quarantine, job status preview, outbox, queue, inbox, schedule, runtime, recent lifecycle event state, and command provenance. Use --json for stdout or --output to write a JSON file.
 
 ```text
 agent-team snapshot [flags]

@@ -11,33 +11,35 @@ import (
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
+func writeQuarantinedJobFile(t *testing.T, teamDir, stamp, name string, body []byte) string {
+	t.Helper()
+	dir := filepath.Join(job.Directory(teamDir), "quarantine", stamp)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join("quarantine", stamp, name)
+}
+
 func TestJobQuarantineListShowRestoreDrop(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
-	jobsDir := job.Directory(teamDir)
-	quarantineDir := filepath.Join(jobsDir, "quarantine", "20260627T120000.000000000Z")
-	if err := os.MkdirAll(quarantineDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 
-	restorablePath := filepath.Join(quarantineDir, "squ-402-restored.toml")
-	if err := os.WriteFile(restorablePath, []byte(`id = "squ-402"
+	restorableRel := writeQuarantinedJobFile(t, teamDir, "20260627T120000.000000000Z", "squ-402-restored.toml", []byte(`id = "squ-402"
 ticket = "SQU-402"
 target = "worker"
 kickoff = "restore this job"
 status = "queued"
 created_at = 2026-06-27T12:00:00Z
 updated_at = 2026-06-27T12:00:00Z
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	brokenPath := filepath.Join(quarantineDir, "broken.toml")
-	if err := os.WriteFile(brokenPath, []byte("id = [\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	restorableRel := filepath.Join("quarantine", "20260627T120000.000000000Z", "squ-402-restored.toml")
-	brokenRel := filepath.Join("quarantine", "20260627T120000.000000000Z", "broken.toml")
+`))
+	brokenRel := writeQuarantinedJobFile(t, teamDir, "20260627T120000.000000000Z", "broken.toml", []byte("id = [\n"))
+	restorablePath := filepath.Join(job.Directory(teamDir), restorableRel)
+	brokenPath := filepath.Join(job.Directory(teamDir), brokenRel)
 
 	list := NewRootCmd()
 	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}

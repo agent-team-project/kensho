@@ -32,6 +32,13 @@ type jobQuarantineItem struct {
 	Problem     string     `json:"problem,omitempty"`
 }
 
+type jobQuarantineSummary struct {
+	Quarantined  int            `json:"quarantined"`
+	Restorable   int            `json:"restorable,omitempty"`
+	Unrestorable int            `json:"unrestorable,omitempty"`
+	Jobs         map[string]int `json:"jobs,omitempty"`
+}
+
 type jobQuarantineShowResult struct {
 	jobQuarantineItem
 	Job *job.Job `json:"job,omitempty"`
@@ -425,6 +432,29 @@ func filterJobQuarantineRestorable(items []jobQuarantineItem, restorableOnly, un
 		out = append(out, item)
 	}
 	return out
+}
+
+func summarizeJobQuarantineItems(items []jobQuarantineItem) jobQuarantineSummary {
+	summary := jobQuarantineSummary{Jobs: map[string]int{}}
+	for _, item := range items {
+		summary.Quarantined++
+		if item.Restorable {
+			summary.Restorable++
+		} else {
+			summary.Unrestorable++
+		}
+		if id := job.NormalizeID(item.ID); id != "" {
+			summary.Jobs[id]++
+		}
+	}
+	return summary
+}
+
+func jobQuarantineSummaryLine(summary jobQuarantineSummary) string {
+	return fmt.Sprintf("job quarantine: quarantined=%d restorable=%d unrestorable=%d",
+		summary.Quarantined,
+		summary.Restorable,
+		summary.Unrestorable)
 }
 
 func prepareJobQuarantineItems(items []jobQuarantineItem, sortMode string, limit int) []jobQuarantineItem {
