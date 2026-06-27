@@ -1137,6 +1137,23 @@ pipelines = ["ticket_to_pr"]
 			t.Fatalf("team adopt actions = %+v, missing %q", result.Actions, want)
 		}
 	}
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "adopt", "delivery", "squ-811", "--repo", root, "--step", "review", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team adopt --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	for _, want := range []string{
+		"agent-team team status delivery",
+		"agent-team team logs delivery --follow",
+		"agent-team team resume-plan delivery --step review",
+	} {
+		if !strings.Contains(commandsOut.String(), want) {
+			t.Fatalf("team adopt commands missing %q:\n%s", want, commandsOut.String())
+		}
+	}
 }
 
 func TestTeamTriageScopesStepAdoptionHint(t *testing.T) {

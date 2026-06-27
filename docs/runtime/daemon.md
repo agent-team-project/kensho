@@ -80,7 +80,8 @@ lifecycle event, and asks a running daemon to reconcile so `ps`, `inspect`,
 `monitor`, `stop`, and `health` see the process immediately.
 Adoption output includes an `actions` list with the inspect, log, and
 resume-plan commands to run next. For Codex-owned metadata, that list also
-includes the clean `logs --last-message` path.
+includes the clean `logs --last-message` path. Use `--commands` when a script
+needs only the follow-up commands, one per line.
 
 When `--job <id>` points at an existing durable job, adoption defaults the
 agent, ticket, branch, PR, and workspace from that job. It also updates the job

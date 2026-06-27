@@ -956,6 +956,27 @@ func TestJobAdoptDryRunDoesNotMutateJobOrMetadata(t *testing.T) {
 	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "worker-squ-69"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("metadata should not exist after dry-run: %v", err)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "adopt", "squ-69", "--repo", tmp, "--pid-file", pidPath, "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job adopt --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	for _, want := range []string{
+		"agent-team inspect worker-squ-69",
+		"agent-team logs worker-squ-69 --follow",
+		"agent-team resume-plan worker-squ-69",
+		"agent-team job show squ-69",
+		"agent-team job logs squ-69 --follow",
+		"agent-team job resume-plan squ-69",
+	} {
+		if !strings.Contains(commandsOut.String(), want) {
+			t.Fatalf("job adopt commands missing %q:\n%s", want, commandsOut.String())
+		}
+	}
 }
 
 func TestJobShowDisplaysRuntimeMetadata(t *testing.T) {

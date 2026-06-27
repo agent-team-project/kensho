@@ -256,6 +256,7 @@ Adoption text and JSON include follow-up actions for `inspect`, `logs`, and
 `resume-plan`; job-owned adoption also includes the matching job-scoped
 commands so scripts can continue from the durable work unit. Pipeline- and
 team-scoped adoption add matching scoped status, logs, and resume-plan actions.
+Add `--commands` when scripts need only those follow-up commands, one per line.
 
 ## Blocking And Unblocking Jobs
 

@@ -97,6 +97,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
       --branch string        Branch name to record on the adopted metadata.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
@@ -552,6 +553,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
       --branch string        Branch name to record on the adopted metadata.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
@@ -1834,6 +1836,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Defaults to the job target.
       --branch string        Branch name to record. Defaults to the job branch.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata or job state.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.
@@ -4134,6 +4137,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Defaults to the selected step target or job target.
       --branch string        Branch name to record. Defaults to the job branch.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata or job state.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.
@@ -6332,6 +6336,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Inferred from instances.toml when omitted.
       --branch string        Branch name to record on the adopted metadata.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.
@@ -7096,6 +7101,7 @@ Flags:
 ```text
       --agent string         Agent name for the adopted instance. Defaults to the selected step target or job target.
       --branch string        Branch name to record. Defaults to the job branch.
+      --commands             Print only follow-up commands, one per line, after adoption planning or apply.
       --dry-run              Preview adoption without writing metadata or job state.
       --force                Replace existing live metadata for the instance.
       --format string        Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.

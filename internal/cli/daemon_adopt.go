@@ -36,6 +36,7 @@ type daemonAdoptOptions struct {
 	LogPath       string
 	Force         bool
 	DryRun        bool
+	Commands      bool
 	JSON          bool
 	Format        *template.Template
 	FollowUp      []daemonAdoptFollowUpScope
@@ -112,6 +113,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 		logPath       string
 		force         bool
 		dryRun        bool
+		commandsOnly  bool
 		jsonOut       bool
 		format        string
 	)
@@ -125,6 +127,14 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 			label := daemonAdoptCommandLabel(cmd)
 			if jsonOut && format != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", label)
+				return exitErr(2)
+			}
+			if commandsOnly && jsonOut {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --json.\n", label)
+				return exitErr(2)
+			}
+			if commandsOnly && format != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --format.\n", label)
 				return exitErr(2)
 			}
 			tmpl, err := parseDaemonAdoptFormat(format)
@@ -149,6 +159,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 				LogPath:       logPath,
 				Force:         force,
 				DryRun:        dryRun,
+				Commands:      commandsOnly,
 				JSON:          jsonOut,
 				Format:        tmpl,
 			})
@@ -175,6 +186,7 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 	cmd.Flags().StringVar(&logPath, "log-path", "", "Runtime log path, if the external process already writes to one.")
 	cmd.Flags().BoolVar(&force, "force", false, "Replace existing live metadata for the instance.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview adoption without writing metadata.")
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only follow-up commands, one per line, after adoption planning or apply.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the adoption result with a Go template, e.g. '{{.Metadata.Instance}} {{.Metadata.PID}}'.")
 	return cmd
@@ -532,6 +544,12 @@ func reconcileAfterDaemonAdopt(teamDir string) (bool, string, error) {
 func renderDaemonAdoptResult(w fmtWriter, result daemonAdoptResult, opts daemonAdoptOptions) error {
 	if opts.JSON {
 		return json.NewEncoder(w).Encode(result)
+	}
+	if opts.Commands {
+		for _, action := range result.Actions {
+			fmt.Fprintln(w, action)
+		}
+		return nil
 	}
 	if opts.Format != nil {
 		if err := opts.Format.Execute(w, result); err != nil {

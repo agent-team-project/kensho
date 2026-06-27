@@ -199,6 +199,23 @@ after = ["implement"]
 			t.Fatalf("pipeline adopt actions = %+v, missing %q", result.Actions, want)
 		}
 	}
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "adopt", "ticket_to_pr", "squ-801", "--repo", root, "--step", "review", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline adopt --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	for _, want := range []string{
+		"agent-team pipeline status ticket_to_pr",
+		"agent-team pipeline logs ticket_to_pr --follow",
+		"agent-team pipeline resume-plan ticket_to_pr --step review",
+	} {
+		if !strings.Contains(commandsOut.String(), want) {
+			t.Fatalf("pipeline adopt commands missing %q:\n%s", want, commandsOut.String())
+		}
+	}
 	updated, err := job.Read(teamDir, "squ-801")
 	if err != nil {
 		t.Fatalf("read job: %v", err)

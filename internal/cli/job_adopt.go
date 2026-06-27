@@ -28,6 +28,7 @@ func newJobAdoptCmd() *cobra.Command {
 		logPath       string
 		force         bool
 		dryRun        bool
+		commandsOnly  bool
 		jsonOut       bool
 		format        string
 	)
@@ -41,6 +42,14 @@ func newJobAdoptCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job adopt: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commandsOnly && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job adopt: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commandsOnly && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job adopt: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseDaemonAdoptFormat(format)
@@ -69,6 +78,7 @@ func newJobAdoptCmd() *cobra.Command {
 					LogPath:       logPath,
 					Force:         force,
 					DryRun:        dryRun,
+					Commands:      commandsOnly,
 					JSON:          jsonOut,
 					Format:        tmpl,
 				},
@@ -91,6 +101,7 @@ func newJobAdoptCmd() *cobra.Command {
 	cmd.Flags().StringVar(&logPath, "log-path", "", "Runtime log path, if the external process already writes to one.")
 	cmd.Flags().BoolVar(&force, "force", false, "Replace existing live metadata for the instance.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview adoption without writing metadata or job state.")
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only follow-up commands, one per line, after adoption planning or apply.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the adoption result with a Go template, e.g. '{{.Job.ID}} {{.Metadata.Instance}}'.")
 	return cmd

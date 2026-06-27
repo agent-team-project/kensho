@@ -97,7 +97,8 @@ managed-resume attempts to have the session identifier available. Use
 existing runtime pidfile.
 Text and JSON adoption results include follow-up actions such as `inspect`,
 `logs --follow`, and `resume-plan`; Codex adoptions also include
-`logs --last-message`.
+`logs --last-message`. Add `--commands` when scripts need only those follow-up
+commands, one per line, after a dry-run or apply.
 
 Add `--job <id>` when the external process owns a durable job. If that job file
 exists, adoption records the instance, branch, PR, running status, and an

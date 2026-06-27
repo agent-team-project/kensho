@@ -324,6 +324,61 @@ func TestDaemonAdoptDryRunTextPrintsFollowUpActions(t *testing.T) {
 	}
 }
 
+func TestDaemonAdoptCommandsPrintsOnlyFollowUpActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon adopt --commands: %v", err)
+	}
+	want := strings.Join([]string{
+		"agent-team inspect external-worker",
+		"agent-team logs external-worker --follow",
+		"agent-team resume-plan external-worker",
+	}, "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("adopt commands output = %q, want %q", got, want)
+	}
+}
+
+func TestDaemonAdoptRejectsCommandsWithJSONOrFormat(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "json",
+			args: []string{"daemon", "adopt", "external-worker", "--target", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "format",
+			args: []string{"daemon", "adopt", "external-worker", "--target", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--format", "{{.Action}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("daemon adopt accepted %s conflict: stdout=%s", tc.name, out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
