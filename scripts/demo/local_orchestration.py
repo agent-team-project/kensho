@@ -148,9 +148,20 @@ def main(argv: list[str]) -> int:
         first = preview[0]
         print(f"preview: job={first['job_id']} step={first.get('step_id')} action={first['action']}")
 
+        step("verify command-only ready hints")
+        job_ready_commands = run(binary, "job", "ready", "--repo", repo, "--commands")
+        require_command(job_ready_commands, "agent-team job advance demo-1")
+        pipeline_ready_commands = run(binary, "pipeline", "ready", "ticket_to_pr", "--repo", repo, "--commands")
+        require_command(pipeline_ready_commands, "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes")
+        team_ready_commands = run(binary, "team", "ready", "delivery", "--repo", repo, "--commands")
+        require_command(team_ready_commands, "agent-team team tick delivery --dry-run --preview-routes")
+        print("ready commands verified: job advance, pipeline tick, team tick")
+
         step("verify operator drain hint")
         before_drain = run(binary, "team", "overview", "delivery", "--repo", repo, "--json", parse_json=True)
         require_action(before_drain, "agent-team team drain delivery")
+        overview_commands = run(binary, "team", "overview", "delivery", "--repo", repo, "--commands")
+        require_command(overview_commands, "agent-team team drain delivery")
         print("team overview recommends: agent-team team drain delivery")
 
         step("drain ready work through daemon dispatch")
@@ -242,6 +253,12 @@ def require_action(data: dict, command: str) -> None:
     actions = data.get("actions") or data.get("Actions") or []
     if command not in actions:
         raise DemoError(f"expected action hint {command!r}; got {actions!r}")
+
+
+def require_command(output: str, command: str) -> None:
+    commands = [line.strip() for line in output.splitlines() if line.strip()]
+    if command not in commands:
+        raise DemoError(f"expected command {command!r}; got {commands!r}")
 
 
 def worker_from_team_drain(data: dict) -> str:
