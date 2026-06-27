@@ -3663,19 +3663,24 @@ List sandboxed agent outbox events.
 agent-team outbox ls [flags]
 ```
 
+Aliases: `watch`
+
 Flags:
 
 ```text
-      --format string    Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
-      --job strings      Filter by job id or ticket; repeat or comma-separate values.
-      --json             Emit machine-readable JSON.
-      --limit int        Limit rows after filtering and sorting; 0 means no limit.
-      --sort string      Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
-      --source strings   Filter by source agent/instance; repeat or comma-separate values.
-      --state string     Filter by outbox state: pending, processed, or failed.
-      --summary          Show aggregate outbox counts instead of rows.
-      --target string    Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
-      --type strings     Filter by event type; repeat or comma-separate values.
+      --format string       Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
+      --interval duration   Refresh interval for --watch. (default 2s)
+      --job strings         Filter by job id or ticket; repeat or comma-separate values.
+      --json                Emit machine-readable JSON.
+      --limit int           Limit rows after filtering and sorting; 0 means no limit.
+      --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --sort string         Sort rows by state, id, type, source, job, created, updated, or error. (default "state")
+      --source strings      Filter by source agent/instance; repeat or comma-separate values.
+      --state string        Filter by outbox state: pending, processed, or failed.
+      --summary             Show aggregate outbox counts instead of rows.
+      --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --type strings        Filter by event type; repeat or comma-separate values.
+  -w, --watch               Refresh the outbox table until interrupted.
 ```
 
 Inherited Flags:
@@ -5653,6 +5658,8 @@ List persisted queue items.
 ```text
 agent-team queue ls [flags]
 ```
+
+Aliases: `watch`
 
 Flags:
 

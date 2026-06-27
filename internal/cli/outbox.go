@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -59,16 +61,23 @@ func newOutboxLsCmd() *cobra.Command {
 		jobs        []string
 		sortBy      string
 		limit       int
+		watch       bool
+		noClear     bool
 		summary     bool
 		jsonOut     bool
 		format      string
+		interval    time.Duration
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List sandboxed agent outbox events.",
-		Args:  cobra.NoArgs,
+		Use:     "ls",
+		Aliases: []string{"watch"},
+		Short:   "List sandboxed agent outbox events.",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.CalledAs() == "watch" {
+				watch = true
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -83,6 +92,10 @@ func newOutboxLsCmd() *cobra.Command {
 			}
 			if limit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --interval must be >= 0.")
 				return exitErr(2)
 			}
 			sortMode, err := parseOutboxSort(sortBy)
@@ -104,6 +117,14 @@ func newOutboxLsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if watch {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				if summary {
+					return runOutboxSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, filters, jsonOut, interval, !noClear && !jsonOut)
+				}
+				return runOutboxListWatch(ctx, cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl, interval, !noClear && !jsonOut)
+			}
 			if summary {
 				return renderOutboxSummary(cmd.OutOrStdout(), teamDir, filters, jsonOut)
 			}
@@ -117,9 +138,12 @@ func newOutboxLsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, type, source, job, created, updated, or error.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the outbox table until interrupted.")
+	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate outbox counts instead of rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
+	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	return cmd
 }
 
@@ -627,6 +651,30 @@ func runOutboxListItems(w io.Writer, items []*daemon.OutboxItem, filters outboxL
 	return renderOutboxItemsTable(w, filtered)
 }
 
+func runOutboxListWatch(ctx context.Context, w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := runOutboxList(w, teamDir, filters, opts, jsonOut, tmpl); err != nil {
+			return err
+		}
+		if !waitForWatchTick(ctx, ticker.C) {
+			return nil
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
+		}
+	}
+}
+
 func runOutboxRetryAll(w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, dryRun, jsonOut bool, tmpl *template.Template) error {
 	matches, err := filteredOutboxActionItems(teamDir, filters, opts)
 	if err != nil {
@@ -783,6 +831,30 @@ func renderOutboxSummaryForItems(w io.Writer, items []*daemon.OutboxItem, filter
 	fmt.Fprintf(w, "outbox: total=%d pending=%d processed=%d failed=%d filtered=%d\n",
 		summary.Total, summary.Pending, summary.Processed, summary.Failed, summary.Filtered)
 	return nil
+}
+
+func runOutboxSummaryWatch(ctx context.Context, w io.Writer, teamDir string, filters outboxListFilters, jsonOut bool, interval time.Duration, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !jsonOut {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+		}
+		if err := renderOutboxSummary(w, teamDir, filters, jsonOut); err != nil {
+			return err
+		}
+		if !waitForWatchTick(ctx, ticker.C) {
+			return nil
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
+		}
+	}
 }
 
 func summarizeOutboxItems(items []*daemon.OutboxItem) outboxSummary {

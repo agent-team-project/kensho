@@ -59,10 +59,14 @@ func newQueueLsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List persisted queue items.",
-		Args:  cobra.NoArgs,
+		Use:     "ls",
+		Aliases: []string{"watch"},
+		Short:   "List persisted queue items.",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.CalledAs() == "watch" {
+				watch = true
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --format cannot be combined with --json.")
 				return exitErr(2)

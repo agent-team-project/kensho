@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -159,6 +160,51 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 	}
 	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-d"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("outbox-d should be removed, err=%v", err)
+	}
+}
+
+func TestOutboxListWatchRendersSnapshot(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	writeCLIOutboxItem(t, teamDir, &daemon.OutboxItem{
+		ID:        "outbox-watch",
+		State:     daemon.OutboxStatePending,
+		Type:      "agent.dispatch",
+		Payload:   map[string]any{"job_id": "squ-512", "ticket": "SQU-512", "target": "worker"},
+		Source:    "manager",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetContext(ctx)
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"outbox", "watch", "--target", target, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("outbox watch alias: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := strings.TrimSpace(out.String()); got != "outbox-watch pending" || strings.Contains(out.String(), watchClearSequence) {
+		t.Fatalf("outbox watch alias output = %q", out.String())
+	}
+
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetContext(ctx)
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"outbox", "ls", "--target", target, "--watch", "--summary", "--no-clear", "--interval", "1ms"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("outbox summary watch: %v\nstderr=%s", err, summaryErr.String())
+	}
+	if !strings.Contains(summaryOut.String(), "outbox: total=1 pending=1 processed=0 failed=0 filtered=1") || strings.Contains(summaryOut.String(), watchClearSequence) {
+		t.Fatalf("outbox summary watch output = %q", summaryOut.String())
 	}
 }
 

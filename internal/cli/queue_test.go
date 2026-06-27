@@ -1240,6 +1240,21 @@ func TestQueueListWatchRendersSnapshot(t *testing.T) {
 
 	ctx, cancel = context.WithCancel(context.Background())
 	cancel()
+	alias := NewRootCmd()
+	aliasOut, aliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	alias.SetContext(ctx)
+	alias.SetOut(aliasOut)
+	alias.SetErr(aliasErr)
+	alias.SetArgs([]string{"queue", "watch", "--target", tmp, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
+	if err := alias.Execute(); err != nil {
+		t.Fatalf("queue watch alias: %v\nstderr=%s", err, aliasErr.String())
+	}
+	if got := strings.TrimSpace(aliasOut.String()); got != "q-watch pending" || strings.Contains(aliasOut.String(), watchClearSequence) {
+		t.Fatalf("queue watch alias output = %q", aliasOut.String())
+	}
+
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
 	out.Reset()
 	if err := runQueueSummaryWatch(ctx, &out, teamDir, queueListFilters{}, false, time.Millisecond, false); err != nil {
 		t.Fatalf("runQueueSummaryWatch: %v", err)

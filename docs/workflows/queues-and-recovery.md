@@ -46,10 +46,12 @@ agent-team queue ls --state dead
 agent-team queue ls --job SQU-42
 agent-team queue ls --runtime codex
 agent-team queue ls --summary --runtime codex
+agent-team queue watch --state dead
 agent-team queue show <id>
 ```
 
 Use `--runtime claude|codex` to narrow active queue entries by the runtime recorded in the dispatch payload, falling back to daemon metadata when a queued item already names a concrete instance. Runtime-filtered summaries include a `runtimes` count and exclude quarantined files whose runtime cannot be known from the quarantine index.
+Use `queue watch` when a retry, drain, or repair loop is expected to change active queue rows while you are inspecting them.
 
 Job-scoped:
 
@@ -182,6 +184,19 @@ agent-team job queue quarantine drop squ-42 <path> --dry-run
 `job show` and `job triage` surface job-owned quarantined files and include scoped recovery actions.
 
 Global `health` and `overview` also prefer job-scoped quarantine commands when every quarantined file resolves to one job.
+
+## Active Outbox
+
+Sandboxed agents write pending fallback events under `.agent_team/outbox/` when daemon transport is unavailable or delayed. Inspect the active outbox before draining or repairing it:
+
+```sh
+agent-team outbox ls
+agent-team outbox ls --summary
+agent-team outbox watch --state pending
+agent-team outbox drain --dry-run
+```
+
+Use `outbox watch` while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
 
 ## Outbox Quarantine
 

@@ -165,6 +165,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | Command | Purpose |
 | --- | --- |
 | `agent-team queue ls` | List active queue entries; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
+| `agent-team queue watch` | Continuous active queue list shortcut with the same filters and formatting as `queue ls --watch` |
 | `agent-team queue show <id>` | Inspect one active queue item, including resolved runtime metadata |
 | `agent-team queue drain` | Dispatch ready pending entries |
 | `agent-team queue retry <id>` | Retry one entry |
@@ -184,7 +185,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team outbox ls` | List sandboxed agent outbox events; filter by state, type, source, or job and sort/cap rows |
+| `agent-team outbox ls` | List or watch sandboxed agent outbox events; filter by state, type, source, or job and sort/cap rows |
+| `agent-team outbox watch` | Continuous outbox list shortcut with the same filters and formatting as `outbox ls --watch` |
 | `agent-team outbox show <id>` | Inspect one outbox event and its payload |
 | `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down |
 | `agent-team outbox doctor` | Validate persisted outbox files without relying on normal listing paths; `--quarantine --dry-run` previews isolating malformed active files |
