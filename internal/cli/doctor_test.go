@@ -672,6 +672,38 @@ func TestDoctorWarnsOnQueueQuarantine(t *testing.T) {
 	}
 }
 
+func TestDoctorWarnsOnJobQuarantine(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeQuarantinedJobFile(t, teamDir, "20260627T232500.000000000Z", "squ-325.toml", []byte(`id = "squ-325"
+ticket = "SQU-325"
+target = "worker"
+status = "queued"
+created_at = 2026-06-27T23:25:00Z
+updated_at = 2026-06-27T23:25:00Z
+`))
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor job quarantine warning should not fail: %v\nstderr=%s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if !result.OK || !containsDoctorMessage(result.Warnings, "job quarantine: 1 file") || !containsDoctorMessage(result.Warnings, "agent-team job quarantine") {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write job quarantine warnings to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorWarnsOnOutboxQuarantine(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

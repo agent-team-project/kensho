@@ -246,6 +246,11 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 			warnings = append(warnings, "outbox: "+warning.Message)
 		}
 	}
+	if quarantine, err := listJobQuarantine(teamDir); err != nil {
+		problems = append(problems, fmt.Sprintf("job quarantine validation failed: %v", err))
+	} else if len(quarantine) > 0 {
+		warnings = append(warnings, fmt.Sprintf("job quarantine: %d file(s) preserved under .agent_team/jobs/quarantine — inspect with `agent-team job quarantine`.", len(quarantine)))
+	}
 	if quarantine, err := listQueueQuarantine(teamDir); err != nil {
 		problems = append(problems, fmt.Sprintf("queue quarantine validation failed: %v", err))
 	} else if len(quarantine) > 0 {

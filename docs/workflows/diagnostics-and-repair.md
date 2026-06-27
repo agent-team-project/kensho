@@ -194,7 +194,9 @@ Section failures are recorded in the JSON instead of aborting the whole report.
 
 ```sh
 agent-team doctor
+agent-team job doctor
 agent-team queue doctor
+agent-team outbox doctor
 agent-team intake doctor
 agent-team pipeline doctor --all
 agent-team team doctor --all
@@ -202,7 +204,7 @@ agent-team team doctor --all
 
 Doctor commands validate structure and data integrity.
 
-Use `queue doctor --quarantine --dry-run` before moving malformed queue files out of active queue directories.
+Use `job doctor --quarantine --dry-run`, `queue doctor --quarantine --dry-run`, or `outbox doctor --quarantine --dry-run` before moving malformed active files into their quarantine directories.
 
 ## Repair
 
@@ -316,7 +318,9 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need bounded artifact diff detail rows | `agent-team snapshot diff before.json after.json --limit 20` |
 | Need script-friendly diff counters | `agent-team snapshot diff before.json after.json --format '{{.Summary.TotalChanges}} {{.Summary.Queue.Changed}}'` |
 | Need scripted before/after drift detection | `agent-team snapshot diff before.json after.json --exit-code` |
+| Job parsing fails | `agent-team job doctor --quarantine --dry-run` |
 | Queue parsing fails | `agent-team queue doctor --quarantine --dry-run` |
+| Outbox parsing fails | `agent-team outbox doctor --quarantine --dry-run` |
 | Dead queue entries | `agent-team repair --dry-run --jobs` |
 | Crashed or stale runtime metadata | `agent-team resume-plan --unhealthy` |
 | Stale running jobs | `agent-team repair --timeout-jobs --dry-run` |
