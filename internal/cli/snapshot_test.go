@@ -502,6 +502,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			{ID: "squ-801", Status: "running", Pipeline: "ticket_to_pr", Target: "worker"},
 			{ID: "squ-802", Status: "blocked", Pipeline: "ticket_to_pr", Target: "worker"},
 		},
+		JobQuarantine: []jobQuarantineItem{
+			{Path: "quarantine/20260618T120000.000000000Z/squ-802.toml", ID: "squ-802", Ticket: "SQU-802", Target: "worker", Status: job.StatusBlocked, Restorable: false, Problem: "unknown job status"},
+		},
 		Inbox: []snapshotDiffInbox{
 			{Instance: "manager", Agent: "manager", Status: "running", Total: 1, Unread: 1, LatestID: "msg-1", LatestFrom: "tester", LatestTS: "2026-06-18T11:59:00Z"},
 		},
@@ -604,6 +607,10 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			{ID: "squ-801", Status: "done", Pipeline: "ticket_to_pr", Target: "worker"},
 			{ID: "squ-803", Status: "queued", Pipeline: "ticket_to_pr", Target: "manager"},
 		},
+		JobQuarantine: []jobQuarantineItem{
+			{Path: "quarantine/20260618T120000.000000000Z/squ-802.toml", ID: "squ-802", Ticket: "SQU-802", Target: "worker", Status: job.StatusBlocked, Restorable: true},
+			{Path: "quarantine/20260618T120500.000000000Z/squ-803.toml", ID: "squ-803", Ticket: "SQU-803", Target: "manager", Status: job.StatusQueued, Restorable: true},
+		},
 		Inbox: []snapshotDiffInbox{
 			{Instance: "manager", Agent: "manager", Status: "running", Total: 2, Unread: 0, Cursor: "msg-2", LatestID: "msg-2", LatestFrom: "worker", LatestTS: "2026-06-18T12:04:00Z"},
 			{Instance: "worker-squ-803", Agent: "worker", Status: "running", Total: 1, Unread: 1, LatestID: "msg-3", LatestFrom: "manager", LatestTS: "2026-06-18T12:05:00Z"},
@@ -692,6 +699,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Jobs.Added != 1 || result.Summary.Jobs.Removed != 1 || result.Summary.Jobs.Changed != 1 {
 		t.Fatalf("job counters = %+v", result.Summary.Jobs)
 	}
+	if result.Summary.JobQuarantine.Added != 1 || result.Summary.JobQuarantine.Changed != 1 {
+		t.Fatalf("job quarantine counters = %+v", result.Summary.JobQuarantine)
+	}
 	if result.Summary.Instances.Added != 1 || result.Summary.Instances.Changed != 1 {
 		t.Fatalf("instance counters = %+v", result.Summary.Instances)
 	}
@@ -743,6 +753,8 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-802", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "jobs", "squ-803", "added") ||
+		!hasSnapshotDiffChange(result.Changes, "job_quarantine", "quarantine/20260618T120000.000000000Z/squ-802.toml", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "job_quarantine", "quarantine/20260618T120500.000000000Z/squ-803.toml", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "instances", "reviewer-squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "instances", "worker-squ-801", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "inbox", "manager", "changed") ||
@@ -779,6 +791,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"next: added=1 removed=2 changed=3",
 		"instances: added=1 removed=0 changed=1",
 		"jobs: added=1 removed=1 changed=1",
+		"job_quarantine: added=1 removed=0 changed=1",
 		"pipelines:",
 		"inbox: added=1 removed=0 changed=1",
 		"outbox: added=1 removed=0 changed=1",
@@ -1212,6 +1225,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	for _, change := range queueOnlyResult.Changes {
 		if change.Section != "queue" {
 			t.Fatalf("queue-only diff included %q change: %+v", change.Section, queueOnlyResult.Changes)
+		}
+	}
+
+	jobQuarantineOnly := NewRootCmd()
+	jobQuarantineOnlyOut, jobQuarantineOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobQuarantineOnly.SetOut(jobQuarantineOnlyOut)
+	jobQuarantineOnly.SetErr(jobQuarantineOnlyErr)
+	jobQuarantineOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "job_quarantine", "--json"})
+	if err := jobQuarantineOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff job quarantine section: %v\nstderr=%s", err, jobQuarantineOnlyErr.String())
+	}
+	var jobQuarantineOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(jobQuarantineOnlyOut.Bytes(), &jobQuarantineOnlyResult); err != nil {
+		t.Fatalf("decode job-quarantine-only snapshot diff: %v\nbody=%s", err, jobQuarantineOnlyOut.String())
+	}
+	if jobQuarantineOnlyResult.Summary.TotalChanges != 2 || jobQuarantineOnlyResult.Summary.JobQuarantine.Added != 1 || jobQuarantineOnlyResult.Summary.JobQuarantine.Changed != 1 || jobQuarantineOnlyResult.Summary.Queue.Added != 0 {
+		t.Fatalf("job-quarantine-only diff summary = %+v", jobQuarantineOnlyResult.Summary)
+	}
+	for _, change := range jobQuarantineOnlyResult.Changes {
+		if change.Section != "job_quarantine" {
+			t.Fatalf("job-quarantine-only diff included %q change: %+v", change.Section, jobQuarantineOnlyResult.Changes)
 		}
 	}
 
