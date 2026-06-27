@@ -3758,6 +3758,7 @@ Flags:
       --json                Emit recommended actions as JSON.
       --limit int           Maximum number of actions to print (0 = no limit).
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
+      --reason strings      Only show actions with this reason. Values match exactly, or as prefixes before '='. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
       --team string         Only consider pipelines owned by this declared team; actions are rendered with team-scoped commands.
   -w, --watch               Refresh recommended pipeline actions until interrupted.

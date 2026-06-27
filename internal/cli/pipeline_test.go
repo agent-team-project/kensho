@@ -2399,6 +2399,42 @@ pipelines = ["ticket_to_pr"]
 		}
 	}
 
+	reasonCmd := NewRootCmd()
+	reasonOut, reasonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reasonCmd.SetOut(reasonOut)
+	reasonCmd.SetErr(reasonErr)
+	reasonCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", "failed_steps", "--limit", "1", "--json"})
+	if err := reasonCmd.Execute(); err != nil {
+		t.Fatalf("pipeline next reason json: %v\nstderr=%s", err, reasonErr.String())
+	}
+	var reasonActions []pipelineNextAction
+	if err := json.Unmarshal(reasonOut.Bytes(), &reasonActions); err != nil {
+		t.Fatalf("decode pipeline next reason json: %v\nbody=%s", err, reasonOut.String())
+	}
+	if len(reasonActions) != 1 || reasonActions[0].Reason != "failed_steps=1" || reasonActions[0].Action != "agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes" {
+		t.Fatalf("reason-filtered actions = %+v, want first failed action", reasonActions)
+	}
+
+	multiReasonCmd := NewRootCmd()
+	multiReasonOut, multiReasonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	multiReasonCmd.SetOut(multiReasonOut)
+	multiReasonCmd.SetErr(multiReasonErr)
+	multiReasonCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", "ready_steps,failed_steps", "--format", "{{.Reason}}|{{.Action}}"})
+	if err := multiReasonCmd.Execute(); err != nil {
+		t.Fatalf("pipeline next multi-reason format: %v\nstderr=%s", err, multiReasonErr.String())
+	}
+	for _, want := range []string{
+		"ready_steps=1|agent-team pipeline tick ticket_to_pr --dry-run --preview-routes",
+		"failed_steps=1|agent-team pipeline retry ticket_to_pr --dry-run --dispatch --preview-routes",
+	} {
+		if !strings.Contains(multiReasonOut.String(), want) {
+			t.Fatalf("pipeline next multi-reason missing %q:\n%s", want, multiReasonOut.String())
+		}
+	}
+	if strings.Contains(multiReasonOut.String(), "queue_dead=1|") {
+		t.Fatalf("pipeline next multi-reason included queue action:\n%s", multiReasonOut.String())
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	watchCmd := NewRootCmd()
@@ -2406,7 +2442,7 @@ pipelines = ["ticket_to_pr"]
 	watchCmd.SetContext(ctx)
 	watchCmd.SetOut(watchOut)
 	watchCmd.SetErr(watchErr)
-	watchCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--limit", "1", "--watch", "--no-clear", "--interval", "1h", "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
+	watchCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", "ready_steps", "--limit", "1", "--watch", "--no-clear", "--interval", "1h", "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
 	if err := watchCmd.Execute(); err != nil {
 		t.Fatalf("pipeline next watch: %v\nstderr=%s", err, watchErr.String())
 	}
@@ -2418,12 +2454,11 @@ pipelines = ["ticket_to_pr"]
 	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
 	teamCmd.SetOut(teamOut)
 	teamCmd.SetErr(teamErr)
-	teamCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--team", "delivery", "--repo", root, "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
+	teamCmd.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--team", "delivery", "--repo", root, "--reason", "failed_steps", "--format", "{{.Pipeline}}|{{.Reason}}|{{.Action}}"})
 	if err := teamCmd.Execute(); err != nil {
 		t.Fatalf("pipeline next team format: %v\nstderr=%s", err, teamErr.String())
 	}
 	for _, want := range []string{
-		"ticket_to_pr|ready_steps=1|agent-team team tick delivery --dry-run --preview-routes",
 		"ticket_to_pr|failed_steps=1|agent-team team repair delivery --retry-pipelines --dry-run --preview-routes",
 		"ticket_to_pr|failed_steps=1|agent-team team explain delivery --state failed",
 		"ticket_to_pr|failed_steps=1|agent-team team ready delivery --state failed",
@@ -2431,6 +2466,9 @@ pipelines = ["ticket_to_pr"]
 		if !strings.Contains(teamOut.String(), want) {
 			t.Fatalf("pipeline next team format missing %q:\n%s", want, teamOut.String())
 		}
+	}
+	if strings.Contains(teamOut.String(), "ready_steps=1|") {
+		t.Fatalf("pipeline next team reason filter included ready action:\n%s", teamOut.String())
 	}
 
 	invalidInterval := NewRootCmd()
@@ -2443,6 +2481,18 @@ pipelines = ["ticket_to_pr"]
 	}
 	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
 		t.Fatalf("invalid interval stderr = %q", invalidIntervalErr.String())
+	}
+
+	invalidReason := NewRootCmd()
+	invalidReasonOut, invalidReasonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidReason.SetOut(invalidReasonOut)
+	invalidReason.SetErr(invalidReasonErr)
+	invalidReason.SetArgs([]string{"pipeline", "next", "ticket_to_pr", "--repo", root, "--reason", ","})
+	if err := invalidReason.Execute(); err == nil {
+		t.Fatalf("pipeline next empty reason succeeded")
+	}
+	if !strings.Contains(invalidReasonErr.String(), "--reason requires") {
+		t.Fatalf("invalid reason stderr = %q stdout=%q", invalidReasonErr.String(), invalidReasonOut.String())
 	}
 }
 
