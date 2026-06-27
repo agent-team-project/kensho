@@ -3811,13 +3811,13 @@ Flags:
 List ready pipeline jobs.
 
 ```text
-agent-team pipeline ready <pipeline>|--all [flags]
+agent-team pipeline ready [<pipeline>|--all] [flags]
 ```
 
 Flags:
 
 ```text
-      --all                 List ready jobs across all pipelines.
+      --all                 List ready jobs across all pipelines. This is the default when no pipeline is passed.
       --format string       Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit ready rows as JSON.

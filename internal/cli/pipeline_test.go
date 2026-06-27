@@ -3063,6 +3063,22 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 		t.Fatalf("all ready actions = %+v", allRows)
 	}
 
+	implicitAll := NewRootCmd()
+	implicitAllOut, implicitAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	implicitAll.SetOut(implicitAllOut)
+	implicitAll.SetErr(implicitAllErr)
+	implicitAll.SetArgs([]string{"pipeline", "ready", "--repo", root, "--json"})
+	if err := implicitAll.Execute(); err != nil {
+		t.Fatalf("pipeline ready implicit all json: %v\nstderr=%s", err, implicitAllErr.String())
+	}
+	var implicitRows []jobReadyRow
+	if err := json.Unmarshal(implicitAllOut.Bytes(), &implicitRows); err != nil {
+		t.Fatalf("decode pipeline ready implicit all json: %v\nbody=%s", err, implicitAllOut.String())
+	}
+	if len(implicitRows) != 2 || implicitRows[0].JobID != "squ-310" || implicitRows[1].JobID != "squ-312" {
+		t.Fatalf("implicit all ready rows = %+v", implicitRows)
+	}
+
 	invalidAll := NewRootCmd()
 	invalidAllOut, invalidAllErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidAll.SetOut(invalidAllOut)
@@ -3073,6 +3089,18 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	}
 	if !strings.Contains(invalidAllErr.String(), "--all cannot be combined") {
 		t.Fatalf("invalid all stderr = %q", invalidAllErr.String())
+	}
+
+	invalidMany := NewRootCmd()
+	invalidManyOut, invalidManyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidMany.SetOut(invalidManyOut)
+	invalidMany.SetErr(invalidManyErr)
+	invalidMany.SetArgs([]string{"pipeline", "ready", "ticket_to_pr", "nightly", "--repo", root})
+	if err := invalidMany.Execute(); err == nil {
+		t.Fatalf("pipeline ready multiple pipeline args succeeded")
+	}
+	if !strings.Contains(invalidManyErr.String(), "pass at most one pipeline name") {
+		t.Fatalf("invalid many stderr = %q", invalidManyErr.String())
 	}
 
 	invalidInterval := NewRootCmd()

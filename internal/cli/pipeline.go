@@ -1558,7 +1558,7 @@ func newPipelineReadyCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "ready <pipeline>|--all",
+		Use:   "ready [<pipeline>|--all]",
 		Short: "List ready pipeline jobs.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1570,8 +1570,8 @@ func newPipelineReadyCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline ready: --all cannot be combined with a pipeline argument.")
 				return exitErr(2)
 			}
-			if !all && len(args) != 1 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline ready: pass a pipeline name or --all.")
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline ready: pass at most one pipeline name.")
 				return exitErr(2)
 			}
 			stateFilter, err := parseJobNextStateFilter(states, !cmd.Flags().Changed("state"))
@@ -1602,10 +1602,10 @@ func newPipelineReadyCmd() *cobra.Command {
 				return err
 			}
 			pipelineName := ""
-			if !all {
+			if !all && len(args) == 1 {
 				pipelineName = strings.TrimSpace(args[0])
 			}
-			if !all && pipelineName == "" {
+			if len(args) == 1 && pipelineName == "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline ready: pipeline name is required.")
 				return exitErr(2)
 			}
@@ -1630,7 +1630,7 @@ func newPipelineReadyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&step, "step", "", "Only include rows whose next step has this id.")
 	cmd.Flags().StringVar(&sortBy, "sort", "job", "Sort rows by job, state, step, target, pipeline, updated, ticket, instance, or label.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
-	cmd.Flags().BoolVar(&all, "all", false, "List ready jobs across all pipelines.")
+	cmd.Flags().BoolVar(&all, "all", false, "List ready jobs across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the ready-step table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
