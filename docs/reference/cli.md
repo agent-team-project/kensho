@@ -148,7 +148,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job outbox <job-id>` | List or summarize sandboxed outbox events owned by one job; filter by state, type, or source |
 | `agent-team job outbox show <job-id> <id>` | Inspect one outbox event owned by one job |
 | `agent-team job outbox retry <job-id> <id>` | Move one job-owned processed or failed outbox event back to pending |
+| `agent-team job outbox retry <job-id> --all` | Retry matching job-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--sort`, and `--limit` |
 | `agent-team job outbox drop <job-id> <id>` | Remove one inspected job-owned outbox event |
+| `agent-team job outbox drop <job-id> --all` | Drop matching job-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--sort`, and `--limit` |
 
 ## Global Queue
 
