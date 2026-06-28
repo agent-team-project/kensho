@@ -80,6 +80,67 @@ func TestInboxLsJSONIncludesMetadataAndBareMailbox(t *testing.T) {
 	}
 }
 
+func TestInboxLsSortAndLimit(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	messages := map[string][]*daemon.Message{
+		"worker-a": {
+			{ID: "a-1", From: "tester", Body: "one", TS: now},
+			{ID: "a-2", From: "tester", Body: "two", TS: now.Add(9 * time.Minute)},
+		},
+		"worker-b": {
+			{ID: "b-1", From: "tester", Body: "one", TS: now.Add(time.Minute)},
+			{ID: "b-2", From: "tester", Body: "two", TS: now.Add(2 * time.Minute)},
+			{ID: "b-3", From: "tester", Body: "three", TS: now.Add(5 * time.Minute)},
+		},
+		"worker-c": {
+			{ID: "c-1", From: "tester", Body: "one", TS: now.Add(3 * time.Minute)},
+			{ID: "c-2", From: "tester", Body: "two", TS: now.Add(4 * time.Minute)},
+			{ID: "c-3", From: "tester", Body: "three", TS: now.Add(6 * time.Minute)},
+		},
+	}
+	for instance, items := range messages {
+		for _, msg := range items {
+			if err := daemon.AppendMessage(root, instance, msg); err != nil {
+				t.Fatalf("append %s/%s: %v", instance, msg.ID, err)
+			}
+		}
+	}
+	for instance, cursor := range map[string]string{"worker-a": "a-1", "worker-b": "b-1"} {
+		if err := daemon.WriteCursor(root, instance, cursor); err != nil {
+			t.Fatalf("write cursor %s: %v", instance, err)
+		}
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "unread", "--limit", "2", "--format", "{{.Instance}} {{.Unread}}")
+	if err != nil {
+		t.Fatalf("inbox ls sort unread: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "worker-c 3\nworker-b 2"; got != want {
+		t.Fatalf("inbox ls sort unread = %q, want %q", got, want)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "latest", "--limit", "2", "--format", "{{.Instance}} {{.LatestID}}")
+	if err != nil {
+		t.Fatalf("inbox ls sort latest: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "worker-a a-2\nworker-c c-3"; got != want {
+		t.Fatalf("inbox ls sort latest = %q, want %q", got, want)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "unread", "--limit", "1", "--commands")
+	if err != nil {
+		t.Fatalf("inbox ls sorted commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-c", "--unread", "--target", tmp}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox ls sorted commands = %q, want %q", got, wantCommand)
+	}
+}
+
 func TestInboxLsCommandsValidation(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -98,6 +159,16 @@ func TestInboxLsCommandsValidation(t *testing.T) {
 			name: "rejects format",
 			args: []string{"inbox", "ls", "--target", tmp, "--commands", "--format", "{{.Instance}}"},
 			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "rejects negative limit",
+			args: []string{"inbox", "ls", "--target", tmp, "--limit", "-1"},
+			want: "--limit must be >= 0",
+		},
+		{
+			name: "rejects unknown sort",
+			args: []string{"inbox", "ls", "--target", tmp, "--sort", "status"},
+			want: "--sort must be instance, unread, latest, or total",
 		},
 	}
 	for _, tt := range tests {

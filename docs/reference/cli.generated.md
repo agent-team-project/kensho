@@ -1091,6 +1091,8 @@ Flags:
       --commands        Print inbox show commands for inboxes with unread messages.
       --format string   Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.
       --json            Emit machine-readable JSON.
+      --limit int       Limit inbox summaries after filtering and sorting; 0 means no limit.
+      --sort string     Sort inboxes by instance, unread, latest, or total. (default "instance")
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string     Only list inboxes owned by this declared team.
       --unread          Show only inboxes with unread messages.

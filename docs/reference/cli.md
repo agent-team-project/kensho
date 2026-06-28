@@ -366,7 +366,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | Command | Purpose |
 | --- | --- |
 | `agent-team send` | Send mailbox message; add `--dry-run --commands` to print the matching send apply command |
-| `agent-team inbox` | Inspect mailbox summaries, show messages, acknowledge cursors, and prune old acknowledged entries while preserving unread state; `inbox prune --limit` bounds compaction, `inbox ls/show --commands` print follow-ups, and dry-run ack/prune commands can print apply commands |
+| `agent-team inbox` | Inspect mailbox summaries, show messages, acknowledge cursors, and prune old acknowledged entries while preserving unread state; `inbox ls --sort/--limit` focuses large mailbox sets, `inbox prune --limit` bounds compaction, `inbox ls/show --commands` print follow-ups, and dry-run ack/prune commands can print apply commands |
 | `agent-team channels` | List channels |
 | `agent-team channel show <name>` | Show channel messages |
 | `agent-team channel publish <name>` | Publish channel message |

@@ -38,6 +38,8 @@ func newInboxLsCmd() *cobra.Command {
 		target     string
 		teamName   string
 		unreadOnly bool
+		sortBy     string
+		limit      int
 		commands   bool
 		jsonOut    bool
 		format     string
@@ -59,6 +61,15 @@ func newInboxLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ls: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ls: --limit must be >= 0.")
+				return exitErr(2)
+			}
+			sortMode, err := parseInboxListSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox ls: %v\n", err)
+				return exitErr(2)
+			}
 			tmpl, err := parseInboxFormat(format, "inbox-ls-format")
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox ls: %v\n", err)
@@ -71,6 +82,8 @@ func newInboxLsCmd() *cobra.Command {
 			return runInboxLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, inboxListOptions{
 				TeamName:   teamName,
 				UnreadOnly: unreadOnly,
+				Sort:       sortMode,
+				Limit:      limit,
 				Commands:   commands,
 				RepoFlag:   inboxRepoFlag(cmd),
 				Repo:       inboxRepo(cmd, target),
@@ -83,6 +96,8 @@ func newInboxLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Only list inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
+	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort inboxes by instance, unread, latest, or total.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Limit inbox summaries after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox show commands for inboxes with unread messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.")
@@ -337,6 +352,8 @@ func newInboxPruneCmd() *cobra.Command {
 type inboxListOptions struct {
 	TeamName   string
 	UnreadOnly bool
+	Sort       string
+	Limit      int
 	Commands   bool
 	RepoFlag   string
 	Repo       string
@@ -446,6 +463,8 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 	if err != nil {
 		return err
 	}
+	sortInboxSummaryRows(rows, opts.Sort)
+	rows = limitInboxSummaryRows(rows, opts.Limit)
 	if opts.Commands {
 		return renderInboxListCommands(stdout, rows, inboxListCommandOptions{
 			RepoFlag: opts.RepoFlag,
@@ -484,6 +503,66 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 		)
 	}
 	return tw.Flush()
+}
+
+const (
+	inboxListSortInstance = "instance"
+	inboxListSortUnread   = "unread"
+	inboxListSortLatest   = "latest"
+	inboxListSortTotal    = "total"
+)
+
+func parseInboxListSort(raw string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "", inboxListSortInstance:
+		return inboxListSortInstance, nil
+	case inboxListSortUnread:
+		return inboxListSortUnread, nil
+	case inboxListSortLatest:
+		return inboxListSortLatest, nil
+	case inboxListSortTotal:
+		return inboxListSortTotal, nil
+	default:
+		return "", fmt.Errorf("--sort must be instance, unread, latest, or total")
+	}
+}
+
+func sortInboxSummaryRows(rows []inboxSummaryRow, sortBy string) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, right := rows[i], rows[j]
+		tie := func() bool {
+			return left.Instance < right.Instance
+		}
+		switch sortBy {
+		case inboxListSortUnread:
+			if left.Unread != right.Unread {
+				return left.Unread > right.Unread
+			}
+			return tie()
+		case inboxListSortLatest:
+			if left.LatestTS.IsZero() != right.LatestTS.IsZero() {
+				return !left.LatestTS.IsZero()
+			}
+			if !left.LatestTS.Equal(right.LatestTS) {
+				return left.LatestTS.After(right.LatestTS)
+			}
+			return tie()
+		case inboxListSortTotal:
+			if left.Total != right.Total {
+				return left.Total > right.Total
+			}
+			return tie()
+		default:
+			return tie()
+		}
+	})
+}
+
+func limitInboxSummaryRows(rows []inboxSummaryRow, limit int) []inboxSummaryRow {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	return rows[:limit]
 }
 
 func collectInboxSummaryRows(daemonRoot string, instances []string, metaByInstance map[string]*daemon.Metadata, unreadOnly bool) ([]inboxSummaryRow, error) {
