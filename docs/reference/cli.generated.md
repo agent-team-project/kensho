@@ -7099,7 +7099,7 @@ Subcommands:
 
 Compare two saved diagnostic snapshots.
 
-Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes. Use --current-after or --current-before to compare one saved snapshot against the current repo state.
+Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, timeline, pipeline, ready-advance, and section-error changes. Use --current-after or --current-before to compare one saved snapshot against the current repo state.
 
 ```text
 agent-team snapshot diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before) [flags]
@@ -7120,7 +7120,7 @@ Flags:
       --no-redact               With --current-after/--current-before, include raw payload values instead of redacting sensitive keys.
   -o, --output string           Write the JSON snapshot diff to this file. Use '-' for stdout.
       --schedule-limit int      With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all. (default 10)
-      --section strings         Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, advance, section_errors, quarantine, or all. Can repeat or comma-separate.
+      --section strings         Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all. Can repeat or comma-separate.
       --sort string             Sort emitted change detail rows by section, action, or id before applying --limit. (default "section")
       --summary                 Only emit metadata and summary counters; suppress change detail rows.
 ```

@@ -718,6 +718,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		Events: []snapshotDiffEvent{
 			{ID: "ev-1", Action: "start", Instance: "worker-squ-801", Agent: "worker", Job: "squ-801", Status: "running"},
 		},
+		Timeline: []snapshotDiffTimelineEntry{
+			{TS: "2026-06-18T12:01:00Z", Source: "job", JobID: "squ-801", Kind: "note", Status: "running", Actor: "cli", Message: "started"},
+		},
 		Status: &snapshotDiffStatus{
 			Pipeline:     "ticket_to_pr",
 			Jobs:         2,
@@ -831,6 +834,10 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 			{ID: "ev-1", Action: "exit", Instance: "worker-squ-801", Agent: "worker", Job: "squ-801", Status: "exited", ExitCode: &exitCode},
 			{ID: "ev-2", Action: "queued", Instance: "manager", Agent: "manager", Job: "squ-803", Status: "running"},
 		},
+		Timeline: []snapshotDiffTimelineEntry{
+			{TS: "2026-06-18T12:01:00Z", Source: "job", JobID: "squ-801", Kind: "note", Status: "done", Actor: "cli", Message: "completed"},
+			{TS: "2026-06-18T12:04:00Z", Source: "lifecycle", JobID: "squ-803", Kind: "dispatch", Status: "running", Instance: "reviewer-squ-803", Agent: "manager"},
+		},
 		Status: &snapshotDiffStatus{
 			Pipeline:     "ticket_to_pr",
 			Jobs:         2,
@@ -912,6 +919,9 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	if result.Summary.Events.Added != 1 || result.Summary.Events.Changed != 1 {
 		t.Fatalf("event counters = %+v", result.Summary.Events)
 	}
+	if result.Summary.Timeline.Added != 1 || result.Summary.Timeline.Changed != 1 {
+		t.Fatalf("timeline counters = %+v", result.Summary.Timeline)
+	}
 	if result.Summary.Advance.Added != 1 || result.Summary.Advance.Removed != 1 {
 		t.Fatalf("advance counters = %+v", result.Summary.Advance)
 	}
@@ -951,6 +961,8 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "intake", "duplicate/github/github-delivery-1", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "intake", "delivery-1", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "events", "ev-1", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "timeline", "job|squ-801|2026-06-18T12:01:00Z|note", "changed") ||
+		!hasSnapshotDiffChange(result.Changes, "timeline", "lifecycle|squ-803|2026-06-18T12:04:00Z|dispatch|reviewer-squ-803", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "pipelines", "ticket_to_pr.ready_steps", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "advance", "squ-803:review", "added") {
 		t.Fatalf("missing expected changes: %+v", result.Changes)
@@ -984,6 +996,7 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		"schedules: added=0 removed=0 changed=2",
 		"intake: added=1 removed=0 changed=2",
 		"events: added=1 removed=0 changed=1",
+		"timeline: added=1 removed=0 changed=1",
 		"advance: added=1 removed=1 changed=0",
 		"section_errors: added=1 removed=1 changed=0",
 		"squ-801",
@@ -1480,6 +1493,27 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 	for _, change := range inboxOnlyResult.Changes {
 		if change.Section != "inbox" {
 			t.Fatalf("inbox-only diff included %q change: %+v", change.Section, inboxOnlyResult.Changes)
+		}
+	}
+
+	timelineOnly := NewRootCmd()
+	timelineOnlyOut, timelineOnlyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	timelineOnly.SetOut(timelineOnlyOut)
+	timelineOnly.SetErr(timelineOnlyErr)
+	timelineOnly.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "timeline", "--json"})
+	if err := timelineOnly.Execute(); err != nil {
+		t.Fatalf("snapshot diff timeline section: %v\nstderr=%s", err, timelineOnlyErr.String())
+	}
+	var timelineOnlyResult snapshotDiffResult
+	if err := json.Unmarshal(timelineOnlyOut.Bytes(), &timelineOnlyResult); err != nil {
+		t.Fatalf("decode timeline-only snapshot diff: %v\nbody=%s", err, timelineOnlyOut.String())
+	}
+	if timelineOnlyResult.Summary.TotalChanges != 2 || timelineOnlyResult.Summary.Timeline.Added != 1 || timelineOnlyResult.Summary.Timeline.Changed != 1 || timelineOnlyResult.Summary.Events.Added != 0 {
+		t.Fatalf("timeline-only diff summary = %+v", timelineOnlyResult.Summary)
+	}
+	for _, change := range timelineOnlyResult.Changes {
+		if change.Section != "timeline" {
+			t.Fatalf("timeline-only diff included %q change: %+v", change.Section, timelineOnlyResult.Changes)
 		}
 	}
 

@@ -38,7 +38,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		Use:   "diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before)",
 		Short: "Compare two saved diagnostic snapshots.",
 		Long: "Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize " +
-			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, pipeline, ready-advance, and section-error changes. " +
+			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, timeline, pipeline, ready-advance, and section-error changes. " +
 			"Use --current-after or --current-before to compare one saved snapshot against the current repo state.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -165,7 +165,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the JSON snapshot diff to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
-	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, advance, section_errors, quarantine, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only compare change actions: added, removed, or changed. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
@@ -230,6 +230,7 @@ type snapshotDiffInput struct {
 	Events           []snapshotDiffEvent            `json:"events,omitempty"`
 	JobEvents        []snapshotDiffJobEvent         `json:"job_events,omitempty"`
 	LifecycleEvents  []snapshotDiffEvent            `json:"lifecycle_events,omitempty"`
+	Timeline         []snapshotDiffTimelineEntry    `json:"timeline,omitempty"`
 	PipelineStatus   []pipelineStatusRow            `json:"pipeline_status,omitempty"`
 	PipelineAdvance  []snapshotDiffAdvance          `json:"pipeline_advance_preview,omitempty"`
 	AdvancePreview   []snapshotDiffAdvance          `json:"advance_preview,omitempty"`
@@ -478,6 +479,24 @@ type snapshotDiffJobEvent struct {
 	Data     map[string]string `json:"data,omitempty"`
 }
 
+type snapshotDiffTimelineEntry struct {
+	TS       string            `json:"ts,omitempty"`
+	Source   string            `json:"source,omitempty"`
+	JobID    string            `json:"job_id,omitempty"`
+	Kind     string            `json:"kind,omitempty"`
+	Status   string            `json:"status,omitempty"`
+	Instance string            `json:"instance,omitempty"`
+	Actor    string            `json:"actor,omitempty"`
+	Agent    string            `json:"agent,omitempty"`
+	Ticket   string            `json:"ticket,omitempty"`
+	Branch   string            `json:"branch,omitempty"`
+	PR       string            `json:"pr,omitempty"`
+	PID      int               `json:"pid,omitempty"`
+	ExitCode *int              `json:"exit_code,omitempty"`
+	Message  string            `json:"message,omitempty"`
+	Data     map[string]string `json:"data,omitempty"`
+}
+
 type snapshotDiffAdvance struct {
 	JobID      string `json:"job_id"`
 	Pipeline   string `json:"pipeline,omitempty"`
@@ -529,6 +548,7 @@ type snapshotDiffSummary struct {
 	Schedules        snapshotDiffCounters `json:"schedules"`
 	Intake           snapshotDiffCounters `json:"intake"`
 	Events           snapshotDiffCounters `json:"events"`
+	Timeline         snapshotDiffCounters `json:"timeline"`
 	Advance          snapshotDiffCounters `json:"advance"`
 	SectionErrors    snapshotDiffCounters `json:"section_errors"`
 }
@@ -568,6 +588,7 @@ type snapshotDiffComparable struct {
 	Schedules        map[string]string
 	Intake           map[string]string
 	Events           map[string]string
+	Timeline         map[string]string
 	Advance          map[string]string
 	SectionErrors    map[string]string
 }
@@ -667,6 +688,9 @@ func diffSnapshotComparables(before, after snapshotDiffComparable, opts snapshot
 	}
 	if snapshotDiffSectionEnabled(opts.Sections, "events") {
 		result.Changes = append(result.Changes, diffSnapshotStringMaps("events", before.Events, after.Events, &result.Summary.Events)...)
+	}
+	if snapshotDiffSectionEnabled(opts.Sections, "timeline") {
+		result.Changes = append(result.Changes, diffSnapshotStringMaps("timeline", before.Timeline, after.Timeline, &result.Summary.Timeline)...)
 	}
 	if snapshotDiffSectionEnabled(opts.Sections, "advance") {
 		result.Changes = append(result.Changes, diffSnapshotStringMaps("advance", before.Advance, after.Advance, &result.Summary.Advance)...)
@@ -841,6 +865,8 @@ func snapshotDiffSummaryCounter(summary *snapshotDiffSummary, section string) *s
 		return &summary.Intake
 	case "events":
 		return &summary.Events
+	case "timeline":
+		return &summary.Timeline
 	case "advance":
 		return &summary.Advance
 	case "section_errors":
@@ -976,6 +1002,7 @@ func parseSnapshotDiffSections(values []string) (map[string]bool, error) {
 		"schedules":         true,
 		"intake":            true,
 		"events":            true,
+		"timeline":          true,
 		"advance":           true,
 		"section_errors":    true,
 	}
@@ -992,7 +1019,7 @@ func parseSnapshotDiffSections(values []string) (map[string]bool, error) {
 			names := normalizeSnapshotDiffSectionAliases(name)
 			for _, name := range names {
 				if !valid[name] {
-					return nil, fmt.Errorf("--section must be provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, advance, section_errors, quarantine, or all")
+					return nil, fmt.Errorf("--section must be provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all")
 				}
 				out[name] = true
 			}
@@ -1064,6 +1091,7 @@ func snapshotDiffComparableFromInput(path string, input snapshotDiffInput) snaps
 		Schedules:        map[string]string{},
 		Intake:           map[string]string{},
 		Events:           map[string]string{},
+		Timeline:         map[string]string{},
 		Advance:          map[string]string{},
 		SectionErrors:    map[string]string{},
 	}
@@ -1211,6 +1239,9 @@ func snapshotDiffComparableFromInput(path string, input snapshotDiffInput) snaps
 	}
 	for _, ev := range input.JobEvents {
 		addSnapshotDiffJobEvent(out.Events, ev)
+	}
+	for _, entry := range input.Timeline {
+		addSnapshotDiffTimelineEntry(out.Timeline, entry)
 	}
 	for _, row := range input.PipelineStatus {
 		addSnapshotDiffPipelineMetrics(out.Pipelines, row, input.Pipeline)
@@ -1913,6 +1944,32 @@ func addSnapshotDiffJobEvent(out map[string]string, ev snapshotDiffJobEvent) {
 	)
 }
 
+func addSnapshotDiffTimelineEntry(out map[string]string, entry snapshotDiffTimelineEntry) {
+	id := compactSnapshotDiffValue(entry.Source, entry.JobID, entry.TS, entry.Kind, entry.Instance)
+	if id == "" || id == "-" {
+		return
+	}
+	exitCode := ""
+	if entry.ExitCode != nil {
+		exitCode = fmt.Sprintf("exit_code=%d", *entry.ExitCode)
+	}
+	out[id] = compactSnapshotDiffValue(
+		entry.Source,
+		entry.JobID,
+		entry.Kind,
+		entry.Status,
+		entry.Instance,
+		entry.Actor,
+		entry.Agent,
+		entry.Ticket,
+		entry.Branch,
+		entry.PR,
+		exitCode,
+		entry.Message,
+		snapshotDiffStringMapValue(entry.Data),
+	)
+}
+
 func addSnapshotDiffIntakeDuplicate(out map[string]string, duplicate snapshotDiffIntakeDuplicate) {
 	provider := strings.ToLower(strings.TrimSpace(duplicate.Provider))
 	requestID := strings.TrimSpace(duplicate.RequestID)
@@ -2055,6 +2112,7 @@ func renderSnapshotDiff(w io.Writer, result *snapshotDiffResult) {
 	renderSnapshotDiffCounterLine(w, "schedules", result.Summary.Schedules)
 	renderSnapshotDiffCounterLine(w, "intake", result.Summary.Intake)
 	renderSnapshotDiffCounterLine(w, "events", result.Summary.Events)
+	renderSnapshotDiffCounterLine(w, "timeline", result.Summary.Timeline)
 	renderSnapshotDiffCounterLine(w, "advance", result.Summary.Advance)
 	renderSnapshotDiffCounterLine(w, "section_errors", result.Summary.SectionErrors)
 	if len(result.Summary.ActionFilter) > 0 {
