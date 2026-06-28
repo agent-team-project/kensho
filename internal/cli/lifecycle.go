@@ -1023,13 +1023,15 @@ func newStatusCmd() *cobra.Command {
 type statusJSON struct {
 	Daemon    statusDaemonJSON `json:"daemon"`
 	Instances []psJSONRow      `json:"instances"`
+	Actions   []string         `json:"actions,omitempty"`
 }
 
 type statusDaemonJSON struct {
-	Running bool   `json:"running"`
-	Ready   bool   `json:"ready"`
-	PID     int    `json:"pid,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Running bool     `json:"running"`
+	Ready   bool     `json:"ready"`
+	PID     int      `json:"pid,omitempty"`
+	Error   string   `json:"error,omitempty"`
+	Actions []string `json:"actions,omitempty"`
 }
 
 func runStatusJSON(w fmtWriter, teamDir string, now time.Time) error {
@@ -1042,14 +1044,25 @@ func runStatusJSONWithOptions(w fmtWriter, teamDir string, now time.Time, opts p
 	if err != nil {
 		return err
 	}
+	daemonActions := daemonStatusRemediationActions(daemonStatus)
+	actions := append([]string{}, daemonActions...)
+	health, err := collectHealthWithOptions(teamDir, now, healthOptions{filters: opts})
+	if err != nil {
+		return err
+	}
+	for _, issue := range health.Issues {
+		actions = append(actions, issue.Actions...)
+	}
 	body := statusJSON{
 		Daemon: statusDaemonJSON{
 			Running: daemonStatus.Running,
 			Ready:   daemonStatus.Ready,
 			PID:     daemonStatus.PID,
 			Error:   daemonStatus.Error,
+			Actions: daemonActions,
 		},
 		Instances: psJSONRows(rows),
+		Actions:   commandActionsOnly(actions),
 	}
 	if !daemonStatus.Running {
 		body.Daemon.PID = 0

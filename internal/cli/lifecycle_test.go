@@ -3726,6 +3726,14 @@ func TestStatusJSONShowsDaemonAndInstances(t *testing.T) {
 	if body.Daemon.PID != 0 {
 		t.Fatalf("daemon pid should be omitted/zero when not running: %+v", body.Daemon)
 	}
+	if len(body.Daemon.Actions) != 1 || body.Daemon.Actions[0] != "agent-team daemon start" {
+		t.Fatalf("daemon actions = %+v, want daemon start", body.Daemon.Actions)
+	}
+	for _, want := range []string{"agent-team daemon start", "agent-team sync --dry-run"} {
+		if !containsString(body.Actions, want) {
+			t.Fatalf("status json actions missing %q: %+v", want, body.Actions)
+		}
+	}
 	if len(body.Instances) != 0 {
 		t.Fatalf("instances = %+v, want empty", body.Instances)
 	}
@@ -3759,6 +3767,14 @@ func TestStatusJSONReportsDaemonNotReady(t *testing.T) {
 	}
 	if !strings.Contains(body.Daemon.Error, "socket") {
 		t.Fatalf("daemon readiness error = %q, want socket detail", body.Daemon.Error)
+	}
+	if len(body.Daemon.Actions) != 2 || body.Daemon.Actions[0] != "agent-team daemon restart" || body.Daemon.Actions[1] != "agent-team daemon logs --tail 80" {
+		t.Fatalf("daemon actions = %+v, want restart/logs", body.Daemon.Actions)
+	}
+	for _, want := range []string{"agent-team daemon restart", "agent-team daemon logs --tail 80", "agent-team sync --dry-run"} {
+		if !containsString(body.Actions, want) {
+			t.Fatalf("status json actions missing %q: %+v", want, body.Actions)
+		}
 	}
 }
 
