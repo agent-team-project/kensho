@@ -310,6 +310,7 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if restoreAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox quarantine restore: --all cannot be combined with a path.")
@@ -327,19 +328,19 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 				}
 				if commands {
 					return renderOutboxApplyCommand(cmd.OutOrStdout(), outboxQuarantineRestoreResultsHaveDryRunAction(results, "would_restore"), outboxApplyCommandOptions{
-						BaseArgs:  []string{"agent-team", "outbox", "quarantine", "restore"},
-						Target:    target,
-						TargetSet: cmd.Flags().Changed("target"),
-						All:       true,
-						Force:     force,
-						State:     stateFilter,
-						StateSet:  cmd.Flags().Changed("state"),
-						Types:     types,
-						Sources:   sources,
-						Jobs:      jobs,
-						Sort:      sortBy,
-						SortSet:   cmd.Flags().Changed("sort"),
-						Limit:     limit,
+						BaseArgs: []string{"agent-team", "outbox", "quarantine", "restore"},
+						Repo:     scope.Repo,
+						RepoSet:  scope.Set,
+						All:      true,
+						Force:    force,
+						State:    stateFilter,
+						StateSet: cmd.Flags().Changed("state"),
+						Types:    types,
+						Sources:  sources,
+						Jobs:     jobs,
+						Sort:     sortBy,
+						SortSet:  cmd.Flags().Changed("sort"),
+						Limit:    limit,
 					})
 				}
 				return renderOutboxQuarantineRestoreMany(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
@@ -359,10 +360,10 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 			}
 			if commands {
 				return renderOutboxApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_restore", outboxApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "outbox", "quarantine", "restore", result.Path},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
-					Force:     force,
+					BaseArgs: []string{"agent-team", "outbox", "quarantine", "restore", result.Path},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
+					Force:    force,
 				})
 			}
 			return renderOutboxQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
@@ -379,7 +380,7 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, restore at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching restore apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching restore apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
@@ -446,6 +447,7 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox quarantine drop: --all cannot be combined with a path.")
@@ -464,8 +466,8 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 				if commands {
 					return renderOutboxApplyCommand(cmd.OutOrStdout(), outboxQuarantineDropResultsHaveDryRunAction(results, "would_drop"), outboxApplyCommandOptions{
 						BaseArgs:     []string{"agent-team", "outbox", "quarantine", "drop"},
-						Target:       target,
-						TargetSet:    cmd.Flags().Changed("target"),
+						Repo:         scope.Repo,
+						RepoSet:      scope.Set,
 						All:          true,
 						State:        stateFilter,
 						StateSet:     cmd.Flags().Changed("state"),
@@ -498,9 +500,9 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 			}
 			if commands {
 				return renderOutboxApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_drop", outboxApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "outbox", "quarantine", "drop", result.Path},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "outbox", "quarantine", "drop", result.Path},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			return renderOutboxQuarantineDrop(cmd.OutOrStdout(), []outboxQuarantineDropResult{result}, jsonOut, formatTemplate)
@@ -519,7 +521,7 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, type, source, job, created, updated, modified, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }

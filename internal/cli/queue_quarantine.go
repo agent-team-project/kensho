@@ -311,6 +311,7 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if restoreAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine restore: --all cannot be combined with a path.")
@@ -329,8 +330,8 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 				if commands {
 					return renderQueueApplyCommand(cmd.OutOrStdout(), queueQuarantineRestoreResultsHaveDryRunAction(results, "would_restore"), queueApplyCommandOptions{
 						BaseArgs:   []string{"agent-team", "queue", "quarantine", "restore"},
-						Target:     target,
-						TargetSet:  cmd.Flags().Changed("target"),
+						Repo:       scope.Repo,
+						RepoSet:    scope.Set,
 						All:        true,
 						Force:      force,
 						State:      stateFilter,
@@ -360,10 +361,10 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 			}
 			if commands {
 				return renderQueueApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_restore", queueApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "queue", "quarantine", "restore", result.Path},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
-					Force:     force,
+					BaseArgs: []string{"agent-team", "queue", "quarantine", "restore", result.Path},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
+					Force:    force,
 				})
 			}
 			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
@@ -380,7 +381,7 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, restore at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching restore apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching restore apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
@@ -447,6 +448,7 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --all cannot be combined with a path.")
@@ -465,8 +467,8 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 				if commands {
 					return renderQueueApplyCommand(cmd.OutOrStdout(), queueQuarantineDropResultsHaveDryRunAction(results, "would_drop"), queueApplyCommandOptions{
 						BaseArgs:     []string{"agent-team", "queue", "quarantine", "drop"},
-						Target:       target,
-						TargetSet:    cmd.Flags().Changed("target"),
+						Repo:         scope.Repo,
+						RepoSet:      scope.Set,
 						All:          true,
 						State:        stateFilter,
 						StateSet:     cmd.Flags().Changed("state"),
@@ -499,9 +501,9 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 			}
 			if commands {
 				return renderQueueApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_drop", queueApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "queue", "quarantine", "drop", result.Path},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "queue", "quarantine", "drop", result.Path},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
@@ -520,7 +522,7 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }

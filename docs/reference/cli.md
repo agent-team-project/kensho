@@ -175,19 +175,19 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team queue ls` | List active queue entries; filter queued dispatches with `--runtime`, sort rows with `--sort`, and cap output with `--limit` |
 | `agent-team queue watch` | Continuous active queue list shortcut with the same filters and formatting as `queue ls --watch` |
 | `agent-team queue show <id>` | Inspect one active queue item, including resolved runtime metadata; add `--commands` to print only follow-up commands that preserve an explicit `--target` or root `--repo` selector |
-| `agent-team queue drain` | Dispatch ready pending entries; add `--dry-run --commands` to print the matching daemon drain command only when work is ready |
-| `agent-team queue retry <id>` | Retry one entry |
-| `agent-team queue retry --all` | Retry matching entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
-| `agent-team queue drop <id>` | Drop one entry |
-| `agent-team queue drop --all` | Drop matching entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
-| `agent-team queue prune` | Age-prune entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit` |
+| `agent-team queue drain` | Dispatch ready pending entries; add `--dry-run --commands` to print the matching daemon drain command only when work is ready, preserving explicit repo scope |
+| `agent-team queue retry <id>` | Retry one entry; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team queue retry --all` | Retry matching entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
+| `agent-team queue drop <id>` | Drop one entry; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team queue drop --all` | Drop matching entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
+| `agent-team queue prune` | Age-prune entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
 | `agent-team queue doctor` | Validate queue files; add `--commands` to print recovery commands only |
 | `agent-team queue quarantine ls` | List or summarize quarantined queue files; sort rows with `--sort` and cap output with `--limit` |
 | `agent-team queue quarantine show <path>` | Inspect quarantined queue file; add `--commands` to print only follow-up commands that preserve an explicit `--target` or root `--repo` selector |
-| `agent-team queue quarantine restore <path>` | Restore one preserved file |
-| `agent-team queue quarantine drop <path>` | Drop one preserved file |
-| `agent-team queue quarantine restore --all` | Restore matching restorable files; sort and cap batch actions with `--sort` and `--limit` |
-| `agent-team queue quarantine drop --all` | Drop matching preserved files; sort and cap batch actions with `--sort` and `--limit` |
+| `agent-team queue quarantine restore <path>` | Restore one preserved file; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team queue quarantine drop <path>` | Drop one preserved file; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team queue quarantine restore --all` | Restore matching restorable files; sort and cap batch actions with `--sort` and `--limit`; add `--dry-run --commands` for a scoped apply command |
+| `agent-team queue quarantine drop --all` | Drop matching preserved files; sort and cap batch actions with `--sort` and `--limit`; add `--dry-run --commands` for a scoped apply command |
 
 ## Agent Outbox
 
@@ -196,19 +196,19 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team outbox ls` | List or watch sandboxed agent outbox events; filter by state, type, source, or job and sort/cap rows |
 | `agent-team outbox watch` | Continuous outbox list shortcut with the same filters and formatting as `outbox ls --watch` |
 | `agent-team outbox show <id>` | Inspect one outbox event and its payload; add `--commands` to print only follow-up commands that preserve an explicit `--target` or root `--repo` selector |
-| `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down, and `--commands` prints the apply command when work is ready |
+| `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down, and `--commands` prints the scoped apply command when work is ready |
 | `agent-team outbox doctor` | Validate persisted outbox files without relying on normal listing paths; `--quarantine --dry-run` previews isolating malformed active files and `--commands` prints recovery commands |
 | `agent-team outbox quarantine ls` | List or summarize quarantined outbox files; filter by state, type, source, job, or restorable state and sort/cap rows |
 | `agent-team outbox quarantine show <path>` | Inspect one quarantined outbox file and its payload when parseable; add `--commands` to print only follow-up commands that preserve an explicit `--target` or root `--repo` selector |
-| `agent-team outbox quarantine restore <path>` | Restore one validated quarantined outbox file to the active outbox |
-| `agent-team outbox quarantine restore --all` | Restore matching restorable quarantined outbox files; filter, sort, and limit batch actions |
-| `agent-team outbox quarantine drop <path>` | Drop one quarantined outbox file after inspection |
-| `agent-team outbox quarantine drop --all` | Drop matching quarantined outbox files; filter by restorable state or age before deleting |
-| `agent-team outbox retry <id>` | Move a failed or processed outbox event back to pending |
-| `agent-team outbox retry --all` | Retry matching outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
-| `agent-team outbox drop <id>` | Remove one outbox event after inspection |
-| `agent-team outbox drop --all` | Drop matching outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
-| `agent-team outbox prune` | Remove old processed outbox events by default; pass `--state failed`, `pending`, or `all` for explicit cleanup and bound with `--older-than`, filters, and `--limit` |
+| `agent-team outbox quarantine restore <path>` | Restore one validated quarantined outbox file to the active outbox; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team outbox quarantine restore --all` | Restore matching restorable quarantined outbox files; filter, sort, and limit batch actions; add `--dry-run --commands` for a scoped apply command |
+| `agent-team outbox quarantine drop <path>` | Drop one quarantined outbox file after inspection; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team outbox quarantine drop --all` | Drop matching quarantined outbox files; filter by restorable state or age before deleting; add `--dry-run --commands` for a scoped apply command |
+| `agent-team outbox retry <id>` | Move a failed or processed outbox event back to pending; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team outbox retry --all` | Retry matching outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
+| `agent-team outbox drop <id>` | Remove one outbox event after inspection; add `--dry-run --commands` to print the scoped apply command |
+| `agent-team outbox drop --all` | Drop matching outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
+| `agent-team outbox prune` | Remove old processed outbox events by default; pass `--state failed`, `pending`, or `all` for explicit cleanup and bound with `--older-than`, filters, and `--limit`; add `--dry-run --commands` for a scoped apply command |
 
 ## Pipelines
 

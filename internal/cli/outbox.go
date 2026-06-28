@@ -238,6 +238,7 @@ func newOutboxDrainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
 				if dryRun && errors.Is(err, errDaemonNotRunning) {
@@ -247,7 +248,7 @@ func newOutboxDrainCmd() *cobra.Command {
 						return exitErr(1)
 					}
 					if commands {
-						return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+						return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, scope)
 					}
 					return renderOutboxDrainCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 				}
@@ -264,14 +265,14 @@ func newOutboxDrainCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if commands {
-				return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+				return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, scope)
 			}
 			return renderOutboxDrainCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pending outbox events without publishing them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.WouldPublish}} {{.Pending}}'.")
 	return cmd
@@ -348,24 +349,25 @@ func newOutboxRetryCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				if commands {
 					results, err := outboxRetryAllResults(teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, true)
 					if err != nil {
 						return err
 					}
 					return renderOutboxApplyCommand(cmd.OutOrStdout(), outboxActionResultsHaveDryRunAction(results, "would_retry"), outboxApplyCommandOptions{
-						BaseArgs:  []string{"agent-team", "outbox", "retry"},
-						Target:    target,
-						TargetSet: cmd.Flags().Changed("target"),
-						All:       true,
-						State:     stateFilter,
-						StateSet:  cmd.Flags().Changed("state"),
-						Types:     types,
-						Sources:   sources,
-						Jobs:      jobs,
-						Sort:      sortBy,
-						SortSet:   cmd.Flags().Changed("sort"),
-						Limit:     limit,
+						BaseArgs: []string{"agent-team", "outbox", "retry"},
+						Repo:     scope.Repo,
+						RepoSet:  scope.Set,
+						All:      true,
+						State:    stateFilter,
+						StateSet: cmd.Flags().Changed("state"),
+						Types:    types,
+						Sources:  sources,
+						Jobs:     jobs,
+						Sort:     sortBy,
+						SortSet:  cmd.Flags().Changed("sort"),
+						Limit:    limit,
 					})
 				}
 				return runOutboxRetryAll(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, dryRun, jsonOut, tmpl)
@@ -382,14 +384,15 @@ func newOutboxRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if commands {
 				if _, err := daemon.ReadOutboxItem(teamDir, args[0]); err != nil {
 					return outboxReadError(args[0], err)
 				}
 				return renderOutboxApplyCommand(cmd.OutOrStdout(), true, outboxApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "outbox", "retry", args[0]},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "outbox", "retry", args[0]},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			result, err := retryOutboxItem(teamDir, args[0], dryRun)
@@ -408,7 +411,7 @@ func newOutboxRetryCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching outbox events before limiting: state, id, type, source, job, created, updated, or error.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, retry at most this many matching outbox events; 0 means no limit.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching retry apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching retry apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
@@ -484,24 +487,25 @@ func newOutboxDropCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				if commands {
 					results, err := outboxDropAllResults(teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, true)
 					if err != nil {
 						return err
 					}
 					return renderOutboxApplyCommand(cmd.OutOrStdout(), outboxActionResultsHaveDryRunAction(results, "would_drop"), outboxApplyCommandOptions{
-						BaseArgs:  []string{"agent-team", "outbox", "drop"},
-						Target:    target,
-						TargetSet: cmd.Flags().Changed("target"),
-						All:       true,
-						State:     stateFilter,
-						StateSet:  cmd.Flags().Changed("state"),
-						Types:     types,
-						Sources:   sources,
-						Jobs:      jobs,
-						Sort:      sortBy,
-						SortSet:   cmd.Flags().Changed("sort"),
-						Limit:     limit,
+						BaseArgs: []string{"agent-team", "outbox", "drop"},
+						Repo:     scope.Repo,
+						RepoSet:  scope.Set,
+						All:      true,
+						State:    stateFilter,
+						StateSet: cmd.Flags().Changed("state"),
+						Types:    types,
+						Sources:  sources,
+						Jobs:     jobs,
+						Sort:     sortBy,
+						SortSet:  cmd.Flags().Changed("sort"),
+						Limit:    limit,
 					})
 				}
 				return runOutboxDropAll(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, dryRun, jsonOut, tmpl)
@@ -518,14 +522,15 @@ func newOutboxDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if commands {
 				if _, err := daemon.ReadOutboxItem(teamDir, args[0]); err != nil {
 					return outboxReadError(args[0], err)
 				}
 				return renderOutboxApplyCommand(cmd.OutOrStdout(), true, outboxApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "outbox", "drop", args[0]},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "outbox", "drop", args[0]},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			result, err := dropOutboxItem(teamDir, args[0], dryRun)
@@ -544,7 +549,7 @@ func newOutboxDropCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "With --all, filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "With --all, sort matching outbox events before limiting: state, id, type, source, job, created, updated, or error.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching outbox events; 0 means no limit.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
@@ -614,6 +619,7 @@ func newOutboxPruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if commands {
 				results, err := pruneOutboxItems(teamDir, state, olderThan, time.Now().UTC(), true, filters, limit)
 				if err != nil {
@@ -621,8 +627,8 @@ func newOutboxPruneCmd() *cobra.Command {
 				}
 				return renderOutboxApplyCommand(cmd.OutOrStdout(), outboxPruneResultsHaveDryRunAction(results), outboxApplyCommandOptions{
 					BaseArgs:     []string{"agent-team", "outbox", "prune"},
-					Target:       target,
-					TargetSet:    cmd.Flags().Changed("target"),
+					Repo:         scope.Repo,
+					RepoSet:      scope.Set,
 					State:        stateFlag,
 					StateSet:     cmd.Flags().Changed("state"),
 					Types:        types,
@@ -648,7 +654,7 @@ func newOutboxPruneCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket before pruning; repeat or comma-separate values.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Prune at most this many matching outbox events; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview outbox events that would be pruned without dropping them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching prune apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching prune apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.Dropped}}'.")
 	return cmd
@@ -1378,14 +1384,14 @@ func renderOutboxApplyCommand(w io.Writer, hasAction bool, opts outboxApplyComma
 	return err
 }
 
-func renderOutboxDrainApplyCommand(w io.Writer, result *daemon.OutboxDrainResult, target string, targetSet bool) error {
+func renderOutboxDrainApplyCommand(w io.Writer, result *daemon.OutboxDrainResult, scope operatorCommandScope) error {
 	if result == nil || !result.DryRun || result.WouldPublish == 0 {
 		return nil
 	}
 	return renderOutboxApplyCommand(w, true, outboxApplyCommandOptions{
-		BaseArgs:  []string{"agent-team", "outbox", "drain"},
-		Target:    target,
-		TargetSet: targetSet,
+		BaseArgs: []string{"agent-team", "outbox", "drain"},
+		Repo:     scope.Repo,
+		RepoSet:  scope.Set,
 	})
 }
 

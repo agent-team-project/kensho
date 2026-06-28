@@ -235,6 +235,7 @@ func newQueueDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --all cannot be combined with an id.")
@@ -268,8 +269,8 @@ func newQueueDropCmd() *cobra.Command {
 					}
 					return renderQueueApplyCommand(cmd.OutOrStdout(), queueDropResultsHaveDryRunAction(results, "would_drop"), queueApplyCommandOptions{
 						BaseArgs:   []string{"agent-team", "queue", "drop"},
-						Target:     target,
-						TargetSet:  cmd.Flags().Changed("target"),
+						Repo:       scope.Repo,
+						RepoSet:    scope.Set,
 						All:        true,
 						State:      stateFilter,
 						StateSet:   cmd.Flags().Changed("state"),
@@ -307,9 +308,9 @@ func newQueueDropCmd() *cobra.Command {
 			}
 			if commands {
 				return renderQueueApplyCommand(cmd.OutOrStdout(), item != nil, queueApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "queue", "drop", id},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "queue", "drop", id},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			if dryRun {
@@ -359,7 +360,7 @@ func newQueueDropCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching queue items instead of one id.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching queue items without dropping them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "With --all, filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
@@ -420,6 +421,7 @@ func newQueueRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if retryAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --all cannot be combined with an id.")
@@ -453,8 +455,8 @@ func newQueueRetryCmd() *cobra.Command {
 					}
 					return renderQueueApplyCommand(cmd.OutOrStdout(), queueRetryResultsHaveDryRunAction(results, "would_retry"), queueApplyCommandOptions{
 						BaseArgs:   []string{"agent-team", "queue", "retry"},
-						Target:     target,
-						TargetSet:  cmd.Flags().Changed("target"),
+						Repo:       scope.Repo,
+						RepoSet:    scope.Set,
 						All:        true,
 						State:      stateFilter,
 						StateSet:   cmd.Flags().Changed("state"),
@@ -492,9 +494,9 @@ func newQueueRetryCmd() *cobra.Command {
 			}
 			if commands {
 				return renderQueueApplyCommand(cmd.OutOrStdout(), item != nil, queueApplyCommandOptions{
-					BaseArgs:  []string{"agent-team", "queue", "retry", id},
-					Target:    target,
-					TargetSet: cmd.Flags().Changed("target"),
+					BaseArgs: []string{"agent-team", "queue", "retry", id},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
 				})
 			}
 			if dryRun {
@@ -566,7 +568,7 @@ func newQueueRetryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching queue items instead of one id.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching queue items without retrying them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching retry command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching retry command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "With --all, filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "With --all, filter by event type; repeat or comma-separate values.")
@@ -617,6 +619,7 @@ func newQueueDrainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			if dryRun {
 				if dc, err := newDaemonClient(teamDir); err == nil {
 					result, err := dc.QueueDrain(true)
@@ -625,7 +628,7 @@ func newQueueDrainCmd() *cobra.Command {
 						return exitErr(1)
 					}
 					if commands {
-						return renderQueueDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+						return renderQueueDrainApplyCommand(cmd.OutOrStdout(), result, scope)
 					}
 					return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 				} else if !errors.Is(err, errDaemonNotRunning) {
@@ -637,7 +640,7 @@ func newQueueDrainCmd() *cobra.Command {
 					return exitErr(1)
 				}
 				if commands {
-					return renderQueueDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+					return renderQueueDrainApplyCommand(cmd.OutOrStdout(), result, scope)
 				}
 				return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 			}
@@ -659,7 +662,7 @@ func newQueueDrainCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready queue items without dispatching them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.Dispatched}} {{.Pending}}'.")
 	return cmd
@@ -731,6 +734,7 @@ func newQueuePruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			results, err := pruneQueueItems(teamDir, state, olderThan, time.Now().UTC(), dryRun, filters, limit)
 			if err != nil {
 				return err
@@ -738,8 +742,8 @@ func newQueuePruneCmd() *cobra.Command {
 			if commands {
 				return renderQueueApplyCommand(cmd.OutOrStdout(), queuePruneResultsHaveDryRunAction(results), queueApplyCommandOptions{
 					BaseArgs:     []string{"agent-team", "queue", "prune"},
-					Target:       target,
-					TargetSet:    cmd.Flags().Changed("target"),
+					Repo:         scope.Repo,
+					RepoSet:      scope.Set,
 					State:        stateFlag,
 					StateSet:     cmd.Flags().Changed("state"),
 					Instances:    instances,
@@ -765,7 +769,7 @@ func newQueuePruneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Prune at most this many matching queue items; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview queue items that would be pruned without dropping them.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching prune command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching prune command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	return cmd
@@ -1332,14 +1336,14 @@ func renderQueueApplyCommand(w io.Writer, hasAction bool, opts queueApplyCommand
 	return err
 }
 
-func renderQueueDrainApplyCommand(w io.Writer, result *daemon.QueueDrainResult, target string, targetSet bool) error {
+func renderQueueDrainApplyCommand(w io.Writer, result *daemon.QueueDrainResult, scope operatorCommandScope) error {
 	if result == nil || !result.DryRun || result.WouldDispatch == 0 {
 		return nil
 	}
 	return renderQueueApplyCommand(w, true, queueApplyCommandOptions{
-		BaseArgs:  []string{"agent-team", "queue", "drain"},
-		Target:    target,
-		TargetSet: targetSet,
+		BaseArgs: []string{"agent-team", "queue", "drain"},
+		Repo:     scope.Repo,
+		RepoSet:  scope.Set,
 	})
 }
 

@@ -3848,7 +3848,7 @@ agent-team outbox drain [flags]
 Flags:
 
 ```text
-      --commands        With --dry-run, print the matching drain command when the preview has actionable work.
+      --commands        With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run         Preview pending outbox events without publishing them.
       --format string   Render the drain result with a Go template, e.g. '{{.WouldPublish}} {{.Pending}}'.
       --json            Emit machine-readable JSON.
@@ -3875,7 +3875,7 @@ Flags:
 
 ```text
       --all              Drop all matching outbox events instead of one id.
-      --commands         With --dry-run, print the matching drop apply command when the preview has actionable work.
+      --commands         With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run          Preview the drop without removing the event.
       --format string    Render the drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --job strings      With --all, filter by job id or ticket; repeat or comma-separate values.
@@ -3941,7 +3941,7 @@ agent-team outbox prune [flags]
 Flags:
 
 ```text
-      --commands              With --dry-run, print the matching prune apply command when the preview has actionable work.
+      --commands              With --dry-run, print the matching prune apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview outbox events that would be pruned without dropping them.
       --format string         Render each prune result with a Go template, e.g. '{{.ID}} {{.Dropped}}'.
       --job strings           Filter by job id or ticket before pruning; repeat or comma-separate values.
@@ -3997,7 +3997,7 @@ Flags:
 
 ```text
       --all                   Drop all matching quarantined files instead of one path.
-      --commands              With --dry-run, print the matching drop apply command when the preview has actionable work.
+      --commands              With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview quarantined files that would be dropped.
       --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --job strings           With --all, filter by job id or ticket; repeat or comma-separate values.
@@ -4064,7 +4064,7 @@ Flags:
 
 ```text
       --all              Restore all matching restorable quarantined files instead of one path.
-      --commands         With --dry-run, print the matching restore apply command when the preview has actionable work.
+      --commands         With --dry-run, print the matching restore apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run          Preview the restore without moving files.
       --force            Overwrite an existing active outbox file with the same restore path.
       --format string    Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.
@@ -4123,7 +4123,7 @@ Flags:
 
 ```text
       --all              Retry all matching outbox events instead of one id.
-      --commands         With --dry-run, print the matching retry apply command when the preview has actionable work.
+      --commands         With --dry-run, print the matching retry apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run          Preview the retry without moving the event.
       --format string    Render the retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --job strings      With --all, filter by job id or ticket; repeat or comma-separate values.
@@ -5900,7 +5900,7 @@ agent-team queue drain [flags]
 Flags:
 
 ```text
-      --commands        With --dry-run, print the matching drain command when the preview has actionable work.
+      --commands        With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run         Preview ready queue items without dispatching them.
       --format string   Render the drain result with a Go template, e.g. '{{.Dispatched}} {{.Pending}}'.
       --json            Emit machine-readable JSON.
@@ -5927,7 +5927,7 @@ Flags:
 
 ```text
       --all                  Drop all matching queue items instead of one id.
-      --commands             With --dry-run, print the matching drop command when the preview has actionable work.
+      --commands             With --dry-run, print the matching drop command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview matching queue items without dropping them.
       --event-type strings   With --all, filter by event type; repeat or comma-separate values.
       --format string        Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
@@ -5997,7 +5997,7 @@ agent-team queue prune [flags]
 Flags:
 
 ```text
-      --commands              With --dry-run, print the matching prune command when the preview has actionable work.
+      --commands              With --dry-run, print the matching prune command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview queue items that would be pruned without dropping them.
       --event-type strings    Filter by event type before pruning; repeat or comma-separate values.
       --format string         Render each result with a Go template, e.g. '{{.ID}} {{.State}}'.
@@ -6055,7 +6055,7 @@ Flags:
 
 ```text
       --all                   Drop all matching quarantined files instead of one path.
-      --commands              With --dry-run, print the matching drop apply command when the preview has actionable work.
+      --commands              With --dry-run, print the matching drop apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview quarantined files that would be dropped.
       --event-type strings    With --all, filter by event type; repeat or comma-separate values.
       --format string         Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.
@@ -6122,7 +6122,7 @@ Flags:
 
 ```text
       --all                  Restore all matching restorable quarantined files instead of one path.
-      --commands             With --dry-run, print the matching restore apply command when the preview has actionable work.
+      --commands             With --dry-run, print the matching restore apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview the restore without moving files.
       --event-type strings   With --all, filter by event type; repeat or comma-separate values.
       --force                Overwrite an existing active queue file with the same restore path.
@@ -6179,7 +6179,7 @@ Flags:
 
 ```text
       --all                  Retry all matching queue items instead of one id.
-      --commands             With --dry-run, print the matching retry command when the preview has actionable work.
+      --commands             With --dry-run, print the matching retry command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview matching queue items without retrying them.
       --event-type strings   With --all, filter by event type; repeat or comma-separate values.
       --format string        Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.

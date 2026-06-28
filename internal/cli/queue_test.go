@@ -200,7 +200,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	if err := dryDropCommands.Execute(); err != nil {
 		t.Fatalf("queue drop dry-run commands: %v\nstderr=%s", err, dryDropCommandsErr.String())
 	}
-	wantDropCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "drop", "q-local", "--target", tmp}), " ")
+	wantDropCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "drop", "q-local", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(dryDropCommandsOut.String()); got != wantDropCommand {
 		t.Fatalf("queue drop dry-run commands = %q, want %q", got, wantDropCommand)
 	}
@@ -831,7 +831,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	if err := restoreAllCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all --commands: %v\nstderr=%s", err, restoreAllCommandsErr.String())
 	}
-	wantRestoreAllCommand := "agent-team queue quarantine restore --target " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-132\n"
+	wantRestoreAllCommand := "agent-team queue quarantine restore --repo " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-132\n"
 	if got := restoreAllCommandsOut.String(); got != wantRestoreAllCommand {
 		t.Fatalf("queue quarantine restore --all --commands = %q, want %q", got, wantRestoreAllCommand)
 	}
@@ -945,7 +945,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	if err := restoreCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --commands: %v\nstderr=%s", err, restoreCommandsErr.String())
 	}
-	wantRestoreCommand := "agent-team queue quarantine restore " + restorable.Path + " --target " + tmp + "\n"
+	wantRestoreCommand := "agent-team queue quarantine restore " + restorable.Path + " --repo " + tmp + "\n"
 	if got := restoreCommandsOut.String(); got != wantRestoreCommand {
 		t.Fatalf("queue quarantine restore --commands = %q, want %q", got, wantRestoreCommand)
 	}
@@ -1050,7 +1050,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	if err := dryCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop --commands: %v\nstderr=%s", err, dryCommandsErr.String())
 	}
-	wantDropCommand := "agent-team queue quarantine drop " + explicitPath + " --target " + tmp + "\n"
+	wantDropCommand := "agent-team queue quarantine drop " + explicitPath + " --repo " + tmp + "\n"
 	if got := dryCommandsOut.String(); got != wantDropCommand {
 		t.Fatalf("queue quarantine drop --commands = %q, want %q", got, wantDropCommand)
 	}
@@ -1110,7 +1110,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	if err := filterCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop filtered batch --commands: %v\nstderr=%s", err, filterCommandsErr.String())
 	}
-	wantFilterCommand := "agent-team queue quarantine drop --target " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-133 --restorable\n"
+	wantFilterCommand := "agent-team queue quarantine drop --repo " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-133 --restorable\n"
 	if got := filterCommandsOut.String(); got != wantFilterCommand {
 		t.Fatalf("queue quarantine drop filtered batch --commands = %q, want %q", got, wantFilterCommand)
 	}
@@ -1163,7 +1163,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	if err := batchCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop batch --commands: %v\nstderr=%s", err, batchCommandsErr.String())
 	}
-	wantBatchCommand := "agent-team queue quarantine drop --target " + tmp + " --all --unrestorable\n"
+	wantBatchCommand := "agent-team queue quarantine drop --repo " + tmp + " --all --unrestorable\n"
 	if got := batchCommandsOut.String(); got != wantBatchCommand {
 		t.Fatalf("queue quarantine drop batch --commands = %q, want %q", got, wantBatchCommand)
 	}
@@ -1830,7 +1830,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	}
 	wantDropAllCommand := strings.Join(shellQuoteArgs([]string{
 		"agent-team", "queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2043,7 +2043,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	}
 	wantRetryAllCommand := strings.Join(shellQuoteArgs([]string{
 		"agent-team", "queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2300,7 +2300,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	if err := pruneCommands.Execute(); err != nil {
 		t.Fatalf("queue prune dry-run commands: %v\nstderr=%s", err, pruneCommandsErr.String())
 	}
-	wantPruneCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "prune", "--target", tmp, "--older-than", "24h0m0s"}), " ")
+	wantPruneCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "prune", "--repo", tmp, "--older-than", "24h0m0s"}), " ")
 	if got := strings.TrimSpace(pruneCommandsOut.String()); got != wantPruneCommand {
 		t.Fatalf("queue prune dry-run commands = %q, want %q", got, wantPruneCommand)
 	}
@@ -2852,7 +2852,7 @@ func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("queue retry dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantRetryCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "retry", "q-retry-one", "--target", tmp}), " ")
+	wantRetryCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "retry", "q-retry-one", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantRetryCommand {
 		t.Fatalf("queue retry dry-run commands = %q, want %q", got, wantRetryCommand)
 	}
@@ -3084,7 +3084,7 @@ func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("queue drain dry-run offline commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "drain", "--target", tmp}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "queue", "drain", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("queue drain dry-run commands = %q, want %q", got, wantCommand)
 	}
