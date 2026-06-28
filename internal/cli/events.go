@@ -136,7 +136,7 @@ func newEventsCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show events for the N most recently started daemon-known instances after other filters (0 = all).")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit raw JSONL events.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching events by action, status, agent, and instance.")
-	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.Job}} {{.Action}} {{.Instance}} {{.Status}}'.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show events for this instance. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show events for this agent. Can repeat or comma-separate.")
@@ -167,6 +167,10 @@ type eventFormatRow struct {
 	Action    string
 	Instance  string
 	Agent     string
+	Job       string
+	Ticket    string
+	Branch    string
+	PR        string
 	Status    string
 	PID       int
 	Message   string
@@ -733,6 +737,10 @@ func eventFormatRowFromEvent(ev daemon.LifecycleEvent) eventFormatRow {
 		Action:    ev.Action,
 		Instance:  ev.Instance,
 		Agent:     ev.Agent,
+		Job:       ev.Job,
+		Ticket:    ev.Ticket,
+		Branch:    ev.Branch,
+		PR:        ev.PR,
 		Status:    eventStatusKey(ev),
 		PID:       ev.PID,
 		Message:   ev.Message,
@@ -747,6 +755,10 @@ type eventSummaryJSON struct {
 	Statuses  map[string]int `json:"statuses,omitempty"`
 	Agents    map[string]int `json:"agents,omitempty"`
 	Instances map[string]int `json:"instances,omitempty"`
+	Jobs      map[string]int `json:"jobs,omitempty"`
+	Tickets   map[string]int `json:"tickets,omitempty"`
+	Branches  map[string]int `json:"branches,omitempty"`
+	PRs       map[string]int `json:"prs,omitempty"`
 
 	first time.Time
 	last  time.Time
@@ -785,6 +797,10 @@ func renderEventSummaryResult(w io.Writer, summary eventSummaryJSON, jsonOut boo
 	renderEventCountLine(w, "statuses", summary.Statuses)
 	renderEventCountLine(w, "agents", summary.Agents)
 	renderEventCountLine(w, "instances", summary.Instances)
+	renderEventCountLine(w, "jobs", summary.Jobs)
+	renderEventCountLine(w, "tickets", summary.Tickets)
+	renderEventCountLine(w, "branches", summary.Branches)
+	renderEventCountLine(w, "prs", summary.PRs)
 	return nil
 }
 
@@ -830,6 +846,10 @@ func (s *eventSummaryJSON) add(ev daemon.LifecycleEvent) {
 	addEventCount(&s.Statuses, eventStatusKey(ev))
 	addEventCount(&s.Agents, ev.Agent)
 	addEventCount(&s.Instances, ev.Instance)
+	addEventCount(&s.Jobs, ev.Job)
+	addEventCount(&s.Tickets, ev.Ticket)
+	addEventCount(&s.Branches, ev.Branch)
+	addEventCount(&s.PRs, ev.PR)
 }
 
 func eventStatusKey(ev daemon.LifecycleEvent) string {

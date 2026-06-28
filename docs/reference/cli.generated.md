@@ -965,7 +965,7 @@ Flags:
       --action strings     Only show events with this action. Can repeat or comma-separate.
       --agent strings      Only show events for this agent. Can repeat or comma-separate.
   -f, --follow             Keep streaming new lifecycle events.
-      --format string      Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
+      --format string      Render each event with a Go template, e.g. '{{.Job}} {{.Action}} {{.Instance}} {{.Status}}'.
       --instance strings   Only show events for this instance. Can repeat or comma-separate.
       --job strings        Only show events for this job id or ticket. Can repeat or comma-separate.
       --json               Emit raw JSONL events.
@@ -4504,7 +4504,7 @@ Flags:
       --action strings    Only show events with this action. Can repeat or comma-separate.
       --all               Show events across all pipelines. This is the default when no pipeline is passed.
   -f, --follow            Keep streaming new lifecycle events.
-      --format string     Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
+      --format string     Render each event with a Go template, e.g. '{{.Job}} {{.Action}} {{.Instance}} {{.Status}}'.
       --job strings       Only show events for this pipeline-owned job id or ticket. Can repeat or comma-separate.
       --json              Emit raw JSONL events.
       --phase strings     Only show pipeline events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
@@ -7568,7 +7568,7 @@ Flags:
 ```text
       --action strings    Only show events with this action. Can repeat or comma-separate.
   -f, --follow            Keep streaming new lifecycle events.
-      --format string     Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
+      --format string     Render each event with a Go template, e.g. '{{.Job}} {{.Action}} {{.Instance}} {{.Status}}'.
       --job strings       Only show events for this team-owned job id or ticket. Can repeat or comma-separate.
       --json              Emit raw JSONL events.
       --phase strings     Only show team events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.

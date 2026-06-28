@@ -68,6 +68,8 @@ PIDs and do not want crashed or status-stale rows mixed in.
 Use `agent-team events --job SQU-42 --step implement` when lifecycle history
 needs the same work-unit or pipeline-stage scope as job, pipeline, and team log
 views.
+Event `--format` rows expose `.Job`, `.Ticket`, `.Branch`, and `.PR`, and
+`--summary` includes matching counts when those fields are present.
 
 Team scoped:
 

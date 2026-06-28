@@ -143,6 +143,22 @@ func TestEventsFiltersByAgent(t *testing.T) {
 	}
 }
 
+func TestEventsFormatExposesOwnershipMetadata(t *testing.T) {
+	body := `{"action":"dispatch","instance":"worker-squ-42","agent":"worker","job":"squ-42","ticket":"SQU-42","branch":"worker-squ-42","pr":"https://github.test/acme/repo/pull/42","status":"running","message":"owned"}` + "\n"
+	tmpl, err := parseEventFormat(`{{.Job}} {{.Ticket}} {{.Branch}} {{.PR}}`)
+	if err != nil {
+		t.Fatalf("parseEventFormat: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := runEvents(context.Background(), &buf, &fakeEventsClient{body: body}, eventsOptions{Format: tmpl}); err != nil {
+		t.Fatalf("runEvents formatted: %v", err)
+	}
+	want := "squ-42 SQU-42 worker-squ-42 https://github.test/acme/repo/pull/42\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("formatted event = %q, want %q", got, want)
+	}
+}
+
 func TestEventsLatestInstanceFilterUsesNewestMetadata(t *testing.T) {
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	filters := mustEventFilters(t, nil, nil, []string{"manager"}, []string{"running"}, "", nil)
@@ -448,8 +464,8 @@ func TestEventsNoEventsMessage(t *testing.T) {
 func TestEventsSummaryTextAggregatesFilteredEvents(t *testing.T) {
 	body := strings.Join([]string{
 		`{"ts":"2026-06-17T12:00:00Z","action":"dispatch","instance":"manager","agent":"manager","status":"running"}`,
-		`{"ts":"2026-06-17T12:01:00Z","action":"stop","instance":"worker","agent":"worker","status":"stopped"}`,
-		`{"ts":"2026-06-17T12:02:00Z","action":"crash","instance":"worker","agent":"worker","status":"crashed"}`,
+		`{"ts":"2026-06-17T12:01:00Z","action":"stop","instance":"worker","agent":"worker","job":"squ-42","ticket":"SQU-42","branch":"worker-squ-42","pr":"https://github.test/acme/repo/pull/42","status":"stopped"}`,
+		`{"ts":"2026-06-17T12:02:00Z","action":"crash","instance":"worker","agent":"worker","job":"squ-42","ticket":"SQU-42","branch":"worker-squ-42","pr":"https://github.test/acme/repo/pull/42","status":"crashed"}`,
 		`not json`,
 		"",
 	}, "\n")
@@ -470,6 +486,10 @@ func TestEventsSummaryTextAggregatesFilteredEvents(t *testing.T) {
 		"statuses: crashed=1 stopped=1",
 		"agents: worker=2",
 		"instances: worker=2",
+		"jobs: squ-42=2",
+		"tickets: SQU-42=2",
+		"branches: worker-squ-42=2",
+		"prs: https://github.test/acme/repo/pull/42=2",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("summary output missing %q: %s", want, out)
@@ -479,8 +499,8 @@ func TestEventsSummaryTextAggregatesFilteredEvents(t *testing.T) {
 
 func TestEventsSummaryJSONAggregatesEvents(t *testing.T) {
 	body := strings.Join([]string{
-		`{"ts":"2026-06-17T12:00:00Z","action":"dispatch","instance":"manager","agent":"manager","status":"running"}`,
-		`{"ts":"2026-06-17T12:01:00Z","action":"dispatch","instance":"worker","agent":"worker","status":"running"}`,
+		`{"ts":"2026-06-17T12:00:00Z","action":"dispatch","instance":"manager","agent":"manager","job":"squ-42","ticket":"SQU-42","branch":"manager-squ-42","status":"running"}`,
+		`{"ts":"2026-06-17T12:01:00Z","action":"dispatch","instance":"worker","agent":"worker","job":"squ-42","ticket":"SQU-42","branch":"worker-squ-42","pr":"https://github.test/acme/repo/pull/42","status":"running"}`,
 		"",
 	}, "\n")
 	client := &fakeEventsClient{body: body}
@@ -497,6 +517,9 @@ func TestEventsSummaryJSONAggregatesEvents(t *testing.T) {
 	}
 	if summary.Agents["manager"] != 1 || summary.Agents["worker"] != 1 {
 		t.Fatalf("summary agents = %+v", summary.Agents)
+	}
+	if summary.Jobs["squ-42"] != 2 || summary.Tickets["SQU-42"] != 2 || summary.Branches["manager-squ-42"] != 1 || summary.Branches["worker-squ-42"] != 1 || summary.PRs["https://github.test/acme/repo/pull/42"] != 1 {
+		t.Fatalf("summary ownership = jobs %+v tickets %+v branches %+v prs %+v", summary.Jobs, summary.Tickets, summary.Branches, summary.PRs)
 	}
 	if summary.FirstTS != "2026-06-17T12:00:00Z" || summary.LastTS != "2026-06-17T12:01:00Z" {
 		t.Fatalf("summary timestamps = first %q last %q", summary.FirstTS, summary.LastTS)

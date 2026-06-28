@@ -4003,7 +4003,7 @@ func newPipelineEventsCmd() *cobra.Command {
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N matching pipeline events before returning or following (0 = all).")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit raw JSONL events.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching pipeline events by action, status, agent, and instance.")
-	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each event with a Go template, e.g. '{{.Job}} {{.Action}} {{.Instance}} {{.Status}}'.")
 	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show events with this lifecycle status. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show pipeline events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
