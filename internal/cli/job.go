@@ -3528,6 +3528,7 @@ func newJobCancelCmd() *cobra.Command {
 		waitTimeout    time.Duration
 		remove         bool
 		dryRun         bool
+		commands       bool
 		jsonOut        bool
 		format         string
 		timeoutSet     bool
@@ -3545,6 +3546,18 @@ func newJobCancelCmd() *cobra.Command {
 			waitTimeoutSet = cmd.Flags().Changed("wait-timeout")
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cancel: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if stopInstance && killInstance {
@@ -3621,6 +3634,29 @@ func newJobCancelCmd() *cobra.Command {
 				result.InstanceActions = actions
 			}
 			if dryRun {
+				if commands {
+					return renderJobCancelApplyCommand(cmd.OutOrStdout(), true, jobCancelApplyCommandOptions{
+						JobID:             j.ID,
+						Repo:              repo,
+						RepoSet:           cmd.Flags().Changed("repo"),
+						Step:              stepID,
+						StepSet:           cmd.Flags().Changed("step"),
+						Actor:             actor,
+						ActorSet:          cmd.Flags().Changed("actor"),
+						Message:           message,
+						MessageSet:        cmd.Flags().Changed("message"),
+						MessageFile:       messageFile,
+						MessageFileSet:    cmd.Flags().Changed("message-file"),
+						PositionalMessage: args[1:],
+						Stop:              stopInstance,
+						Kill:              killInstance,
+						Timeout:           timeout,
+						TimeoutSet:        timeoutSet,
+						WaitTimeout:       waitTimeout,
+						WaitTimeoutSet:    waitTimeoutSet,
+						Remove:            remove,
+					})
+				}
 				return renderJobCancelResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 			}
 			*j = cancelled
@@ -3662,6 +3698,7 @@ func newJobCancelCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
 	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after stopping or killing.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the cancellation without changing daemon or job state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job cancel apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cancellation result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cancellation result with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.")
 	return cmd
@@ -13015,6 +13052,74 @@ type jobCloseApplyCommandOptions struct {
 	MessageFile       string
 	MessageFileSet    bool
 	PositionalMessage []string
+}
+
+type jobCancelApplyCommandOptions struct {
+	JobID             string
+	Repo              string
+	RepoSet           bool
+	Step              string
+	StepSet           bool
+	Actor             string
+	ActorSet          bool
+	Message           string
+	MessageSet        bool
+	MessageFile       string
+	MessageFileSet    bool
+	PositionalMessage []string
+	Stop              bool
+	Kill              bool
+	Timeout           time.Duration
+	TimeoutSet        bool
+	WaitTimeout       time.Duration
+	WaitTimeoutSet    bool
+	Remove            bool
+}
+
+func renderJobCancelApplyCommand(w io.Writer, hasAction bool, opts jobCancelApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobCancelApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobCancelApplyCommandArgs(opts jobCancelApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "cancel", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StepSet && strings.TrimSpace(opts.Step) != "" {
+		args = append(args, "--step", opts.Step)
+	}
+	if opts.ActorSet && strings.TrimSpace(opts.Actor) != "" {
+		args = append(args, "--actor", opts.Actor)
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.MessageFileSet && strings.TrimSpace(opts.MessageFile) != "" {
+		args = append(args, "--message-file", opts.MessageFile)
+	}
+	if !opts.MessageSet && !opts.MessageFileSet && len(opts.PositionalMessage) > 0 {
+		args = append(args, opts.PositionalMessage...)
+	}
+	if opts.Stop {
+		args = append(args, "--stop")
+	}
+	if opts.Kill {
+		args = append(args, "--kill")
+	}
+	if opts.TimeoutSet {
+		args = append(args, "--timeout", opts.Timeout.String())
+	}
+	if opts.WaitTimeoutSet {
+		args = append(args, "--wait-timeout", opts.WaitTimeout.String())
+	}
+	if opts.Remove {
+		args = append(args, "--rm")
+	}
+	return args
 }
 
 func renderJobCloseApplyCommand(w io.Writer, hasAction bool, opts jobCloseApplyCommandOptions) error {

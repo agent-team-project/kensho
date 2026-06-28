@@ -1986,6 +1986,7 @@ Flags:
 
 ```text
       --actor string            Actor label recorded in the cancellation audit event. (default "cli")
+      --commands                With --dry-run, print the matching job cancel apply command when the preview has actionable work.
       --dry-run                 Preview the cancellation without changing daemon or job state.
       --format string           Render the cancellation result with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
       --json                    Emit the cancellation result as JSON.

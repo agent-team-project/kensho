@@ -373,6 +373,7 @@ matching close apply command.
 ## Cancelling Jobs
 
 ```sh
+agent-team job cancel squ-42 "duplicate ticket" --dry-run --commands
 agent-team job cancel squ-42 "duplicate ticket" --dry-run
 agent-team job cancel squ-42 "duplicate ticket"
 agent-team job cancel squ-42 --message "obsolete attempt" --stop --wait
@@ -385,7 +386,8 @@ any hold, and writes an audit event. By default it only changes the job file so
 operators do not stop a live runtime accidentally. Add `--stop` or `--kill` when
 the owning instance should be stopped in the same command; JSON output includes
 both the cancelled job and the instance lifecycle action. Use `--actor` when
-automation records the cancellation.
+automation records the cancellation. Add `--commands` to a dry-run when scripts
+should print only the matching cancel apply command.
 
 ## Cleanup
 

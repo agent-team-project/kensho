@@ -717,12 +717,63 @@ func TestJobCancelDryRunDoesNotMutateJob(t *testing.T) {
 	if !preview.DryRun || preview.Job == nil || preview.Job.Status != job.StatusFailed || preview.Job.LastEvent != "cancelled" || preview.Job.LastStatus != "not needed" || preview.Job.Held {
 		t.Fatalf("preview = %+v", preview)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "cancel", "squ-64", "not needed", "--repo", tmp, "--actor", "ops", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job cancel dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "cancel", "squ-64",
+		"--repo", tmp,
+		"--actor", "ops",
+		"not needed",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job cancel dry-run commands = %q, want %q", got, wantCommand)
+	}
 	updated, err := job.Read(teamDir, "squ-64")
 	if err != nil {
 		t.Fatalf("read job: %v", err)
 	}
 	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.Held || !updated.UpdatedAt.Equal(original.UpdatedAt) {
 		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+}
+
+func TestJobCancelCommandValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"job", "cancel", "SQU-64", "--message", "cancelled", "--json", "--format", "{{.Job.ID}}"}, "--format cannot be combined"},
+		{[]string{"job", "cancel", "SQU-64", "--message", "cancelled", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"job", "cancel", "SQU-64", "--message", "cancelled", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "cancel", "SQU-64", "--message", "cancelled", "--dry-run", "--commands", "--format", "{{.Job.ID}}"}, "--commands cannot be combined with --format"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
