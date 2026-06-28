@@ -453,6 +453,12 @@ func TestQueueDoctorFormatValidation(t *testing.T) {
 		{[]string{"queue", "show", "q-local", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"queue", "quarantine", "show", "quarantine/pending/q.json", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"queue", "quarantine", "show", "quarantine/pending/q.json", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"queue", "quarantine", "restore", "quarantine/20260619T000000.000000000Z/pending/q.json", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"queue", "quarantine", "restore", "quarantine/20260619T000000.000000000Z/pending/q.json", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"queue", "quarantine", "restore", "quarantine/20260619T000000.000000000Z/pending/q.json", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"queue", "quarantine", "drop", "quarantine/20260619T000000.000000000Z/pending/q.json", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"queue", "quarantine", "drop", "quarantine/20260619T000000.000000000Z/pending/q.json", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"queue", "quarantine", "drop", "quarantine/20260619T000000.000000000Z/pending/q.json", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"queue", "drop", "q-local", "--commands"}, "--commands requires --dry-run"},
 		{[]string{"queue", "drop", "q-local", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"queue", "drop", "q-local", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
@@ -810,6 +816,19 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 		t.Fatalf("restore --all dry-run results = %+v", restoreAllResults)
 	}
 
+	restoreAllCommands := NewRootCmd()
+	restoreAllCommandsOut, restoreAllCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restoreAllCommands.SetOut(restoreAllCommandsOut)
+	restoreAllCommands.SetErr(restoreAllCommandsErr)
+	restoreAllCommands.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--dry-run", "--commands"})
+	if err := restoreAllCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine restore --all --commands: %v\nstderr=%s", err, restoreAllCommandsErr.String())
+	}
+	wantRestoreAllCommand := "agent-team queue quarantine restore --target " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-132\n"
+	if got := restoreAllCommandsOut.String(); got != wantRestoreAllCommand {
+		t.Fatalf("queue quarantine restore --all --commands = %q, want %q", got, wantRestoreAllCommand)
+	}
+
 	restoreAllFormat := NewRootCmd()
 	restoreAllFormatOut, restoreAllFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreAllFormat.SetOut(restoreAllFormatOut)
@@ -908,6 +927,19 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 		t.Fatalf("dry-run restored active file unexpectedly: %v", err)
 	}
 
+	restoreCommands := NewRootCmd()
+	restoreCommandsOut, restoreCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	restoreCommands.SetOut(restoreCommandsOut)
+	restoreCommands.SetErr(restoreCommandsErr)
+	restoreCommands.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--dry-run", "--commands", restorable.Path})
+	if err := restoreCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine restore --commands: %v\nstderr=%s", err, restoreCommandsErr.String())
+	}
+	wantRestoreCommand := "agent-team queue quarantine restore " + restorable.Path + " --target " + tmp + "\n"
+	if got := restoreCommandsOut.String(); got != wantRestoreCommand {
+		t.Fatalf("queue quarantine restore --commands = %q, want %q", got, wantRestoreCommand)
+	}
+
 	restore := NewRootCmd()
 	restoreOut, restoreErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restore.SetOut(restoreOut)
@@ -1000,6 +1032,19 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 		t.Fatalf("dry-run removed explicit quarantine: %v", err)
 	}
 
+	dryCommands := NewRootCmd()
+	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryCommands.SetOut(dryCommandsOut)
+	dryCommands.SetErr(dryCommandsErr)
+	dryCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--dry-run", "--commands", explicitPath})
+	if err := dryCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine drop --commands: %v\nstderr=%s", err, dryCommandsErr.String())
+	}
+	wantDropCommand := "agent-team queue quarantine drop " + explicitPath + " --target " + tmp + "\n"
+	if got := dryCommandsOut.String(); got != wantDropCommand {
+		t.Fatalf("queue quarantine drop --commands = %q, want %q", got, wantDropCommand)
+	}
+
 	dryFormat := NewRootCmd()
 	dryFormatOut, dryFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryFormat.SetOut(dryFormatOut)
@@ -1047,6 +1092,19 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 		t.Fatalf("filtered batch dry-run results = %+v", filterDryResults)
 	}
 
+	filterCommands := NewRootCmd()
+	filterCommandsOut, filterCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filterCommands.SetOut(filterCommandsOut)
+	filterCommands.SetErr(filterCommandsErr)
+	filterCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--job", "SQU-133", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--restorable", "--dry-run", "--commands"})
+	if err := filterCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine drop filtered batch --commands: %v\nstderr=%s", err, filterCommandsErr.String())
+	}
+	wantFilterCommand := "agent-team queue quarantine drop --target " + tmp + " --all --state pending --instance worker --event-type agent.dispatch --job SQU-133 --restorable\n"
+	if got := filterCommandsOut.String(); got != wantFilterCommand {
+		t.Fatalf("queue quarantine drop filtered batch --commands = %q, want %q", got, wantFilterCommand)
+	}
+
 	conflict := NewRootCmd()
 	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
 	conflict.SetOut(conflictOut)
@@ -1085,6 +1143,19 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	}
 	if len(batchDryResults) != 1 || !strings.Contains(batchDryResults[0].Path, "bad-two.json") || batchDryResults[0].Restorable {
 		t.Fatalf("batch dry-run results = %+v", batchDryResults)
+	}
+
+	batchCommands := NewRootCmd()
+	batchCommandsOut, batchCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	batchCommands.SetOut(batchCommandsOut)
+	batchCommands.SetErr(batchCommandsErr)
+	batchCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--unrestorable", "--dry-run", "--commands"})
+	if err := batchCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine drop batch --commands: %v\nstderr=%s", err, batchCommandsErr.String())
+	}
+	wantBatchCommand := "agent-team queue quarantine drop --target " + tmp + " --all --unrestorable\n"
+	if got := batchCommandsOut.String(); got != wantBatchCommand {
+		t.Fatalf("queue quarantine drop batch --commands = %q, want %q", got, wantBatchCommand)
 	}
 
 	batch := NewRootCmd()

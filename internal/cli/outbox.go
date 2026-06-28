@@ -680,6 +680,9 @@ type outboxApplyCommandOptions struct {
 	Types        []string
 	Sources      []string
 	Jobs         []string
+	Force        bool
+	Restorable   bool
+	Unrestorable bool
 	Sort         string
 	SortSet      bool
 	Limit        int
@@ -1366,12 +1369,21 @@ func outboxApplyCommandArgs(opts outboxApplyCommandOptions) []string {
 	if opts.All {
 		args = append(args, "--all")
 	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
 	if opts.StateSet && strings.TrimSpace(opts.State) != "" {
 		args = append(args, "--state", opts.State)
 	}
 	args = appendRepeatedQueueFlag(args, "--type", opts.Types)
 	args = appendRepeatedQueueFlag(args, "--source", opts.Sources)
 	args = appendRepeatedQueueFlag(args, "--job", opts.Jobs)
+	if opts.Restorable {
+		args = append(args, "--restorable")
+	}
+	if opts.Unrestorable {
+		args = append(args, "--unrestorable")
+	}
 	if opts.SortSet && strings.TrimSpace(opts.Sort) != "" {
 		args = append(args, "--sort", opts.Sort)
 	}

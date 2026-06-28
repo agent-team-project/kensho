@@ -1139,6 +1139,9 @@ type queueApplyCommandOptions struct {
 	Jobs         []string
 	Runtimes     []string
 	Ready        bool
+	Force        bool
+	Restorable   bool
+	Unrestorable bool
 	Sort         string
 	SortSet      bool
 	Limit        int
@@ -1320,6 +1323,9 @@ func queueApplyCommandArgs(opts queueApplyCommandOptions) []string {
 	if opts.All {
 		args = append(args, "--all")
 	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
 	if opts.StateSet && strings.TrimSpace(opts.State) != "" {
 		args = append(args, "--state", opts.State)
 	}
@@ -1329,6 +1335,12 @@ func queueApplyCommandArgs(opts queueApplyCommandOptions) []string {
 	args = appendRepeatedQueueFlag(args, "--runtime", opts.Runtimes)
 	if opts.Ready {
 		args = append(args, "--ready")
+	}
+	if opts.Restorable {
+		args = append(args, "--restorable")
+	}
+	if opts.Unrestorable {
+		args = append(args, "--unrestorable")
 	}
 	if opts.SortSet && strings.TrimSpace(opts.Sort) != "" {
 		args = append(args, "--sort", opts.Sort)

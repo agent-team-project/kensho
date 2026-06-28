@@ -273,6 +273,7 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 		limit       int
 		jsonOut     bool
 		format      string
+		commands    bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -281,6 +282,18 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 		Long:  "Restore one validated quarantined queue file by path, or restore a filtered batch of restorable files with --all.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine restore: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine restore: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine restore: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			formatTemplate, err := parseQueueQuarantineCommandFormat(cmd, "agent-team queue quarantine restore", format, jsonOut)
 			if err != nil {
 				return err
@@ -313,6 +326,23 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue quarantine restore: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderQueueApplyCommand(cmd.OutOrStdout(), queueQuarantineRestoreResultsHaveDryRunAction(results, "would_restore"), queueApplyCommandOptions{
+						BaseArgs:   []string{"agent-team", "queue", "quarantine", "restore"},
+						Target:     target,
+						TargetSet:  cmd.Flags().Changed("target"),
+						All:        true,
+						Force:      force,
+						State:      stateFilter,
+						StateSet:   cmd.Flags().Changed("state"),
+						Instances:  instances,
+						EventTypes: eventTypes,
+						Jobs:       jobs,
+						Sort:       sortBy,
+						SortSet:    cmd.Flags().Changed("sort"),
+						Limit:      limit,
+					})
+				}
 				return renderQueueQuarantineRestoreMany(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
 			}
 			if len(args) != 1 {
@@ -328,6 +358,14 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue quarantine restore: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderQueueApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_restore", queueApplyCommandOptions{
+					BaseArgs:  []string{"agent-team", "queue", "quarantine", "restore", result.Path},
+					Target:    target,
+					TargetSet: cmd.Flags().Changed("target"),
+					Force:     force,
+				})
+			}
 			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
@@ -342,6 +380,7 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, restore at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit restore result as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching restore apply command when the preview has actionable work.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each restore result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
@@ -362,6 +401,7 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 		limit        int
 		jsonOut      bool
 		format       string
+		commands     bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -370,6 +410,18 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 		Long:  "Drop one quarantined queue file by path, or drop a filtered batch with --all.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if olderThan < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --older-than must be >= 0.")
 				return exitErr(2)
@@ -410,6 +462,26 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue quarantine drop: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderQueueApplyCommand(cmd.OutOrStdout(), queueQuarantineDropResultsHaveDryRunAction(results, "would_drop"), queueApplyCommandOptions{
+						BaseArgs:     []string{"agent-team", "queue", "quarantine", "drop"},
+						Target:       target,
+						TargetSet:    cmd.Flags().Changed("target"),
+						All:          true,
+						State:        stateFilter,
+						StateSet:     cmd.Flags().Changed("state"),
+						Instances:    instances,
+						EventTypes:   eventTypes,
+						Jobs:         jobs,
+						Restorable:   restorable,
+						Unrestorable: unrestorable,
+						Sort:         sortBy,
+						SortSet:      cmd.Flags().Changed("sort"),
+						Limit:        limit,
+						OlderThan:    olderThan,
+						OlderThanSet: cmd.Flags().Changed("older-than"),
+					})
+				}
 				return renderQueueQuarantineDrop(cmd.OutOrStdout(), results, jsonOut, formatTemplate)
 			}
 			if len(args) != 1 {
@@ -424,6 +496,13 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue quarantine drop: %v\n", err)
 				return exitErr(1)
+			}
+			if commands {
+				return renderQueueApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Action == "would_drop", queueApplyCommandOptions{
+					BaseArgs:  []string{"agent-team", "queue", "quarantine", "drop", result.Path},
+					Target:    target,
+					TargetSet: cmd.Flags().Changed("target"),
+				})
 			}
 			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
 		},
@@ -441,6 +520,7 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "With --all, sort matching quarantined files before limiting: path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "With --all, drop at most this many matching quarantined files; 0 means no limit.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit drop results as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drop apply command when the preview has actionable work.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
 }
@@ -1046,6 +1126,15 @@ func renderQueueQuarantineRestoreLine(w io.Writer, result queueQuarantineRestore
 	}
 }
 
+func queueQuarantineRestoreResultsHaveDryRunAction(results []queueQuarantineRestoreResult, action string) bool {
+	for _, result := range results {
+		if result.DryRun && result.Action == action {
+			return true
+		}
+	}
+	return false
+}
+
 func renderQueueQuarantineShow(w io.Writer, result queueQuarantineShowResult, jsonOut bool, tmpl *template.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
@@ -1106,6 +1195,15 @@ func queueQuarantineShowActions(result queueQuarantineShowResult) []string {
 	}
 	actions = append(actions, fmt.Sprintf(prefix, "drop"))
 	return actions
+}
+
+func queueQuarantineDropResultsHaveDryRunAction(results []queueQuarantineDropResult, action string) bool {
+	for _, result := range results {
+		if result.DryRun && result.Action == action {
+			return true
+		}
+	}
+	return false
 }
 
 func renderQueueQuarantineDrop(w io.Writer, results []queueQuarantineDropResult, jsonOut bool, tmpl *template.Template) error {
