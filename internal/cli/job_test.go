@@ -471,6 +471,28 @@ func TestJobCreateListShowClose(t *testing.T) {
 	if showEventsBody.Job.ID != "squ-42" || len(showEventsBody.Events) != 2 {
 		t.Fatalf("show events json = %+v", showEventsBody)
 	}
+	if showEventsBody.Events[0].Type != "created" || showEventsBody.Events[1].Type != "closed" {
+		t.Fatalf("show events default order = %+v", showEventsBody.Events)
+	}
+
+	showEventsNewest := NewRootCmd()
+	showEventsNewestOut, showEventsNewestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	showEventsNewest.SetOut(showEventsNewestOut)
+	showEventsNewest.SetErr(showEventsNewestErr)
+	showEventsNewest.SetArgs([]string{"job", "show", "SQU-42", "--repo", tmp, "--events", "all", "--events-sort", "newest", "--json"})
+	if err := showEventsNewest.Execute(); err != nil {
+		t.Fatalf("job show events newest json: %v\nstderr=%s", err, showEventsNewestErr.String())
+	}
+	var showEventsNewestBody struct {
+		Job    job.Job     `json:"job"`
+		Events []job.Event `json:"events"`
+	}
+	if err := json.Unmarshal(showEventsNewestOut.Bytes(), &showEventsNewestBody); err != nil {
+		t.Fatalf("decode show newest events json: %v\nbody=%s", err, showEventsNewestOut.String())
+	}
+	if len(showEventsNewestBody.Events) != 2 || showEventsNewestBody.Events[0].Type != "closed" || showEventsNewestBody.Events[1].Type != "created" {
+		t.Fatalf("show events newest order = %+v", showEventsNewestBody.Events)
+	}
 
 	tailCmd := NewRootCmd()
 	tailOut, tailErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -703,6 +725,8 @@ func TestJobShowCommandsRenderValidation(t *testing.T) {
 		{[]string{"job", "show", "squ-42", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"job", "show", "squ-42", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"job", "show", "squ-42", "--commands", "--events", "all"}, "--commands cannot be combined with --events"},
+		{[]string{"job", "show", "squ-42", "--events-sort", "newest"}, "--events-sort requires --events"},
+		{[]string{"job", "show", "squ-42", "--events", "all", "--events-sort", "sideways"}, "--events-sort must be oldest or newest"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

@@ -95,7 +95,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | --- | --- |
 | `agent-team job create <ticket>` | Create a durable job; add `--dispatch --wait` for bounded create-and-run automation, `--commands` for dry-run apply commands, and `--wait --wait-next-state`/`--wait-step` for pipeline stage handoff |
 | `agent-team job ls` | List jobs; filter held state, hold deadlines, and mixed-runtime ownership; sort rows by fields including `runtime`, cap output with `--limit`, or print visible-row follow-ups with `--commands` |
-| `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, outbox, status previews, and actions; add `--commands` to print only repo-scoped follow-up commands; `inspect` is an alias |
+| `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, outbox, status previews, and actions; add `--events N --events-sort newest` for newest-first audit tails, `--commands` to print only repo-scoped follow-up commands; `inspect` is an alias |
 | `agent-team job doctor` | Validate durable job TOML files, including filename/id ownership and persisted state invariants; `--quarantine --dry-run` previews isolating malformed active job files and `--commands` prints recovery commands |
 | `agent-team job quarantine` | Inspect, summarize, restore, or drop job TOML files preserved by `job doctor --quarantine`; add `--commands` to print visible restore/drop dry-run actions |
 | `agent-team job wait <job-id>` | Wait for lifecycle status, last event, or next-step state/stage with `--next-state` and `--step` |
@@ -107,7 +107,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job top <job-id>` | `agent-team job stats <job-id>` |
 | `agent-team job exec <job-id>` | `agent-team job attach <job-id>` |
 | `agent-team job start|stop|kill <job-id>` | Control a job's owning instance; add `--step` for a pipeline stage and `--dry-run --commands` for the selected lifecycle apply command |
-| `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, events, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, and formatted summary fields |
+| `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, event tails ordered with `--events-sort`, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, and formatted summary fields |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage, or `--commands` for repo-scoped nested action commands |
 | `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |

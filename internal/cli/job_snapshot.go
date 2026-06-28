@@ -24,6 +24,7 @@ func newJobSnapshotCmd() *cobra.Command {
 		jsonOut    bool
 		noRedact   bool
 		eventLimit int
+		eventSort  string
 		logTail    int
 		format     string
 	)
@@ -41,6 +42,11 @@ func newJobSnapshotCmd() *cobra.Command {
 			}
 			if logTail < -1 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job snapshot: --tail must be >= -1.")
+				return exitErr(2)
+			}
+			eventSortMode, err := parseEventSort(eventSort)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job snapshot: --events-sort must be oldest or newest.")
 				return exitErr(2)
 			}
 			if jsonOut && output != "" && output != "-" {
@@ -66,14 +72,20 @@ func newJobSnapshotCmd() *cobra.Command {
 			}
 			snapshot := collectJobSnapshot(teamDir, repoRoot, j, jobSnapshotOptions{
 				EventLimit: eventLimit,
+				EventSort:  eventSortMode,
 				LogTail:    logTail,
 				Redact:     !noRedact,
 				Now:        time.Now().UTC(),
 			})
+			eventSortProvenance := ""
+			if cmd.Flags().Changed("events-sort") {
+				eventSortProvenance = eventSortMode
+			}
 			snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "job", j.ID, snapshotProvenanceOptions{
-				Events:   intValuePtr(eventLimit),
-				Tail:     intValuePtr(logTail),
-				Redacted: !noRedact,
+				Events:    intValuePtr(eventLimit),
+				EventSort: eventSortProvenance,
+				Tail:      intValuePtr(logTail),
+				Redacted:  !noRedact,
 			})
 			switch {
 			case jsonOut || output == "-":
@@ -99,12 +111,14 @@ func newJobSnapshotCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw queue/outbox payload values and latest inbox bodies instead of redacting them.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 20, "Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events.")
+	cmd.Flags().StringVar(&eventSort, "events-sort", "oldest", "Sort included job and lifecycle events by oldest or newest after applying --events.")
 	cmd.Flags().IntVar(&logTail, "tail", 0, "Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.")
 	return cmd
 }
 
 type jobSnapshotOptions struct {
 	EventLimit int
+	EventSort  string
 	LogTail    int
 	Redact     bool
 	Now        time.Time
@@ -194,9 +208,9 @@ func collectJobSnapshot(teamDir, repoRoot string, j *job.Job, opts jobSnapshotOp
 		if events, err := job.ListEvents(teamDir, j.ID); err != nil {
 			out.addError("job_events", err)
 		} else {
-			out.JobEvents = tailJobSnapshotEvents(events, opts.EventLimit)
+			out.JobEvents = tailJobSnapshotEvents(events, opts.EventLimit, opts.EventSort)
 		}
-		if events, err := collectJobSnapshotLifecycleEvents(teamDir, j, instance, opts.EventLimit); err != nil {
+		if events, err := collectJobSnapshotLifecycleEvents(teamDir, j, instance, opts.EventLimit, opts.EventSort); err != nil {
 			out.addError("lifecycle_events", err)
 		} else {
 			out.LifecycleEvents = events
@@ -378,14 +392,19 @@ func readJobSnapshotTail(path string, lines int) (string, error) {
 	return string(bytes.Join(parts, nil)), nil
 }
 
-func tailJobSnapshotEvents(events []job.Event, limit int) []job.Event {
+func tailJobSnapshotEvents(events []job.Event, limit int, sortMode string) []job.Event {
+	sortJobEvents(events)
 	if limit < 0 {
-		return events
+		out := append([]job.Event(nil), events...)
+		sortJobEventsForDisplay(out, sortMode)
+		return out
 	}
-	return job.TailEvents(events, limit)
+	out := job.TailEvents(events, limit)
+	sortJobEventsForDisplay(out, sortMode)
+	return out
 }
 
-func collectJobSnapshotLifecycleEvents(teamDir string, j *job.Job, instance string, limit int) ([]daemon.LifecycleEvent, error) {
+func collectJobSnapshotLifecycleEvents(teamDir string, j *job.Job, instance string, limit int, sortMode string) ([]daemon.LifecycleEvent, error) {
 	events, err := daemon.ListLifecycleEvents(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
@@ -396,10 +415,11 @@ func collectJobSnapshotLifecycleEvents(teamDir string, j *job.Job, instance stri
 			matches = append(matches, *ev)
 		}
 	}
-	if limit < 0 || limit >= len(matches) {
-		return matches, nil
+	if limit >= 0 && limit < len(matches) {
+		matches = matches[len(matches)-limit:]
 	}
-	return matches[len(matches)-limit:], nil
+	sortLifecycleEventsForDisplay(matches, sortMode)
+	return matches, nil
 }
 
 func jobSnapshotLifecycleEventMatches(ev *daemon.LifecycleEvent, j *job.Job, instance string) bool {

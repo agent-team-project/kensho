@@ -31,10 +31,27 @@ func TestJobSnapshotCapturesPostMortemRuntimeState(t *testing.T) {
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
-	if err := job.AppendSnapshotEvent(teamDir, j, "created", "test", "created", nil); err != nil {
+	if err := job.AppendEvent(teamDir, &job.Event{
+		TS:       now.Add(-time.Hour),
+		JobID:    j.ID,
+		Type:     "created",
+		Status:   job.StatusRunning,
+		Instance: j.Instance,
+		Message:  "created",
+		Actor:    "test",
+	}); err != nil {
 		t.Fatalf("append created event: %v", err)
 	}
-	if err := job.AppendSnapshotEvent(teamDir, j, "instance_exited", "daemon", "done", map[string]string{"instance": j.Instance}); err != nil {
+	if err := job.AppendEvent(teamDir, &job.Event{
+		TS:       now,
+		JobID:    j.ID,
+		Type:     "instance_exited",
+		Status:   job.StatusDone,
+		Instance: j.Instance,
+		Message:  "done",
+		Actor:    "daemon",
+		Data:     map[string]string{"instance": j.Instance},
+	}); err != nil {
 		t.Fatalf("append exit event: %v", err)
 	}
 
@@ -146,7 +163,7 @@ description = "complete"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "snapshot", "SQU-160", "--repo", tmp, "--events", "-1", "--tail", "2", "--json"})
+	cmd.SetArgs([]string{"job", "snapshot", "SQU-160", "--repo", tmp, "--events", "-1", "--events-sort", "newest", "--tail", "2", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job snapshot: %v\nstderr=%s", err, stderr.String())
 	}
@@ -157,7 +174,7 @@ description = "complete"
 	if snapshot.Job == nil || snapshot.Job.ID != j.ID || snapshot.Instance != j.Instance {
 		t.Fatalf("job snapshot identity = %+v", snapshot)
 	}
-	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team job snapshot" || snapshot.Provenance.Scope != "job" || snapshot.Provenance.Subject != "squ-160" || snapshot.Provenance.Options.Events == nil || *snapshot.Provenance.Options.Events != -1 || snapshot.Provenance.Options.Tail == nil || *snapshot.Provenance.Options.Tail != 2 || !snapshot.Provenance.Options.Redacted {
+	if snapshot.Provenance == nil || snapshot.Provenance.Command != "agent-team job snapshot" || snapshot.Provenance.Scope != "job" || snapshot.Provenance.Subject != "squ-160" || snapshot.Provenance.Options.Events == nil || *snapshot.Provenance.Options.Events != -1 || snapshot.Provenance.Options.EventSort != "newest" || snapshot.Provenance.Options.Tail == nil || *snapshot.Provenance.Options.Tail != 2 || !snapshot.Provenance.Options.Redacted {
 		t.Fatalf("job snapshot provenance = %+v", snapshot.Provenance)
 	}
 	if snapshot.Runtime == nil || snapshot.Runtime.Lifecycle != "exited" || snapshot.Runtime.Runtime != "codex" || snapshot.Runtime.ExitCode == nil || *snapshot.Runtime.ExitCode != 0 {
@@ -174,6 +191,12 @@ description = "complete"
 	}
 	if len(snapshot.JobEvents) != 2 || len(snapshot.LifecycleEvents) != 2 {
 		t.Fatalf("events: job=%d lifecycle=%d", len(snapshot.JobEvents), len(snapshot.LifecycleEvents))
+	}
+	if snapshot.JobEvents[0].Type != "instance_exited" || snapshot.JobEvents[1].Type != "created" {
+		t.Fatalf("job events order = %+v", snapshot.JobEvents)
+	}
+	if snapshot.LifecycleEvents[0].Action != "exit" || snapshot.LifecycleEvents[1].Action != "dispatch" {
+		t.Fatalf("lifecycle events order = %+v", snapshot.LifecycleEvents)
 	}
 	if len(snapshot.Queue) != 1 || snapshot.Queue[0].Payload["api_key"] != snapshotRedactedValue {
 		t.Fatalf("queue not redacted: %+v", snapshot.Queue)
@@ -289,6 +312,18 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	}
 	if snapshot.Job == nil || snapshot.Job.ID != "squ-161" {
 		t.Fatalf("output snapshot = %+v", snapshot)
+	}
+
+	invalid := NewRootCmd()
+	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalid.SetOut(invalidOut)
+	invalid.SetErr(invalidErr)
+	invalid.SetArgs([]string{"job", "snapshot", "squ-161", "--repo", tmp, "--events-sort", "sideways"})
+	if err := invalid.Execute(); err == nil {
+		t.Fatalf("job snapshot invalid events sort succeeded")
+	}
+	if !strings.Contains(invalidErr.String(), "--events-sort must be oldest or newest") {
+		t.Fatalf("invalid events sort stderr = %q", invalidErr.String())
 	}
 }
 

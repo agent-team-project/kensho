@@ -3339,11 +3339,12 @@ Aliases: `inspect`
 Flags:
 
 ```text
-      --commands        Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.
-      --events string   Include the last N job events in the detail output, or all. (default "5")
-      --format string   Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --json            Emit the job as JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --commands             Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.
+      --events string        Include the last N job events in the detail output, or all. (default "5")
+      --events-sort string   Sort included job events by oldest or newest after applying --events. (default "oldest")
+      --format string        Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
+      --json                 Emit the job as JSON.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job snapshot`
@@ -3359,13 +3360,14 @@ agent-team job snapshot <job-id> [flags]
 Flags:
 
 ```text
-      --events int      Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events. (default 20)
-      --format string   Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
-      --json            Emit the full job snapshot JSON to stdout.
-      --no-redact       Include raw queue/outbox payload values and latest inbox bodies instead of redacting them.
-  -o, --output string   Write the full JSON snapshot to this file. Use '-' for stdout.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --tail int        Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.
+      --events int           Recent job and lifecycle events to include. Use -1 for all events or 0 to skip events. (default 20)
+      --events-sort string   Sort included job and lifecycle events by oldest or newest after applying --events. (default "oldest")
+      --format string        Render the job snapshot with a Go template, e.g. '{{.Job.ID}} {{.Job.Status}}'.
+      --json                 Emit the full job snapshot JSON to stdout.
+      --no-redact            Include raw queue/outbox payload values and latest inbox bodies instead of redacting them.
+  -o, --output string        Write the full JSON snapshot to this file. Use '-' for stdout.
+      --repo string          Repo root containing .agent_team. (default "<repo>")
+      --tail int             Include the last N log lines in JSON output. Use -1 for the full log or 0 to omit log content.
 ```
 
 ## `agent-team job start`

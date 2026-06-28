@@ -1717,6 +1717,7 @@ func newJobShowCmd() *cobra.Command {
 	var (
 		repo       string
 		eventsTail string
+		eventSort  string
 		jsonOut    bool
 		format     string
 		commands   bool
@@ -1745,8 +1746,17 @@ func newJobShowCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --commands cannot be combined with --events.")
 				return exitErr(2)
 			}
+			if cmd.Flags().Changed("events-sort") && !includeEvents {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --events-sort requires --events.")
+				return exitErr(2)
+			}
 			if includeEvents && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --events cannot be combined with --format.")
+				return exitErr(2)
+			}
+			eventSortMode, err := parseEventSort(eventSort)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job show: --events-sort must be oldest or newest.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -1766,11 +1776,12 @@ func newJobShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, eventSortMode, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&eventsTail, "events", "5", "Include the last N job events in the detail output, or all.")
+	cmd.Flags().StringVar(&eventSort, "events-sort", "oldest", "Sort included job events by oldest or newest after applying --events.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
@@ -14667,16 +14678,19 @@ type jobShowResult struct {
 	Events []job.Event `json:"events"`
 }
 
-func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, commandsOut bool, scope operatorCommandScope) error {
+func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, eventSort string, commandsOut bool, scope operatorCommandScope) error {
 	if jsonOut || tmpl != nil {
 		if jsonOut && includeEvents {
 			events, err := job.ListEvents(teamDir, j.ID)
 			if err != nil {
 				return err
 			}
+			sortJobEvents(events)
+			events = job.TailEvents(events, eventTail)
+			sortJobEventsForDisplay(events, eventSort)
 			return json.NewEncoder(w).Encode(jobShowResult{
 				Job:    j,
-				Events: job.TailEvents(events, eventTail),
+				Events: events,
 			})
 		}
 		return renderJobResult(w, j, jsonOut, tmpl)
@@ -14711,7 +14725,10 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 		if err != nil {
 			return err
 		}
-		renderJobRecentEvents(w, job.TailEvents(events, eventTail))
+		sortJobEvents(events)
+		events = job.TailEvents(events, eventTail)
+		sortJobEventsForDisplay(events, eventSort)
+		renderJobRecentEvents(w, events)
 	}
 	return nil
 }
