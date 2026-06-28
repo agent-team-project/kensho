@@ -11179,6 +11179,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "--wait requires --advance with a done step",
 		},
 		{
+			name: "step commands without dry-run",
+			args: []string{"job", "step", "squ-1", "implement", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "step commands with json",
+			args: []string{"job", "step", "squ-1", "implement", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "step commands with format",
+			args: []string{"job", "step", "squ-1", "implement", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "approve wait without advance",
 			args: []string{"job", "approve", "squ-1", "--wait"},
 			want: "--wait requires --advance",
@@ -11783,6 +11798,38 @@ func TestJobStepDoneAdvanceDispatchesNextStep(t *testing.T) {
 		t.Fatalf("dry-run sent messages = %+v", dryMessages)
 	}
 
+	advanceCommands := NewRootCmd()
+	advanceCommandsOut, advanceCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	advanceCommands.SetOut(advanceCommandsOut)
+	advanceCommands.SetErr(advanceCommandsErr)
+	advanceCommands.SetArgs([]string{
+		"job", "step", "squ-202", "triage",
+		"--status", "done",
+		"--message", "triage done",
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--repo", target,
+		"--dry-run", "--commands",
+	})
+	if err := advanceCommands.Execute(); err != nil {
+		t.Fatalf("job step --advance dry-run commands: %v\nstderr=%s", err, advanceCommandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "step", "squ-202", "triage",
+		"--repo", target,
+		"--status", "done",
+		"--message", "triage done",
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(advanceCommandsOut.String()); got != wantCommand {
+		t.Fatalf("job step --advance dry-run commands = %q, want %q", got, wantCommand)
+	}
+
 	advanceDryFormat := NewRootCmd()
 	advanceDryFormatOut, advanceDryFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	advanceDryFormat.SetOut(advanceDryFormatOut)
@@ -11990,6 +12037,24 @@ func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
 	}
 	if unchanged.Steps[0].Status != job.StatusRunning || unchanged.Steps[0].Skipped {
 		t.Fatalf("dry-run mutated job = %+v", unchanged.Steps[0])
+	}
+
+	skipCommands := NewRootCmd()
+	skipCommandsOut, skipCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	skipCommands.SetOut(skipCommandsOut)
+	skipCommands.SetErr(skipCommandsErr)
+	skipCommands.SetArgs([]string{"job", "step", "squ-224", "triage", "--skip", "--message", "covered by implementation", "--repo", target, "--dry-run", "--commands"})
+	if err := skipCommands.Execute(); err != nil {
+		t.Fatalf("job step --skip dry-run commands: %v\nstderr=%s", err, skipCommandsErr.String())
+	}
+	wantSkipCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "step", "squ-224", "triage",
+		"--repo", target,
+		"--message", "covered by implementation",
+		"--skip",
+	}), " ")
+	if got := strings.TrimSpace(skipCommandsOut.String()); got != wantSkipCommand {
+		t.Fatalf("job step --skip dry-run commands = %q, want %q", got, wantSkipCommand)
 	}
 
 	cmd := NewRootCmd()

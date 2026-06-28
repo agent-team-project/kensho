@@ -3335,6 +3335,7 @@ Flags:
 ```text
       --advance                   After marking the step done, dispatch the next ready step.
       --branch string             Branch name to record on the job.
+      --commands                  With --dry-run, print the matching job step apply command when the preview has actionable work.
       --dry-run                   Preview the step update and optional advance dispatch without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
   -f, --force                     Allow marking a step running without an owning instance.

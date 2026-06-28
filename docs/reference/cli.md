@@ -108,7 +108,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed; add `--dry-run --commands` for the apply command |
-| `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |
+| `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |
 | `agent-team job dispatch <job-id>` | Dispatch a job; use `--runtime` for one-off Claude/Codex selection and `--wait` for bounded automation |
 | `agent-team job send <job-id>` | Send message to job instance |
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |

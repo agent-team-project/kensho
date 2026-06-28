@@ -5641,6 +5641,7 @@ func newJobStepCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -5660,6 +5661,18 @@ func newJobStepCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job step: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job step: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job step: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job step: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobStepFormat(format)
@@ -5727,13 +5740,46 @@ func newJobStepCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			if dryRun {
+				commandOptions := jobStepApplyCommandOptions{
+					JobID:          j.ID,
+					Step:           args[1],
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					Status:         stepStatus,
+					StatusSet:      cmd.Flags().Changed("status"),
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					Instance:       instance,
+					InstanceSet:    cmd.Flags().Changed("instance"),
+					PR:             pr,
+					PRSet:          cmd.Flags().Changed("pr"),
+					Branch:         branch,
+					BranchSet:      cmd.Flags().Changed("branch"),
+					Worktree:       worktree,
+					WorktreeSet:    cmd.Flags().Changed("worktree"),
+					Advance:        advance,
+					Skip:           skip,
+					Force:          force,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+				}
 				if advance && stepStatus == job.StatusDone {
 					preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 						return exitErr(1)
 					}
+					if commands {
+						return renderJobStepApplyCommand(cmd.OutOrStdout(), true, commandOptions)
+					}
 					return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
+				}
+				if commands {
+					return renderJobStepApplyCommand(cmd.OutOrStdout(), true, commandOptions)
 				}
 				return renderJobStepPreview(cmd.OutOrStdout(), j, args[1], jsonOut, tmpl)
 			}
@@ -5805,6 +5851,7 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the step update and optional advance dispatch without writing job or daemon state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job step apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the job to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -12215,6 +12262,86 @@ type jobApproveApplyCommandOptions struct {
 	MessageFile       string
 	MessageFileSet    bool
 	PositionalMessage []string
+}
+
+type jobStepApplyCommandOptions struct {
+	JobID          string
+	Step           string
+	Repo           string
+	RepoSet        bool
+	Status         job.Status
+	StatusSet      bool
+	Message        string
+	MessageSet     bool
+	Instance       string
+	InstanceSet    bool
+	PR             string
+	PRSet          bool
+	Branch         string
+	BranchSet      bool
+	Worktree       string
+	WorktreeSet    bool
+	Advance        bool
+	Skip           bool
+	Force          bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
+}
+
+func renderJobStepApplyCommand(w io.Writer, hasAction bool, opts jobStepApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobStepApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobStepApplyCommandArgs(opts jobStepApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "step", opts.JobID, opts.Step}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StatusSet {
+		args = append(args, "--status", string(opts.Status))
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.InstanceSet && strings.TrimSpace(opts.Instance) != "" {
+		args = append(args, "--instance", opts.Instance)
+	}
+	if opts.PRSet && strings.TrimSpace(opts.PR) != "" {
+		args = append(args, "--pr", opts.PR)
+	}
+	if opts.BranchSet && strings.TrimSpace(opts.Branch) != "" {
+		args = append(args, "--branch", opts.Branch)
+	}
+	if opts.WorktreeSet && strings.TrimSpace(opts.Worktree) != "" {
+		args = append(args, "--worktree", opts.Worktree)
+	}
+	if opts.Skip {
+		args = append(args, "--skip")
+	}
+	if opts.Advance {
+		args = append(args, "--advance")
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
+	return args
 }
 
 func renderJobApproveApplyCommand(w io.Writer, hasAction bool, opts jobApproveApplyCommandOptions) error {
