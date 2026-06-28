@@ -2225,10 +2225,12 @@ Flags:
       --actor strings       Only show job events from this actor. Can repeat or comma-separate.
   -f, --follow              Poll and print new job events until interrupted.
       --format string       Render each event with a Go template, e.g. '{{.TS}} {{.Type}} {{.Message}}'.
+      --instance strings    Only show job events for this owning instance. Can repeat or comma-separate.
       --interval duration   Polling interval for --follow. (default 1s)
       --json                Emit machine-readable JSON. With --follow, emit one JSON object per line.
       --repo string         Repo root containing .agent_team. (default "<repo>")
       --since string        Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --status strings      Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
       --summary             Summarize matching job events by type, status, actor, and instance.
       --tail string         Show only the last N events before returning or following (0 or all = all). (default "0")
       --type strings        Only show job events with this type. Can repeat or comma-separate.

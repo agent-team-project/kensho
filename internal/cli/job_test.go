@@ -5636,6 +5636,8 @@ func TestJobEventsFilters(t *testing.T) {
 		"--repo", tmp,
 		"--type", "closed",
 		"--actor", "cli",
+		"--status", "done",
+		"--instance", "worker-squ-75",
 		"--since", base.Add(-time.Hour).Format(time.RFC3339),
 		"--json",
 	})
@@ -5646,7 +5648,7 @@ func TestJobEventsFilters(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("decode filtered events json: %v\nbody=%s", err, out.String())
 	}
-	if len(got) != 1 || got[0].Type != "closed" || got[0].Actor != "cli" {
+	if len(got) != 1 || got[0].Type != "closed" || got[0].Actor != "cli" || got[0].Status != job.StatusDone || got[0].Instance != "worker-squ-75" {
 		t.Fatalf("filtered events = %+v", got)
 	}
 
@@ -5659,6 +5661,8 @@ func TestJobEventsFilters(t *testing.T) {
 		"--repo", tmp,
 		"--type", "closed",
 		"--actor", "cli",
+		"--status", "done",
+		"--instance", "worker-squ-75",
 		"--since", base.Add(-time.Hour).Format(time.RFC3339),
 		"--summary",
 		"--json",
@@ -5706,6 +5710,42 @@ func TestJobEventsFilters(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--type requires at least one non-empty event type") {
 		t.Fatalf("missing empty filter error:\n%s", stderr.String())
+	}
+
+	cmd = NewRootCmd()
+	out, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "events", "squ-75", "--repo", tmp, "--status", "paused"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job events unknown status filter succeeded")
+	}
+	if !strings.Contains(stderr.String(), `unknown --status "paused"`) {
+		t.Fatalf("missing unknown status error:\n%s", stderr.String())
+	}
+
+	cmd = NewRootCmd()
+	out, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "events", "squ-75", "--repo", tmp, "--status", ","})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job events empty status filter succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--status requires at least one non-empty status") {
+		t.Fatalf("missing empty status error:\n%s", stderr.String())
+	}
+
+	cmd = NewRootCmd()
+	out, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "events", "squ-75", "--repo", tmp, "--instance", ","})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job events empty instance filter succeeded")
+	}
+	if !strings.Contains(stderr.String(), "--instance requires at least one non-empty instance") {
+		t.Fatalf("missing empty instance error:\n%s", stderr.String())
 	}
 }
 

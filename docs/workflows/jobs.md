@@ -505,6 +505,7 @@ visible preserved job file without opening each file first.
 ```sh
 agent-team job events squ-42 --tail all
 agent-team job events squ-42 --type dispatched
+agent-team job events squ-42 --status running --instance worker-squ-42
 agent-team job events squ-42 --summary
 agent-team job events squ-42 --json
 ```
@@ -520,7 +521,8 @@ Events give an audit trail for:
 - cleanup
 
 Use `--summary` to aggregate the visible event set by type, status, actor, and
-instance after `--type`, `--actor`, `--since`, and `--tail` have been applied.
+instance after `--type`, `--status`, `--actor`, `--instance`, `--since`, and
+`--tail` have been applied.
 
 ## Code Areas
 

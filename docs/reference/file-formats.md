@@ -195,6 +195,8 @@ They record:
 - structured data
 
 Use `agent-team job events <job-id>` instead of reading raw rows in tooling.
+Use `--type`, `--status`, `--actor`, `--instance`, and `--since` to narrow the
+visible audit rows before rendering or summarizing.
 Use `agent-team job events <job-id> --summary` when tooling only needs counts by
 type, status, actor, or instance.
 

@@ -1057,16 +1057,18 @@ func newJobQueuePruneCmd() *cobra.Command {
 
 func newJobEventsCmd() *cobra.Command {
 	var (
-		repo     string
-		follow   bool
-		tail     string
-		types    []string
-		actors   []string
-		since    string
-		interval time.Duration
-		jsonOut  bool
-		summary  bool
-		format   string
+		repo      string
+		follow    bool
+		tail      string
+		types     []string
+		actors    []string
+		statuses  []string
+		instances []string
+		since     string
+		interval  time.Duration
+		jsonOut   bool
+		summary   bool
+		format    string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -1090,7 +1092,7 @@ func newJobEventsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --interval must be >= 0.")
 				return exitErr(2)
 			}
-			filters, err := newJobEventFilters(types, actors, since, time.Now)
+			filters, err := newJobEventFilters(types, actors, statuses, instances, since, time.Now)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
 				return exitErr(2)
@@ -1122,6 +1124,8 @@ func newJobEventsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N events before returning or following (0 or all = all).")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job events from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only show job events for this owning instance. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&since, "since", "", "Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().DurationVar(&interval, "interval", time.Second, "Polling interval for --follow.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. With --follow, emit one JSON object per line.")
@@ -7473,18 +7477,26 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 }
 
 type jobEventFilters struct {
-	types  map[string]bool
-	actors map[string]bool
-	since  *time.Time
+	types     map[string]bool
+	actors    map[string]bool
+	statuses  map[string]bool
+	instances map[string]bool
+	since     *time.Time
 }
 
-func newJobEventFilters(types, actors []string, sinceRaw string, now func() time.Time) (jobEventFilters, error) {
+func newJobEventFilters(types, actors, statuses, instances []string, sinceRaw string, now func() time.Time) (jobEventFilters, error) {
 	var filters jobEventFilters
 	var err error
 	if filters.types, err = stringSetFilter(types, "--type", "event type"); err != nil {
 		return filters, err
 	}
 	if filters.actors, err = stringSetFilter(actors, "--actor", "actor"); err != nil {
+		return filters, err
+	}
+	if filters.statuses, err = jobStatusFilterSet(statuses); err != nil {
+		return filters, err
+	}
+	if filters.instances, err = stringSetFilter(instances, "--instance", "instance"); err != nil {
 		return filters, err
 	}
 	sinceRaw = strings.TrimSpace(sinceRaw)
@@ -7513,7 +7525,7 @@ func filterJobEvents(events []job.Event, filters jobEventFilters) []job.Event {
 }
 
 func (f jobEventFilters) empty() bool {
-	return len(f.types) == 0 && len(f.actors) == 0 && f.since == nil
+	return len(f.types) == 0 && len(f.actors) == 0 && len(f.statuses) == 0 && len(f.instances) == 0 && f.since == nil
 }
 
 func (f jobEventFilters) match(ev job.Event) bool {
@@ -7526,7 +7538,37 @@ func (f jobEventFilters) match(ev job.Event) bool {
 	if len(f.actors) > 0 && !f.actors[ev.Actor] {
 		return false
 	}
+	if len(f.statuses) > 0 && !f.statuses[string(ev.Status)] {
+		return false
+	}
+	if len(f.instances) > 0 && !f.instances[ev.Instance] {
+		return false
+	}
 	return true
+}
+
+func jobStatusFilterSet(filters []string) (map[string]bool, error) {
+	if len(filters) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, raw := range filters {
+		for _, part := range strings.Split(raw, ",") {
+			status := strings.ToLower(strings.TrimSpace(part))
+			if status == "" {
+				continue
+			}
+			parsed, err := job.ParseStatus(status)
+			if err != nil {
+				return nil, fmt.Errorf("unknown --status %q (want queued, running, blocked, done, or failed)", part)
+			}
+			out[string(parsed)] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--status requires at least one non-empty status")
+	}
+	return out, nil
 }
 
 func renderJobEventsFollowBatch(w io.Writer, events []job.Event, jsonOut bool, tmpl *template.Template, header bool) error {
