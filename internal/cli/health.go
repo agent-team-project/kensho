@@ -302,6 +302,7 @@ func runHealthWatchWithClearAndLastMessage(ctx context.Context, w io.Writer, tea
 			return err
 		}
 		result = healthResultWithLastMessageActions(result, lastMessage)
+		result = healthResultWithActions(result)
 		if jsonOut {
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				return err
@@ -337,6 +338,7 @@ func runHealthFormatWatchWithLastMessage(ctx context.Context, w io.Writer, teamD
 			return err
 		}
 		result = healthResultWithLastMessageActions(result, lastMessage)
+		result = healthResultWithActions(result)
 		if err := renderHealthFormat(w, result, tmpl); err != nil {
 			return err
 		}

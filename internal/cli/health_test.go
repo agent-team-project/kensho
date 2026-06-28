@@ -2066,6 +2066,27 @@ func TestHealthWatchTextNoClearAppendsSnapshots(t *testing.T) {
 	}
 }
 
+func TestHealthWatchJSONIncludesActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := tmp + "/.agent_team"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var buf bytes.Buffer
+	if err := runHealthWatchWithClear(ctx, &buf, teamDir, time.Millisecond, time.Now, true, healthOptions{}, false); err != nil {
+		t.Fatalf("runHealthWatchWithClear json: %v", err)
+	}
+	first := strings.Split(strings.TrimSpace(buf.String()), "\n")[0]
+	var body healthResult
+	if err := json.Unmarshal([]byte(first), &body); err != nil {
+		t.Fatalf("decode first health watch json: %v\nbody=%s", err, first)
+	}
+	if !containsString(body.Actions, "agent-team sync --dry-run") {
+		t.Fatalf("health watch json actions = %+v, want sync dry-run", body.Actions)
+	}
+}
+
 func TestHealthFormatWatchEmitsRows(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
