@@ -8580,7 +8580,7 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 		add(fmt.Sprintf("agent-team job dispatch %s", item.JobID))
 	}
 	if stringSliceContains(item.Reasons, "stale_running") || stringSliceContains(item.Reasons, "running_without_instance") {
-		add("agent-team job reconcile status")
+		add("agent-team job reconcile status --dry-run")
 	}
 	if stringSliceContains(item.Reasons, "stale_running") {
 		add(fmt.Sprintf("agent-team job timeout %s --dry-run", item.JobID))

@@ -950,7 +950,7 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 		}
 	}
 	if out.Jobs.StatusChanges > 0 {
-		add("agent-team job reconcile status", "jobs", fmt.Sprintf("status_changes=%d", out.Jobs.StatusChanges))
+		add("agent-team job reconcile status --dry-run", "jobs", fmt.Sprintf("status_changes=%d", out.Jobs.StatusChanges))
 	}
 	if out.Jobs.ReadySteps > 0 || out.Pipelines.ReadySteps > 0 {
 		reason := fmt.Sprintf("ready_steps=%d", out.Jobs.ReadySteps+out.Pipelines.ReadySteps)

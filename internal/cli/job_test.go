@@ -3688,7 +3688,7 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 		"squ-202",
 		"stale_running",
 		"running_without_instance",
-		"agent-team job reconcile status",
+		"agent-team job reconcile status --dry-run",
 		"agent-team job timeout squ-202 --dry-run",
 		"agent-team job adopt squ-202 --pid <pid> --dry-run",
 		"squ-203",
