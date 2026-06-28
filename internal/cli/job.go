@@ -1794,6 +1794,7 @@ func newJobDispatchCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -1813,6 +1814,18 @@ func newJobDispatchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job dispatch: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job dispatch: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job dispatch: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job dispatch: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if waitInterval < 0 {
@@ -1865,6 +1878,21 @@ func newJobDispatchCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderJobDispatchApplyCommand(cmd.OutOrStdout(), dispatchPreviewHasRoutes(preview), jobDispatchApplyCommandOptions{
+						JobID:          j.ID,
+						Repo:           repo,
+						RepoSet:        cmd.Flags().Changed("repo"),
+						Source:         source,
+						SourceSet:      cmd.Flags().Changed("source"),
+						Workspace:      workspace,
+						WorkspaceSet:   cmd.Flags().Changed("workspace"),
+						RuntimeKind:    runtimeKind,
+						RuntimeKindSet: cmd.Flags().Changed("runtime"),
+						RuntimeBin:     runtimeBin,
+						RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					})
+				}
 				return renderJobDispatchPreview(cmd.OutOrStdout(), j, preview, jsonOut, tmpl)
 			}
 			res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, source, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, "agent-team job dispatch")
@@ -1914,6 +1942,7 @@ func newJobDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon or updating the job.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job dispatch apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After dispatching, wait for the job to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -12164,6 +12193,10 @@ func renderJobDispatchPreview(w io.Writer, j *job.Job, dispatch *dispatchRoutePr
 	return renderEventPublishRoutePreview(w, dispatch.Preview)
 }
 
+func dispatchPreviewHasRoutes(dispatch *dispatchRoutePreview) bool {
+	return dispatch != nil && dispatch.Preview != nil && eventPublishPreviewHasRoutes(dispatch.Preview)
+}
+
 type jobSendPreview struct {
 	ID       string   `json:"id"`
 	Job      *job.Job `json:"job"`
@@ -12352,6 +12385,48 @@ type jobAdvanceApplyCommandOptions struct {
 	RuntimeKindSet bool
 	RuntimeBin     string
 	RuntimeBinSet  bool
+}
+
+type jobDispatchApplyCommandOptions struct {
+	JobID          string
+	Repo           string
+	RepoSet        bool
+	Source         string
+	SourceSet      bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
+}
+
+func renderJobDispatchApplyCommand(w io.Writer, hasAction bool, opts jobDispatchApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobDispatchApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobDispatchApplyCommandArgs(opts jobDispatchApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "dispatch", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.SourceSet && strings.TrimSpace(opts.Source) != "" {
+		args = append(args, "--source", opts.Source)
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	return args
 }
 
 func renderJobAdvanceApplyCommand(w io.Writer, hasAction bool, opts jobAdvanceApplyCommandOptions) error {

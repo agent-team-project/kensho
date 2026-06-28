@@ -7880,6 +7880,57 @@ func TestJobDispatchAndSend(t *testing.T) {
 		t.Fatalf("job create: %v\nstderr=%s", err, createErr.String())
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "dispatch", "squ-43", "--repo", target, "--source", "manager", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job dispatch dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "dispatch", "squ-43",
+		"--repo", target,
+		"--source", "manager",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job dispatch dry-run commands = %q, want %q", got, wantCommand)
+	}
+	beforeDispatch, err := job.Read(filepath.Join(target, ".agent_team"), "squ-43")
+	if err != nil {
+		t.Fatalf("read before dispatch: %v", err)
+	}
+	if beforeDispatch.Status != job.StatusQueued || beforeDispatch.Instance != "" {
+		t.Fatalf("dry-run command mutated job = %+v", beforeDispatch)
+	}
+
+	noRouteJob := &job.Job{
+		ID:        "squ-43-no-route",
+		Ticket:    "SQU-43-NO-ROUTE",
+		Target:    "manager",
+		Kickoff:   "no matching dispatch route",
+		Status:    job.StatusQueued,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := job.Write(filepath.Join(target, ".agent_team"), noRouteJob); err != nil {
+		t.Fatalf("write no-route job: %v", err)
+	}
+	noRoute := NewRootCmd()
+	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRoute.SetOut(noRouteOut)
+	noRoute.SetErr(noRouteErr)
+	noRoute.SetArgs([]string{"job", "dispatch", "squ-43-no-route", "--repo", target, "--dry-run", "--commands"})
+	if err := noRoute.Execute(); err != nil {
+		t.Fatalf("job dispatch no-route dry-run commands: %v\nstderr=%s", err, noRouteErr.String())
+	}
+	if got := strings.TrimSpace(noRouteOut.String()); got != "" {
+		t.Fatalf("job dispatch no-route commands = %q, want empty", got)
+	}
+
 	dispatch := NewRootCmd()
 	dispatchOut, dispatchErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dispatch.SetOut(dispatchOut)
@@ -11151,6 +11202,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 		args []string
 		want string
 	}{
+		{
+			name: "dispatch commands without dry-run",
+			args: []string{"job", "dispatch", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "dispatch commands with json",
+			args: []string{"job", "dispatch", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "dispatch commands with format",
+			args: []string{"job", "dispatch", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
 		{
 			name: "advance format with json",
 			args: []string{"job", "advance", "squ-1", "--format", "{{.Job.ID}}", "--json"},

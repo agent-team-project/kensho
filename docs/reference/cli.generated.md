@@ -2092,6 +2092,7 @@ agent-team job dispatch <job-id> [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching job dispatch apply command when the preview has actionable work.
       --dry-run                   Preview topology matches without publishing to the daemon or updating the job.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the updated job or dry-run preview with a Go template.

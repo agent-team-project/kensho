@@ -80,6 +80,7 @@ agent-team job create SQU-42 \
 Dispatch an existing job and wait:
 
 ```sh
+agent-team job dispatch squ-42 --dry-run --commands
 agent-team job dispatch squ-42 --wait --wait-status running --wait-timeout 30s
 agent-team job dispatch squ-42 --wait --wait-timeout 30m --fail-on-failed
 ```
