@@ -6425,6 +6425,10 @@ target = "worker"
 			Instance:  "worker-squ-980",
 			CreatedAt: now,
 			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-980"},
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-980", After: []string{"implement"}},
+			},
 		},
 		{
 			ID:        "squ-981",
@@ -6436,6 +6440,9 @@ target = "worker"
 			Instance:  "worker-squ-981",
 			CreatedAt: now,
 			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "audit", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-981"},
+			},
 		},
 		{
 			ID:        "squ-982",
@@ -6487,6 +6494,9 @@ target = "worker"
 	if got := logRowInstances(rows); strings.Join(got, ",") != "manager-squ-980,worker-squ-980" {
 		t.Fatalf("pipeline log rows = %v", got)
 	}
+	if rows[0].JobID != "squ-980" || rows[0].Pipeline != "ticket_to_pr" || rows[0].StepID != "review" || rows[1].StepID != "implement" {
+		t.Fatalf("pipeline log row job metadata = %+v", rows)
+	}
 
 	allList := NewRootCmd()
 	allListOut, allListErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -6502,6 +6512,30 @@ target = "worker"
 	}
 	if got := logRowInstances(rows); strings.Join(got, ",") != "manager-squ-980,worker-squ-980,worker-squ-981" {
 		t.Fatalf("pipeline all log rows = %v, want every pipeline-owned stream only", got)
+	}
+
+	stepList := NewRootCmd()
+	stepListOut, stepListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepList.SetOut(stepListOut)
+	stepList.SetErr(stepListErr)
+	stepList.SetArgs([]string{"pipeline", "logs", "ticket_to_pr", "--repo", root, "--step", "implement", "--list", "--format", "{{.Instance}} {{.JobID}} {{.StepID}} {{.Pipeline}}"})
+	if err := stepList.Execute(); err != nil {
+		t.Fatalf("pipeline logs step list: %v\nstderr=%s", err, stepListErr.String())
+	}
+	if got, want := strings.TrimSpace(stepListOut.String()), "worker-squ-980 squ-980 implement ticket_to_pr"; got != want {
+		t.Fatalf("pipeline logs step list = %q, want %q", got, want)
+	}
+
+	allStepList := NewRootCmd()
+	allStepListOut, allStepListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allStepList.SetOut(allStepListOut)
+	allStepList.SetErr(allStepListErr)
+	allStepList.SetArgs([]string{"pipeline", "logs", "--all", "--repo", root, "--step", "audit", "--list", "--format", "{{.Instance}} {{.StepID}}"})
+	if err := allStepList.Execute(); err != nil {
+		t.Fatalf("pipeline logs all step list: %v\nstderr=%s", err, allStepListErr.String())
+	}
+	if got, want := strings.TrimSpace(allStepListOut.String()), "worker-squ-981 audit"; got != want {
+		t.Fatalf("pipeline logs all step list = %q, want %q", got, want)
 	}
 
 	codexList := NewRootCmd()
@@ -6562,6 +6596,18 @@ target = "worker"
 		t.Fatalf("pipeline logs runtime = %q", got)
 	}
 
+	stepLogs := NewRootCmd()
+	stepLogsOut, stepLogsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepLogs.SetOut(stepLogsOut)
+	stepLogs.SetErr(stepLogsErr)
+	stepLogs.SetArgs([]string{"pipeline", "logs", "ticket_to_pr", "--repo", root, "--step", "review", "--tail", "1"})
+	if err := stepLogs.Execute(); err != nil {
+		t.Fatalf("pipeline logs step: %v\nstderr=%s", err, stepLogsErr.String())
+	}
+	if got := stepLogsOut.String(); got != "manager latest\n" {
+		t.Fatalf("pipeline logs step = %q", got)
+	}
+
 	lastMessages := NewRootCmd()
 	lastOut, lastErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lastMessages.SetOut(lastOut)
@@ -6578,6 +6624,18 @@ target = "worker"
 	}
 	if strings.Contains(lastBody, "foreign final") {
 		t.Fatalf("pipeline last-message leaked unrelated content:\n%s", lastBody)
+	}
+
+	stepLast := NewRootCmd()
+	stepLastOut, stepLastErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepLast.SetOut(stepLastOut)
+	stepLast.SetErr(stepLastErr)
+	stepLast.SetArgs([]string{"pipeline", "logs", "ticket_to_pr", "--repo", root, "--step", "implement", "--last-message"})
+	if err := stepLast.Execute(); err != nil {
+		t.Fatalf("pipeline logs step last-message: %v\nstderr=%s", err, stepLastErr.String())
+	}
+	if got := stepLastOut.String(); got != "worker final\n" {
+		t.Fatalf("pipeline logs step last-message = %q", got)
 	}
 
 	invalidMany := NewRootCmd()

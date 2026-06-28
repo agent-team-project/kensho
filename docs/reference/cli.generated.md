@@ -4650,6 +4650,7 @@ Flags:
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for pipeline instances whose status.toml is stale.
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --step string       Only show logs for instances recorded on this pipeline step id.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
       --unhealthy         Only show logs for crashed, status-stale, or runtime-stale pipeline instances.
 ```
@@ -7724,6 +7725,7 @@ Flags:
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for team instances whose status.toml is stale.
       --status strings    Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --step string       Only show logs for instances recorded on this pipeline step id.
       --tail string       Show only the last N lines before returning or following (0 or all = all). (default "0")
       --unhealthy         Only show logs for crashed, status-stale, or runtime-stale team instances.
 ```

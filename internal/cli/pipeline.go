@@ -3709,6 +3709,7 @@ func newPipelineLogsCmd() *cobra.Command {
 		lastMsg          bool
 		clean            bool
 		all              bool
+		step             string
 		tail             string
 		since            string
 		grep             string
@@ -3829,6 +3830,7 @@ func newPipelineLogsCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			listOpts.runtimeStale = runtimeStaleOnly
+			listOpts.step = strings.TrimSpace(step)
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -3871,6 +3873,7 @@ func newPipelineLogsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&step, "step", "", "Only show logs for instances recorded on this pipeline step id.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for pipeline instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show logs for pipeline instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed, status-stale, or runtime-stale pipeline instances.")
@@ -7934,6 +7937,7 @@ func pipelineQueueItemActions(pipeline string, item *daemon.QueueItem, now time.
 
 type pipelineOwnedMetadata struct {
 	Metadata       []*daemon.Metadata
+	Jobs           []*job.Job
 	JobForInstance map[string]string
 	JobByInstance  map[string]*job.Job
 }
@@ -7980,7 +7984,7 @@ func collectPipelineOwnedMetadata(teamDir, pipeline string, metas []*daemon.Meta
 	for _, name := range names {
 		out = append(out, selected[name])
 	}
-	return pipelineOwnedMetadata{Metadata: out, JobForInstance: jobForInstance, JobByInstance: jobByInstance}, nil
+	return pipelineOwnedMetadata{Metadata: out, Jobs: jobs, JobForInstance: jobForInstance, JobByInstance: jobByInstance}, nil
 }
 
 func collectPipelineOwnedInstanceNames(teamDir, pipeline string) (map[string]bool, error) {
@@ -8343,6 +8347,7 @@ func collectPipelineLogRows(teamDir, pipeline string, opts logListOptions, since
 	if err != nil {
 		return nil, err
 	}
+	rows = enrichLogListRowsWithJobs(rows, owned.Jobs)
 	rows = filterLogListRows(rows, opts)
 	rows = filterLogListRowsSince(rows, since)
 	rows = latestLogListRowsLimit(rows, limit)

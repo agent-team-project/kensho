@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
@@ -446,6 +447,13 @@ type logListRow struct {
 	Stale         bool   `json:"stale,omitempty"`
 	RuntimeStale  bool   `json:"runtime_stale,omitempty"`
 	Unhealthy     bool   `json:"unhealthy,omitempty"`
+	JobID         string `json:"job_id,omitempty"`
+	Ticket        string `json:"ticket,omitempty"`
+	Pipeline      string `json:"pipeline,omitempty"`
+	StepID        string `json:"step_id,omitempty"`
+	Target        string `json:"target,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	PR            string `json:"pr,omitempty"`
 	PID           int    `json:"pid,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
 	LogPath       string `json:"log_path"`
@@ -463,6 +471,7 @@ type logListOptions struct {
 	runtimes     map[string]bool
 	agents       map[string]bool
 	phases       map[string]bool
+	step         string
 	stale        bool
 	runtimeStale bool
 	unhealthy    bool
@@ -829,6 +838,10 @@ func logListRowsFromMetadata(teamDir string, metas []*daemon.Metadata) ([]logLis
 			Stale:         staleInstances[meta.Instance],
 			RuntimeStale:  runtimeStale,
 			Unhealthy:     metadataStatusKey(meta) == string(daemon.StatusCrashed) || staleInstances[meta.Instance] || runtimeStale,
+			JobID:         job.NormalizeID(meta.Job),
+			Ticket:        strings.TrimSpace(meta.Ticket),
+			Branch:        strings.TrimSpace(meta.Branch),
+			PR:            strings.TrimSpace(meta.PR),
 			PID:           meta.PID,
 			LogPath:       displayPathFromTeamDir(teamDir, logPath),
 			path:          logPath,
@@ -848,6 +861,156 @@ func logListRowsFromMetadata(teamDir string, metas []*daemon.Metadata) ([]logLis
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+type logListJobStep struct {
+	job  *job.Job
+	step *job.Step
+}
+
+func enrichLogListRowsWithJobs(rows []logListRow, jobs []*job.Job) []logListRow {
+	if len(rows) == 0 || len(jobs) == 0 {
+		return rows
+	}
+	jobByID := make(map[string]*job.Job, len(jobs))
+	jobsByInstance := map[string][]*job.Job{}
+	stepsByInstance := map[string][]logListJobStep{}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		id := job.NormalizeID(j.ID)
+		if id != "" {
+			jobByID[id] = j
+		}
+		if instance := strings.TrimSpace(j.Instance); instance != "" {
+			jobsByInstance[instance] = appendUniqueLogListJob(jobsByInstance[instance], j)
+		}
+		for i := range j.Steps {
+			step := &j.Steps[i]
+			if instance := strings.TrimSpace(step.Instance); instance != "" {
+				jobsByInstance[instance] = appendUniqueLogListJob(jobsByInstance[instance], j)
+				stepsByInstance[instance] = append(stepsByInstance[instance], logListJobStep{job: j, step: step})
+			}
+		}
+	}
+	for i := range rows {
+		instance := strings.TrimSpace(rows[i].Instance)
+		if id := job.NormalizeID(rows[i].JobID); id != "" {
+			if j := jobByID[id]; j != nil {
+				rows[i] = enrichLogListRowWithJob(rows[i], j, logListJobStepForInstance(j, instance))
+				continue
+			}
+		}
+		if owned, ok := uniqueLogListJobStep(stepsByInstance[instance]); ok {
+			rows[i] = enrichLogListRowWithJob(rows[i], owned.job, owned.step)
+			continue
+		}
+		if j, ok := uniqueLogListJob(jobsByInstance[instance]); ok {
+			rows[i] = enrichLogListRowWithJob(rows[i], j, nil)
+		}
+	}
+	return rows
+}
+
+func appendUniqueLogListJob(jobs []*job.Job, j *job.Job) []*job.Job {
+	if j == nil {
+		return jobs
+	}
+	id := job.NormalizeID(j.ID)
+	for _, existing := range jobs {
+		if existing == j || (id != "" && job.NormalizeID(existing.ID) == id) {
+			return jobs
+		}
+	}
+	return append(jobs, j)
+}
+
+func uniqueLogListJob(jobs []*job.Job) (*job.Job, bool) {
+	var out *job.Job
+	outID := ""
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		id := job.NormalizeID(j.ID)
+		if out == nil {
+			out = j
+			outID = id
+			continue
+		}
+		if id == "" || outID == "" || id != outID {
+			return nil, false
+		}
+	}
+	return out, out != nil
+}
+
+func uniqueLogListJobStep(steps []logListJobStep) (logListJobStep, bool) {
+	var out logListJobStep
+	outJobID := ""
+	for _, owned := range steps {
+		if owned.job == nil || owned.step == nil {
+			continue
+		}
+		jobID := job.NormalizeID(owned.job.ID)
+		stepID := strings.TrimSpace(owned.step.ID)
+		if out.job == nil {
+			out = owned
+			outJobID = jobID
+			continue
+		}
+		if jobID == "" || outJobID == "" || jobID != outJobID || strings.TrimSpace(out.step.ID) != stepID {
+			return logListJobStep{}, false
+		}
+	}
+	return out, out.job != nil
+}
+
+func logListJobStepForInstance(j *job.Job, instance string) *job.Step {
+	if j == nil {
+		return nil
+	}
+	instance = strings.TrimSpace(instance)
+	var out *job.Step
+	for i := range j.Steps {
+		if strings.TrimSpace(j.Steps[i].Instance) != instance {
+			continue
+		}
+		if out != nil {
+			return nil
+		}
+		out = &j.Steps[i]
+	}
+	return out
+}
+
+func enrichLogListRowWithJob(row logListRow, j *job.Job, step *job.Step) logListRow {
+	if j == nil {
+		return row
+	}
+	if row.JobID == "" {
+		row.JobID = job.NormalizeID(j.ID)
+	}
+	if row.Ticket == "" {
+		row.Ticket = strings.TrimSpace(j.Ticket)
+	}
+	if row.Pipeline == "" {
+		row.Pipeline = strings.TrimSpace(j.Pipeline)
+	}
+	if row.Branch == "" {
+		row.Branch = strings.TrimSpace(j.Branch)
+	}
+	if row.PR == "" {
+		row.PR = strings.TrimSpace(j.PR)
+	}
+	if step != nil {
+		row.StepID = strings.TrimSpace(step.ID)
+		row.Target = strings.TrimSpace(step.Target)
+	} else if row.Target == "" {
+		row.Target = strings.TrimSpace(j.Target)
+	}
+	return row
 }
 
 func logPhaseByInstance(teamDir string) map[string]string {
@@ -913,6 +1076,9 @@ func filterLogListRows(rows []logListRow, opts logListOptions) []logListRow {
 		if len(opts.phases) > 0 && !opts.phases[logRowPhaseKey(row)] {
 			continue
 		}
+		if opts.step != "" && row.StepID != opts.step {
+			continue
+		}
 		if opts.stale && !row.Stale {
 			continue
 		}
@@ -928,7 +1094,7 @@ func filterLogListRows(rows []logListRow, opts logListOptions) []logListRow {
 }
 
 func logListOptionsHasFilters(opts logListOptions) bool {
-	return len(opts.statuses) > 0 || len(opts.runtimes) > 0 || len(opts.agents) > 0 || len(opts.phases) > 0 || opts.stale || opts.runtimeStale || opts.unhealthy
+	return len(opts.statuses) > 0 || len(opts.runtimes) > 0 || len(opts.agents) > 0 || len(opts.phases) > 0 || opts.step != "" || opts.stale || opts.runtimeStale || opts.unhealthy
 }
 
 func logRowRuntimeKey(row logListRow) string {
@@ -1024,6 +1190,13 @@ type logListFormatRow struct {
 	Stale        bool
 	RuntimeStale bool
 	Unhealthy    bool
+	JobID        string
+	Ticket       string
+	Pipeline     string
+	StepID       string
+	Target       string
+	Branch       string
+	PR           string
 	PID          int
 	LogPath      string
 	Exists       bool
@@ -1043,6 +1216,13 @@ func renderLogListFormat(w io.Writer, rows []logListRow, tmpl *template.Template
 			Stale:        row.Stale,
 			RuntimeStale: row.RuntimeStale,
 			Unhealthy:    logRowUnhealthy(row),
+			JobID:        row.JobID,
+			Ticket:       row.Ticket,
+			Pipeline:     row.Pipeline,
+			StepID:       row.StepID,
+			Target:       row.Target,
+			Branch:       row.Branch,
+			PR:           row.PR,
 			PID:          row.PID,
 			LogPath:      row.LogPath,
 			Exists:       row.Exists,

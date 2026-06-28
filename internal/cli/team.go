@@ -3962,6 +3962,7 @@ func newTeamLogsCmd() *cobra.Command {
 		unhealthy        bool
 		lastMsg          bool
 		clean            bool
+		step             string
 		tail             string
 		since            string
 		grep             string
@@ -4073,6 +4074,7 @@ func newTeamLogsCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			listOpts.runtimeStale = runtimeStaleOnly
+			listOpts.step = strings.TrimSpace(step)
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -4107,6 +4109,7 @@ func newTeamLogsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&step, "step", "", "Only show logs for instances recorded on this pipeline step id.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show logs for team instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show logs for team instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed, status-stale, or runtime-stale team instances.")
@@ -9050,6 +9053,11 @@ func collectTeamLogRows(teamDir, name string, opts logListOptions, since *time.T
 		return nil, err
 	}
 	rows = teamLogRows(top, team, rows)
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	rows = enrichLogListRowsWithJobs(rows, jobs)
 	rows = filterLogListRows(rows, opts)
 	rows = filterLogListRowsSince(rows, since)
 	rows = latestLogListRowsLimit(rows, limit)

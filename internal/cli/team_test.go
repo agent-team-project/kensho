@@ -7343,6 +7343,23 @@ instances = ["other", "build-worker"]
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-201",
+		Ticket:    "SQU-201",
+		Target:    "worker",
+		Kickoff:   "team logs",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Instance:  "worker-squ-201",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-201", After: []string{"review"}},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
 	daemonRoot := daemon.DaemonRoot(teamDir)
 	for _, meta := range []*daemon.Metadata{
 		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-2 * time.Hour)},
@@ -7378,6 +7395,9 @@ instances = ["other", "build-worker"]
 	if got := logRowInstances(rows); strings.Join(got, ",") != "manager,worker-squ-201" {
 		t.Fatalf("team log rows = %v", got)
 	}
+	if rows[0].JobID != "squ-201" || rows[0].StepID != "review" || rows[1].StepID != "implement" {
+		t.Fatalf("team log row job metadata = %+v", rows)
+	}
 
 	codexList := NewRootCmd()
 	codexListOut, codexListErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -7396,6 +7416,18 @@ instances = ["other", "build-worker"]
 	}
 	if rows[0].Runtime != "codex" {
 		t.Fatalf("team runtime log row = %+v", rows[0])
+	}
+
+	stepList := NewRootCmd()
+	stepListOut, stepListErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepList.SetOut(stepListOut)
+	stepList.SetErr(stepListErr)
+	stepList.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--step", "implement", "--list", "--format", "{{.Instance}} {{.JobID}} {{.StepID}}"})
+	if err := stepList.Execute(); err != nil {
+		t.Fatalf("team logs step list: %v\nstderr=%s", err, stepListErr.String())
+	}
+	if got, want := strings.TrimSpace(stepListOut.String()), "worker-squ-201 squ-201 implement"; got != want {
+		t.Fatalf("team logs step list = %q, want %q", got, want)
 	}
 
 	formatted := NewRootCmd()
@@ -7446,6 +7478,18 @@ instances = ["other", "build-worker"]
 		t.Fatalf("team logs runtime = %q", got)
 	}
 
+	stepLogs := NewRootCmd()
+	stepLogsOut, stepLogsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepLogs.SetOut(stepLogsOut)
+	stepLogs.SetErr(stepLogsErr)
+	stepLogs.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--step", "review", "--tail", "1"})
+	if err := stepLogs.Execute(); err != nil {
+		t.Fatalf("team logs step: %v\nstderr=%s", err, stepLogsErr.String())
+	}
+	if got := stepLogsOut.String(); got != "manager second\n" {
+		t.Fatalf("team logs step = %q", got)
+	}
+
 	latest := NewRootCmd()
 	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
 	latest.SetOut(latestOut)
@@ -7474,6 +7518,18 @@ instances = ["other", "build-worker"]
 	}
 	if strings.Contains(lastBody, "build worker final") || strings.Contains(lastBody, "other final") {
 		t.Fatalf("team last-message leaked unrelated content:\n%s", lastBody)
+	}
+
+	stepLast := NewRootCmd()
+	stepLastOut, stepLastErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepLast.SetOut(stepLastOut)
+	stepLast.SetErr(stepLastErr)
+	stepLast.SetArgs([]string{"team", "logs", "delivery", "--repo", root, "--step", "implement", "--last-message"})
+	if err := stepLast.Execute(); err != nil {
+		t.Fatalf("team logs step last-message: %v\nstderr=%s", err, stepLastErr.String())
+	}
+	if got := stepLastOut.String(); got != "worker final\n" {
+		t.Fatalf("team logs step last-message = %q", got)
 	}
 
 	runtimeLast := NewRootCmd()
