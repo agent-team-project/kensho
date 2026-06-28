@@ -540,13 +540,13 @@ func buildHealthWithDaemonStatus(daemonStatus daemonStatusJSON, rows []instanceR
 	}
 	if !daemonStatus.Running {
 		result.Daemon.PID = 0
-		result.addIssue("daemon_not_running", "", "", "", "daemon is not running")
+		result.addIssueWithSeverityAndActions("daemon_not_running", "error", "", "", "", "", "daemon is not running", daemonStatusActions(daemonStatus))
 	} else if !daemonStatus.Ready {
 		msg := "daemon API is not ready"
 		if daemonStatus.Error != "" {
 			msg += ": " + daemonStatus.Error
 		}
-		result.addIssue("daemon_not_ready", "", "", "", msg)
+		result.addIssueWithSeverityAndActions("daemon_not_ready", "error", "", "", "", "", msg, daemonStatusActions(daemonStatus))
 	}
 
 	allRowByName := map[string]instanceRow{}

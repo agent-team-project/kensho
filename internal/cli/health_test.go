@@ -45,6 +45,9 @@ func TestHealthDaemonDownIsUnhealthy(t *testing.T) {
 	if len(got.Issues) != 1 || got.Issues[0].Code != "daemon_not_running" {
 		t.Fatalf("issues = %+v, want daemon_not_running", got.Issues)
 	}
+	if !containsString(got.Issues[0].Actions, "agent-team daemon start") {
+		t.Fatalf("daemon-down actions = %+v, want daemon start", got.Issues[0].Actions)
+	}
 }
 
 func TestHealthDaemonNotReadyIsUnhealthy(t *testing.T) {
@@ -62,6 +65,11 @@ func TestHealthDaemonNotReadyIsUnhealthy(t *testing.T) {
 	}
 	if len(got.Issues) != 1 || got.Issues[0].Code != "daemon_not_ready" {
 		t.Fatalf("issues = %+v, want daemon_not_ready", got.Issues)
+	}
+	for _, want := range []string{"agent-team daemon restart", "agent-team daemon logs --tail 80"} {
+		if !containsString(got.Issues[0].Actions, want) {
+			t.Fatalf("daemon-not-ready actions = %+v, missing %q", got.Issues[0].Actions, want)
+		}
 	}
 }
 
@@ -552,8 +560,10 @@ func TestHealthCommandJSONExitsUnhealthy(t *testing.T) {
 	if body.Healthy || body.Daemon.Running {
 		t.Fatalf("health json should be unhealthy with daemon down: %+v", body)
 	}
-	if !containsString(body.Actions, "agent-team sync --dry-run") {
-		t.Fatalf("health json actions = %+v, want sync dry-run", body.Actions)
+	for _, want := range []string{"agent-team daemon start", "agent-team sync --dry-run"} {
+		if !containsString(body.Actions, want) {
+			t.Fatalf("health json actions = %+v, missing %q", body.Actions, want)
+		}
 	}
 }
 
@@ -610,6 +620,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 		t.Fatalf("issues = %+v, missing queue_dead_letter", body.Issues)
 	}
 	for _, want := range []string{
+		"agent-team daemon start",
 		"agent-team sync --dry-run",
 		"agent-team queue retry --all --sort attempts --limit 10",
 		"agent-team repair --skip-tick",
@@ -643,6 +654,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 		t.Fatalf("health commands err = %v, want exit 1\nstderr=%s", err, commandsErr.String())
 	}
 	wantCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon start",
 		"agent-team sync --dry-run",
 		"agent-team queue retry --all --sort attempts --limit 10",
 		"agent-team repair --skip-tick",

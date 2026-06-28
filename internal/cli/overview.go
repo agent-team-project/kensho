@@ -908,7 +908,7 @@ func overviewActionHintsForScope(out *overviewResult, health *healthResult, team
 	}
 	if health != nil {
 		for _, issue := range health.Issues {
-			if issue.Code == "daemon_not_running" || issue.Code == "daemon_not_ready" {
+			if (issue.Code == "daemon_not_running" || issue.Code == "daemon_not_ready") && len(issue.Actions) == 0 {
 				add("agent-team daemon start", "health", issue.Code)
 			}
 			if issue.Code == "declared_missing" || issue.Code == "declared_not_running" {
