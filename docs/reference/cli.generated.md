@@ -7122,7 +7122,7 @@ Flags:
       --no-redact               With --current-after/--current-before, include raw payload values instead of redacting sensitive keys.
   -o, --output string           Write the JSON snapshot diff to this file. Use '-' for stdout.
       --schedule-limit int      With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all. (default 10)
-      --section strings         Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all. Can repeat or comma-separate.
+      --section strings         Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, timelines, pipeline_metrics, ready_advance, or all. Can repeat or comma-separate.
       --sort string             Sort emitted change detail rows by section, action, or id before applying --limit. (default "section")
       --summary                 Only emit metadata and summary counters; suppress change detail rows.
       --timeline string         With --current-after/--current-before on pipeline snapshots, include the last N combined audit/lifecycle timeline rows (0 or all = all). (default "50")

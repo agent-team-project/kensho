@@ -181,7 +181,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit snapshot diff as JSON.")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the JSON snapshot diff to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "Exit with status 1 when snapshots differ.")
-	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&sections, "section", nil, "Only compare sections: provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, timelines, pipeline_metrics, ready_advance, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only compare change actions: added, removed, or changed. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
@@ -1117,7 +1117,7 @@ func parseSnapshotDiffSections(values []string) (map[string]bool, error) {
 			names := normalizeSnapshotDiffSectionAliases(name)
 			for _, name := range names {
 				if !valid[name] {
-					return nil, fmt.Errorf("--section must be provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, or all")
+					return nil, fmt.Errorf("--section must be provenance, git, runtime, health, plan, triage, next, instances, jobs, job_quarantine, pipelines, inbox, outbox, outbox_quarantine, queue, queue_quarantine, schedules, intake, events, timeline, advance, section_errors, quarantine, timelines, pipeline_metrics, ready_advance, or all")
 				}
 				out[name] = true
 			}
@@ -1139,6 +1139,12 @@ func normalizeSnapshotDiffSectionAliases(name string) []string {
 		return []string{"outbox_quarantine"}
 	case "queue_quarantines":
 		return []string{"queue_quarantine"}
+	case "timeline_events", "timelines":
+		return []string{"timeline"}
+	case "pipeline", "pipeline_metrics", "pipeline_status":
+		return []string{"pipelines"}
+	case "advance_preview", "pipeline_advance", "ready_advance", "ready_advances":
+		return []string{"advance"}
 	default:
 		return []string{name}
 	}

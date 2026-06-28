@@ -1522,6 +1522,55 @@ func TestSnapshotDiffCommandReportsChanges(t *testing.T) {
 		}
 	}
 
+	timelinesAlias := NewRootCmd()
+	timelinesAliasOut, timelinesAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
+	timelinesAlias.SetOut(timelinesAliasOut)
+	timelinesAlias.SetErr(timelinesAliasErr)
+	timelinesAlias.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "timelines", "--json"})
+	if err := timelinesAlias.Execute(); err != nil {
+		t.Fatalf("snapshot diff timelines alias section: %v\nstderr=%s", err, timelinesAliasErr.String())
+	}
+	var timelinesAliasResult snapshotDiffResult
+	if err := json.Unmarshal(timelinesAliasOut.Bytes(), &timelinesAliasResult); err != nil {
+		t.Fatalf("decode timelines-alias snapshot diff: %v\nbody=%s", err, timelinesAliasOut.String())
+	}
+	if timelinesAliasResult.Summary.TotalChanges != timelineOnlyResult.Summary.TotalChanges || timelinesAliasResult.Summary.Timeline != timelineOnlyResult.Summary.Timeline || timelinesAliasResult.Summary.Events.Added != 0 {
+		t.Fatalf("timelines-alias diff summary = %+v", timelinesAliasResult.Summary)
+	}
+	for _, change := range timelinesAliasResult.Changes {
+		if change.Section != "timeline" {
+			t.Fatalf("timelines-alias diff included %q change: %+v", change.Section, timelinesAliasResult.Changes)
+		}
+	}
+
+	pipelineAliases := NewRootCmd()
+	pipelineAliasesOut, pipelineAliasesErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineAliases.SetOut(pipelineAliasesOut)
+	pipelineAliases.SetErr(pipelineAliasesErr)
+	pipelineAliases.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--section", "pipeline-metrics", "--section", "ready-advance", "--json"})
+	if err := pipelineAliases.Execute(); err != nil {
+		t.Fatalf("snapshot diff pipeline alias sections: %v\nstderr=%s", err, pipelineAliasesErr.String())
+	}
+	var pipelineAliasesResult snapshotDiffResult
+	if err := json.Unmarshal(pipelineAliasesOut.Bytes(), &pipelineAliasesResult); err != nil {
+		t.Fatalf("decode pipeline-alias snapshot diff: %v\nbody=%s", err, pipelineAliasesOut.String())
+	}
+	if pipelineAliasesResult.Summary.TotalChanges == 0 ||
+		pipelineAliasesResult.Summary.Pipelines.Changed == 0 ||
+		pipelineAliasesResult.Summary.Advance.Added == 0 ||
+		pipelineAliasesResult.Summary.Timeline.Added != 0 ||
+		!hasSnapshotDiffChange(pipelineAliasesResult.Changes, "pipelines", "ticket_to_pr.ready_steps", "changed") ||
+		!hasSnapshotDiffChange(pipelineAliasesResult.Changes, "advance", "squ-803:review", "added") {
+		t.Fatalf("pipeline-alias diff summary = %+v changes=%+v", pipelineAliasesResult.Summary, pipelineAliasesResult.Changes)
+	}
+	for _, change := range pipelineAliasesResult.Changes {
+		switch change.Section {
+		case "pipelines", "advance":
+		default:
+			t.Fatalf("pipeline-alias diff included %q change: %+v", change.Section, pipelineAliasesResult.Changes)
+		}
+	}
+
 	invalidSection := NewRootCmd()
 	invalidSectionOut, invalidSectionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSection.SetOut(invalidSectionOut)
