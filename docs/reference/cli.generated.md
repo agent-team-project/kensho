@@ -2244,7 +2244,7 @@ Aliases: `watch`
 Flags:
 
 ```text
-      --commands            Print recommended commands, one per line.
+      --commands            Print recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit the pipeline explanation as JSON.
@@ -2372,7 +2372,7 @@ agent-team job next <job-id> [flags]
 Flags:
 
 ```text
-      --commands        Print only recommended commands, one per line.
+      --commands        Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string   Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.
       --json            Emit the next-step state as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
@@ -3328,7 +3328,7 @@ Aliases: `inspect`
 Flags:
 
 ```text
-      --commands        Print only recommended follow-up commands.
+      --commands        Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.
       --events string   Include the last N job events in the detail output, or all. (default "5")
       --format string   Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json            Emit the job as JSON.

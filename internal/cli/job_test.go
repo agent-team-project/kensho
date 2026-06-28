@@ -395,7 +395,8 @@ func TestJobCreateListShowClose(t *testing.T) {
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("job show --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), "agent-team job dispatch squ-42\n"; got != want {
+	wantShowCommands := strings.Join(scopedOperatorActions([]string{"agent-team job dispatch squ-42"}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got, want := commandsOut.String(), wantShowCommands; got != want {
 		t.Fatalf("job show --commands = %q, want %q", got, want)
 	}
 
@@ -11014,7 +11015,8 @@ func TestJobNextReportsPipelineState(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("job next commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), "agent-team job advance squ-203\n"; got != want {
+	wantNextCommands := strings.Join(scopedOperatorActions([]string{"agent-team job advance squ-203"}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got, want := commandsOut.String(), wantNextCommands; got != want {
 		t.Fatalf("job next commands = %q, want %q", got, want)
 	}
 
@@ -11237,11 +11239,14 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 		t.Fatalf("job explain commands: %v\nstderr=%s", err, explainCommandsErr.String())
 	}
 	var wantExplainCommands bytes.Buffer
-	if err := renderJobExplainCommands(&wantExplainCommands, explained); err != nil {
+	if err := renderJobExplainCommands(&wantExplainCommands, explained, operatorCommandScope{Repo: tmp, Set: true}); err != nil {
 		t.Fatalf("render expected job explain commands: %v", err)
 	}
 	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
 		t.Fatalf("job explain commands = %q, want %q", got, want)
+	}
+	if strings.Contains(explainCommandsOut.String(), "agent-team job ") {
+		t.Fatalf("job explain commands included unscoped agent-team action:\n%s", explainCommandsOut.String())
 	}
 
 	explainStep := NewRootCmd()

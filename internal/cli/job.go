@@ -1680,13 +1680,13 @@ func newJobShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, commands)
+			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&eventsTail, "events", "5", "Include the last N job events in the detail output, or all.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
 }
@@ -5903,13 +5903,13 @@ func newJobNextCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job next: %v\n", err)
 				return exitErr(1)
 			}
-			return renderJobNextResult(cmd.OutOrStdout(), next, jsonOut, tmpl, commands)
+			return renderJobNextResult(cmd.OutOrStdout(), next, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&states, "state", nil, "Only render when the next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&step, "step", "", "Only render when this pipeline step is the next step.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the next-step state as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the next-step state with a Go template, e.g. '{{.State}} {{.Step.ID}}'.")
 	return cmd
@@ -5984,7 +5984,7 @@ func newJobExplainCmd() *cobra.Command {
 				defer stop()
 				return runJobExplainWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			if err := runJobExplain(cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, commands, tmpl); err != nil {
+			if err := runJobExplain(cmd.OutOrStdout(), teamDir, args[0], stateFilter, step, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, repo, "repo")); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job explain: %v\n", err)
 				return exitErr(1)
 			}
@@ -5998,7 +5998,7 @@ func newJobExplainCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the pipeline explanation as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.")
 	return cmd
 }
@@ -12029,15 +12029,12 @@ func renderJobAdvanceResultFormat(w io.Writer, res *jobAdvanceResult, tmpl *temp
 	return err
 }
 
-func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *template.Template, commandsOnly bool) error {
+func renderJobNextResult(w io.Writer, res jobNextResult, jsonOut bool, tmpl *template.Template, commandsOnly bool, scope operatorCommandScope) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(res)
 	}
 	if commandsOnly {
-		for _, action := range res.Actions {
-			fmt.Fprintln(w, action)
-		}
-		return nil
+		return renderOperatorActionCommands(w, res.Actions, scope)
 	}
 	if tmpl != nil {
 		if err := tmpl.Execute(w, res); err != nil {
@@ -12154,11 +12151,11 @@ func jobExplainCommandActions(res jobExplainResult) []string {
 	return commandActionsOnly(actions)
 }
 
-func renderJobExplainCommands(w io.Writer, res jobExplainResult) error {
-	return renderActionCommands(w, jobExplainCommandActions(res))
+func renderJobExplainCommands(w io.Writer, res jobExplainResult, scope operatorCommandScope) error {
+	return renderActionCommands(w, scopedOperatorActions(jobExplainCommandActions(res), scope))
 }
 
-func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool, step string, jsonOut, commands bool, tmpl *template.Template) error {
+func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool, step string, jsonOut, commands bool, tmpl *template.Template, scope operatorCommandScope) error {
 	j, err := job.Read(teamDir, id)
 	if err != nil {
 		return err
@@ -12176,7 +12173,7 @@ func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool,
 		return fmt.Errorf("job %q next-step state is %q; does not match --state", explained.JobID, explained.State)
 	}
 	if commands {
-		return renderJobExplainCommands(w, explained)
+		return renderJobExplainCommands(w, explained, scope)
 	}
 	return renderJobExplainResult(w, explained, jsonOut, tmpl)
 }
@@ -12193,7 +12190,7 @@ func runJobExplainWatch(ctx context.Context, w io.Writer, teamDir, id string, st
 				return err
 			}
 		}
-		if err := runJobExplain(w, teamDir, id, stateFilter, step, jsonOut, false, tmpl); err != nil {
+		if err := runJobExplain(w, teamDir, id, stateFilter, step, jsonOut, false, tmpl, operatorCommandScope{}); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {
@@ -14107,7 +14104,7 @@ type jobShowResult struct {
 	Events []job.Event `json:"events"`
 }
 
-func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, commandsOut bool) error {
+func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, commandsOut bool, scope operatorCommandScope) error {
 	if jsonOut || tmpl != nil {
 		if jsonOut && includeEvents {
 			events, err := job.ListEvents(teamDir, j.ID)
@@ -14143,7 +14140,7 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 	}
 	if commandsOut {
 		actions := jobDetailActions(j, teamDir, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems, time.Now().UTC())
-		return renderActionCommands(w, commandActionsOnly(actions))
+		return renderOperatorActionCommands(w, actions, scope)
 	}
 	renderJobDetailWithRuntime(w, teamDir, j, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems)
 	if includeEvents {
