@@ -35,7 +35,7 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Sanity-check the vendored team.",
 		Long: "Sanity-check the vendored team: .agent_team/ layout, config.toml validity, " +
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
-			"durable job files, pipeline workflow wiring, the selected runtime binary, and whether the companion agent-teamd binary is available for daemon-backed lifecycle commands.",
+			"durable job files, pipeline workflow wiring, the selected runtime binary, whether the companion agent-teamd binary is available for daemon-backed lifecycle commands, and the daemon's running/readiness state when the repo is otherwise valid.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: --format cannot be combined with --json.")
