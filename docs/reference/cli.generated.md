@@ -4254,6 +4254,7 @@ Subcommands:
 - `agent-team pipeline explain` - Explain pipeline jobs and step blockers.
 - `agent-team pipeline graph` - Render a declared pipeline step graph.
 - `agent-team pipeline hold` - Hold pipeline jobs so automation will not advance them.
+- `agent-team pipeline job-events` - Show durable job events for pipeline-owned jobs.
 - `agent-team pipeline jobs` - List pipeline jobs.
 - `agent-team pipeline logs` - Show daemon-captured logs for pipeline-owned jobs.
 - `agent-team pipeline ls` - List declared pipelines.
@@ -4594,6 +4595,32 @@ Flags:
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --state strings         Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
       --until string          Hold until this RFC3339 timestamp.
+```
+
+## `agent-team pipeline job-events`
+
+Show durable job events for pipeline-owned jobs.
+
+Show durable job audit events for one pipeline. With no pipeline, all pipeline-owned job events are shown.
+
+```text
+agent-team pipeline job-events [<pipeline>|--all] [flags]
+```
+
+Flags:
+
+```text
+      --actor strings      Only show job events from this actor. Can repeat or comma-separate.
+      --all                Show job events across all pipelines. This is the default when no pipeline is passed.
+      --format string      Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
+      --instance strings   Only show job events for this owning instance. Can repeat or comma-separate.
+      --json               Emit matching job events as JSON.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --since string       Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --status strings     Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
+      --summary            Summarize matching job events by job, type, status, actor, and instance.
+      --tail string        Show only the last N matching events after combining pipeline jobs (0 or all = all). (default "0")
+      --type strings       Only show job events with this type. Can repeat or comma-separate.
 ```
 
 ## `agent-team pipeline jobs`

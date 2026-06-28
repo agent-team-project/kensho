@@ -33,6 +33,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineGraphCmd())
 	cmd.AddCommand(newPipelineDoctorCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
+	cmd.AddCommand(newPipelineJobEventsCmd())
 	cmd.AddCommand(newPipelineStatusCmd())
 	cmd.AddCommand(newPipelineTriageCmd())
 	cmd.AddCommand(newPipelineExplainCmd())
@@ -399,6 +400,112 @@ func newPipelineJobsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "Sort jobs by id, status, target, ticket, created, updated, instance, branch, or pr.")
 	return cmd
+}
+
+func newPipelineJobEventsCmd() *cobra.Command {
+	var (
+		repo      string
+		all       bool
+		tail      string
+		types     []string
+		actors    []string
+		statuses  []string
+		instances []string
+		since     string
+		summary   bool
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "job-events [<pipeline>|--all]",
+		Short: "Show durable job events for pipeline-owned jobs.",
+		Long:  "Show durable job audit events for one pipeline. With no pipeline, all pipeline-owned job events are shown.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline job-events: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline job-events: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline job-events: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if format != "" && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline job-events: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline job-events: pipeline name is required.")
+				return exitErr(2)
+			}
+			filters, err := newJobEventFilters(types, actors, statuses, instances, since, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline job-events: %v\n", err)
+				return exitErr(2)
+			}
+			tailEvents, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline job-events: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobEventFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline job-events: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			jobs, err := collectPipelineEventJobs(teamDir, pipelineName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline job-events: %v\n", err)
+				return exitErr(1)
+			}
+			events, err := collectJobEventsForJobs(teamDir, jobs, filters, tailEvents)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline job-events: %v\n", err)
+				return exitErr(1)
+			}
+			scope := "pipelines"
+			if pipelineName != "" {
+				scope = "pipeline:" + pipelineName
+			}
+			return renderScopedJobEvents(cmd.OutOrStdout(), scope, events, jsonOut, summary, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Show job events across all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N matching events after combining pipeline jobs (0 or all = all).")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job events from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only show job events for this owning instance. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&since, "since", "", "Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching job events by job, type, status, actor, and instance.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit matching job events as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.")
+	return cmd
+}
+
+func collectPipelineEventJobs(teamDir, pipelineName string) ([]*job.Job, error) {
+	filters, err := newJobListFilters("", "", "", pipelineName, "", "", "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(pipelineName) == "" {
+		filters.PipelineOwned = true
+	}
+	return filteredJobs(teamDir, filters)
 }
 
 func newPipelineStatusCmd() *cobra.Command {

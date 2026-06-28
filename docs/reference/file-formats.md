@@ -199,6 +199,8 @@ Use `--type`, `--status`, `--actor`, `--instance`, and `--since` to narrow the
 visible audit rows before rendering or summarizing.
 Use `agent-team job events <job-id> --summary` when tooling only needs counts by
 type, status, actor, or instance.
+Use `agent-team pipeline job-events [<pipeline>]` to read or summarize the same
+audit rows across pipeline-owned jobs without opening each job log separately.
 
 ## Runtime Metadata
 

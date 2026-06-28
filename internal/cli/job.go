@@ -7618,10 +7618,12 @@ func renderJobEventTemplate(w io.Writer, ev job.Event, tmpl *template.Template) 
 }
 
 type jobEventSummaryJSON struct {
+	Scope     string         `json:"scope,omitempty"`
 	JobID     string         `json:"job_id,omitempty"`
 	Total     int            `json:"total"`
 	FirstTS   string         `json:"first_ts,omitempty"`
 	LastTS    string         `json:"last_ts,omitempty"`
+	Jobs      map[string]int `json:"jobs,omitempty"`
 	Types     map[string]int `json:"types,omitempty"`
 	Statuses  map[string]int `json:"statuses,omitempty"`
 	Actors    map[string]int `json:"actors,omitempty"`
@@ -7632,11 +7634,27 @@ type jobEventSummaryJSON struct {
 }
 
 func renderJobEventSummary(w io.Writer, id string, events []job.Event, jsonOut bool) error {
-	summary := collectJobEventSummary(id, events)
+	summary := collectJobEventSummary("", id, events, false)
+	return renderJobEventSummaryResult(w, summary, jsonOut)
+}
+
+func renderScopedJobEventSummary(w io.Writer, scope string, events []job.Event, jsonOut bool) error {
+	summary := collectJobEventSummary(scope, "", events, true)
+	return renderJobEventSummaryResult(w, summary, jsonOut)
+}
+
+func renderJobEventSummaryResult(w io.Writer, summary jobEventSummaryJSON, jsonOut bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(summary)
 	}
-	fmt.Fprintf(w, "job events: job=%s total=%d", summary.JobID, summary.Total)
+	fmt.Fprint(w, "job events:")
+	if summary.Scope != "" {
+		fmt.Fprintf(w, " scope=%s", summary.Scope)
+	}
+	if summary.JobID != "" {
+		fmt.Fprintf(w, " job=%s", summary.JobID)
+	}
+	fmt.Fprintf(w, " total=%d", summary.Total)
 	if summary.FirstTS != "" {
 		fmt.Fprintf(w, " first=%s", summary.FirstTS)
 	}
@@ -7644,6 +7662,7 @@ func renderJobEventSummary(w io.Writer, id string, events []job.Event, jsonOut b
 		fmt.Fprintf(w, " last=%s", summary.LastTS)
 	}
 	fmt.Fprintln(w)
+	renderEventCountLine(w, "jobs", summary.Jobs)
 	renderEventCountLine(w, "types", summary.Types)
 	renderEventCountLine(w, "statuses", summary.Statuses)
 	renderEventCountLine(w, "actors", summary.Actors)
@@ -7651,16 +7670,19 @@ func renderJobEventSummary(w io.Writer, id string, events []job.Event, jsonOut b
 	return nil
 }
 
-func collectJobEventSummary(id string, events []job.Event) jobEventSummaryJSON {
-	summary := jobEventSummaryJSON{JobID: job.IDFromInput(id)}
+func collectJobEventSummary(scope, id string, events []job.Event, includeJobs bool) jobEventSummaryJSON {
+	summary := jobEventSummaryJSON{
+		Scope: strings.TrimSpace(scope),
+		JobID: job.IDFromInput(id),
+	}
 	for _, ev := range events {
-		summary.add(ev)
+		summary.add(ev, includeJobs)
 	}
 	summary.finalize()
 	return summary
 }
 
-func (s *jobEventSummaryJSON) add(ev job.Event) {
+func (s *jobEventSummaryJSON) add(ev job.Event, includeJobs bool) {
 	s.Total++
 	if !ev.TS.IsZero() {
 		if s.first.IsZero() || ev.TS.Before(s.first) {
@@ -7669,6 +7691,9 @@ func (s *jobEventSummaryJSON) add(ev job.Event) {
 		if s.last.IsZero() || ev.TS.After(s.last) {
 			s.last = ev.TS
 		}
+	}
+	if includeJobs {
+		addEventCount(&s.Jobs, ev.JobID)
 	}
 	addEventCount(&s.Types, ev.Type)
 	addEventCount(&s.Statuses, string(ev.Status))
@@ -7683,6 +7708,78 @@ func (s *jobEventSummaryJSON) finalize() {
 	if !s.last.IsZero() {
 		s.LastTS = s.last.Format(time.RFC3339)
 	}
+}
+
+func renderScopedJobEvents(w io.Writer, scope string, events []job.Event, jsonOut, summary bool, tmpl *template.Template) error {
+	if summary {
+		return renderScopedJobEventSummary(w, scope, events, jsonOut)
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(events)
+	}
+	if tmpl != nil {
+		for _, ev := range events {
+			if err := renderJobEventTemplate(w, ev, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobEventTableWithJob(w, events)
+	return nil
+}
+
+func collectJobEventsForJobs(teamDir string, jobs []*job.Job, filters jobEventFilters, tail int) ([]job.Event, error) {
+	events := []job.Event{}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		jobEvents, err := job.ListEvents(teamDir, j.ID)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, filterJobEvents(jobEvents, filters)...)
+	}
+	sortJobEvents(events)
+	return job.TailEvents(events, tail), nil
+}
+
+func sortJobEvents(events []job.Event) {
+	sort.SliceStable(events, func(i, j int) bool {
+		left := events[i]
+		right := events[j]
+		if !left.TS.Equal(right.TS) {
+			if left.TS.IsZero() {
+				return false
+			}
+			if right.TS.IsZero() {
+				return true
+			}
+			return left.TS.Before(right.TS)
+		}
+		if left.JobID != right.JobID {
+			return left.JobID < right.JobID
+		}
+		if left.Type != right.Type {
+			return left.Type < right.Type
+		}
+		return left.Message < right.Message
+	})
+}
+
+func renderJobEventTableWithJob(w io.Writer, events []job.Event) {
+	if len(events) == 0 {
+		fmt.Fprintln(w, "(no job events)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TIME\tJOB\tTYPE\tSTATUS\tINSTANCE\tACTOR\tMESSAGE")
+	for _, ev := range events {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			ev.TS.Format(time.RFC3339), emptyDash(ev.JobID), ev.Type, emptyDash(string(ev.Status)), emptyDash(ev.Instance), emptyDash(ev.Actor), emptyDash(ev.Message))
+	}
+	_ = tw.Flush()
 }
 
 func renderJobEventTable(w io.Writer, events []job.Event, header bool) {

@@ -1069,6 +1069,123 @@ func TestPipelineJobsListsMatchingJobs(t *testing.T) {
 	}
 }
 
+func TestPipelineJobEvents(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{ID: "squ-401", Ticket: "SQU-401", Target: "worker", Instance: "worker-squ-401", Pipeline: "ticket_to_pr", Status: job.StatusRunning, CreatedAt: base, UpdatedAt: base},
+		{ID: "squ-402", Ticket: "SQU-402", Target: "manager", Instance: "manager-squ-402", Pipeline: "nightly", Status: job.StatusQueued, CreatedAt: base, UpdatedAt: base},
+		{ID: "squ-403", Ticket: "SQU-403", Target: "manager", Instance: "manager-squ-403", Pipeline: "ticket_to_pr", Status: job.StatusDone, CreatedAt: base, UpdatedAt: base},
+		{ID: "adhoc-401", Ticket: "ADHOC-401", Target: "worker", Instance: "worker-adhoc-401", Status: job.StatusRunning, CreatedAt: base, UpdatedAt: base},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, ev := range []job.Event{
+		{TS: base.Add(time.Minute), JobID: "squ-401", Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created"},
+		{TS: base.Add(2 * time.Minute), JobID: "squ-401", Type: "updated", Status: job.StatusRunning, Instance: "worker-squ-401", Actor: "daemon", Message: "started"},
+		{TS: base.Add(3 * time.Minute), JobID: "squ-402", Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created"},
+		{TS: base.Add(4 * time.Minute), JobID: "squ-403", Type: "closed", Status: job.StatusDone, Instance: "manager-squ-403", Actor: "cli", Message: "closed"},
+		{TS: base.Add(5 * time.Minute), JobID: "adhoc-401", Type: "updated", Status: job.StatusRunning, Instance: "worker-adhoc-401", Actor: "daemon", Message: "adhoc"},
+	} {
+		ev := ev
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append event %s/%s: %v", ev.JobID, ev.Type, err)
+		}
+	}
+
+	filtered := NewRootCmd()
+	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filtered.SetOut(filteredOut)
+	filtered.SetErr(filteredErr)
+	filtered.SetArgs([]string{
+		"pipeline", "job-events", "ticket_to_pr",
+		"--repo", root,
+		"--status", "running",
+		"--instance", "worker-squ-401",
+		"--json",
+	})
+	if err := filtered.Execute(); err != nil {
+		t.Fatalf("pipeline job-events filtered: %v\nstderr=%s", err, filteredErr.String())
+	}
+	var events []job.Event
+	if err := json.Unmarshal(filteredOut.Bytes(), &events); err != nil {
+		t.Fatalf("decode filtered pipeline events: %v\nbody=%s", err, filteredOut.String())
+	}
+	if len(events) != 1 || events[0].JobID != "squ-401" || events[0].Status != job.StatusRunning || events[0].Instance != "worker-squ-401" {
+		t.Fatalf("filtered pipeline events = %+v", events)
+	}
+
+	allSummary := NewRootCmd()
+	allSummaryOut, allSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allSummary.SetOut(allSummaryOut)
+	allSummary.SetErr(allSummaryErr)
+	allSummary.SetArgs([]string{"pipeline", "job-events", "--repo", root, "--summary", "--json"})
+	if err := allSummary.Execute(); err != nil {
+		t.Fatalf("pipeline job-events summary: %v\nstderr=%s", err, allSummaryErr.String())
+	}
+	var summary jobEventSummaryJSON
+	if err := json.Unmarshal(allSummaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode pipeline event summary: %v\nbody=%s", err, allSummaryOut.String())
+	}
+	if summary.Scope != "pipelines" || summary.Total != 4 || summary.Jobs["squ-401"] != 2 || summary.Jobs["squ-402"] != 1 || summary.Jobs["squ-403"] != 1 || summary.Jobs["adhoc-401"] != 0 {
+		t.Fatalf("pipeline event summary = %+v", summary)
+	}
+
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--tail", "1", "--format", "{{.JobID}} {{.Type}} {{.Status}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("pipeline job-events format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got := strings.TrimSpace(formattedOut.String()); got != "squ-403 closed done" {
+		t.Fatalf("pipeline job-events format = %q", got)
+	}
+
+	table := NewRootCmd()
+	tableOut, tableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	table.SetOut(tableOut)
+	table.SetErr(tableErr)
+	table.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--tail", "1"})
+	if err := table.Execute(); err != nil {
+		t.Fatalf("pipeline job-events table: %v\nstderr=%s", err, tableErr.String())
+	}
+	if !strings.Contains(tableOut.String(), "JOB") || !strings.Contains(tableOut.String(), "squ-403") {
+		t.Fatalf("pipeline job-events table missing job column:\n%s", tableOut.String())
+	}
+
+	invalidAll := NewRootCmd()
+	invalidAllOut, invalidAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidAll.SetOut(invalidAllOut)
+	invalidAll.SetErr(invalidAllErr)
+	invalidAll.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--all", "--repo", root})
+	if err := invalidAll.Execute(); err == nil {
+		t.Fatalf("pipeline job-events accepted --all with pipeline: stdout=%s", invalidAllOut.String())
+	}
+	if !strings.Contains(invalidAllErr.String(), "--all cannot be combined with a pipeline argument") {
+		t.Fatalf("pipeline job-events --all error = %q", invalidAllErr.String())
+	}
+
+	invalidStatus := NewRootCmd()
+	invalidStatusOut, invalidStatusErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidStatus.SetOut(invalidStatusOut)
+	invalidStatus.SetErr(invalidStatusErr)
+	invalidStatus.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--status", "waiting"})
+	if err := invalidStatus.Execute(); err == nil {
+		t.Fatalf("pipeline job-events accepted invalid status: stdout=%s", invalidStatusOut.String())
+	}
+	if !strings.Contains(invalidStatusErr.String(), "unknown --status") {
+		t.Fatalf("pipeline job-events invalid status error = %q", invalidStatusErr.String())
+	}
+}
+
 func TestPipelineStatusSummarizesJobs(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

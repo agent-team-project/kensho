@@ -246,6 +246,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline top [<pipeline>\|--all]` | `agent-team pipeline stats [<pipeline>\|--all]` |
 | `agent-team pipeline logs [<pipeline>]` | Read daemon-captured logs for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline events [<pipeline>]` | Read lifecycle events for pipeline-owned instances across all workflows by default |
+| `agent-team pipeline job-events [<pipeline>]` | Read durable job audit events for pipeline-owned jobs across all workflows by default |
 | `agent-team pipeline cleanup <pipeline>` | Scoped job cleanup for done jobs in one pipeline |
 | `agent-team pipeline queue [<pipeline>]` | List or summarize active/quarantined queue items owned by one or all pipelines; add `--commands` to print visible row actions; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
 | `agent-team pipeline queue quarantine [<pipeline>]` | List or summarize pipeline-owned quarantined queue files across one or all workflows; sort rows with `--sort`, cap output with `--limit`, or print visible restore/drop actions with `--commands` |
