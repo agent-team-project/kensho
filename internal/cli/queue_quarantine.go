@@ -140,6 +140,7 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 		sortBy       string
 		limit        int
 		summary      bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -159,6 +160,18 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 			}
 			if summary && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine ls: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine ls: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine ls: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine ls: --commands cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
@@ -194,6 +207,9 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 				return renderQueueQuarantineSummary(cmd.OutOrStdout(), summarizeQueueQuarantineItems(items), jsonOut)
 			}
 			items = prepareQueueQuarantineItems(items, sortMode, limit)
+			if commands {
+				return renderQueueQuarantineListCommands(cmd.OutOrStdout(), items, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+			}
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
@@ -207,6 +223,7 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", queueQuarantineSortFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate quarantined queue-file counts instead of rows.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from the visible quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit quarantined queue files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	return cmd
@@ -1175,6 +1192,38 @@ func renderQueueQuarantineShow(w io.Writer, result queueQuarantineShowResult, js
 
 func renderQueueQuarantineCommands(w io.Writer, result queueQuarantineShowResult, scope operatorCommandScope) error {
 	return renderOperatorActionCommands(w, queueQuarantineShowActions(result), scope)
+}
+
+type queueQuarantineActionResolver func(queueQuarantineItem) []string
+
+func renderQueueQuarantineListCommands(w io.Writer, items []queueQuarantineItem, actions queueQuarantineActionResolver, scope operatorCommandScope) error {
+	out := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		out = append(out, queueQuarantineItemResolvedActions(item, actions)...)
+	}
+	return renderOperatorActionCommands(w, out, scope)
+}
+
+func queueQuarantineItemResolvedActions(item queueQuarantineItem, actions queueQuarantineActionResolver) []string {
+	if actions != nil {
+		return actions(item)
+	}
+	return queueQuarantineItemActions(item)
+}
+
+func queueQuarantineItemActions(item queueQuarantineItem) []string {
+	return queueQuarantineShowActions(queueQuarantineShowResult{queueQuarantineItem: item})
+}
+
+func scopedQueueQuarantineActionResolver(scopeJob, pipeline, team string) queueQuarantineActionResolver {
+	return func(item queueQuarantineItem) []string {
+		return queueQuarantineShowActions(queueQuarantineShowResult{
+			queueQuarantineItem: item,
+			ScopeJob:            strings.TrimSpace(scopeJob),
+			Pipeline:            strings.TrimSpace(pipeline),
+			Team:                strings.TrimSpace(team),
+		})
+	}
 }
 
 func queueQuarantineShowActions(result queueQuarantineShowResult) []string {

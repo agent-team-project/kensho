@@ -2881,6 +2881,7 @@ agent-team job queue quarantine <job-id> [flags]
 Flags:
 
 ```text
+      --commands             Print recommended commands from the visible job-owned quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.
       --event-type strings   Filter by event type; repeat or comma-separate values.
       --format string        Render each quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --json                 Emit quarantined queue files as JSON.
@@ -5073,6 +5074,7 @@ Flags:
 
 ```text
       --all                  List quarantined queue files across all pipelines. This is the default when no pipeline is passed.
+      --commands             Print recommended commands from the visible pipeline-owned quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.
       --event-type strings   Filter by event type; repeat or comma-separate values.
       --format string        Render each pipeline-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --job strings          Filter by job id or ticket; repeat or comma-separate values.
@@ -6104,6 +6106,7 @@ agent-team queue quarantine ls [flags]
 Flags:
 
 ```text
+      --commands             Print recommended commands from the visible quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.
       --event-type strings   Filter by event type; repeat or comma-separate values.
       --format string        Render each quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --instance strings     Filter by target instance name; repeat or comma-separate values.
@@ -8265,6 +8268,7 @@ agent-team team queue quarantine <team> [flags]
 Flags:
 
 ```text
+      --commands             Print recommended commands from the visible team-owned quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.
       --event-type strings   Filter by event type; repeat or comma-separate values.
       --format string        Render each team-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --job strings          Filter by job id or ticket; repeat or comma-separate values.

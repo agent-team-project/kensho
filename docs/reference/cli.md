@@ -143,7 +143,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job queue drop <job-id> <id>` | Drop one job-owned queue item |
 | `agent-team job queue drop <job-id> --all` | Drop matching job-owned queue items; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
 | `agent-team job queue prune <job-id>` | Age-prune job-owned queue entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit` |
-| `agent-team job queue quarantine <job-id>` | List or summarize job-owned quarantined queue files; sort rows with `--sort` and cap output with `--limit` |
+| `agent-team job queue quarantine <job-id>` | List or summarize job-owned quarantined queue files; sort rows with `--sort`, cap output with `--limit`, or print visible restore/drop actions with `--commands` |
 | `agent-team job queue quarantine show <job-id> <path>` | Inspect one preserved file; add `--commands` to print only follow-up commands that preserve an explicit `--repo` selector |
 | `agent-team job queue quarantine restore <job-id> <path>` | Restore one preserved file |
 | `agent-team job queue quarantine restore <job-id> --all` | Restore matching restorable files; sort and cap batch actions with `--sort` and `--limit` |
@@ -182,7 +182,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team queue drop --all` | Drop matching entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
 | `agent-team queue prune` | Age-prune entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit`; add `--dry-run --commands` for a scoped apply command |
 | `agent-team queue doctor` | Validate queue files; add `--commands` to print recovery commands only |
-| `agent-team queue quarantine ls` | List or summarize quarantined queue files; sort rows with `--sort` and cap output with `--limit` |
+| `agent-team queue quarantine ls` | List or summarize quarantined queue files; sort rows with `--sort`, cap output with `--limit`, or print visible restore/drop actions with `--commands` |
 | `agent-team queue quarantine show <path>` | Inspect quarantined queue file; add `--commands` to print only follow-up commands that preserve the selected repo scope |
 | `agent-team queue quarantine restore <path>` | Restore one preserved file; add `--dry-run --commands` to print the scoped apply command |
 | `agent-team queue quarantine drop <path>` | Drop one preserved file; add `--dry-run --commands` to print the scoped apply command |
@@ -246,6 +246,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline events [<pipeline>]` | Read lifecycle events for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline cleanup <pipeline>` | Scoped job cleanup for done jobs in one pipeline |
 | `agent-team pipeline queue [<pipeline>]` | List or summarize active/quarantined queue items owned by one or all pipelines; add `--commands` to print visible row actions; subcommands inspect, retry, drop, prune, or recover items owned by one pipeline |
+| `agent-team pipeline queue quarantine [<pipeline>]` | List or summarize pipeline-owned quarantined queue files across one or all workflows; sort rows with `--sort`, cap output with `--limit`, or print visible restore/drop actions with `--commands` |
 | `agent-team pipeline outbox [<pipeline>]` | List, summarize, or watch outbox events owned by one or all pipelines; add `--commands` to print visible row actions; subcommands inspect, retry, drop, or prune events owned by one pipeline |
 | `agent-team pipeline outbox retry <pipeline> --all` | Retry matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
 | `agent-team pipeline outbox drop <pipeline> --all` | Drop matching pipeline-owned outbox events; filter, sort, and limit batch actions with `--state`, `--type`, `--source`, `--job`, `--sort`, and `--limit` |
@@ -295,7 +296,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
 | `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
 | `agent-team team queue prune <team>` | Age-prune team-owned entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit` |
-| `agent-team team queue quarantine <team>` | Scoped quarantine list or summary; sort rows with `--sort`, cap output with `--limit`, and add `--commands` to quarantine show for follow-up commands that preserve an explicit `--repo` selector |
+| `agent-team team queue quarantine <team>` | Scoped quarantine list or summary; sort rows with `--sort`, cap output with `--limit`, or add `--commands` to print visible restore/drop actions that preserve an explicit `--repo` selector |
 | `agent-team team outbox <team>` | Scoped outbox list, summary, or watch view; filter by state, type, source, or job, sort/cap rows, or print visible row actions with `--commands` |
 | `agent-team team outbox show <team> <id>` | Inspect one outbox event owned by a team; add `--commands` to print only follow-up commands that preserve an explicit `--repo` selector |
 | `agent-team team outbox retry <team> <id>` | Move one team-owned failed or processed outbox event back to pending |

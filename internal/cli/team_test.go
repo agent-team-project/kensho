@@ -7752,6 +7752,7 @@ instances = ["other"]
 		t.Fatalf("team queue quarantine items = %+v", quarantineItems)
 	}
 	teamQuarantinePath := quarantineItems[0].Path
+	teamUnrestorablePath := filepath.Join("quarantine", "20260619T010000.000000000Z", daemon.QueueStateDead, "q-team-unrestorable.json")
 	otherQuarantinePath := filepath.Join("quarantine", "20260619T010000.000000000Z", daemon.QueueStateDead, "q-other-quarantined.json")
 
 	quarantineSummary := NewRootCmd()
@@ -7816,6 +7817,26 @@ instances = ["other"]
 	}
 	if got, want := quarantineSortedOut.String(), "q-team-quarantined true\n"; got != want {
 		t.Fatalf("team queue quarantine sorted limit list = %q, want %q", got, want)
+	}
+
+	quarantineCommands := NewRootCmd()
+	quarantineCommandsOut, quarantineCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	quarantineCommands.SetOut(quarantineCommandsOut)
+	quarantineCommands.SetErr(quarantineCommandsErr)
+	quarantineCommands.SetArgs([]string{"team", "queue", "quarantine", "delivery", "--repo", root, "--sort", "id", "--commands"})
+	if err := quarantineCommands.Execute(); err != nil {
+		t.Fatalf("team queue quarantine list --commands: %v\nstderr=%s", err, quarantineCommandsErr.String())
+	}
+	wantQuarantineCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team team queue quarantine restore delivery " + teamQuarantinePath,
+		"agent-team team queue quarantine drop delivery " + teamQuarantinePath,
+		"agent-team team queue quarantine drop delivery " + teamUnrestorablePath,
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := quarantineCommandsOut.String(); got != wantQuarantineCommands {
+		t.Fatalf("team queue quarantine list --commands = %q, want %q", got, wantQuarantineCommands)
+	}
+	if strings.Contains(quarantineCommandsOut.String(), "PATH") || strings.Contains(quarantineCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("team queue quarantine list --commands included table text:\n%s", quarantineCommandsOut.String())
 	}
 
 	unrestorable := NewRootCmd()

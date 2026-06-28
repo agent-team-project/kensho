@@ -476,6 +476,9 @@ func TestQueueDoctorFormatValidation(t *testing.T) {
 		{[]string{"queue", "ls", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"queue", "ls", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
 		{[]string{"queue", "watch", "--commands"}, "--commands cannot be combined with --watch"},
+		{[]string{"queue", "quarantine", "ls", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"queue", "quarantine", "ls", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"queue", "quarantine", "ls", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
 		{[]string{"queue", "show", "q-local", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"queue", "show", "q-local", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"queue", "quarantine", "show", "quarantine/pending/q.json", "--commands", "--json"}, "--commands cannot be combined with --json"},
@@ -502,6 +505,15 @@ func TestQueueDoctorFormatValidation(t *testing.T) {
 		{[]string{"queue", "drain", "--commands"}, "--commands requires --dry-run"},
 		{[]string{"queue", "drain", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"queue", "drain", "--dry-run", "--commands", "--format", "{{.Pending}}"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "queue", "quarantine", "squ-1", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "queue", "quarantine", "squ-1", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "queue", "quarantine", "squ-1", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"team", "queue", "quarantine", "delivery", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"team", "queue", "quarantine", "delivery", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"team", "queue", "quarantine", "delivery", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -713,6 +725,26 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	}
 	if !strings.Contains(lsFormatOut.String(), "stored-id pending true") || !strings.Contains(lsFormatOut.String(), " pending false") {
 		t.Fatalf("queue quarantine ls format =\n%s", lsFormatOut.String())
+	}
+
+	listCommands := NewRootCmd()
+	listCommandsOut, listCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	listCommands.SetOut(listCommandsOut)
+	listCommands.SetErr(listCommandsErr)
+	listCommands.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--sort", "id", "--commands"})
+	if err := listCommands.Execute(); err != nil {
+		t.Fatalf("queue quarantine ls --commands: %v\nstderr=%s", err, listCommandsErr.String())
+	}
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team queue quarantine drop " + invalid.Path,
+		"agent-team queue quarantine restore " + restorable.Path,
+		"agent-team queue quarantine drop " + restorable.Path,
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := listCommandsOut.String(); got != wantListCommands {
+		t.Fatalf("queue quarantine ls --commands = %q, want %q", got, wantListCommands)
+	}
+	if strings.Contains(listCommandsOut.String(), "PATH") || strings.Contains(listCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("queue quarantine ls --commands included table text:\n%s", listCommandsOut.String())
 	}
 
 	summaryCmd := NewRootCmd()

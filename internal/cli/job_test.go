@@ -2596,6 +2596,27 @@ func TestJobQueueQuarantineScopesOwnedFiles(t *testing.T) {
 		t.Fatalf("listed job quarantined items = %+v", listed)
 	}
 
+	listCommands := NewRootCmd()
+	listCommandsOut, listCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	listCommands.SetOut(listCommandsOut)
+	listCommands.SetErr(listCommandsErr)
+	listCommands.SetArgs([]string{"job", "queue", "quarantine", "SQU-123", "--repo", tmp, "--sort", "id", "--commands"})
+	if err := listCommands.Execute(); err != nil {
+		t.Fatalf("job queue quarantine list --commands: %v\nstderr=%s", err, listCommandsErr.String())
+	}
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team job queue quarantine restore squ-123 " + dropPath,
+		"agent-team job queue quarantine drop squ-123 " + dropPath,
+		"agent-team job queue quarantine restore squ-123 " + restorePath,
+		"agent-team job queue quarantine drop squ-123 " + restorePath,
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := listCommandsOut.String(); got != wantListCommands {
+		t.Fatalf("job queue quarantine list --commands = %q, want %q", got, wantListCommands)
+	}
+	if strings.Contains(listCommandsOut.String(), "PATH") || strings.Contains(listCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("job queue quarantine list --commands included table text:\n%s", listCommandsOut.String())
+	}
+
 	summary := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)

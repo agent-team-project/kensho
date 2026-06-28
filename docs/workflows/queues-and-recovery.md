@@ -54,7 +54,7 @@ agent-team queue show <id>
 Use `--runtime claude|codex` to narrow active queue entries by the runtime recorded in the dispatch payload, falling back to daemon metadata when a queued item already names a concrete instance. Runtime-filtered summaries include a `runtimes` count and exclude quarantined files whose runtime cannot be known from the quarantine index.
 Use `queue watch` when a retry, drain, or repair loop is expected to change active queue rows while you are inspecting them.
 Add `--commands` to queue or outbox list views when scripts should print only the ACTION-column commands for the currently visible rows after filters, sort, and limit are applied.
-When `queue ls`, `queue show`, `queue quarantine show`, `outbox ls`, `outbox show`, `outbox quarantine ls`, `outbox quarantine show`, or top-level queue/outbox recovery commands are run with an explicit `--repo` or legacy `--target`, `--commands` output preserves that selector in emitted `agent-team` follow-ups so scripts can run from outside the target checkout.
+When `queue ls`, `queue show`, `queue quarantine ls`, `queue quarantine show`, `outbox ls`, `outbox show`, `outbox quarantine ls`, `outbox quarantine show`, or top-level queue/outbox recovery commands are run with an explicit `--repo` or legacy `--target`, `--commands` output preserves that selector in emitted `agent-team` follow-ups so scripts can run from outside the target checkout.
 
 Preview daemon drain work before applying it:
 
@@ -159,11 +159,14 @@ agent-team queue quarantine ls --job SQU-42
 agent-team queue quarantine ls --restorable
 agent-team queue quarantine ls --unrestorable
 agent-team queue quarantine ls --sort attempts --limit 10
+agent-team queue quarantine ls --restorable --commands
 ```
 
 Use `queue quarantine ls --summary` when automation only needs preserved-file
 counts. Filters such as `--job`, `--restorable`, and `--unrestorable` narrow the
-summary before counting.
+summary before counting. Use `queue quarantine ls --commands` when automation
+needs restore/drop commands for the visible preserved rows without opening each
+file first.
 
 Inspect:
 
@@ -194,6 +197,7 @@ When a durable job owns preserved files, prefer job-scoped commands:
 agent-team job queue quarantine squ-42 --summary --json
 agent-team job queue quarantine squ-42
 agent-team job queue quarantine squ-42 --sort attempts --limit 10
+agent-team job queue quarantine squ-42 --commands
 agent-team job queue quarantine show squ-42 <path>
 agent-team job queue quarantine restore squ-42 <path> --dry-run
 agent-team job queue quarantine restore squ-42 --all --sort attempts --limit 10 --dry-run
@@ -203,6 +207,23 @@ agent-team job queue quarantine drop squ-42 <path> --dry-run
 `job show` and `job triage` surface job-owned quarantined files and include scoped recovery actions.
 
 Global `health` and `overview` also prefer job-scoped quarantine commands when every quarantined file resolves to one job.
+
+## Pipeline-Scoped Queue Quarantine
+
+When preserved queue files resolve to one workflow, use pipeline-scoped commands:
+
+```sh
+agent-team pipeline queue quarantine ticket_to_pr --summary --json
+agent-team pipeline queue quarantine ticket_to_pr
+agent-team pipeline queue quarantine ticket_to_pr --restorable --commands
+agent-team pipeline queue quarantine ticket_to_pr --sort attempts --limit 10
+agent-team pipeline queue quarantine show ticket_to_pr <path>
+agent-team pipeline queue quarantine restore ticket_to_pr --all --job SQU-42 --dry-run
+agent-team pipeline queue quarantine drop ticket_to_pr --all --unrestorable --dry-run
+```
+
+Use `pipeline queue quarantine --commands` without a pipeline name to print
+restore/drop commands for visible files owned by any declared workflow.
 
 ## Active Outbox
 
@@ -310,12 +331,14 @@ For repos with teams:
 agent-team team queue quarantine delivery --summary --json
 agent-team team queue quarantine delivery
 agent-team team queue quarantine delivery --restorable --sort attempts --limit 10
+agent-team team queue quarantine delivery --restorable --commands
 agent-team team queue quarantine show delivery <path>
 agent-team team queue quarantine restore delivery --all --job SQU-42 --sort attempts --limit 10 --dry-run
 agent-team team queue quarantine drop delivery --all --unrestorable --sort modified --limit 10 --dry-run
 ```
 
 Team scoping prevents delivery recovery commands from mutating platform-owned queue files in the same repo.
+Use `--commands` on global, job, pipeline, or team queue quarantine lists when automation needs restore/drop commands for every visible preserved file without opening each file first.
 
 ## Recovery Decision Tree
 

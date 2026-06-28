@@ -1194,6 +1194,7 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 		sortBy       string
 		limit        int
 		summary      bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -1222,6 +1223,18 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 			}
 			if summary && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: --commands cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
@@ -1264,6 +1277,14 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 				return renderQueueQuarantineSummary(cmd.OutOrStdout(), summarizeQueueQuarantineItems(items), jsonOut)
 			}
 			items = prepareQueueQuarantineItems(items, sortMode, limit)
+			if commands {
+				actions, err := pipelineQueueQuarantineActionResolverForScope(teamDir, pipelineName)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline queue quarantine: %v\n", err)
+					return exitErr(1)
+				}
+				return renderQueueQuarantineListCommands(cmd.OutOrStdout(), items, actions, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			}
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
@@ -1277,6 +1298,7 @@ func newPipelineQueueQuarantineCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", queueQuarantineSortFlagHelp)
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate pipeline-owned quarantined queue-file counts instead of rows.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from the visible pipeline-owned quarantined queue files, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline-owned quarantined queue files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline-owned quarantined queue file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	cmd.AddCommand(newPipelineQueueQuarantineShowCmd())
@@ -7624,6 +7646,28 @@ func collectPipelineQueueQuarantineItems(teamDir, pipeline string, filters queue
 	}
 	items = queueQuarantineItemsForJobs(items, jobs)
 	return filterQueueQuarantineItems(items, filters), nil
+}
+
+func pipelineQueueQuarantineActionResolverForScope(teamDir, pipeline string) (queueQuarantineActionResolver, error) {
+	pipeline = strings.TrimSpace(pipeline)
+	if pipeline != "" {
+		return scopedQueueQuarantineActionResolver("", pipeline, ""), nil
+	}
+	jobs, err := selectedPipelineJobs(teamDir, "")
+	if err != nil {
+		return nil, err
+	}
+	return func(item queueQuarantineItem) []string {
+		for _, j := range jobs {
+			if j == nil || strings.TrimSpace(j.Pipeline) == "" {
+				continue
+			}
+			if queueQuarantineItemMatchesJob(item, j) {
+				return scopedQueueQuarantineActionResolver("", j.Pipeline, "")(item)
+			}
+		}
+		return nil
+	}, nil
 }
 
 func readPipelineQueueQuarantineItem(teamDir, pipeline, rawPath string) (queueQuarantineItem, error) {

@@ -9371,6 +9371,7 @@ target = "worker"
 		DeadLetteredAt: now.Add(-3 * time.Hour),
 	})
 	restorePath := filepath.Join("quarantine", stamp, daemon.QueueStatePending, "q-pipeline-quarantined.json")
+	extraPath := filepath.Join("quarantine", stamp, daemon.QueueStatePending, "q-pipeline-quarantined-extra.json")
 	unrestorablePath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-pipeline-unrestorable.json")
 	foreignPath := filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-foreign-quarantined.json")
 
@@ -9388,6 +9389,28 @@ target = "worker"
 	}
 	if got := queueQuarantineItemIDs(listed); got != "q-pipeline-quarantined,q-pipeline-quarantined-extra,q-pipeline-unrestorable" {
 		t.Fatalf("listed pipeline quarantined items = %s\nbody=%s", got, listOut.String())
+	}
+
+	listCommands := NewRootCmd()
+	listCommandsOut, listCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	listCommands.SetOut(listCommandsOut)
+	listCommands.SetErr(listCommandsErr)
+	listCommands.SetArgs([]string{"pipeline", "queue", "quarantine", "ticket_to_pr", "--repo", root, "--sort", "id", "--commands"})
+	if err := listCommands.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine list --commands: %v\nstderr=%s", err, listCommandsErr.String())
+	}
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team pipeline queue quarantine restore ticket_to_pr " + restorePath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + restorePath,
+		"agent-team pipeline queue quarantine restore ticket_to_pr " + extraPath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + extraPath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + unrestorablePath,
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := listCommandsOut.String(); got != wantListCommands {
+		t.Fatalf("pipeline queue quarantine list --commands = %q, want %q", got, wantListCommands)
+	}
+	if strings.Contains(listCommandsOut.String(), "PATH") || strings.Contains(listCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("pipeline queue quarantine list --commands included table text:\n%s", listCommandsOut.String())
 	}
 
 	summary := NewRootCmd()
@@ -9444,6 +9467,30 @@ target = "worker"
 	}
 	if got := queueQuarantineItemIDs(listed); got != "q-foreign-quarantined,q-pipeline-quarantined,q-pipeline-quarantined-extra,q-pipeline-unrestorable" {
 		t.Fatalf("listed all pipeline quarantined items = %s\nbody=%s", got, allListOut.String())
+	}
+
+	allListCommands := NewRootCmd()
+	allListCommandsOut, allListCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allListCommands.SetOut(allListCommandsOut)
+	allListCommands.SetErr(allListCommandsErr)
+	allListCommands.SetArgs([]string{"pipeline", "queue", "quarantine", "--repo", root, "--sort", "id", "--commands"})
+	if err := allListCommands.Execute(); err != nil {
+		t.Fatalf("pipeline queue quarantine all list --commands: %v\nstderr=%s", err, allListCommandsErr.String())
+	}
+	wantAllListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team pipeline queue quarantine restore ops_review " + foreignPath,
+		"agent-team pipeline queue quarantine drop ops_review " + foreignPath,
+		"agent-team pipeline queue quarantine restore ticket_to_pr " + restorePath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + restorePath,
+		"agent-team pipeline queue quarantine restore ticket_to_pr " + extraPath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + extraPath,
+		"agent-team pipeline queue quarantine drop ticket_to_pr " + unrestorablePath,
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := allListCommandsOut.String(); got != wantAllListCommands {
+		t.Fatalf("pipeline queue quarantine all list --commands = %q, want %q", got, wantAllListCommands)
+	}
+	if strings.Contains(allListCommandsOut.String(), "PATH") || strings.Contains(allListCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("pipeline queue quarantine all list --commands included table text:\n%s", allListCommandsOut.String())
 	}
 
 	allRestorable := NewRootCmd()
