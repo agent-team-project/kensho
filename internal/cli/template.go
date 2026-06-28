@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	texttemplate "text/template"
 
 	agentteam "github.com/jamesaud/agent-team"
 	"github.com/jamesaud/agent-team/internal/template"
@@ -55,40 +57,44 @@ func newTemplateCmd() *cobra.Command {
 }
 
 func newTemplateLsCmd() *cobra.Command {
+	var (
+		jsonOut bool
+		format  string
+	)
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List bundled and cached templates.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r := newResolver()
-
-			// Bundled
-			rt, err := r.Resolve(template.BundledRef)
-			if err != nil {
-				return fmt.Errorf("resolve bundled: %w", err)
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template ls: --format cannot be combined with --json.")
+				return exitErr(2)
 			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%s\t%s\t%s\n", "REF", "VERSION", "NAME")
-			ver, name := manifestSummary(rt.Manifest)
-			fmt.Fprintf(out, "%s\t%s\t%s\n", template.BundledRef, ver, name)
-
-			// Cached
-			cacheEntries, err := listCachedRefs(r.CacheRoot)
-			if err != nil && !os.IsNotExist(err) {
+			tmpl, err := parseTemplateCLIFormat("template-ls-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template ls: %v\n", err)
+				return exitErr(2)
+			}
+			r := newResolver()
+			rows, err := collectTemplateList(r)
+			if err != nil {
 				return err
 			}
-			for _, ref := range cacheEntries {
-				cached, err := r.Resolve(ref)
-				if err != nil {
-					fmt.Fprintf(out, "%s\t(unreadable: %v)\n", ref, err)
-					continue
-				}
-				ver, name := manifestSummary(cached.Manifest)
-				fmt.Fprintf(out, "%s\t%s\t%s\n", ref, ver, name)
-			}
-			return nil
+			return renderTemplateList(cmd.OutOrStdout(), rows, jsonOut, tmpl)
 		},
 	}
+	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	c.Flags().StringVar(&format, "format", "", "Render each template row with a Go template, e.g. '{{.Ref}} {{.Version}}'.")
 	return c
+}
+
+type templateListRow struct {
+	Ref        string `json:"ref"`
+	Version    string `json:"version"`
+	Name       string `json:"name"`
+	Bundled    bool   `json:"bundled"`
+	Cached     bool   `json:"cached"`
+	Path       string `json:"path,omitempty"`
+	Unreadable string `json:"unreadable,omitempty"`
 }
 
 func manifestSummary(m *template.Manifest) (version, name string) {
@@ -96,6 +102,76 @@ func manifestSummary(m *template.Manifest) (version, name string) {
 		return "(no manifest)", ""
 	}
 	return m.Template.Version, m.Template.Name
+}
+
+func collectTemplateList(r *template.Resolver) ([]templateListRow, error) {
+	rt, err := r.Resolve(template.BundledRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolve bundled: %w", err)
+	}
+	rows := []templateListRow{templateListRowFromResolved(template.BundledRef, rt, true)}
+	cacheEntries, err := listCachedRefs(r.CacheRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return rows, nil
+		}
+		return nil, err
+	}
+	for _, ref := range cacheEntries {
+		cached, err := r.Resolve(ref)
+		if err != nil {
+			rows = append(rows, templateListRow{
+				Ref:        ref,
+				Cached:     true,
+				Path:       filepath.ToSlash(filepath.Join(r.CacheRoot, filepath.FromSlash(ref))),
+				Unreadable: err.Error(),
+			})
+			continue
+		}
+		rows = append(rows, templateListRowFromResolved(ref, cached, false))
+	}
+	return rows, nil
+}
+
+func templateListRowFromResolved(ref string, rt *template.ResolvedTemplate, bundled bool) templateListRow {
+	ver, name := manifestSummary(rt.Manifest)
+	row := templateListRow{
+		Ref:     ref,
+		Version: ver,
+		Name:    name,
+		Bundled: bundled,
+		Cached:  !bundled,
+	}
+	if rt.OnDiskRoot != "" {
+		row.Path = filepath.ToSlash(rt.OnDiskRoot)
+	}
+	return row
+}
+
+func renderTemplateList(w io.Writer, rows []templateListRow, jsonOut bool, tmpl *texttemplate.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(rows)
+	}
+	if tmpl != nil {
+		for _, row := range rows {
+			if err := tmpl.Execute(w, row); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	fmt.Fprintf(w, "%s\t%s\t%s\n", "REF", "VERSION", "NAME")
+	for _, row := range rows {
+		if row.Unreadable != "" {
+			fmt.Fprintf(w, "%s\t(unreadable: %s)\n", row.Ref, row.Unreadable)
+			continue
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", row.Ref, row.Version, row.Name)
+	}
+	return nil
 }
 
 // listCachedRefs walks `cacheRoot` and returns ref-shaped paths
@@ -137,11 +213,24 @@ func listCachedRefs(cacheRoot string) ([]string, error) {
 }
 
 func newTemplateShowCmd() *cobra.Command {
+	var (
+		jsonOut bool
+		format  string
+	)
 	c := &cobra.Command{
 		Use:   "show [ref]",
 		Short: "Print a template's manifest. Default ref: bundled (alias: default).",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template show: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTemplateCLIFormat("template-show-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template show: %v\n", err)
+				return exitErr(2)
+			}
 			ref := template.BundledRef
 			if len(args) == 1 {
 				ref = args[0]
@@ -152,9 +241,15 @@ func newTemplateShowCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 				return exitErr(2)
 			}
-			return printManifest(cmd, rt)
+			result, err := templateShowResultFromResolved(rt)
+			if err != nil {
+				return err
+			}
+			return renderTemplateShow(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
+	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	c.Flags().StringVar(&format, "format", "", "Render the template summary with a Go template, e.g. '{{.Ref}} {{.ContentHash}}'.")
 	return c
 }
 
@@ -394,29 +489,95 @@ func renderTemplateSmoke(w fmtWriter, result templateSmokeResult, jsonOut bool) 
 	return nil
 }
 
-func printManifest(cmd *cobra.Command, rt *template.ResolvedTemplate) error {
-	out := cmd.OutOrStdout()
+type templateShowResult struct {
+	Ref         string                  `json:"ref"`
+	ContentHash string                  `json:"content_hash"`
+	HasManifest bool                    `json:"has_manifest"`
+	Name        string                  `json:"name,omitempty"`
+	Version     string                  `json:"version,omitempty"`
+	Description string                  `json:"description,omitempty"`
+	Path        string                  `json:"path,omitempty"`
+	Parameters  []templateParameterInfo `json:"parameters,omitempty"`
+	Agents      []string                `json:"agents"`
+	Skills      []string                `json:"skills"`
+}
+
+type templateParameterInfo struct {
+	Key         string `json:"key"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Default     any    `json:"default"`
+	Pattern     string `json:"pattern,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+func templateShowResultFromResolved(rt *template.ResolvedTemplate) (templateShowResult, error) {
 	hash, err := template.ContentHash(rt)
 	if err != nil {
-		return fmt.Errorf("hash template source: %w", err)
+		return templateShowResult{}, fmt.Errorf("hash template source: %w", err)
+	}
+	agents, skills := listAgentsAndSkills(rt)
+	result := templateShowResult{
+		Ref:         rt.Ref,
+		ContentHash: hash,
+		Agents:      agents,
+		Skills:      skills,
+	}
+	if rt.OnDiskRoot != "" {
+		result.Path = filepath.ToSlash(rt.OnDiskRoot)
 	}
 	if rt.Manifest == nil {
-		fmt.Fprintf(out, "Ref: %s\nContent hash: %s\n(no template.toml manifest — verbatim copy only)\n", rt.Ref, hash)
+		return result, nil
+	}
+	result.HasManifest = true
+	m := rt.Manifest
+	result.Name = m.Template.Name
+	result.Version = m.Template.Version
+	result.Description = m.Template.Description
+	for _, p := range m.Parameters {
+		result.Parameters = append(result.Parameters, templateParameterInfo{
+			Key:         p.Key,
+			Type:        string(p.Type),
+			Required:    p.Required,
+			Default:     p.Default,
+			Pattern:     p.Pattern,
+			Description: p.Description,
+		})
+	}
+	return result, nil
+}
+
+func renderTemplateShow(w io.Writer, result templateShowResult, jsonOut bool, tmpl *texttemplate.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	}
+	return renderTemplateShowText(w, result)
+}
+
+func renderTemplateShowText(out io.Writer, result templateShowResult) error {
+	if !result.HasManifest {
+		fmt.Fprintf(out, "Ref: %s\nContent hash: %s\n(no template.toml manifest - verbatim copy only)\n", result.Ref, result.ContentHash)
 		return nil
 	}
-	m := rt.Manifest
-	fmt.Fprintf(out, "Template: %s v%s\n", m.Template.Name, m.Template.Version)
-	if m.Template.Description != "" {
-		fmt.Fprintf(out, "Description: %s\n", m.Template.Description)
+	fmt.Fprintf(out, "Template: %s v%s\n", result.Name, result.Version)
+	if result.Description != "" {
+		fmt.Fprintf(out, "Description: %s\n", result.Description)
 	}
-	fmt.Fprintf(out, "Ref: %s\n", rt.Ref)
-	fmt.Fprintf(out, "Content hash: %s\n\n", hash)
+	fmt.Fprintf(out, "Ref: %s\n", result.Ref)
+	fmt.Fprintf(out, "Content hash: %s\n\n", result.ContentHash)
 
-	if len(m.Parameters) == 0 {
+	if len(result.Parameters) == 0 {
 		fmt.Fprintln(out, "Parameters: (none)")
 	} else {
 		fmt.Fprintln(out, "Parameters:")
-		for _, p := range m.Parameters {
+		for _, p := range result.Parameters {
 			req := "optional"
 			if p.Required {
 				req = "required"
@@ -435,14 +596,24 @@ func printManifest(cmd *cobra.Command, rt *template.ResolvedTemplate) error {
 	}
 
 	fmt.Fprintln(out, "")
-	agents, skills := listAgentsAndSkills(rt)
-	if len(agents) > 0 {
-		fmt.Fprintf(out, "Agents in this template: %s\n", strings.Join(agents, ", "))
+	if len(result.Agents) > 0 {
+		fmt.Fprintf(out, "Agents in this template: %s\n", strings.Join(result.Agents, ", "))
 	}
-	if len(skills) > 0 {
-		fmt.Fprintf(out, "Skills in this template: %s\n", strings.Join(skills, ", "))
+	if len(result.Skills) > 0 {
+		fmt.Fprintf(out, "Skills in this template: %s\n", strings.Join(result.Skills, ", "))
 	}
 	return nil
+}
+
+func parseTemplateCLIFormat(name, format string) (*texttemplate.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := texttemplate.New(name).Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
 }
 
 // listAgentsAndSkills lists immediate children of <root>/agents and
@@ -746,29 +917,128 @@ func copyDirAll(src, dst string) error {
 }
 
 func newTemplateRmCmd() *cobra.Command {
+	var (
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
+	)
 	c := &cobra.Command{
 		Use:   "rm <ref>",
 		Short: "Remove a template from the cache.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template rm: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template rm: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template rm: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template rm: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTemplateCLIFormat("template-rm-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template rm: %v\n", err)
+				return exitErr(2)
+			}
 			ref := args[0]
 			if template.IsBundledRef(ref) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: cannot rm the bundled template (it's compiled into the binary)")
 				return exitErr(2)
 			}
 			r := newResolver()
-			dst := filepath.Join(r.CacheRoot, ref)
-			st, err := os.Stat(dst)
-			if err != nil || !st.IsDir() {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: ref %q not found in cache (%s)\n", ref, r.CacheRoot)
+			result, err := runTemplateRm(cmd.OutOrStdout(), r.CacheRoot, ref, templateRmOptions{
+				DryRun: dryRun,
+				Quiet:  commands,
+				JSON:   jsonOut,
+				Format: tmpl,
+			})
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 				return exitErr(2)
 			}
-			if err := os.RemoveAll(dst); err != nil {
-				return err
+			if commands {
+				return renderTemplateRmApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Removed, ref)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", dst)
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview template removal without deleting it.")
+	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching template rm apply command when the preview has actionable work.")
+	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	c.Flags().StringVar(&format, "format", "", "Render the removal result with a Go template, e.g. '{{.Ref}} {{.Action}}'.")
 	return c
+}
+
+type templateRmOptions struct {
+	DryRun bool
+	Quiet  bool
+	JSON   bool
+	Format *texttemplate.Template
+}
+
+type templateRmResult struct {
+	Ref     string `json:"ref"`
+	Path    string `json:"path"`
+	DryRun  bool   `json:"dry_run"`
+	Removed bool   `json:"removed"`
+	Action  string `json:"action"`
+}
+
+func runTemplateRm(stdout io.Writer, cacheRoot, ref string, opts templateRmOptions) (templateRmResult, error) {
+	dst, err := cacheDestination(cacheRoot, ref)
+	if err != nil {
+		return templateRmResult{}, err
+	}
+	st, err := os.Stat(dst)
+	if err != nil || !st.IsDir() {
+		return templateRmResult{}, fmt.Errorf("ref %q not found in cache (%s)", ref, cacheRoot)
+	}
+	result := templateRmResult{
+		Ref:     ref,
+		Path:    filepath.ToSlash(dst),
+		DryRun:  opts.DryRun,
+		Removed: true,
+		Action:  "removed",
+	}
+	if opts.DryRun {
+		result.Action = "would-remove"
+	} else if err := os.RemoveAll(dst); err != nil {
+		return templateRmResult{}, err
+	}
+	if opts.JSON {
+		return result, json.NewEncoder(stdout).Encode(result)
+	}
+	if opts.Format != nil {
+		if err := opts.Format.Execute(stdout, result); err != nil {
+			return result, err
+		}
+		_, err := fmt.Fprintln(stdout)
+		return result, err
+	}
+	if opts.Quiet {
+		return result, nil
+	}
+	if opts.DryRun {
+		fmt.Fprintf(stdout, "would remove %s\n", result.Path)
+		return result, nil
+	}
+	fmt.Fprintf(stdout, "removed %s\n", result.Path)
+	return result, nil
+}
+
+func renderTemplateRmApplyCommand(w io.Writer, hasAction bool, ref string) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs([]string{"agent-team", "template", "rm", ref}), " "))
+	return err
 }

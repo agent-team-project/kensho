@@ -13,10 +13,10 @@ as the output directory instead.
 | Command | Purpose |
 | --- | --- |
 | `agent-team init [ref]` | Instantiate a template into `.agent_team/` |
-| `agent-team template ls` | List bundled and cached templates |
-| `agent-team template show [ref]` | Show a template manifest |
+| `agent-team template ls [--format <template>] [--json]` | List bundled and cached templates with text, Go-template, or JSON output |
+| `agent-team template show [ref] [--format <template>] [--json]` | Show a template manifest with content hash, agents, skills, and parameters |
 | `agent-team template pull <ref>` | Cache a template |
-| `agent-team template rm <ref>` | Remove a cached template |
+| `agent-team template rm <ref> [--dry-run] [--commands] [--format <template>] [--json]` | Remove a cached template, or preview/print the apply command |
 | `agent-team template smoke [ref]` | Render a template in a temp repo and validate it; add `--strict-runtime` for CI runtime checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check|--apply` | Compare current template lock to target or apply clean template changes |

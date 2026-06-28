@@ -384,10 +384,13 @@ agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--ru
                                                 # validate layout, config, provenance, skill wiring, durable jobs, pipeline workflows, selected/runtime-default binaries, and daemon binary availability
 agent-team --version                            # print version
 
-agent-team template ls                          # list bundled + cached templates
-agent-team template show [<ref>]                # print manifest (default: bundled)
+agent-team template ls [--format '{{.Ref}}'] [--json]
+                                                # list bundled + cached templates
+agent-team template show [<ref>] [--format '{{.Ref}} {{.ContentHash}}'] [--json]
+                                                # print manifest (default: bundled)
 agent-team template pull <ref> [--as <n>]       # copy a local template or clone a git ref into the cache
-agent-team template rm <ref>                    # remove a cached template
+agent-team template rm <ref> [--dry-run] [--commands] [--format '{{.Ref}} {{.Action}}'] [--json]
+                                                # remove a cached template
 agent-team template smoke [<ref>] [--set k=v]... [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--json]
                                                 # init a template into a temp repo and run doctor/pipeline/team validation
 agent-team template run <ref> <agent> [--target <dir>] [--keep] [--runtime claude|codex] [--runtime-bin <path>] [--last-message] [--set k=v]... [-p "..."|--prompt-file <path|->]

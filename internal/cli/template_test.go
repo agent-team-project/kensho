@@ -74,6 +74,60 @@ func TestTemplateLs_IncludesBundled(t *testing.T) {
 	}
 }
 
+func TestTemplateLsJSONIncludesBundledAndCached(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cacheRef := "local/tiny@0.1.0"
+	cachedDir := filepath.Join(home, ".agent-team", "cache", filepath.FromSlash(cacheRef))
+	if err := os.MkdirAll(cachedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTinyTemplateFiles(t, cachedDir, "tiny-cached", "0.1.0", map[string]string{
+		"agents/worker/agent.md": "worker",
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"template", "ls", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template ls --json: %v\nstderr=%s", err, errOut.String())
+	}
+	var rows []templateListRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode template ls json: %v\nbody=%s", err, out.String())
+	}
+	var foundBundled, foundCached bool
+	for _, row := range rows {
+		switch row.Ref {
+		case "bundled":
+			foundBundled = row.Bundled && !row.Cached && row.Name == "default"
+		case cacheRef:
+			foundCached = row.Cached && !row.Bundled && row.Name == "tiny-cached" && row.Version == "0.1.0" && row.Path != ""
+		}
+	}
+	if !foundBundled || !foundCached {
+		t.Fatalf("missing expected template rows: bundled=%v cached=%v rows=%+v", foundBundled, foundCached, rows)
+	}
+}
+
+func TestTemplateLsFormat(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"template", "ls", "--format", "{{.Ref}} {{.Name}} {{.Bundled}}"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template ls --format: %v\nstderr=%s", err, errOut.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "bundled default true"; got != want {
+		t.Fatalf("template ls format = %q, want %q", got, want)
+	}
+}
+
 func TestTemplateRm_RejectsBundled(t *testing.T) {
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
@@ -109,6 +163,165 @@ func TestTemplateRm_RejectsDefaultAlias(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "cannot rm the bundled template") {
 		t.Errorf("missing rejection message: %s", errOut.String())
+	}
+}
+
+func TestTemplateShowJSONAndFormat(t *testing.T) {
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"template", "show", "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("template show --json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var result templateShowResult
+	if err := json.Unmarshal(jsonOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode template show json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if result.Ref != "bundled" || !result.HasManifest || result.Name != "default" || !strings.HasPrefix(result.ContentHash, "sha256:") {
+		t.Fatalf("unexpected show json result: %+v", result)
+	}
+	if len(result.Parameters) == 0 || len(result.Agents) == 0 || len(result.Skills) == 0 {
+		t.Fatalf("show json missing details: %+v", result)
+	}
+
+	formatCmd := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatCmd.SetOut(formatOut)
+	formatCmd.SetErr(formatErr)
+	formatCmd.SetArgs([]string{"template", "show", "--format", "{{.Ref}} {{.HasManifest}} {{len .Agents}} {{len .Skills}}"})
+	if err := formatCmd.Execute(); err != nil {
+		t.Fatalf("template show --format: %v\nstderr=%s", err, formatErr.String())
+	}
+	fields := strings.Fields(formatOut.String())
+	if len(fields) != 4 || fields[0] != "bundled" || fields[1] != "true" || fields[2] == "0" || fields[3] == "0" {
+		t.Fatalf("unexpected template show format output: %q", formatOut.String())
+	}
+}
+
+func TestTemplateRmDryRunCommandsAndJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cacheRef := "fixtures/tiny template@0.1.0"
+	cachedDir := filepath.Join(home, ".agent-team", "cache", filepath.FromSlash(cacheRef))
+	if err := os.MkdirAll(cachedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTinyTemplateFiles(t, cachedDir, "tiny-remove", "0.1.0", nil)
+
+	formatCmd := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatCmd.SetOut(formatOut)
+	formatCmd.SetErr(formatErr)
+	formatCmd.SetArgs([]string{"template", "rm", cacheRef, "--dry-run", "--format", "{{.Ref}} {{.Action}} {{.DryRun}} {{.Removed}}"})
+	if err := formatCmd.Execute(); err != nil {
+		t.Fatalf("template rm --dry-run --format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got, want := strings.TrimSpace(formatOut.String()), cacheRef+" would-remove true true"; got != want {
+		t.Fatalf("template rm dry-run format = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(cachedDir); err != nil {
+		t.Fatalf("dry-run should keep cache dir: %v", err)
+	}
+
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"template", "rm", cacheRef, "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("template rm --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "template", "rm", cacheRef}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("template rm commands = %q, want %q", got, wantCommand)
+	}
+	if _, err := os.Stat(cachedDir); err != nil {
+		t.Fatalf("commands dry-run should keep cache dir: %v", err)
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"template", "rm", cacheRef, "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("template rm --json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var result templateRmResult
+	if err := json.Unmarshal(jsonOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode template rm json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if result.Ref != cacheRef || result.DryRun || !result.Removed || result.Action != "removed" || result.Path == "" {
+		t.Fatalf("unexpected rm json result: %+v", result)
+	}
+	if _, err := os.Stat(cachedDir); !os.IsNotExist(err) {
+		t.Fatalf("template rm should remove cache dir, stat err=%v", err)
+	}
+}
+
+func TestTemplateOutputFlagValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "ls format json",
+			args: []string{"template", "ls", "--json", "--format", "{{.Ref}}"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "show format json",
+			args: []string{"template", "show", "--json", "--format", "{{.Ref}}"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "show invalid format",
+			args: []string{"template", "show", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
+			name: "rm commands without dry-run",
+			args: []string{"template", "rm", "sample", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "rm commands json",
+			args: []string{"template", "rm", "sample", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "rm commands format",
+			args: []string{"template", "rm", "sample", "--dry-run", "--commands", "--format", "{{.Ref}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "rm format json",
+			args: []string{"template", "rm", "sample", "--json", "--format", "{{.Ref}}"},
+			want: "--format cannot be combined with --json",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected validation failure, stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(errOut.String(), tt.want) {
+				t.Fatalf("stderr = %q, want %q", errOut.String(), tt.want)
+			}
+		})
 	}
 }
 

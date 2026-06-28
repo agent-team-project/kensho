@@ -9093,7 +9093,14 @@ Subcommands:
 List bundled and cached templates.
 
 ```text
-agent-team template ls
+agent-team template ls [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render each template row with a Go template, e.g. '{{.Ref}} {{.Version}}'.
+      --json            Emit machine-readable JSON.
 ```
 
 Inherited Flags:
@@ -9129,7 +9136,16 @@ Inherited Flags:
 Remove a template from the cache.
 
 ```text
-agent-team template rm <ref>
+agent-team template rm <ref> [flags]
+```
+
+Flags:
+
+```text
+      --commands        With --dry-run, print the matching template rm apply command when the preview has actionable work.
+      --dry-run         Preview template removal without deleting it.
+      --format string   Render the removal result with a Go template, e.g. '{{.Ref}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
 ```
 
 Inherited Flags:
@@ -9177,7 +9193,14 @@ Inherited Flags:
 Print a template&#39;s manifest. Default ref: bundled (alias: default).
 
 ```text
-agent-team template show [ref]
+agent-team template show [ref] [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render the template summary with a Go template, e.g. '{{.Ref}} {{.ContentHash}}'.
+      --json            Emit machine-readable JSON.
 ```
 
 Inherited Flags:
