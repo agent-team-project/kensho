@@ -510,6 +510,7 @@ agent-team job events squ-42 --type dispatched
 agent-team job events squ-42 --status running --instance worker-squ-42
 agent-team job events squ-42 --summary
 agent-team job events squ-42 --json
+agent-team job timeline --all --summary
 ```
 
 Events give an audit trail for:
@@ -530,7 +531,9 @@ Use `agent-team job timeline squ-42` when you need the durable audit log and
 matching daemon lifecycle events in one ordered view. Add `--source job` or
 `--source lifecycle` to isolate one side, `--since 24h` to narrow large
 histories, `--tail N --sort newest` for the latest handoff rows, or `--json` /
-`--format` for scripts. Use
+`--format` for scripts. Use `agent-team job timeline --all` for one combined
+timeline across every durable job, including ad hoc work that does not belong
+to a pipeline. Use
 `agent-team pipeline timeline ticket_to_pr` or `agent-team team timeline delivery`
 for the same combined timeline scoped across a workflow or declared team.
 

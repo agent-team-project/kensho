@@ -133,7 +133,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job advance <job-id>` | Advance a pipeline step; add `--dry-run --commands` for the apply command or `--wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reconcile github` | Reconcile GitHub PR payloads into jobs; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for PR-gate handoff |
 | `agent-team job events <job-id>\|--all` | Show, follow, sort, or summarize job event logs |
-| `agent-team job timeline <job-id>` | Merge one job's durable audit log with matching daemon lifecycle events; filter by `--source` and `--since`, tail before display sorting, or emit JSON/templates for handoffs |
+| `agent-team job timeline <job-id>\|--all` | Merge one job's durable audit log with matching daemon lifecycle events, or use `--all` for every durable job; filter by `--source` and `--since`, tail before display sorting, summarize, or emit JSON/templates for handoffs |
 
 ## Job Queue
 

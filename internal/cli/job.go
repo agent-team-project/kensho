@@ -1189,6 +1189,7 @@ func newJobEventsCmd() *cobra.Command {
 func newJobTimelineCmd() *cobra.Command {
 	var (
 		repo    string
+		all     bool
 		tail    string
 		source  string
 		sortBy  string
@@ -1199,12 +1200,24 @@ func newJobTimelineCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "timeline <job-id>",
+		Use:   "timeline [<job-id>|--all]",
 		Short: "Show a combined job audit and lifecycle timeline.",
-		Long: "Show one durable job's audit events together with matching daemon lifecycle events. " +
+		Long: "Show one durable job's audit events together with matching daemon lifecycle events, or show a combined timeline across every durable job. " +
 			"Timeline rows are read-only and sorted across both sources by event time.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeline: --all cannot be combined with a job id.")
+				return exitErr(2)
+			}
+			if !all && len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeline: job id is required.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeline: pass at most one job id.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job timeline: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -1242,6 +1255,19 @@ func newJobTimelineCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if all {
+				jobs, err := job.List(teamDir)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
+					return exitErr(1)
+				}
+				entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, sinceAt, tailEvents, sortMode)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
+					return exitErr(1)
+				}
+				return renderScopedJobTimeline(cmd.OutOrStdout(), "jobs", entries, jsonOut, summary, tmpl)
+			}
 			j, err := job.Read(teamDir, args[0])
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
@@ -1256,6 +1282,7 @@ func newJobTimelineCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Show timelines across all durable jobs.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N combined events before sorting for display (0 or all = all).")
 	cmd.Flags().StringVar(&source, "source", "all", "Timeline source to include: all, job, or lifecycle.")
 	cmd.Flags().StringVar(&sortBy, "sort", "oldest", "Sort returned timeline rows by oldest or newest after applying --tail.")

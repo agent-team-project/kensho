@@ -3498,15 +3498,16 @@ Flags:
 
 Show a combined job audit and lifecycle timeline.
 
-Show one durable job&#39;s audit events together with matching daemon lifecycle events. Timeline rows are read-only and sorted across both sources by event time.
+Show one durable job&#39;s audit events together with matching daemon lifecycle events, or show a combined timeline across every durable job. Timeline rows are read-only and sorted across both sources by event time.
 
 ```text
-agent-team job timeline <job-id> [flags]
+agent-team job timeline [<job-id>|--all] [flags]
 ```
 
 Flags:
 
 ```text
+      --all             Show timelines across all durable jobs.
       --format string   Render each timeline row with a Go template, e.g. '{{.TS}} {{.Source}} {{.Kind}} {{.Message}}'.
       --json            Emit machine-readable JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")

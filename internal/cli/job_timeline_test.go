@@ -168,6 +168,148 @@ func TestJobTimelineCombinesAuditAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestJobTimelineAllIncludesEveryDurableJob(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 6, 26, 12, 30, 0, 0, time.UTC)
+	pipelineJob := &job.Job{
+		ID:        "squ-171",
+		Ticket:    "SQU-171",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Instance:  "worker-squ-171",
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now.Add(2 * time.Minute),
+	}
+	adhocJob := &job.Job{
+		ID:        "adhoc-171",
+		Ticket:    "ADHOC-171",
+		Target:    "manager",
+		Status:    job.StatusRunning,
+		Instance:  "manager-adhoc-171",
+		CreatedAt: now,
+		UpdatedAt: now.Add(time.Minute),
+	}
+	for _, candidate := range []*job.Job{pipelineJob, adhocJob} {
+		if err := job.Write(teamDir, candidate); err != nil {
+			t.Fatalf("write job %s: %v", candidate.ID, err)
+		}
+	}
+	for _, ev := range []job.Event{
+		{TS: now, JobID: pipelineJob.ID, Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created pipeline job"},
+		{TS: now.Add(time.Minute), JobID: adhocJob.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "adhoc progress"},
+		{TS: now.Add(2 * time.Minute), JobID: pipelineJob.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "pipeline progress"},
+	} {
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append job event: %v", err)
+		}
+	}
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+		ID:       "life-adhoc-171",
+		TS:       now.Add(90 * time.Second),
+		Action:   "dispatch",
+		Instance: adhocJob.Instance,
+		Agent:    "manager",
+		Job:      adhocJob.ID,
+		Status:   daemon.StatusRunning,
+		Message:  "started manager",
+	}); err != nil {
+		t.Fatalf("append lifecycle event: %v", err)
+	}
+	if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+		ID:       "life-unowned-171",
+		TS:       now.Add(3 * time.Minute),
+		Action:   "dispatch",
+		Instance: "unowned-worker",
+		Job:      "missing-171",
+		Message:  "unowned lifecycle event",
+	}); err != nil {
+		t.Fatalf("append unowned lifecycle event: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "timeline", "--all", "--repo", tmp, "--tail", "3", "--sort", "newest", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job timeline --all: %v\nstderr=%s", err, stderr.String())
+	}
+	var entries []jobTimelineEntry
+	if err := json.Unmarshal(out.Bytes(), &entries); err != nil {
+		t.Fatalf("decode all timeline: %v\nbody=%s", err, out.String())
+	}
+	if len(entries) != 3 {
+		t.Fatalf("all timeline entries = %+v", entries)
+	}
+	if entries[0].JobID != pipelineJob.ID || entries[0].Kind != "note" || entries[1].JobID != adhocJob.ID || entries[1].Kind != "dispatch" || entries[2].JobID != adhocJob.ID || entries[2].Kind != "note" {
+		t.Fatalf("all timeline order = %+v", entries)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Message, "unowned") {
+			t.Fatalf("all timeline included unowned lifecycle event: %+v", entries)
+		}
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"job", "timeline", "--all", "--repo", tmp, "--source", "job", "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("job timeline --all summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobTimelineSummaryJSON
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode all timeline summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Scope != "jobs" || summary.Total != 3 || summary.Jobs[pipelineJob.ID] != 2 || summary.Jobs[adhocJob.ID] != 1 {
+		t.Fatalf("all timeline summary = %+v", summary)
+	}
+	if summary.Sources["job"] != 3 || summary.Sources["lifecycle"] != 0 || summary.Kinds["note"] != 2 || summary.Statuses[string(job.StatusRunning)] != 2 {
+		t.Fatalf("all timeline summary counts = %+v", summary)
+	}
+
+	invalidAllWithID := NewRootCmd()
+	invalidAllWithIDOut, invalidAllWithIDErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidAllWithID.SetOut(invalidAllWithIDOut)
+	invalidAllWithID.SetErr(invalidAllWithIDErr)
+	invalidAllWithID.SetArgs([]string{"job", "timeline", "--all", pipelineJob.ID, "--repo", tmp})
+	if err := invalidAllWithID.Execute(); err == nil {
+		t.Fatalf("job timeline accepted --all with job id: stdout=%s", invalidAllWithIDOut.String())
+	}
+	if !strings.Contains(invalidAllWithIDErr.String(), "--all cannot be combined with a job id") {
+		t.Fatalf("all with id stderr = %q", invalidAllWithIDErr.String())
+	}
+
+	missingID := NewRootCmd()
+	missingIDOut, missingIDErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missingID.SetOut(missingIDOut)
+	missingID.SetErr(missingIDErr)
+	missingID.SetArgs([]string{"job", "timeline", "--repo", tmp})
+	if err := missingID.Execute(); err == nil {
+		t.Fatalf("job timeline accepted missing id: stdout=%s", missingIDOut.String())
+	}
+	if !strings.Contains(missingIDErr.String(), "job id is required") {
+		t.Fatalf("missing id stderr = %q", missingIDErr.String())
+	}
+
+	tooMany := NewRootCmd()
+	tooManyOut, tooManyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	tooMany.SetOut(tooManyOut)
+	tooMany.SetErr(tooManyErr)
+	tooMany.SetArgs([]string{"job", "timeline", pipelineJob.ID, adhocJob.ID, "--repo", tmp})
+	if err := tooMany.Execute(); err == nil {
+		t.Fatalf("job timeline accepted too many ids: stdout=%s", tooManyOut.String())
+	}
+	if !strings.Contains(tooManyErr.String(), "pass at most one job id") {
+		t.Fatalf("too many ids stderr = %q", tooManyErr.String())
+	}
+}
+
 func TestScopedTimelineCommands(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
