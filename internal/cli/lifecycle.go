@@ -887,10 +887,6 @@ func newStatusCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
-			if commands && summary {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --summary.")
-				return exitErr(2)
-			}
 			if strictTopology && !summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --strict-topology requires --summary.")
 				return exitErr(2)
@@ -949,7 +945,7 @@ func newStatusCmd() *cobra.Command {
 				return runStatusWatchWithClear(ctx, out, teamDir, interval, time.Now, jsonOut, opts, clear)
 			}
 			if summary {
-				return runStatusSummaryWithOptions(out, teamDir, time.Now(), jsonOut, statusSummaryOptions{
+				summaryOpts := statusSummaryOptions{
 					Health: healthOptions{
 						filters:        opts,
 						strictTopology: strictTopology,
@@ -960,7 +956,28 @@ func newStatusCmd() *cobra.Command {
 					PlanActions:      planActions,
 					EventTail:        eventTail,
 					EventFilters:     eventFilters,
-				})
+				}
+				if commands {
+					scope := operatorCommandScopeFromCommand(cmd, target, "target")
+					return runStatusSummaryCommands(out, teamDir, time.Now(), summaryOpts, statusSummaryCommandOptions{
+						Scope: scope,
+						Plan: planCommandOptions{
+							BaseArgs:        []string{"agent-team", "sync"},
+							TargetFlag:      "--repo",
+							Target:          scope.Repo,
+							TargetSet:       scope.Set,
+							DryRun:          true,
+							StopExtras:      stopExtras,
+							StatusFilters:   statusFilters,
+							RuntimeFilters:  runtimeFilters,
+							AgentFilters:    agentFilters,
+							PhaseFilters:    phaseFilters,
+							InstanceFilters: instanceFilters,
+							ActionFilters:   actionFilters,
+						},
+					})
+				}
+				return runStatusSummaryWithOptions(out, teamDir, time.Now(), jsonOut, summaryOpts)
 			}
 			if commands {
 				return runStatusCommands(out, teamDir, time.Now(), opts, operatorCommandScopeFromCommand(cmd, target, "target"))
@@ -1109,6 +1126,12 @@ type statusSummarySnapshot struct {
 	Plan           *lifecycleActionSummaryResult `json:"plan,omitempty"`
 	Events         *eventSummaryJSON             `json:"events,omitempty"`
 	EventsError    string                        `json:"events_error,omitempty"`
+	planRows       []planRow
+}
+
+type statusSummaryCommandOptions struct {
+	Scope operatorCommandScope
+	Plan  planCommandOptions
 }
 
 func runStatusSummaryWithOptions(w io.Writer, teamDir string, now time.Time, jsonOut bool, opts statusSummaryOptions) error {
@@ -1128,6 +1151,28 @@ func runStatusSummaryWithOptions(w io.Writer, teamDir string, now time.Time, jso
 	}
 	renderStatusSummarySnapshot(w, snapshot)
 	return nil
+}
+
+func runStatusSummaryCommands(w io.Writer, teamDir string, now time.Time, opts statusSummaryOptions, commandOpts statusSummaryCommandOptions) error {
+	snapshot, err := collectStatusSummarySnapshot(teamDir, now, opts)
+	if err != nil {
+		return err
+	}
+	daemonStatus := collectDaemonStatus(teamDir)
+	actions := append([]string{}, daemonStatusRemediationActions(daemonStatus)...)
+	if snapshot.Health != nil {
+		for _, issue := range snapshot.Health.Issues {
+			actions = append(actions, issue.Actions...)
+		}
+	}
+	if opts.IncludePlan {
+		var planCommands strings.Builder
+		if err := renderPlanCommands(&planCommands, snapshot.planRows, commandOpts.Plan); err != nil {
+			return err
+		}
+		actions = append(actions, splitCommandLines(planCommands.String())...)
+	}
+	return renderOperatorActionCommands(w, actions, commandOpts.Scope)
 }
 
 func collectStatusSummarySnapshot(teamDir string, now time.Time, opts statusSummaryOptions) (*statusSummarySnapshot, error) {
@@ -1166,6 +1211,7 @@ func collectStatusSummarySnapshot(teamDir string, now time.Time, opts statusSumm
 		plan.Instances = filterPlanRowsWithActions(plan.Instances, planOpts, opts.PlanActions)
 		summary := summarizeLifecycleActions(planRowsToLifecycleActionResults(plan.Instances, true), true)
 		snapshot.Plan = &lifecycleActionSummaryResult{Summary: summary}
+		snapshot.planRows = plan.Instances
 	}
 	if opts.EventTail <= 0 {
 		return snapshot, nil

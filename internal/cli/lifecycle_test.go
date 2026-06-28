@@ -3312,6 +3312,45 @@ func TestStatusCommandsRunningNotReady(t *testing.T) {
 	}
 }
 
+func TestStatusSummaryCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"status", "--summary", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --summary --commands: %v\nstderr: %s", err, errOut.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon start",
+		"agent-team sync --dry-run",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --summary --commands output = %q, want %q", got, want)
+	}
+}
+
+func TestStatusSummaryCommandsIncludesPlanCommand(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"status", "--summary", "--plan", "--action", "start", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --summary --plan --commands: %v\nstderr: %s", err, errOut.String())
+	}
+	wantPlanCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "sync", "--repo", tmp, "--dry-run", "--action", "start"}), " ")
+	if !strings.Contains(out.String(), wantPlanCommand) {
+		t.Fatalf("status --summary --plan --commands output missing %q:\n%s", wantPlanCommand, out.String())
+	}
+}
+
 func TestStatusSummaryShowsHealthWithoutFailing(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -3967,11 +4006,6 @@ func TestStatusFormatRejectsConflictingStructuredModes(t *testing.T) {
 		{
 			name: "commands format",
 			args: []string{"status", "--commands", "--format", "{{.Instance}}", "--target", tmp},
-			want: "--commands cannot be combined",
-		},
-		{
-			name: "commands summary",
-			args: []string{"status", "--commands", "--summary", "--target", tmp},
 			want: "--commands cannot be combined",
 		},
 		{
