@@ -184,7 +184,7 @@ agent-team plan [--json] [--summary] [--stop-extras] [--commands] [--format '{{.
                                                 # preview desired instance state from topology and daemon metadata
 agent-team sync [-q] [--dry-run] [--commands] [--stop-extras] [--agent manager] [--instance manager] [--runtime codex] [--status unknown] [--phase idle] [--action start] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--json]
                                                 # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
-agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--preview-routes] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
+agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--commands] [--preview-routes] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
                                                 # run one maintenance cycle, watch cycles, or tick until no immediate job-status/schedule/outbox/queue/pipeline work remains
 agent-team drain [--interval 2s] [--max-cycles N] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.CyclesRun}} {{.Idle}}'] [--json]
                                                 # script-friendly shortcut for tick --until-idle, including agent outbox drain
@@ -508,7 +508,7 @@ agent-team run worker --runtime codex --prompt "summarize the queued jobs" --las
 agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --prompt "check status" --detach
 agent-team job dispatch squ-42 --runtime codex --runtime-bin /opt/bin/codex-wrapper
 agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
-agent-team tick --runtime codex --dry-run --preview-routes
+agent-team tick --runtime codex --dry-run --preview-routes --commands
 agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
 agent-team queue ls --summary --runtime codex
 ```

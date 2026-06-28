@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"text/tabwriter"
 	"text/template"
 	"time"
@@ -32,6 +33,7 @@ func newTickCmd() *cobra.Command {
 		previewRoutes bool
 		watch         bool
 		untilIdle     bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -53,6 +55,22 @@ func newTickCmd() *cobra.Command {
 			"reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, then advance ready pipeline jobs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --commands cannot be combined with --watch.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team tick: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -182,6 +200,23 @@ func newTickCmd() *cobra.Command {
 					return err
 				}
 			}
+			if commands {
+				return renderTickCommands(cmd.OutOrStdout(), result, tickApplyCommandOptions{
+					BaseArgs:      []string{"agent-team", "tick"},
+					Target:        target,
+					TargetSet:     cmd.Flags().Changed("target"),
+					Workspace:     workspace,
+					WorkspaceSet:  cmd.Flags().Changed("workspace"),
+					RuntimeKind:   runtimeKind,
+					RuntimeBin:    runtimeBin,
+					Limit:         limit,
+					SkipReconcile: skipReconcile,
+					SkipSchedules: skipSchedules,
+					SkipDrain:     skipDrain,
+					SkipAdvance:   skipAdvance,
+					AllReadySteps: allReadySteps,
+				})
+			}
 			if err := renderTickResult(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
 				return err
 			}
@@ -205,6 +240,7 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, outbox, queue, or pipeline work remains.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching tick apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -388,6 +424,65 @@ type tickUntilIdleResult struct {
 	Idle      bool          `json:"idle"`
 	HitLimit  bool          `json:"hit_limit,omitempty"`
 	Cycles    []*tickResult `json:"cycles"`
+}
+
+type tickApplyCommandOptions struct {
+	BaseArgs      []string
+	Target        string
+	TargetSet     bool
+	Workspace     string
+	WorkspaceSet  bool
+	RuntimeKind   string
+	RuntimeBin    string
+	Limit         int
+	SkipReconcile bool
+	SkipSchedules bool
+	SkipDrain     bool
+	SkipAdvance   bool
+	AllReadySteps bool
+}
+
+func renderTickCommands(w fmtWriter, result *tickResult, opts tickApplyCommandOptions) error {
+	if result == nil || !result.DryRun || tickResultIsIdle(result) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(tickApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func tickApplyCommandArgs(opts tickApplyCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.TargetSet {
+		args = append(args, "--target", opts.Target)
+	}
+	if opts.WorkspaceSet {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if opts.Limit > 0 {
+		args = append(args, "--limit", fmt.Sprintf("%d", opts.Limit))
+	}
+	if opts.SkipReconcile {
+		args = append(args, "--skip-reconcile")
+	}
+	if opts.SkipSchedules {
+		args = append(args, "--skip-schedules")
+	}
+	if opts.SkipDrain {
+		args = append(args, "--skip-drain")
+	}
+	if opts.SkipAdvance {
+		args = append(args, "--skip-advance")
+	}
+	if opts.AllReadySteps {
+		args = append(args, "--all-ready-steps")
+	}
+	return args
 }
 
 func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tickOptions) (*tickResult, error) {

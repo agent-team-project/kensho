@@ -150,6 +150,7 @@ agent-team repair --timeout-pipelines --timeout-pipeline ticket_to_pr --dry-run
 agent-team repair --timeout-pipelines --timeout-target-agent worker --dry-run
 agent-team repair --retry-pipelines --retry-pipeline ticket_to_pr --runtime codex --dry-run --preview-routes
 agent-team repair --retry-pipelines --retry-step review --dry-run --preview-routes
+agent-team tick --dry-run --preview-routes --commands
 agent-team tick --wait --wait-status running --wait-timeout 30s
 agent-team tick --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 agent-team team tick delivery --wait --wait-status running --wait-timeout 30s

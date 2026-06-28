@@ -113,6 +113,31 @@ branch = "worker-squ-94"
 		t.Fatalf("tick dry-run mutated status job = %+v", statusUnchanged)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2", "--dry-run", "--preview-routes", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("tick dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "tick", "--target", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("tick dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	idleCommands := NewRootCmd()
+	idleCommandsOut, idleCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	idleCommands.SetOut(idleCommandsOut)
+	idleCommands.SetErr(idleCommandsErr)
+	idleCommands.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--commands"})
+	if err := idleCommands.Execute(); err != nil {
+		t.Fatalf("idle tick dry-run commands: %v\nstderr=%s", err, idleCommandsErr.String())
+	}
+	if got := strings.TrimSpace(idleCommandsOut.String()); got != "" {
+		t.Fatalf("idle tick dry-run commands = %q, want no output", got)
+	}
+
 	routeDry := NewRootCmd()
 	routeDryOut, routeDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	routeDry.SetOut(routeDryOut)
@@ -333,6 +358,10 @@ func TestTickWaitValidation(t *testing.T) {
 		{name: "wait step without wait", args: []string{"tick", "--wait-step", "implement"}, want: "wait-related flags require --wait"},
 		{name: "invalid wait next-state", args: []string{"tick", "--wait", "--wait-next-state", "missing"}, want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
 		{name: "negative wait timeout", args: []string{"tick", "--wait", "--wait-timeout", "-1s"}, want: "--wait-timeout must be >= 0"},
+		{name: "commands requires dry run", args: []string{"tick", "--commands"}, want: "--commands requires --dry-run"},
+		{name: "commands rejects json", args: []string{"tick", "--dry-run", "--commands", "--json"}, want: "--commands cannot be combined with --json"},
+		{name: "commands rejects format", args: []string{"tick", "--dry-run", "--commands", "--format", "{{.DryRun}}"}, want: "--commands cannot be combined with --format"},
+		{name: "commands rejects watch", args: []string{"tick", "--dry-run", "--commands", "--watch"}, want: "--commands cannot be combined with --watch"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

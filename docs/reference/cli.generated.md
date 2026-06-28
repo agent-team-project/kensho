@@ -9261,6 +9261,7 @@ Flags:
 
 ```text
       --all-ready-steps           Advance every currently ready independent pipeline step in this tick.
+      --commands                  With --dry-run, print the matching tick apply command when the preview has actionable work.
       --dry-run                   Preview job status reconciliation, schedule firing, outbox/queue drains, and pipeline advancement without mutating state.
       --fail-on-failed            With --wait, exit 1 if any advanced job resolves to failed.
       --format string             Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.

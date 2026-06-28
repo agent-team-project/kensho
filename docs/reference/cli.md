@@ -84,7 +84,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team plan` | Preview desired instance state; add `--commands` to print the matching dry-run sync command when the selected plan has actionable work |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
-| `agent-team tick` | Run one maintenance cycle or loop; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for one-shot stage-aware handoff; `team tick <team>` supports the same scoped handoff |
+| `agent-team tick` | Run one maintenance cycle or loop; add `--dry-run --commands` to print the matching one-cycle apply command when work is ready, use `--runtime` for advanced steps, and use `--wait-next-state`/`--wait-step` for one-shot stage-aware handoff; `team tick <team>` supports the same scoped handoff |
 | `agent-team drain` | Run maintenance cycles until idle; use `--runtime` for advanced steps and `--wait-next-state`/`--wait-step` for bounded stage-aware handoff after drain cycles; `team drain <team>` supports the same scoped handoff |
 | `agent-team reload` | Top-level daemon topology reload |
 
