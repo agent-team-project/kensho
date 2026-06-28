@@ -461,6 +461,52 @@ func TestInboxPruneOlderThanKeepsRecentAcknowledgedMessages(t *testing.T) {
 	}
 }
 
+func TestInboxPruneLimitBoundsDroppedMessagesPerInbox(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	for _, id := range []string{"msg-1", "msg-2", "msg-3", "msg-4", "msg-5"} {
+		if err := daemon.AppendMessage(root, "worker", &daemon.Message{ID: id, Body: id}); err != nil {
+			t.Fatalf("append %s: %v", id, err)
+		}
+	}
+	if err := daemon.WriteCursor(root, "worker", "msg-4"); err != nil {
+		t.Fatalf("write cursor: %v", err)
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--limit", "2", "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("inbox prune limit commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--target", tmp, "--limit", "2"}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox prune limit commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--limit", "2", "--json")
+	if err != nil {
+		t.Fatalf("inbox prune limit: %v\nstderr=%s", err, stderr)
+	}
+	var rows []inboxPruneResult
+	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
+		t.Fatalf("decode prune limit: %v\nbody=%s", err, stdout)
+	}
+	if len(rows) != 1 || rows[0].Dropped != 2 || rows[0].Kept != 3 || rows[0].Unread != 1 {
+		t.Fatalf("limit prune rows = %+v", rows)
+	}
+	messages, err := daemon.ReadMessages(root, "worker")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	gotIDs := []string{}
+	for _, msg := range messages {
+		gotIDs = append(gotIDs, msg.ID)
+	}
+	if strings.Join(gotIDs, ",") != "msg-3,msg-4,msg-5" {
+		t.Fatalf("messages after limit prune = %v", gotIDs)
+	}
+}
+
 func TestInboxPruneAllTeamCommandsScopesInboxes(t *testing.T) {
 	tmp := t.TempDir()
 	teamDir := filepath.Join(tmp, ".agent_team")
@@ -570,6 +616,11 @@ func TestInboxPruneValidation(t *testing.T) {
 			name: "rejects negative older-than",
 			args: []string{"inbox", "prune", "worker", "--target", tmp, "--older-than", "-1s"},
 			want: "--older-than must be >= 0",
+		},
+		{
+			name: "rejects negative limit",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--limit", "-1"},
+			want: "--limit must be >= 0",
 		},
 	}
 	for _, tt := range tests {

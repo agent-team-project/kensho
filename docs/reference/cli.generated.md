@@ -1120,6 +1120,7 @@ Flags:
       --dry-run               Preview inbox compaction without rewriting mailbox files.
       --format string         Render each prune result with a Go template, e.g. '{{.Instance}} {{.Dropped}}'.
       --json                  Emit machine-readable JSON.
+      --limit int             Prune at most this many acknowledged messages per inbox; 0 means no limit.
       --older-than duration   Only prune acknowledged messages older than this duration.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string           With --all, only prune inboxes owned by this declared team.

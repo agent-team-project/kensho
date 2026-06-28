@@ -230,6 +230,7 @@ func newInboxPruneCmd() *cobra.Command {
 		teamName  string
 		all       bool
 		olderThan time.Duration
+		limit     int
 		dryRun    bool
 		commands  bool
 		jsonOut   bool
@@ -275,6 +276,10 @@ func newInboxPruneCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --older-than must be >= 0.")
 				return exitErr(2)
 			}
+			if limit < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --limit must be >= 0.")
+				return exitErr(2)
+			}
 			tmpl, err := parseInboxFormat(format, "inbox-prune-format")
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox prune: %v\n", err)
@@ -291,6 +296,7 @@ func newInboxPruneCmd() *cobra.Command {
 			}
 			opts := inboxPruneOptions{
 				OlderThan: olderThan,
+				Limit:     limit,
 				Now:       time.Now().UTC(),
 				DryRun:    dryRun,
 			}
@@ -307,6 +313,7 @@ func newInboxPruneCmd() *cobra.Command {
 					TeamSet:      cmd.Flags().Changed("team"),
 					OlderThan:    olderThan,
 					OlderThanSet: cmd.Flags().Changed("older-than"),
+					Limit:        limit,
 					RepoFlag:     inboxRepoFlag(cmd),
 					Repo:         inboxRepo(cmd, target),
 					RepoSet:      inboxRepoSet(cmd),
@@ -319,6 +326,7 @@ func newInboxPruneCmd() *cobra.Command {
 	cmd.Flags().StringVar(&teamName, "team", "", "With --all, only prune inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&all, "all", false, "Prune every current inbox.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune acknowledged messages older than this duration.")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Prune at most this many acknowledged messages per inbox; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview inbox compaction without rewriting mailbox files.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox prune apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -362,6 +370,7 @@ type inboxAckOptions struct {
 
 type inboxPruneOptions struct {
 	OlderThan time.Duration
+	Limit     int
 	Now       time.Time
 	DryRun    bool
 }
@@ -736,7 +745,7 @@ func planInboxPrune(messages []*daemon.Message, cursor string, opts inboxPruneOp
 	kept := make([]*daemon.Message, 0, len(messages))
 	dropped := 0
 	for i, msg := range messages {
-		if i < cursorIndex && inboxPruneMessageEligible(msg, opts) {
+		if i < cursorIndex && inboxPruneMessageEligible(msg, opts) && (opts.Limit <= 0 || dropped < opts.Limit) {
 			dropped++
 			continue
 		}
@@ -858,6 +867,7 @@ type inboxPruneApplyCommandOptions struct {
 	TeamSet      bool
 	OlderThan    time.Duration
 	OlderThanSet bool
+	Limit        int
 	RepoFlag     string
 	Repo         string
 	RepoSet      bool
@@ -903,6 +913,9 @@ func inboxPruneApplyCommandArgs(opts inboxPruneApplyCommandOptions) []string {
 	}
 	if opts.OlderThanSet {
 		args = append(args, "--older-than", opts.OlderThan.String())
+	}
+	if opts.Limit > 0 {
+		args = append(args, "--limit", fmt.Sprint(opts.Limit))
 	}
 	return args
 }
