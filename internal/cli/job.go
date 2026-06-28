@@ -5495,11 +5495,12 @@ func newJobCleanupCmd() *cobra.Command {
 
 func newJobRmCmd() *cobra.Command {
 	var (
-		repo    string
-		force   bool
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo     string
+		force    bool
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -5512,6 +5513,18 @@ func newJobRmCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job rm: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job rm: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job rm: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job rm: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobRemoveFormat(format)
@@ -5540,12 +5553,21 @@ func newJobRmCmd() *cobra.Command {
 				}
 				results = append(results, result)
 			}
+			if commands {
+				return renderJobRmApplyCommand(cmd.OutOrStdout(), jobRemoveResultsHaveDryRunAction(results), jobRmApplyCommandOptions{
+					JobIDs:  jobRemoveResultIDs(results),
+					Repo:    repo,
+					RepoSet: cmd.Flags().Changed("repo"),
+					Force:   force,
+				})
+			}
 			return renderJobRemoveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow removing queued, running, or blocked jobs.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview removals without deleting files.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job rm apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit removal results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
@@ -5556,6 +5578,7 @@ func newJobPruneCmd() *cobra.Command {
 		repo     string
 		statuses []string
 		dryRun   bool
+		commands bool
 		jsonOut  bool
 		format   string
 	)
@@ -5568,6 +5591,18 @@ func newJobPruneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job prune: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job prune: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job prune: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job prune: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobRemoveFormat(format)
@@ -5599,12 +5634,21 @@ func newJobPruneCmd() *cobra.Command {
 				}
 				results = append(results, result)
 			}
+			if commands {
+				return renderJobPruneApplyCommand(cmd.OutOrStdout(), jobRemoveResultsHaveDryRunAction(results), jobPruneApplyCommandOptions{
+					Repo:      repo,
+					RepoSet:   cmd.Flags().Changed("repo"),
+					Statuses:  statuses,
+					StatusSet: cmd.Flags().Changed("status"),
+				})
+			}
 			return renderJobRemoveResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Terminal status to prune: done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview removals without deleting files.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job prune apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit removal results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	return cmd
@@ -8631,6 +8675,26 @@ func renderJobRemoveResults(w io.Writer, results []jobRemoveResult, jsonOut bool
 	}
 	renderJobRemoveTable(w, results)
 	return nil
+}
+
+func jobRemoveResultsHaveDryRunAction(results []jobRemoveResult) bool {
+	for _, result := range results {
+		if result.DryRun && result.Action == "would_remove" && (result.JobFile || result.EventLog) {
+			return true
+		}
+	}
+	return false
+}
+
+func jobRemoveResultIDs(results []jobRemoveResult) []string {
+	ids := make([]string, 0, len(results))
+	for _, result := range results {
+		if strings.TrimSpace(result.ID) == "" {
+			continue
+		}
+		ids = append(ids, result.ID)
+	}
+	return ids
 }
 
 func renderJobRemoveTable(w io.Writer, results []jobRemoveResult) {
@@ -12820,6 +12884,83 @@ type jobUpdateApplyCommandOptions struct {
 	RuntimeKindSet bool
 	RuntimeBin     string
 	RuntimeBinSet  bool
+}
+
+type jobRmApplyCommandOptions struct {
+	JobIDs  []string
+	Repo    string
+	RepoSet bool
+	Force   bool
+}
+
+type jobPruneApplyCommandOptions struct {
+	Repo      string
+	RepoSet   bool
+	Statuses  []string
+	StatusSet bool
+}
+
+func renderJobRmApplyCommand(w io.Writer, hasAction bool, opts jobRmApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobRmApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobRmApplyCommandArgs(opts jobRmApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "rm"}
+	for _, id := range opts.JobIDs {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		args = append(args, id)
+	}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
+	return args
+}
+
+func renderJobPruneApplyCommand(w io.Writer, hasAction bool, opts jobPruneApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobPruneApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobPruneApplyCommandArgs(opts jobPruneApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "prune"}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StatusSet {
+		statuses := normalizeJobPruneCommandStatuses(opts.Statuses)
+		if len(statuses) > 0 {
+			args = append(args, "--status", strings.Join(statuses, ","))
+		}
+	}
+	return args
+}
+
+func normalizeJobPruneCommandStatuses(raw []string) []string {
+	seen := map[string]bool{}
+	statuses := make([]string, 0, len(raw))
+	for _, item := range raw {
+		for _, part := range strings.Split(item, ",") {
+			part = strings.ToLower(strings.TrimSpace(part))
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			statuses = append(statuses, part)
+		}
+	}
+	return statuses
 }
 
 func renderJobUpdateApplyCommand(w io.Writer, hasAction bool, opts jobUpdateApplyCommandOptions) error {

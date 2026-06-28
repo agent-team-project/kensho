@@ -414,6 +414,20 @@ Use `job close squ-42 --status done` only when the work really is complete.
 Add `--verify-pr` to check the recorded GitHub PR with `gh` before cleanup.
 Use `--force-branch` only when the PR is merged but the local branch is not recognized as merged by Git.
 
+Remove terminal job files and event logs only after workspace cleanup or when
+the job record is no longer needed:
+
+```sh
+agent-team job rm squ-42 --dry-run --commands
+agent-team job rm squ-42 --dry-run
+agent-team job prune --status done --dry-run --commands
+agent-team job prune --status done --dry-run
+```
+
+Use `--force` with `job rm` only when intentionally deleting a non-terminal job
+record. Add `--commands` to removal and prune dry-runs when scripts should print
+only the matching apply command.
+
 ## Triage
 
 ```sh

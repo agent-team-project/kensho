@@ -2579,6 +2579,7 @@ agent-team job prune [flags]
 Flags:
 
 ```text
+      --commands         With --dry-run, print the matching job prune apply command when the preview has actionable work.
       --dry-run          Preview removals without deleting files.
       --format string    Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json             Emit removal results as JSON.
@@ -3200,6 +3201,7 @@ Aliases: `remove`
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching job rm apply command when the preview has actionable work.
       --dry-run         Preview removals without deleting files.
   -f, --force           Allow removing queued, running, or blocked jobs.
       --format string   Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.

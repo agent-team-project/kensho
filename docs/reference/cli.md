@@ -122,6 +122,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job cancel <job-id>` | Fail a job as cancelled, optionally stopping its owner; add `--dry-run --commands` for the apply command |
 | `agent-team job timeout <job-id> or --all` | Mark stale running job steps or stale step-less running jobs failed; add `--pipeline` or `--target-agent` with `--all` to scope a sweep |
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
+| `agent-team job rm <job-id>` | Remove job files and event logs; add `--dry-run --commands` for the apply command |
+| `agent-team job prune` | Remove terminal job files and event logs; add `--dry-run --commands` for the apply command |
 | `agent-team job triage` | Find jobs needing attention, including queue/outbox quarantine recovery hints; add `--commands` for attention-row recovery commands |
 | `agent-team job ready` | List or watch next pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one action per line with `--commands` |
 | `agent-team job advance <job-id>` | Advance a pipeline step; add `--dry-run --commands` for the apply command or `--wait --wait-next-state`/`--wait-step` for stage-aware handoff |

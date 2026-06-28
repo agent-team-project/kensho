@@ -5758,6 +5758,22 @@ func TestJobRmRequiresForceForActiveAndRemovesEvents(t *testing.T) {
 		t.Fatalf("rm active stderr = %q", rmActiveErr.String())
 	}
 
+	rmForceCommands := NewRootCmd()
+	rmForceCommandsOut, rmForceCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rmForceCommands.SetOut(rmForceCommandsOut)
+	rmForceCommands.SetErr(rmForceCommandsErr)
+	rmForceCommands.SetArgs([]string{"job", "rm", "SQU-61", "--repo", tmp, "--force", "--dry-run", "--commands"})
+	if err := rmForceCommands.Execute(); err != nil {
+		t.Fatalf("job rm force dry-run commands: %v\nstderr=%s", err, rmForceCommandsErr.String())
+	}
+	wantForceCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "rm", "squ-61", "--repo", tmp, "--force"}), " ")
+	if got := strings.TrimSpace(rmForceCommandsOut.String()); got != wantForceCommand {
+		t.Fatalf("job rm force dry-run commands = %q, want %q", got, wantForceCommand)
+	}
+	if _, err := os.Stat(job.Path(filepath.Join(tmp, ".agent_team"), "squ-61")); err != nil {
+		t.Fatalf("rm force dry-run removed job unexpectedly: %v", err)
+	}
+
 	closeCmd := NewRootCmd()
 	closeOut, closeErr := &bytes.Buffer{}, &bytes.Buffer{}
 	closeCmd.SetOut(closeOut)
@@ -5827,6 +5843,22 @@ func TestJobPruneRemovesOnlySelectedTerminalJobs(t *testing.T) {
 		t.Fatalf("dry-run removed job unexpectedly: %v", err)
 	}
 
+	pruneCommands := NewRootCmd()
+	pruneCommandsOut, pruneCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pruneCommands.SetOut(pruneCommandsOut)
+	pruneCommands.SetErr(pruneCommandsErr)
+	pruneCommands.SetArgs([]string{"job", "prune", "--repo", tmp, "--status", "done", "--dry-run", "--commands"})
+	if err := pruneCommands.Execute(); err != nil {
+		t.Fatalf("job prune dry-run commands: %v\nstderr=%s", err, pruneCommandsErr.String())
+	}
+	wantPruneCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "prune", "--repo", tmp, "--status", "done"}), " ")
+	if got := strings.TrimSpace(pruneCommandsOut.String()); got != wantPruneCommand {
+		t.Fatalf("job prune dry-run commands = %q, want %q", got, wantPruneCommand)
+	}
+	if _, err := os.Stat(job.Path(teamDir, "squ-62")); err != nil {
+		t.Fatalf("prune commands dry-run removed job unexpectedly: %v", err)
+	}
+
 	pruneDone := NewRootCmd()
 	pruneDoneOut, pruneDoneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pruneDone.SetOut(pruneDoneOut)
@@ -5844,11 +5876,57 @@ func TestJobPruneRemovesOnlySelectedTerminalJobs(t *testing.T) {
 	if _, err := os.Stat(job.EventPath(teamDir, "squ-62")); !os.IsNotExist(err) {
 		t.Fatalf("done event file err=%v, want not exist", err)
 	}
+	pruneNoop := NewRootCmd()
+	pruneNoopOut, pruneNoopErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pruneNoop.SetOut(pruneNoopOut)
+	pruneNoop.SetErr(pruneNoopErr)
+	pruneNoop.SetArgs([]string{"job", "prune", "--repo", tmp, "--status", "done", "--dry-run", "--commands"})
+	if err := pruneNoop.Execute(); err != nil {
+		t.Fatalf("job prune noop dry-run commands: %v\nstderr=%s", err, pruneNoopErr.String())
+	}
+	if got := strings.TrimSpace(pruneNoopOut.String()); got != "" {
+		t.Fatalf("job prune noop dry-run commands = %q, want empty", got)
+	}
 	if _, err := os.Stat(job.Path(teamDir, "squ-63")); err != nil {
 		t.Fatalf("failed job removed unexpectedly: %v", err)
 	}
 	if _, err := os.Stat(job.Path(teamDir, "squ-64")); err != nil {
 		t.Fatalf("queued job removed unexpectedly: %v", err)
+	}
+}
+
+func TestJobRemoveCommandValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"job", "rm", "SQU-61", "--commands"}, "job rm: --commands requires --dry-run"},
+		{[]string{"job", "rm", "SQU-61", "--dry-run", "--commands", "--json"}, "job rm: --commands cannot be combined with --json"},
+		{[]string{"job", "rm", "SQU-61", "--dry-run", "--commands", "--format", "{{.ID}}"}, "job rm: --commands cannot be combined with --format"},
+		{[]string{"job", "prune", "--commands"}, "job prune: --commands requires --dry-run"},
+		{[]string{"job", "prune", "--dry-run", "--commands", "--json"}, "job prune: --commands cannot be combined with --json"},
+		{[]string{"job", "prune", "--dry-run", "--commands", "--format", "{{.ID}}"}, "job prune: --commands cannot be combined with --format"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
