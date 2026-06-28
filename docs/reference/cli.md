@@ -97,7 +97,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job ls` | List jobs; filter held state, hold deadlines, and mixed-runtime ownership; sort rows and cap output with `--limit` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, queue, quarantine, outbox, status previews, and actions; add `--commands` to print only follow-up commands; `inspect` is an alias |
 | `agent-team job doctor` | Validate durable job TOML files, including filename/id ownership and persisted state invariants; `--quarantine --dry-run` previews isolating malformed active job files and `--commands` prints recovery commands |
-| `agent-team job quarantine` | Inspect, summarize, restore, or drop job TOML files preserved by `job doctor --quarantine`; `quarantine show` accepts `--commands` |
+| `agent-team job quarantine` | Inspect, summarize, restore, or drop job TOML files preserved by `job doctor --quarantine`; add `--commands` to print visible restore/drop dry-run actions |
 | `agent-team job wait <job-id>` | Wait for lifecycle status, last event, or next-step state/stage with `--next-state` and `--step` |
 | `agent-team job next <job-id>` | Show the next pipeline step without dispatching it; add `--state`, `--step`, or `--commands` when scripts need a compact assertion or next-action commands |
 | `agent-team job resume-plan <job-id>` | Show runtime resume, attach, and log fallback commands for one job; add `--step` for one pipeline stage, `--last-message` for clean Codex sidecars, `--commands` for repo-scoped command lines, or `--sort`/`--limit` for multi-runtime jobs |

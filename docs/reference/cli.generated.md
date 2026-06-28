@@ -2708,6 +2708,7 @@ agent-team job quarantine [flags]
 Flags:
 
 ```text
+      --commands        Print recommended commands from the visible quarantined job files, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string   Render each quarantined job file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.
       --json            Emit quarantined job files as JSON.
       --limit int       Limit rows after filtering and sorting; 0 means no limit.

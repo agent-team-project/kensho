@@ -487,13 +487,16 @@ agent-team job doctor --quarantine --dry-run
 agent-team job doctor --quarantine
 agent-team job quarantine --summary --json
 agent-team job quarantine
+agent-team job quarantine --restorable --commands
 agent-team job quarantine show quarantine/<timestamp>/squ-42.toml
 agent-team job quarantine restore quarantine/<timestamp>/squ-42.toml --dry-run
 agent-team job quarantine drop quarantine/<timestamp>/broken.toml --dry-run
 ```
 
 `job quarantine --summary` reports compact preserved-file counts while
-`--restorable` or `--unrestorable` narrows that count before inspection.
+`--restorable` or `--unrestorable` narrows that count before inspection. Add
+`--commands` when automation needs restore/drop dry-run commands for every
+visible preserved job file without opening each file first.
 
 ## Events
 

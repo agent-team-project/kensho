@@ -57,6 +57,26 @@ updated_at = 2026-06-27T12:00:00Z
 		t.Fatalf("listed job quarantine items = %+v", listed)
 	}
 
+	listCommands := NewRootCmd()
+	listCommandsOut, listCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	listCommands.SetOut(listCommandsOut)
+	listCommands.SetErr(listCommandsErr)
+	listCommands.SetArgs([]string{"job", "quarantine", "--repo", tmp, "--sort", "restorable", "--commands"})
+	if err := listCommands.Execute(); err != nil {
+		t.Fatalf("job quarantine list --commands: %v\nstderr=%s", err, listCommandsErr.String())
+	}
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team job quarantine restore " + restorableRel + " --dry-run",
+		"agent-team job quarantine drop " + restorableRel + " --dry-run",
+		"agent-team job quarantine drop " + brokenRel + " --dry-run",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := listCommandsOut.String(); got != wantListCommands {
+		t.Fatalf("job quarantine list --commands = %q, want %q", got, wantListCommands)
+	}
+	if strings.Contains(listCommandsOut.String(), "PATH") || strings.Contains(listCommandsOut.String(), "RESTORABLE") {
+		t.Fatalf("job quarantine list --commands included table text:\n%s", listCommandsOut.String())
+	}
+
 	summaryCmd := NewRootCmd()
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryCmd.SetOut(summaryOut)
@@ -255,6 +275,21 @@ func TestJobQuarantineRejectsCommandsFormatCombinations(t *testing.T) {
 		args []string
 		want string
 	}{
+		{
+			name: "list commands with json",
+			args: []string{"job", "quarantine", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "list commands with format",
+			args: []string{"job", "quarantine", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "list commands with summary",
+			args: []string{"job", "quarantine", "--commands", "--summary"},
+			want: "--commands cannot be combined with --summary",
+		},
 		{
 			name: "commands with json",
 			args: []string{"job", "quarantine", "show", "quarantine/20260627T120000.000000000Z/broken.toml", "--commands", "--json"},

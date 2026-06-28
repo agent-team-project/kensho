@@ -70,6 +70,7 @@ func newJobQuarantineCmd() *cobra.Command {
 		sortBy       string
 		limit        int
 		summary      bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -90,6 +91,18 @@ func newJobQuarantineCmd() *cobra.Command {
 			}
 			if summary && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job quarantine: --commands cannot be combined with --summary.")
 				return exitErr(2)
 			}
 			if summary && (cmd.Flags().Changed("sort") || limit > 0) {
@@ -119,6 +132,9 @@ func newJobQuarantineCmd() *cobra.Command {
 				return renderJobQuarantineSummary(cmd.OutOrStdout(), summarizeJobQuarantineItems(items), jsonOut)
 			}
 			items = prepareJobQuarantineItems(items, sortMode, limit)
+			if commands {
+				return renderJobQuarantineListCommands(cmd.OutOrStdout(), items, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			}
 			return renderJobQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
@@ -128,6 +144,7 @@ func newJobQuarantineCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "path", "Sort rows by path, id, ticket, target, status, modified, restorable, or size.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate quarantined job-file counts instead of rows.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from the visible quarantined job files, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit quarantined job files as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each quarantined job file with a Go template, e.g. '{{.ID}} {{.Restorable}}'.")
 	cmd.AddCommand(newJobQuarantineShowCmd())
@@ -724,6 +741,18 @@ func renderJobQuarantineShow(w io.Writer, result jobQuarantineShowResult, jsonOu
 
 func renderJobQuarantineCommands(w io.Writer, result jobQuarantineShowResult, scope operatorCommandScope) error {
 	return renderOperatorActionCommands(w, jobQuarantineShowActions(result), scope)
+}
+
+func renderJobQuarantineListCommands(w io.Writer, items []jobQuarantineItem, scope operatorCommandScope) error {
+	actions := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		actions = append(actions, jobQuarantineItemActions(item)...)
+	}
+	return renderOperatorActionCommands(w, actions, scope)
+}
+
+func jobQuarantineItemActions(item jobQuarantineItem) []string {
+	return jobQuarantineShowActions(jobQuarantineShowResult{jobQuarantineItem: item})
 }
 
 func renderJobQuarantineApplyCommand(w io.Writer, hasAction bool, args []string) error {
