@@ -109,3 +109,100 @@ func TestJobTimelineCombinesAuditAndLifecycle(t *testing.T) {
 		t.Fatalf("invalid source stderr = %q", invalidErr.String())
 	}
 }
+
+func TestScopedTimelineCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 6, 26, 13, 0, 0, 0, time.UTC)
+	j := &job.Job{
+		ID:        "squ-181",
+		Ticket:    "SQU-181",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		Instance:  "worker-squ-181",
+		Pipeline:  "ticket_to_pr",
+		CreatedAt: now,
+		UpdatedAt: now.Add(2 * time.Minute),
+	}
+	other := &job.Job{
+		ID:        "oth-181",
+		Ticket:    "OTH-181",
+		Target:    "external",
+		Status:    job.StatusRunning,
+		Instance:  "external-oth-181",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	for _, candidate := range []*job.Job{j, other} {
+		if err := job.Write(teamDir, candidate); err != nil {
+			t.Fatalf("write job %s: %v", candidate.ID, err)
+		}
+	}
+	for _, ev := range []job.Event{
+		{TS: now, JobID: j.ID, Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created scoped job"},
+		{TS: now.Add(time.Minute), JobID: j.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "pipeline note"},
+		{TS: now.Add(2 * time.Minute), JobID: other.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "unrelated note"},
+	} {
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append job event: %v", err)
+		}
+	}
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+		ID:       "life-181",
+		TS:       now.Add(90 * time.Second),
+		Action:   "dispatch",
+		Instance: j.Instance,
+		Agent:    "worker",
+		Job:      j.ID,
+		Status:   daemon.StatusRunning,
+		Message:  "pipeline worker started",
+	}); err != nil {
+		t.Fatalf("append lifecycle event: %v", err)
+	}
+	if err := daemon.AppendLifecycleEvent(root, &daemon.LifecycleEvent{
+		ID:       "life-other-181",
+		TS:       now.Add(3 * time.Minute),
+		Action:   "dispatch",
+		Instance: other.Instance,
+		Agent:    "external",
+		Job:      other.ID,
+		Message:  "unrelated worker started",
+	}); err != nil {
+		t.Fatalf("append unrelated lifecycle event: %v", err)
+	}
+
+	pipelineCmd := NewRootCmd()
+	pipelineOut, pipelineErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineCmd.SetOut(pipelineOut)
+	pipelineCmd.SetErr(pipelineErr)
+	pipelineCmd.SetArgs([]string{"pipeline", "timeline", "ticket_to_pr", "--repo", tmp, "--tail", "2", "--sort", "newest", "--json"})
+	if err := pipelineCmd.Execute(); err != nil {
+		t.Fatalf("pipeline timeline: %v\nstderr=%s", err, pipelineErr.String())
+	}
+	var pipelineEntries []jobTimelineEntry
+	if err := json.Unmarshal(pipelineOut.Bytes(), &pipelineEntries); err != nil {
+		t.Fatalf("decode pipeline timeline: %v\nbody=%s", err, pipelineOut.String())
+	}
+	if len(pipelineEntries) != 2 || pipelineEntries[0].JobID != j.ID || pipelineEntries[0].Kind != "dispatch" || pipelineEntries[1].Kind != "note" {
+		t.Fatalf("pipeline timeline entries = %+v", pipelineEntries)
+	}
+	for _, entry := range pipelineEntries {
+		if entry.JobID == other.ID || strings.Contains(entry.Message, "unrelated") {
+			t.Fatalf("pipeline timeline included unrelated event: %+v", pipelineEntries)
+		}
+	}
+
+	teamCmd := NewRootCmd()
+	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamCmd.SetOut(teamOut)
+	teamCmd.SetErr(teamErr)
+	teamCmd.SetArgs([]string{"team", "timeline", "delivery", "--repo", tmp, "--source", "lifecycle", "--format", "{{.JobID}} {{.Source}} {{.Kind}} {{.Instance}}"})
+	if err := teamCmd.Execute(); err != nil {
+		t.Fatalf("team timeline: %v\nstderr=%s", err, teamErr.String())
+	}
+	if got, want := teamOut.String(), "squ-181 lifecycle dispatch worker-squ-181\n"; got != want {
+		t.Fatalf("team timeline output = %q, want %q", got, want)
+	}
+}

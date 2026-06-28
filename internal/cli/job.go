@@ -8137,6 +8137,24 @@ func collectJobTimeline(teamDir string, j *job.Job, source string, tail int, sor
 	return entries, nil
 }
 
+func collectJobTimelineForJobs(teamDir string, jobs []*job.Job, source string, tail int, sortMode string) ([]jobTimelineEntry, error) {
+	entries := []jobTimelineEntry{}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		jobEntries, err := collectJobTimeline(teamDir, j, source, 0, "oldest")
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, jobEntries...)
+	}
+	sortJobTimelineEntries(entries)
+	entries = tailJobTimelineEntries(entries, tail)
+	sortJobTimelineEntriesForDisplay(entries, sortMode)
+	return entries, nil
+}
+
 func jobTimelineEntryFromJobEvent(ev job.Event) jobTimelineEntry {
 	return jobTimelineEntry{
 		TS:       ev.TS,
@@ -8269,6 +8287,42 @@ func renderJobTimeline(w io.Writer, entries []jobTimelineEntry, jsonOut bool, tm
 	for _, entry := range entries {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			entry.TS.Format(time.RFC3339),
+			entry.Source,
+			entry.Kind,
+			emptyDash(entry.Status),
+			emptyDash(entry.Instance),
+			emptyDash(entry.Actor),
+			emptyDash(entry.Agent),
+			emptyDash(entry.Message))
+	}
+	return tw.Flush()
+}
+
+func renderScopedJobTimeline(w io.Writer, entries []jobTimelineEntry, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(entries)
+	}
+	if tmpl != nil {
+		for _, entry := range entries {
+			if err := tmpl.Execute(w, entry); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(w, "(no job timeline events)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TIME\tJOB\tSOURCE\tKIND\tSTATUS\tINSTANCE\tACTOR\tAGENT\tMESSAGE")
+	for _, entry := range entries {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			entry.TS.Format(time.RFC3339),
+			emptyDash(entry.JobID),
 			entry.Source,
 			entry.Kind,
 			emptyDash(entry.Status),

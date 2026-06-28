@@ -45,6 +45,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
 	cmd.AddCommand(newTeamJobEventsCmd())
+	cmd.AddCommand(newTeamTimelineCmd())
 	cmd.AddCommand(newTeamJobWaitCmd())
 	cmd.AddCommand(newTeamReadyCmd())
 	cmd.AddCommand(newTeamTriageCmd())
@@ -1372,6 +1373,73 @@ func newTeamJobEventsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching job events by job, type, status, actor, and instance.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit matching job events as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.")
+	return cmd
+}
+
+func newTeamTimelineCmd() *cobra.Command {
+	var (
+		repo    string
+		tail    string
+		source  string
+		sortBy  string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "timeline <team>",
+		Short: "Show combined job audit and lifecycle timelines for team-owned jobs.",
+		Long:  "Show durable job audit events together with matching daemon lifecycle events for jobs owned by one declared team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team timeline: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			sortMode, err := parseEventSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(2)
+			}
+			tailEvents, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(2)
+			}
+			sourceMode, err := parseJobTimelineSource(source)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobTimelineFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			teamName := strings.TrimSpace(args[0])
+			jobs, err := collectTeamJobs(teamDir, teamName, jobListFilters{Sort: "id"})
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(1)
+			}
+			entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, tailEvents, sortMode)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team timeline: %v\n", err)
+				return exitErr(1)
+			}
+			return renderScopedJobTimeline(cmd.OutOrStdout(), entries, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N combined events before sorting for display (0 or all = all).")
+	cmd.Flags().StringVar(&source, "source", "all", "Timeline source to include: all, job, or lifecycle.")
+	cmd.Flags().StringVar(&sortBy, "sort", "oldest", "Sort returned timeline rows by oldest or newest after applying --tail.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.")
 	return cmd
 }
 

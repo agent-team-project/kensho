@@ -4310,6 +4310,7 @@ Subcommands:
 - `agent-team pipeline stats` - Show CPU and memory usage for pipeline-owned instances.
 - `agent-team pipeline status` - Summarize pipeline jobs and next steps.
 - `agent-team pipeline tick` - Run one pipeline&#39;s orchestration maintenance work.
+- `agent-team pipeline timeline` - Show combined job audit and lifecycle timelines for pipeline-owned jobs.
 - `agent-team pipeline timeout` - Mark stale running pipeline steps failed.
 - `agent-team pipeline triage` - Show pipeline-owned jobs that need operator attention.
 - `agent-team pipeline unblock` - Answer blocked pipeline workers.
@@ -5721,6 +5722,28 @@ Flags:
       --wait-step string          With --wait, pipeline step id that must be the current next step for every advanced job.
       --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
       --workspace string          Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team pipeline timeline`
+
+Show combined job audit and lifecycle timelines for pipeline-owned jobs.
+
+Show durable job audit events together with matching daemon lifecycle events for one pipeline, or for all pipeline-owned jobs.
+
+```text
+agent-team pipeline timeline [<pipeline>|--all] [flags]
+```
+
+Flags:
+
+```text
+      --all             Show timelines across all pipeline-owned jobs. This is the default when no pipeline is passed.
+      --format string   Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --sort string     Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
+      --source string   Timeline source to include: all, job, or lifecycle. (default "all")
+      --tail string     Show only the last N combined events before sorting for display (0 or all = all). (default "0")
 ```
 
 ## `agent-team pipeline timeout`
@@ -7386,6 +7409,7 @@ Subcommands:
 - `agent-team team status` - Summarize one team&#39;s instances, jobs, and pipelines.
 - `agent-team team sync` - Sync one team&#39;s declared persistent instances.
 - `agent-team team tick` - Run one team&#39;s orchestration maintenance work.
+- `agent-team team timeline` - Show combined job audit and lifecycle timelines for team-owned jobs.
 - `agent-team team timeout` - Mark stale running work owned by one team failed.
 - `agent-team team triage` - Show team-owned jobs that need operator attention.
 - `agent-team team unblock` - Answer blocked pipeline workers owned by one team.
@@ -9101,6 +9125,27 @@ Flags:
       --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
   -w, --watch                     Run the team tick repeatedly until interrupted.
       --workspace string          Workspace mode for advanced pipeline steps: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team team timeline`
+
+Show combined job audit and lifecycle timelines for team-owned jobs.
+
+Show durable job audit events together with matching daemon lifecycle events for jobs owned by one declared team.
+
+```text
+agent-team team timeline <team> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
+      --json            Emit machine-readable JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --sort string     Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
+      --source string   Timeline source to include: all, job, or lifecycle. (default "all")
+      --tail string     Show only the last N combined events before sorting for display (0 or all = all). (default "0")
 ```
 
 ## `agent-team team timeout`

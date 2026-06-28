@@ -554,6 +554,7 @@ func jobSnapshotActions(j *job.Job, snapshot *jobSnapshotResult, instance string
 		added[action] = true
 	}
 	add(fmt.Sprintf("agent-team job show %s --events all", j.ID))
+	add(fmt.Sprintf("agent-team job timeline %s --tail 50 --sort newest", j.ID))
 	if instance != "" {
 		add(fmt.Sprintf("agent-team inspect %s", instance))
 		if snapshot != nil && snapshot.Log != nil && snapshot.Log.Exists {

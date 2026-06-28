@@ -325,6 +325,7 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	wantCommands := strings.Join(scopedOperatorActions([]string{
 		"agent-team job outbox squ-161 --summary",
 		"agent-team job show squ-161 --events all",
+		"agent-team job timeline squ-161 --tail 50 --sort newest",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
 	if got := commandsOut.String(); got != wantCommands {
 		t.Fatalf("job snapshot --commands = %q, want %q", got, wantCommands)

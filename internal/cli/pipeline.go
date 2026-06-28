@@ -34,6 +34,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineDoctorCmd())
 	cmd.AddCommand(newPipelineJobsCmd())
 	cmd.AddCommand(newPipelineJobEventsCmd())
+	cmd.AddCommand(newPipelineTimelineCmd())
 	cmd.AddCommand(newPipelineStatusCmd())
 	cmd.AddCommand(newPipelineTriageCmd())
 	cmd.AddCommand(newPipelineExplainCmd())
@@ -568,6 +569,90 @@ func collectPipelineEventJobs(teamDir, pipelineName string) ([]*job.Job, error) 
 		filters.PipelineOwned = true
 	}
 	return filteredJobs(teamDir, filters)
+}
+
+func newPipelineTimelineCmd() *cobra.Command {
+	var (
+		repo    string
+		all     bool
+		tail    string
+		source  string
+		sortBy  string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "timeline [<pipeline>|--all]",
+		Short: "Show combined job audit and lifecycle timelines for pipeline-owned jobs.",
+		Long:  "Show durable job audit events together with matching daemon lifecycle events for one pipeline, or for all pipeline-owned jobs.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline timeline: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline timeline: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline timeline: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			sortMode, err := parseEventSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(2)
+			}
+			tailEvents, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(2)
+			}
+			sourceMode, err := parseJobTimelineSource(source)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobTimelineFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(2)
+			}
+			pipelineName := ""
+			if len(args) == 1 && !all {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline timeline: pipeline name is required.")
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			jobs, err := collectPipelineEventJobs(teamDir, pipelineName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(1)
+			}
+			entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, tailEvents, sortMode)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(1)
+			}
+			return renderScopedJobTimeline(cmd.OutOrStdout(), entries, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Show timelines across all pipeline-owned jobs. This is the default when no pipeline is passed.")
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N combined events before sorting for display (0 or all = all).")
+	cmd.Flags().StringVar(&source, "source", "all", "Timeline source to include: all, job, or lifecycle.")
+	cmd.Flags().StringVar(&sortBy, "sort", "oldest", "Sort returned timeline rows by oldest or newest after applying --tail.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.")
+	return cmd
 }
 
 func newPipelineStatusCmd() *cobra.Command {
