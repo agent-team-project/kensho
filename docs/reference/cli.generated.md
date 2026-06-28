@@ -1871,6 +1871,7 @@ agent-team job advance <job-id> [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching job advance apply command when the preview has actionable work.
       --dry-run                   Preview the next ready step dispatch without changing daemon or job state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.

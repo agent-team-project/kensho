@@ -89,6 +89,7 @@ Advance a pipeline job step and wait:
 ```sh
 agent-team job advance squ-42 --wait --wait-status running --wait-timeout 30s
 agent-team job advance squ-42 --wait --wait-next-state running --wait-step implement --wait-timeout 30s
+agent-team job advance squ-42 --dry-run --commands
 agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 --advance --dry-run --commands
 agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 \
   --advance \

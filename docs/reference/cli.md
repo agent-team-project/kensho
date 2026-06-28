@@ -124,7 +124,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job triage` | Find jobs needing attention, including queue/outbox quarantine recovery hints; add `--commands` for attention-row recovery commands |
 | `agent-team job ready` | List or watch next pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one action per line with `--commands` |
-| `agent-team job advance <job-id>` | Advance a pipeline step; add `--wait --wait-next-state`/`--wait-step` for stage-aware handoff |
+| `agent-team job advance <job-id>` | Advance a pipeline step; add `--dry-run --commands` for the apply command or `--wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reconcile github` | Reconcile GitHub PR payloads into jobs; add `--advance --wait --wait-next-state`/`--wait-step` for PR-gate handoff |
 | `agent-team job events <job-id>` | Show job event log |
 

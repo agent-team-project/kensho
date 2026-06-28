@@ -11172,6 +11172,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "advance commands without dry-run",
+			args: []string{"job", "advance", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "advance commands with json",
+			args: []string{"job", "advance", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "advance commands with format",
+			args: []string{"job", "advance", "squ-1", "--dry-run", "--commands", "--format", "{{.Job.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "advance next-state flag without wait",
 			args: []string{"job", "advance", "squ-1", "--wait-next-state", "running"},
 			want: "wait-related flags require --wait",
@@ -11737,6 +11752,60 @@ func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 	}
 	if len(dryMessages) != 0 {
 		t.Fatalf("dry-run sent messages = %+v", dryMessages)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "advance", "squ-201", "--repo", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job advance dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "advance", "squ-201",
+		"--repo", target,
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job advance dry-run commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err = job.Read(teamDir, "squ-201")
+	if err != nil {
+		t.Fatalf("read commands dry-run job: %v", err)
+	}
+	if unchanged.Steps[1].Status != job.StatusBlocked || unchanged.LastEvent != "" {
+		t.Fatalf("commands dry-run mutated job = %+v", unchanged)
+	}
+
+	noActionJob := &job.Job{
+		ID:        "squ-201-done",
+		Ticket:    "SQU-201-DONE",
+		Target:    "manager",
+		Kickoff:   "SQU-201-DONE: all done",
+		Pipeline:  "ticket_triage",
+		Status:    job.StatusDone,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
+		},
+	}
+	if err := job.Write(teamDir, noActionJob); err != nil {
+		t.Fatalf("write no-action job: %v", err)
+	}
+	noAction := NewRootCmd()
+	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noAction.SetOut(noActionOut)
+	noAction.SetErr(noActionErr)
+	noAction.SetArgs([]string{"job", "advance", "squ-201-done", "--repo", target, "--dry-run", "--commands"})
+	if err := noAction.Execute(); err != nil {
+		t.Fatalf("job advance no-action dry-run commands: %v\nstderr=%s", err, noActionErr.String())
+	}
+	if got := strings.TrimSpace(noActionOut.String()); got != "" {
+		t.Fatalf("job advance no-action commands = %q, want empty", got)
 	}
 
 	dryFormat := NewRootCmd()
