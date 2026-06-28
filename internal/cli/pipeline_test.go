@@ -1218,7 +1218,7 @@ target = "manager"
 	for _, row := range rows {
 		expectedActions = append(expectedActions, row.Actions...)
 	}
-	if err := renderActionCommands(&wantCommands, commandActionsOnly(expectedActions)); err != nil {
+	if err := renderOperatorActionCommands(&wantCommands, expectedActions, operatorCommandScope{Repo: root, Set: true}); err != nil {
 		t.Fatalf("render expected commands: %v", err)
 	}
 	if got, want := commandsOut.String(), wantCommands.String(); got != want {
@@ -1375,7 +1375,7 @@ target = "manager"
 		t.Fatalf("pipeline explain --commands: %v\nstderr=%s", err, explainCommandsErr.String())
 	}
 	var wantExplainCommands bytes.Buffer
-	if err := renderPipelineExplainCommands(&wantExplainCommands, explainedRows); err != nil {
+	if err := renderPipelineExplainCommands(&wantExplainCommands, explainedRows, operatorCommandScope{Repo: root, Set: true}); err != nil {
 		t.Fatalf("render expected pipeline explain commands: %v", err)
 	}
 	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
@@ -2820,7 +2820,8 @@ pipelines = ["ticket_to_pr"]
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("pipeline next commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes\n"; got != want {
+	wantPipelineNextCommand := scopedOperatorAction("agent-team pipeline tick ticket_to_pr --dry-run --preview-routes", operatorCommandScope{Repo: root, Set: true}) + "\n"
+	if got, want := commandsOut.String(), wantPipelineNextCommand; got != want {
 		t.Fatalf("pipeline next commands = %q, want %q", got, want)
 	}
 
@@ -2891,7 +2892,8 @@ pipelines = ["ticket_to_pr"]
 	if strings.Contains(teamCommandsOut.String(), "PIPELINE") || strings.Contains(teamCommandsOut.String(), "failed_steps=") {
 		t.Fatalf("pipeline next team commands should not include table headers or reasons:\n%s", teamCommandsOut.String())
 	}
-	if !strings.Contains(teamCommandsOut.String(), "agent-team team repair delivery --retry-pipelines --dry-run --preview-routes") {
+	wantTeamRepairCommand := scopedOperatorAction("agent-team team repair delivery --retry-pipelines --dry-run --preview-routes", operatorCommandScope{Repo: root, Set: true})
+	if !strings.Contains(teamCommandsOut.String(), wantTeamRepairCommand) {
 		t.Fatalf("pipeline next team commands missing team-scoped repair:\n%s", teamCommandsOut.String())
 	}
 
@@ -3784,8 +3786,10 @@ target = "worker"
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("pipeline triage commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if !strings.Contains(commandsOut.String(), "agent-team pipeline queue retry ticket_to_pr q-pipeline-triage-dead") ||
-		strings.Contains(commandsOut.String(), "agent-team job queue retry squ-832 q-pipeline-triage-dead") ||
+	scope := operatorCommandScope{Repo: root, Set: true}
+	wantQueueRetryCommand := scopedOperatorAction("agent-team pipeline queue retry ticket_to_pr q-pipeline-triage-dead", scope)
+	if !strings.Contains(commandsOut.String(), wantQueueRetryCommand) ||
+		strings.Contains(commandsOut.String(), scopedOperatorAction("agent-team job queue retry squ-832 q-pipeline-triage-dead", scope)) ||
 		strings.Contains(commandsOut.String(), "Attention:") {
 		t.Fatalf("pipeline triage commands = %q", commandsOut.String())
 	}
@@ -4058,7 +4062,8 @@ func TestPipelineReadyListsMatchingReadyJobs(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("pipeline ready commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got := strings.TrimSpace(commandsOut.String()); got != "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes" {
+	wantReadyCommand := scopedOperatorAction("agent-team pipeline tick ticket_to_pr --dry-run --preview-routes", operatorCommandScope{Repo: root, Set: true})
+	if got := strings.TrimSpace(commandsOut.String()); got != wantReadyCommand {
 		t.Fatalf("pipeline ready commands = %q", commandsOut.String())
 	}
 

@@ -340,7 +340,8 @@ since = "2026-06-18T12:00:00Z"
 	if err := readyCommands.Execute(); err != nil {
 		t.Fatalf("team ready commands: %v\nstderr=%s", err, readyCommandsErr.String())
 	}
-	if got := strings.TrimSpace(readyCommandsOut.String()); got != "agent-team team tick delivery --dry-run --preview-routes" {
+	wantReadyCommand := scopedOperatorAction("agent-team team tick delivery --dry-run --preview-routes", operatorCommandScope{Repo: root, Set: true})
+	if got := strings.TrimSpace(readyCommandsOut.String()); got != wantReadyCommand {
 		t.Fatalf("team ready commands = %q", readyCommandsOut.String())
 	}
 
@@ -520,8 +521,9 @@ since = "2026-06-18T12:00:00Z"
 	if err := triageCommands.Execute(); err != nil {
 		t.Fatalf("team triage commands: %v\nstderr=%s", err, triageCommandsErr.String())
 	}
-	if !strings.Contains(triageCommandsOut.String(), "agent-team team queue retry delivery q-status-team") ||
-		strings.Contains(triageCommandsOut.String(), "agent-team job queue retry squ-801 q-status-team") ||
+	scope := operatorCommandScope{Repo: root, Set: true}
+	if !strings.Contains(triageCommandsOut.String(), scopedOperatorAction("agent-team team queue retry delivery q-status-team", scope)) ||
+		strings.Contains(triageCommandsOut.String(), scopedOperatorAction("agent-team job queue retry squ-801 q-status-team", scope)) ||
 		strings.Contains(triageCommandsOut.String(), "Attention:") {
 		t.Fatalf("team triage commands = %q", triageCommandsOut.String())
 	}
@@ -591,7 +593,7 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team pipelines --commands: %v\nstderr=%s", err, pipelinesCommandsErr.String())
 	}
 	var wantPipelineCommands bytes.Buffer
-	if err := renderActionCommands(&wantPipelineCommands, commandActionsOnly(pipelineRows[0].Actions)); err != nil {
+	if err := renderOperatorActionCommands(&wantPipelineCommands, pipelineRows[0].Actions, operatorCommandScope{Repo: root, Set: true}); err != nil {
 		t.Fatalf("render expected team pipeline commands: %v", err)
 	}
 	if got, want := pipelinesCommandsOut.String(), wantPipelineCommands.String(); got != want {
@@ -761,7 +763,7 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team explain --commands: %v\nstderr=%s", err, explainCommandsErr.String())
 	}
 	var wantExplainCommands bytes.Buffer
-	if err := renderPipelineExplainCommands(&wantExplainCommands, explainRows); err != nil {
+	if err := renderPipelineExplainCommands(&wantExplainCommands, explainRows, operatorCommandScope{Repo: root, Set: true}); err != nil {
 		t.Fatalf("render expected team explain commands: %v", err)
 	}
 	if got, want := explainCommandsOut.String(), wantExplainCommands.String(); got != want {
@@ -1058,7 +1060,11 @@ since = "2026-06-18T12:00:00Z"
 	if err := statusCommands.Execute(); err != nil {
 		t.Fatalf("team status --commands: %v\nstderr=%s", err, statusCommandsErr.String())
 	}
-	if got, want := statusCommandsOut.String(), strings.Join(snapshot.Actions, "\n")+"\n"; got != want {
+	var wantStatusCommands bytes.Buffer
+	if err := renderOperatorActionCommands(&wantStatusCommands, snapshot.Actions, operatorCommandScope{Repo: root, Set: true}); err != nil {
+		t.Fatalf("render expected team status commands: %v", err)
+	}
+	if got, want := statusCommandsOut.String(), wantStatusCommands.String(); got != want {
 		t.Fatalf("team status --commands = %q, want %q", got, want)
 	}
 

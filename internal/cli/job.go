@@ -6004,7 +6004,7 @@ func newJobReadyCmd() *cobra.Command {
 				defer stop()
 				return runJobReadyWatch(ctx, cmd.OutOrStdout(), teamDir, opts, jsonOut, tmpl, interval, !noClear && !jsonOut)
 			}
-			return runJobReady(cmd.OutOrStdout(), teamDir, opts, jsonOut, tmpl, commands)
+			return runJobReady(cmd.OutOrStdout(), teamDir, opts, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -6018,7 +6018,7 @@ func newJobReadyCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ready rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	return cmd
 }
 
@@ -6100,7 +6100,7 @@ func newJobTriageCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			snapshot = filterJobTriageSnapshot(snapshot, filters)
-			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut, tmpl, commands)
+			return renderJobTriage(cmd.OutOrStdout(), snapshot, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
@@ -6112,7 +6112,7 @@ func newJobTriageCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit triage snapshot as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	return cmd
 }
 
@@ -8045,7 +8045,7 @@ func runJobTriageWatch(ctx context.Context, w io.Writer, teamDir string, staleAf
 			if err := writeWatchClear(w, clear); err != nil {
 				return err
 			}
-			if err := renderJobTriage(w, snapshot, false, nil, false); err != nil {
+			if err := renderJobTriage(w, snapshot, false, nil, false, operatorCommandScope{}); err != nil {
 				return err
 			}
 		}
@@ -8313,12 +8313,12 @@ func parseJobTriageFormat(format string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func renderJobTriage(w io.Writer, snapshot jobTriageSnapshot, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderJobTriage(w io.Writer, snapshot jobTriageSnapshot, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(snapshot)
 	}
 	if commands {
-		return renderJobTriageCommands(w, snapshot)
+		return renderJobTriageCommands(w, snapshot, scope)
 	}
 	if tmpl != nil {
 		return renderJobTriageFormat(w, snapshot, tmpl)
@@ -8345,18 +8345,12 @@ func renderJobTriage(w io.Writer, snapshot jobTriageSnapshot, jsonOut bool, tmpl
 	return nil
 }
 
-func renderJobTriageCommands(w io.Writer, snapshot jobTriageSnapshot) error {
+func renderJobTriageCommands(w io.Writer, snapshot jobTriageSnapshot, scope operatorCommandScope) error {
+	actions := make([]string, 0)
 	for _, item := range snapshot.Attention {
-		for _, action := range item.Actions {
-			if strings.TrimSpace(action) == "" {
-				continue
-			}
-			if _, err := fmt.Fprintln(w, action); err != nil {
-				return err
-			}
-		}
+		actions = append(actions, item.Actions...)
 	}
-	return nil
+	return renderOperatorActionCommands(w, actions, scope)
 }
 
 func renderJobTriageFormat(w io.Writer, snapshot jobTriageSnapshot, tmpl *template.Template) error {
@@ -8841,21 +8835,21 @@ type jobReadyOptions struct {
 	Limit    int
 }
 
-func runJobReady(w io.Writer, teamDir string, opts jobReadyOptions, jsonOut bool, tmpl *template.Template, commands bool) error {
+func runJobReady(w io.Writer, teamDir string, opts jobReadyOptions, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	rows, err := collectJobReadyRows(teamDir, opts.Pipeline, opts.States)
 	if err != nil {
 		return err
 	}
 	rows = prepareJobReadyRows(rows, opts)
-	return renderJobReadyRows(w, rows, jsonOut, tmpl, commands)
+	return renderJobReadyRows(w, rows, jsonOut, tmpl, commands, scope)
 }
 
-func renderJobReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderJobReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(rows)
 	}
 	if commands {
-		return renderJobReadyCommands(w, rows)
+		return renderJobReadyCommands(w, rows, scope)
 	}
 	if tmpl != nil {
 		for _, row := range rows {
@@ -8872,18 +8866,12 @@ func renderJobReadyRows(w io.Writer, rows []jobReadyRow, jsonOut bool, tmpl *tem
 	return nil
 }
 
-func renderJobReadyCommands(w io.Writer, rows []jobReadyRow) error {
+func renderJobReadyCommands(w io.Writer, rows []jobReadyRow, scope operatorCommandScope) error {
+	actions := make([]string, 0)
 	for _, row := range rows {
-		for _, action := range row.Actions {
-			if strings.TrimSpace(action) == "" {
-				continue
-			}
-			if _, err := fmt.Fprintln(w, action); err != nil {
-				return err
-			}
-		}
+		actions = append(actions, row.Actions...)
 	}
-	return nil
+	return renderOperatorActionCommands(w, actions, scope)
 }
 
 func runJobReadyWatch(ctx context.Context, w io.Writer, teamDir string, opts jobReadyOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
@@ -8898,7 +8886,7 @@ func runJobReadyWatch(ctx context.Context, w io.Writer, teamDir string, opts job
 				return err
 			}
 		}
-		if err := runJobReady(w, teamDir, opts, jsonOut, tmpl, false); err != nil {
+		if err := runJobReady(w, teamDir, opts, jsonOut, tmpl, false, operatorCommandScope{}); err != nil {
 			return err
 		}
 		if !waitForWatchTick(ctx, ticker.C) {

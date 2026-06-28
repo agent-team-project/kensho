@@ -126,8 +126,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job cleanup <job-id>` | Remove job-owned worktree/branch after merge, optionally verifying the PR with `gh` |
 | `agent-team job rm <job-id>` | Remove job files and event logs; add `--dry-run --commands` for the apply command |
 | `agent-team job prune` | Remove terminal job files and event logs; add `--dry-run --commands` for the apply command |
-| `agent-team job triage` | Find jobs needing attention, including queue/outbox quarantine recovery hints; add `--commands` for attention-row recovery commands |
-| `agent-team job ready` | List or watch next pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one action per line with `--commands` |
+| `agent-team job triage` | Find jobs needing attention, including queue/outbox quarantine recovery hints; add `--commands` for attention-row recovery commands that preserve an explicit `--repo` selector |
+| `agent-team job ready` | List or watch next pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one repo-scoped action per line with `--commands` |
 | `agent-team job advance <job-id>` | Advance a pipeline step; add `--dry-run --commands` for the apply command or `--wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reconcile github` | Reconcile GitHub PR payloads into jobs; add `--advance --wait --wait-next-state`/`--wait-step` for PR-gate handoff |
 | `agent-team job events <job-id>` | Show job event log |
@@ -219,12 +219,12 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
 | `agent-team pipeline doctor --all` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--commands` scripts dry-run previews, `--dispatch` accepts workspace/runtime overrides, and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
-| `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one row action command per line |
+| `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one repo-scoped row action command per line |
 | `agent-team pipeline watch [<pipeline>]` | Continuous pipeline status shortcut with queue/outbox and quarantine counts |
-| `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/outbox quarantine and ready-step recovery hints; add `--commands` for scoped attention-row recovery commands |
-| `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; sort and cap large histories with `--sort` and `--limit`, add `--step` to focus one stage, or `--commands` for flattened action commands |
+| `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/outbox quarantine and ready-step recovery hints; add `--commands` for repo-scoped attention-row recovery commands |
+| `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; sort and cap large histories with `--sort` and `--limit`, add `--step` to focus one stage, or `--commands` for repo-scoped flattened action commands |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, provenance, explained jobs, inboxes, queue/outbox ownership including quarantine, dry-run advance previews, and formatted summary fields |
-| `agent-team pipeline next` | Print or watch recommended pipeline actions; use `--commands` for one selected action command per line |
+| `agent-team pipeline next` | Print or watch recommended pipeline actions; use `--commands` for one selected repo-scoped action command per line |
 | `agent-team pipeline wait [<pipeline>]` | Wait for pipeline jobs to reach a lifecycle status, event, or next-step state/stage |
 | `agent-team pipeline jobs [<pipeline>]` | List, summarize, or watch pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, sort rows, and cap output with `--limit` |
 | `agent-team pipeline ready` | List or watch ready steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one scoped action per line with `--commands` |
@@ -273,7 +273,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team overview <team>` | Scoped operator overview; add `--commands` for one scoped action command per line, preserving an explicit `--repo` selector in emitted `agent-team` follow-ups |
 | `agent-team team health <team>` | Scoped health; add `--commands` for one scoped remediation command per line, preserving an explicit `--repo` selector in emitted `agent-team` follow-ups |
 | `agent-team team resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, or summarize with `--summary`; `team runtime resume-plan` remains available |
-| `agent-team team status <team>` | Scoped status; add `--commands` for one scoped action command per line |
+| `agent-team team status <team>` | Scoped status; add `--commands` for one scoped action command per line, preserving an explicit `--repo` selector in emitted `agent-team` follow-ups |
 | `agent-team team monitor <team>` | Scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team watch <team>` | Continuous scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team top <team>` | `agent-team team stats <team>` |
@@ -309,10 +309,10 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team outbox quarantine restore <team> --all` | Restore matching team-owned restorable quarantined outbox files; filter, sort, and limit batch actions |
 | `agent-team team outbox quarantine drop <team> <path>` | Drop one team-owned quarantined outbox file after inspection |
 | `agent-team team outbox quarantine drop <team> --all` | Drop matching team-owned quarantined outbox files; filter by state, job, restorable state, or age before deleting |
-| `agent-team team pipelines <team>` | List or watch team-owned pipeline status rows with queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one scoped row action command per line |
-| `agent-team team explain <team>` | Expand or watch team-owned pipeline jobs as per-step diagnostics; sort and cap large histories with `--sort` and `--limit`, add `--step` to focus one stage, or `--commands` for scoped action commands |
-| `agent-team team triage <team>` | Show team-owned jobs needing operator attention; add `--commands` for team-scoped attention-row recovery commands |
-| `agent-team team ready <team>` | List or watch scoped ready pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one team-scoped action per line with `--commands` |
+| `agent-team team pipelines <team>` | List or watch team-owned pipeline status rows with queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one scoped row action command per line, preserving an explicit `--repo` selector |
+| `agent-team team explain <team>` | Expand or watch team-owned pipeline jobs as per-step diagnostics; sort and cap large histories with `--sort` and `--limit`, add `--step` to focus one stage, or `--commands` for scoped action commands that preserve an explicit `--repo` selector |
+| `agent-team team triage <team>` | Show team-owned jobs needing operator attention; add `--commands` for team-scoped attention-row recovery commands that preserve an explicit `--repo` selector |
+| `agent-team team ready <team>` | List or watch scoped ready pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one team-scoped action per line with `--commands`, preserving an explicit `--repo` selector |
 | `agent-team team schedules <team>` | List team-owned schedules; add `--commands` to print the scoped dry-run tick preview command when any are due |
 | `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team; add `--for` or `--until` for a deadline |
 | `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines |

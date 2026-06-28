@@ -3710,7 +3710,8 @@ func TestJobTriageShowsAttentionAndReadySteps(t *testing.T) {
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("job triage commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got := strings.TrimSpace(commandsOut.String()); got != "agent-team job queue retry squ-204 q-triage-dead" {
+	wantTriageCommand := scopedOperatorAction("agent-team job queue retry squ-204 q-triage-dead", operatorCommandScope{Repo: tmp, Set: true})
+	if got := strings.TrimSpace(commandsOut.String()); got != wantTriageCommand {
 		t.Fatalf("triage commands = %q", commandsOut.String())
 	}
 
@@ -11742,7 +11743,8 @@ func TestJobReadyListsAdvanceablePipelineJobs(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job ready commands: %v\nstderr=%s", err, stderr.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "agent-team job advance squ-210" {
+	wantReadyCommand := scopedOperatorAction("agent-team job advance squ-210", operatorCommandScope{Repo: tmp, Set: true})
+	if got := strings.TrimSpace(out.String()); got != wantReadyCommand {
 		t.Fatalf("ready commands = %q", out.String())
 	}
 

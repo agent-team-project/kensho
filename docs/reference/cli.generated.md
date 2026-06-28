@@ -3021,7 +3021,7 @@ agent-team job ready [flags]
 Flags:
 
 ```text
-      --commands            Print only recommended commands, one per line.
+      --commands            Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit ready rows as JSON.
@@ -3504,7 +3504,7 @@ agent-team job triage [flags]
 Flags:
 
 ```text
-      --commands               Print only recommended commands, one per line.
+      --commands               Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string          Render the triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit triage snapshot as JSON.
@@ -4505,7 +4505,7 @@ Flags:
 
 ```text
       --all                 Explain all pipelines. This is the default when no pipeline is passed.
-      --commands            Print recommended commands, one per line.
+      --commands            Print recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit pipeline explanations as JSON.
@@ -4660,7 +4660,7 @@ Flags:
 
 ```text
       --all                 Consider all pipelines. This is the default when no pipeline is passed.
-      --commands            Print only recommended commands, one per line.
+      --commands            Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each action with a Go template, e.g. '{{.Pipeline}} {{.Action}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit recommended actions as JSON.
@@ -5208,7 +5208,7 @@ Flags:
 
 ```text
       --all                 List ready jobs across all pipelines. This is the default when no pipeline is passed.
-      --commands            Print only recommended commands, one per line.
+      --commands            Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit ready rows as JSON.
@@ -5566,7 +5566,7 @@ Flags:
 
 ```text
       --all                 Summarize all pipelines. This is the default when no pipeline is passed.
-      --commands            Print recommended actions, one per line.
+      --commands            Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each row with a Go template, e.g. '{{.Pipeline}} {{.Jobs}} {{.ReadySteps}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit pipeline status rows as JSON.
@@ -5653,7 +5653,7 @@ Flags:
 
 ```text
       --all                    Triage all pipeline-owned jobs. This is the default when no pipeline is passed.
-      --commands               Print only recommended commands, one per line.
+      --commands               Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string          Render the pipeline triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit pipeline triage snapshot as JSON.
@@ -7552,7 +7552,7 @@ agent-team team explain <team> [flags]
 Flags:
 
 ```text
-      --commands            Print recommended commands, one per line.
+      --commands            Print recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each pipeline explanation with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team pipeline explanations as JSON.
@@ -8053,7 +8053,7 @@ agent-team team pipelines <team> [flags]
 Flags:
 
 ```text
-      --commands            Print recommended actions, one per line.
+      --commands            Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each pipeline with a Go template, e.g. '{{.Pipeline}} {{.ReadySteps}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team pipeline status as JSON.
@@ -8386,7 +8386,7 @@ agent-team team ready <team> [flags]
 Flags:
 
 ```text
-      --commands            Print only recommended commands, one per line.
+      --commands            Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each row with a Go template, e.g. '{{.JobID}} {{.State}} {{.StepID}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team ready rows as JSON.
@@ -8842,7 +8842,7 @@ agent-team team status <team> [flags]
 Flags:
 
 ```text
-      --commands            Print recommended actions, one per line.
+      --commands            Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render team status with a Go template, e.g. '{{.Team.Name}} {{.InstanceSummary.Total}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit team status as JSON.
@@ -8961,7 +8961,7 @@ agent-team team triage <team> [flags]
 Flags:
 
 ```text
-      --commands               Print only recommended commands, one per line.
+      --commands               Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string          Render the team triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit team triage snapshot as JSON.
