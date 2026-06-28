@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		Short: "Compare two saved diagnostic snapshots.",
 		Long: "Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize " +
 			"provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, timeline, pipeline, ready-advance, and section-error changes. " +
-			"Use --current-after or --current-before to compare one saved snapshot against the current repo state.",
+			"Use --current-after or --current-before to compare one saved snapshot against the current repo state for the saved snapshot scope.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -171,8 +172,8 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit emitted change detail rows after summarizing all changes; 0 means all.")
 	cmd.Flags().StringVar(&sortBy, "sort", "section", "Sort emitted change detail rows by section, action, or id before applying --limit.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Only emit metadata and summary counters; suppress change detail rows.")
-	cmd.Flags().BoolVar(&currentAfter, "current-after", false, "Compare the saved snapshot argument against the current repo state as the after snapshot.")
-	cmd.Flags().BoolVar(&currentBefore, "current-before", false, "Compare the current repo state as the before snapshot against the saved snapshot argument.")
+	cmd.Flags().BoolVar(&currentAfter, "current-after", false, "Compare the saved snapshot argument against the current repo state for the saved snapshot scope as the after snapshot.")
+	cmd.Flags().BoolVar(&currentBefore, "current-before", false, "Compare the current repo state for the saved snapshot scope as the before snapshot against the saved snapshot argument.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
 	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all.")
@@ -599,11 +600,11 @@ type snapshotDiffOptions struct {
 
 func diffSnapshotInputs(cmd *cobra.Command, defaultRepo string, args []string, opts snapshotDiffOptions, current snapshotDiffCurrentOptions) (*snapshotDiffResult, error) {
 	if current.CurrentAfter || current.CurrentBefore {
-		currentComparable, err := collectCurrentSnapshotDiffComparable(cmd, defaultRepo, current)
+		fileComparable, err := readSnapshotDiffComparable(args[0])
 		if err != nil {
 			return nil, err
 		}
-		fileComparable, err := readSnapshotDiffComparable(args[0])
+		currentComparable, err := collectCurrentSnapshotDiffComparable(cmd, defaultRepo, current, fileComparable.Meta)
 		if err != nil {
 			return nil, err
 		}
@@ -702,7 +703,7 @@ func diffSnapshotComparables(before, after snapshotDiffComparable, opts snapshot
 	return result
 }
 
-func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string, opts snapshotDiffCurrentOptions) (snapshotDiffComparable, error) {
+func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string, opts snapshotDiffCurrentOptions, target snapshotDiffMeta) (snapshotDiffComparable, error) {
 	teamDir, err := resolveTeamDir(cmd, defaultRepo)
 	if err != nil {
 		return snapshotDiffComparable{}, err
@@ -711,12 +712,67 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 	if err != nil {
 		return snapshotDiffComparable{}, err
 	}
+	now := time.Now().UTC()
+	scope := strings.TrimSpace(target.Scope)
+	switch target.Kind {
+	case "job":
+		if scope == "" {
+			return snapshotDiffComparable{}, fmt.Errorf("current job snapshot requires a saved job scope")
+		}
+		j, err := job.Read(teamDir, scope)
+		if err != nil {
+			return snapshotDiffComparable{}, err
+		}
+		snapshot := collectJobSnapshot(teamDir, repoRoot, j, jobSnapshotOptions{
+			EventLimit: opts.Events,
+			EventSort:  "oldest",
+			Redact:     opts.Redact,
+			Now:        now,
+		})
+		snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "job", j.ID, snapshotProvenanceOptions{
+			Events:   intValuePtr(opts.Events),
+			Redacted: opts.Redact,
+		})
+		return snapshotDiffComparableFromValue("<current>", snapshot)
+	case "pipeline":
+		if scope == "" {
+			return snapshotDiffComparable{}, fmt.Errorf("current pipeline snapshot requires a saved pipeline scope")
+		}
+		snapshot := collectPipelineSnapshot(teamDir, repoRoot, scope, pipelineSnapshotOptions{
+			Redact:       opts.Redact,
+			Now:          now,
+			TimelineTail: 50,
+		})
+		snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "pipeline", scope, snapshotProvenanceOptions{
+			Redacted: opts.Redact,
+		})
+		return snapshotDiffComparableFromValue("<current>", snapshot)
+	case "team":
+		if scope == "" {
+			return snapshotDiffComparable{}, fmt.Errorf("current team snapshot requires a saved team scope")
+		}
+		snapshot, err := collectTeamSnapshot(teamDir, repoRoot, scope, snapshotOptions{
+			EventLimit:    opts.Events,
+			ScheduleLimit: opts.ScheduleLimit,
+			Redact:        opts.Redact,
+			Now:           now,
+		})
+		if err != nil {
+			return snapshotDiffComparable{}, err
+		}
+		setSnapshotProvenance(snapshot, cmd.CommandPath(), "team", scope, snapshotProvenanceOptions{
+			Events:        intValuePtr(opts.Events),
+			ScheduleLimit: intValuePtr(opts.ScheduleLimit),
+			Redacted:      opts.Redact,
+		})
+		return snapshotDiffComparableFromSnapshot("<current>", snapshot)
+	}
 	snapshot := collectSnapshot(teamDir, repoRoot, snapshotOptions{
 		EventLimit:    opts.Events,
 		IntakeLimit:   opts.IntakeDeliveries,
 		ScheduleLimit: opts.ScheduleLimit,
 		Redact:        opts.Redact,
-		Now:           time.Now().UTC(),
+		Now:           now,
 	})
 	setSnapshotProvenance(snapshot, cmd.CommandPath(), "global", "", snapshotProvenanceOptions{
 		Events:           intValuePtr(opts.Events),
@@ -728,7 +784,11 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 }
 
 func snapshotDiffComparableFromSnapshot(path string, snapshot *snapshotResult) (snapshotDiffComparable, error) {
-	body, err := json.Marshal(snapshot)
+	return snapshotDiffComparableFromValue(path, snapshot)
+}
+
+func snapshotDiffComparableFromValue(path string, value any) (snapshotDiffComparable, error) {
+	body, err := json.Marshal(value)
 	if err != nil {
 		return snapshotDiffComparable{}, err
 	}

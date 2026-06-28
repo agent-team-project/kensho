@@ -7099,7 +7099,7 @@ Subcommands:
 
 Compare two saved diagnostic snapshots.
 
-Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, timeline, pipeline, ready-advance, and section-error changes. Use --current-after or --current-before to compare one saved snapshot against the current repo state.
+Compare two saved global, team, pipeline, or job diagnostic snapshot JSON files and summarize provenance, git, runtime, health, plan, triage, next-action, instance, job, inbox, outbox, queue, schedule, intake, event, timeline, pipeline, ready-advance, and section-error changes. Use --current-after or --current-before to compare one saved snapshot against the current repo state for the saved snapshot scope.
 
 ```text
 agent-team snapshot diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before) [flags]
@@ -7109,8 +7109,8 @@ Flags:
 
 ```text
       --action strings          Only compare change actions: added, removed, or changed. Can repeat or comma-separate.
-      --current-after           Compare the saved snapshot argument against the current repo state as the after snapshot.
-      --current-before          Compare the current repo state as the before snapshot against the saved snapshot argument.
+      --current-after           Compare the saved snapshot argument against the current repo state for the saved snapshot scope as the after snapshot.
+      --current-before          Compare the current repo state for the saved snapshot scope as the before snapshot against the saved snapshot argument.
       --events int              With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events. (default 50)
       --exit-code               Exit with status 1 when snapshots differ.
       --format string           Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.

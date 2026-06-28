@@ -1716,6 +1716,43 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 		t.Fatalf("current-before result = %+v changes=%+v", beforeResult.Summary, beforeResult.Changes)
 	}
 
+	other, err := job.New("OPS-260", "worker", "outside pipeline scope", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("new other job: %v", err)
+	}
+	other.Pipeline = "platform_work"
+	other.Status = job.StatusQueued
+	if err := job.Write(teamDir, other); err != nil {
+		t.Fatalf("write other job: %v", err)
+	}
+	pipelineBeforePath := filepath.Join(tmp, "pipeline-before.json")
+	writeSnapshotDiffInput(t, pipelineBeforePath, snapshotDiffInput{
+		CapturedAt: "2026-06-25T12:00:00Z",
+		Repo:       tmp,
+		Pipeline:   "ticket_to_pr",
+		Provenance: newSnapshotProvenance("agent-team pipeline snapshot", "pipeline", "ticket_to_pr", snapshotProvenanceOptions{
+			Redacted: true,
+		}),
+	})
+	pipelineCurrent := NewRootCmd()
+	pipelineCurrentOut, pipelineCurrentErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineCurrent.SetOut(pipelineCurrentOut)
+	pipelineCurrent.SetErr(pipelineCurrentErr)
+	pipelineCurrent.SetArgs([]string{"--repo", tmp, "snapshot", "diff", pipelineBeforePath, "--current-after", "--section", "jobs", "--events", "0", "--intake-deliveries", "0", "--schedule-limit", "0", "--json"})
+	if err := pipelineCurrent.Execute(); err != nil {
+		t.Fatalf("pipeline snapshot diff --current-after: %v\nstderr=%s", err, pipelineCurrentErr.String())
+	}
+	var pipelineResult snapshotDiffResult
+	if err := json.Unmarshal(pipelineCurrentOut.Bytes(), &pipelineResult); err != nil {
+		t.Fatalf("decode pipeline current diff: %v\nbody=%s", err, pipelineCurrentOut.String())
+	}
+	if pipelineResult.Before.Kind != "pipeline" || pipelineResult.Before.Scope != "ticket_to_pr" || pipelineResult.After.Kind != "pipeline" || pipelineResult.After.Scope != "ticket_to_pr" {
+		t.Fatalf("pipeline current metadata = %+v -> %+v", pipelineResult.Before, pipelineResult.After)
+	}
+	if pipelineResult.Summary.TotalChanges != 1 || pipelineResult.Summary.Jobs.Added != 1 || !hasSnapshotDiffChange(pipelineResult.Changes, "jobs", "squ-260", "added") || hasSnapshotDiffChange(pipelineResult.Changes, "jobs", "ops-260", "added") {
+		t.Fatalf("pipeline current result = %+v changes=%+v", pipelineResult.Summary, pipelineResult.Changes)
+	}
+
 	both := NewRootCmd()
 	bothOut, bothErr := &bytes.Buffer{}, &bytes.Buffer{}
 	both.SetOut(bothOut)
