@@ -642,11 +642,8 @@ func newInstanceRmCmd() *cobra.Command {
 				JSON:           jsonOut,
 				Summary:        summary,
 				Format:         formatTemplate,
-				Command: lifecycleCommandOptions{
+				Command: scopedLifecycleCommandOptions(cmd, target, lifecycleCommandOptions{
 					BaseArgs:       []string{"agent-team", "instance", "rm"},
-					TargetFlag:     "--target",
-					Target:         target,
-					TargetSet:      cmd.Flags().Changed("target"),
 					Names:          args,
 					All:            all,
 					Finished:       finished,
@@ -660,7 +657,7 @@ func newInstanceRmCmd() *cobra.Command {
 					RuntimeStale:   runtimeStale,
 					Unhealthy:      unhealthyOnly,
 					Force:          force,
-				},
+				}),
 			})
 		},
 	}
@@ -678,7 +675,7 @@ func newInstanceRmCmd() *cobra.Command {
 	c.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
-	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance rm apply command when the preview has actionable work.")
+	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON. Requires --force unless --dry-run is set.")
 	c.Flags().BoolVar(&summary, "summary", false, "Show aggregate removal counts instead of per-instance rows.")
 	c.Flags().StringVar(&format, "format", "", "Render each removal result with a Go template, e.g. '{{.Instance}} {{.Path}}'. Requires --force unless --dry-run is set.")
@@ -1363,11 +1360,8 @@ func newInstanceUpCmd() *cobra.Command {
 				AttachTailSet: cmd.Flags().Changed("tail"),
 				JSON:          jsonOut,
 				Format:        formatTemplate,
-				Command: lifecycleCommandOptions{
+				Command: scopedLifecycleCommandOptions(cmd, target, lifecycleCommandOptions{
 					BaseArgs:      []string{"agent-team", "instance", "up"},
-					TargetFlag:    "--target",
-					Target:        target,
-					TargetSet:     cmd.Flags().Changed("target"),
 					Names:         args,
 					All:           all,
 					Latest:        latest,
@@ -1384,7 +1378,7 @@ func newInstanceUpCmd() *cobra.Command {
 					PromptFileSet: cmd.Flags().Changed("prompt-file"),
 					Timeout:       timeout,
 					TimeoutSet:    cmd.Flags().Changed("timeout"),
-				},
+				}),
 			})
 		},
 	}
@@ -1403,7 +1397,7 @@ func newInstanceUpCmd() *cobra.Command {
 	c.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.")
 	c.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview planned start/resume actions without changing daemon state.")
-	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance up apply command when the preview has actionable work.")
+	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance up apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	c.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	c.Flags().BoolVar(&attach, "attach", false, "Follow the selected instance log after starting or resuming. Requires exactly one selected instance.")
 	c.Flags().StringVar(&tail, "tail", "50", "With --attach, show only the last N lines before following (0 or all = all).")
@@ -2763,11 +2757,8 @@ func newInstanceDownCmd() *cobra.Command {
 				Summary:        summary,
 				JSON:           jsonOut,
 				Format:         formatTemplate,
-				Command: lifecycleCommandOptions{
+				Command: scopedLifecycleCommandOptions(cmd, target, lifecycleCommandOptions{
 					BaseArgs:      []string{"agent-team", "instance", "down"},
-					TargetFlag:    "--target",
-					Target:        target,
-					TargetSet:     cmd.Flags().Changed("target"),
 					Names:         args,
 					Latest:        latest,
 					Limit:         last,
@@ -2781,7 +2772,7 @@ func newInstanceDownCmd() *cobra.Command {
 					Remove:        remove,
 					Timeout:       timeout,
 					TimeoutSet:    cmd.Flags().Changed("timeout"),
-				},
+				}),
 			})
 		},
 	}
@@ -2799,7 +2790,7 @@ func newInstanceDownCmd() *cobra.Command {
 	c.Flags().DurationVar(&timeout, "timeout", 0, "Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).")
 	c.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait. Defaults to --timeout when unset; set 0 explicitly for no wait timeout.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview planned stop actions without changing daemon state.")
-	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance down apply command when the preview has actionable work.")
+	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance down apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	c.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after stopping.")
 	c.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")

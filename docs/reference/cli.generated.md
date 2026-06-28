@@ -1282,7 +1282,7 @@ Flags:
 
 ```text
       --agent strings           Stop every running instance for this agent. Can repeat or comma-separate.
-      --commands                With --dry-run, print the matching instance down apply command when the preview has actionable work.
+      --commands                With --dry-run, print the matching instance down apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                 Preview planned stop actions without changing daemon state.
   -f, --force                   Escalate to SIGKILL if an instance does not stop within --timeout.
       --format string           Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
@@ -1363,7 +1363,7 @@ Flags:
 ```text
       --agent strings     With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.
   -a, --all               Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy.
-      --commands          With --dry-run, print the matching instance rm apply command when the preview has actionable work.
+      --commands          With --dry-run, print the matching instance rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run           Preview matching removals without deleting state or daemon metadata.
       --finished          Remove every daemon-known exited or crashed instance.
   -f, --force             Skip confirmation; if the daemon is running, stop a running instance before removal.
@@ -1422,7 +1422,7 @@ Flags:
       --agent strings        Start or resume every declared persistent and daemon-known instance for this agent. Can repeat or comma-separate.
   -a, --all                  Start or resume every declared persistent and daemon-known instance.
       --attach               Follow the selected instance log after starting or resuming. Requires exactly one selected instance.
-      --commands             With --dry-run, print the matching instance up apply command when the preview has actionable work.
+      --commands             With --dry-run, print the matching instance up apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview planned start/resume actions without changing daemon state.
       --format string        Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                 Emit machine-readable JSON.

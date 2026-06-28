@@ -1232,7 +1232,7 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 		"agent-team",
 		"instance",
 		"up",
-		"--target",
+		"--repo",
 		tmp,
 		"--last",
 		"2",
@@ -1241,6 +1241,18 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("instance up --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "instance", "up", "--last", "2", "--status", "stopped", "--dry-run", "--commands"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("instance up root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedOut.String()); got != wantCommand {
+		t.Fatalf("instance up root --repo --dry-run --commands = %q, want %q", got, wantCommand)
 	}
 }
 
@@ -1343,7 +1355,7 @@ func TestInstanceDownLastDryRunSelectsNewestRunningMetadata(t *testing.T) {
 		"agent-team",
 		"instance",
 		"down",
-		"--target",
+		"--repo",
 		tmp,
 		"--last",
 		"2",
@@ -1355,6 +1367,18 @@ func TestInstanceDownLastDryRunSelectsNewestRunningMetadata(t *testing.T) {
 	}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("instance down --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "instance", "down", "--last", "2", "--status", "running", "--dry-run", "--commands", "--rm", "--timeout", "10s"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("instance down root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedOut.String()); got != wantCommand {
+		t.Fatalf("instance down root --repo --dry-run --commands = %q, want %q", got, wantCommand)
 	}
 }
 
@@ -1509,12 +1533,24 @@ func TestInstanceRmDryRunCommands(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
-	want := strings.Join(shellQuoteArgs([]string{"agent-team", "instance", "rm", "--target", tmp, "ephemeral", "--force"}), " ")
+	want := strings.Join(shellQuoteArgs([]string{"agent-team", "instance", "rm", "--repo", tmp, "ephemeral", "--force"}), " ")
 	if got := strings.TrimSpace(out.String()); got != want {
 		t.Fatalf("instance rm --dry-run --commands = %q, want %q", got, want)
 	}
 	if _, err := os.Stat(stateDir); err != nil {
 		t.Fatalf("state should remain after dry-run: %v", err)
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "instance", "rm", "ephemeral", "--force", "--dry-run", "--commands"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("instance rm root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedOut.String()); got != want {
+		t.Fatalf("instance rm root --repo --dry-run --commands = %q, want %q", got, want)
 	}
 
 	noAction := NewRootCmd()
