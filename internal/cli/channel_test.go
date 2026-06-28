@@ -356,13 +356,21 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 		t.Fatalf("channel after dry-run rm count = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeChannelCommand("--repo", tmp, "channel", "rm", "#ops", "--dry-run", "--commands")
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("channel rm commands: %v\nstderr=%s", err, stderr)
 	}
 	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "channel", "rm", "#ops", "--repo", tmp, "--force"}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("rm commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeChannelCommand("--repo", tmp, "channel", "rm", "#ops", "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("channel rm root repo commands: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("rm root repo commands = %q, want %q", got, wantCommand)
 	}
 
 	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--force", "--json")

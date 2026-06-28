@@ -242,7 +242,7 @@ func newChannelRmCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview channel removal without deleting it.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching channel rm apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching channel rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the removal result with a Go template, e.g. '{{.Name}} {{.Action}}'.")
 	return cmd
@@ -652,12 +652,7 @@ func channelRepoSet(cmd *cobra.Command) bool {
 }
 
 func channelRepoFlag(cmd *cobra.Command) string {
-	if cmd != nil {
-		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
-			return rootRepoFlagName
-		}
-	}
-	return "target"
+	return rootRepoFlagName
 }
 
 func channelRepo(cmd *cobra.Command, target string) string {

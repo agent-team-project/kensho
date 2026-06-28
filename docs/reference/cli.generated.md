@@ -298,7 +298,7 @@ agent-team channel rm <name> [flags]
 Flags:
 
 ```text
-      --commands        With --dry-run, print the matching channel rm apply command when the preview has actionable work.
+      --commands        With --dry-run, print the matching channel rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run         Preview channel removal without deleting it.
   -f, --force           Skip confirmation.
       --format string   Render the removal result with a Go template, e.g. '{{.Name}} {{.Action}}'.
