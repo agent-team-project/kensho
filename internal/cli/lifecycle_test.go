@@ -3262,6 +3262,56 @@ func TestStatusShowsDaemonAndInstances(t *testing.T) {
 	}
 }
 
+func TestStatusCommandsNotRunning(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"status", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --commands: %v\nstderr: %s", err, errOut.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon start",
+		"agent-team sync --dry-run",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --commands output = %q, want %q", got, want)
+	}
+}
+
+func TestStatusCommandsRunningNotReady(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.PidPath(teamDir), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"status", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --commands: %v\nstderr: %s", err, errOut.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon restart",
+		"agent-team daemon logs --tail 80",
+		"agent-team sync --dry-run",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --commands output = %q, want %q", got, want)
+	}
+}
+
 func TestStatusSummaryShowsHealthWithoutFailing(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -3908,6 +3958,26 @@ func TestStatusFormatRejectsConflictingStructuredModes(t *testing.T) {
 			name: "invalid template",
 			args: []string{"status", "--format", "{{", "--target", tmp},
 			want: "invalid --format template",
+		},
+		{
+			name: "commands json",
+			args: []string{"status", "--commands", "--json", "--target", tmp},
+			want: "--commands cannot be combined",
+		},
+		{
+			name: "commands format",
+			args: []string{"status", "--commands", "--format", "{{.Instance}}", "--target", tmp},
+			want: "--commands cannot be combined",
+		},
+		{
+			name: "commands summary",
+			args: []string{"status", "--commands", "--summary", "--target", tmp},
+			want: "--commands cannot be combined",
+		},
+		{
+			name: "commands watch",
+			args: []string{"status", "--commands", "--watch", "--target", tmp},
+			want: "--commands cannot be combined",
 		},
 	}
 	for _, tc := range cases {

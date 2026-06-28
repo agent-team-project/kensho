@@ -7124,6 +7124,7 @@ Flags:
 ```text
       --action strings         With --plan, only include plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --agent strings          Only show instances for this agent. Can repeat or comma-separate.
+      --commands               Print daemon and health remediation commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --event-action strings   With --events, only include lifecycle events with this action. Can repeat or comma-separate.
       --events int             With --summary, include a summary of the last N matching daemon lifecycle events (0 = omit).
       --format string          Render each instance row with a Go template, e.g. '{{.Instance}} {{.Status}}'.

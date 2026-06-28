@@ -797,6 +797,7 @@ func newStatusCmd() *cobra.Command {
 	var (
 		target           string
 		jsonOut          bool
+		commands         bool
 		watch            bool
 		summary          bool
 		resources        bool
@@ -874,6 +875,22 @@ func newStatusCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --format cannot be combined with --json or --summary.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --watch.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --commands cannot be combined with --summary.")
+				return exitErr(2)
+			}
 			if strictTopology && !summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team status: --strict-topology requires --summary.")
 				return exitErr(2)
@@ -945,6 +962,9 @@ func newStatusCmd() *cobra.Command {
 					EventFilters:     eventFilters,
 				})
 			}
+			if commands {
+				return runStatusCommands(out, teamDir, time.Now(), opts, operatorCommandScopeFromCommand(cmd, target, "target"))
+			}
 			if jsonOut {
 				return runStatusJSONWithOptions(out, teamDir, time.Now(), opts)
 			}
@@ -956,6 +976,7 @@ func newStatusCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print daemon and health remediation commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show a compact non-failing fleet health summary instead of the full instance table.")
 	cmd.Flags().BoolVar(&resources, "resources", false, "With --summary, include aggregate CPU, memory, and RSS totals.")
 	cmd.Flags().BoolVar(&plan, "plan", false, "With --summary, include desired-state action counts from instances.toml and daemon metadata.")
@@ -1035,6 +1056,32 @@ func runStatusWithOptions(w fmtWriter, teamDir string, now time.Time, opts psOpt
 	}
 	fmt.Fprintln(w)
 	return runPsWithOptions(w, teamDir, now, opts)
+}
+
+func runStatusCommands(w io.Writer, teamDir string, now time.Time, opts psOptions, scope operatorCommandScope) error {
+	daemonStatus := collectDaemonStatus(teamDir)
+	health, err := collectHealthWithOptions(teamDir, now, healthOptions{filters: opts})
+	if err != nil {
+		return err
+	}
+	actions := append([]string{}, daemonStatusRemediationActions(daemonStatus)...)
+	for _, issue := range health.Issues {
+		actions = append(actions, issue.Actions...)
+	}
+	return renderOperatorActionCommands(w, actions, scope)
+}
+
+func daemonStatusRemediationActions(status daemonStatusJSON) []string {
+	if !status.Running {
+		return []string{"agent-team daemon start"}
+	}
+	if !status.Ready {
+		return []string{
+			"agent-team daemon restart",
+			"agent-team daemon logs --tail 80",
+		}
+	}
+	return nil
 }
 
 func runStatusSummary(w io.Writer, teamDir string, now time.Time, jsonOut bool, opts psOptions) error {
