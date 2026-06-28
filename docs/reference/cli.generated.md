@@ -4295,6 +4295,7 @@ Flags:
 ```text
       --all                       Advance ready steps across all pipelines.
       --all-ready-steps           Advance every currently ready independent step for each selected job.
+      --commands                  With --dry-run, print the matching advance apply command when the preview has actionable work.
       --dry-run                   Preview ready steps without dispatching them.
       --fail-on-failed            With --wait, exit 1 if any advanced job resolves to failed.
       --format string             Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.
@@ -7314,6 +7315,7 @@ Flags:
 
 ```text
       --all-ready-steps           Advance every currently ready independent step for each selected team job.
+      --commands                  With --dry-run, print the matching team advance apply command when the preview has actionable work.
       --dry-run                   Preview ready steps without dispatching them.
       --fail-on-failed            With --wait, exit 1 if any advanced job resolves to failed.
       --format string             Render each result with a Go template, e.g. '{{.JobID}} {{.Action}} {{.StepID}}'.

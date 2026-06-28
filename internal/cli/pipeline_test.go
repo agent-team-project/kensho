@@ -10318,6 +10318,29 @@ func TestPipelineAdvanceAllReadyStepsDryRun(t *testing.T) {
 		t.Fatalf("all-ready rows = %+v, want lint and test", allRows)
 	}
 
+	allCommands := NewRootCmd()
+	allCommandsOut, allCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allCommands.SetOut(allCommandsOut)
+	allCommands.SetErr(allCommandsErr)
+	allCommands.SetArgs([]string{"pipeline", "advance", "parallel_checks", "--repo", root, "--dry-run", "--all-ready-steps", "--limit", "1", "--commands"})
+	if err := allCommands.Execute(); err != nil {
+		t.Fatalf("pipeline advance all-ready --commands: %v\nstderr=%s", err, allCommandsErr.String())
+	}
+	wantAllReadyCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"pipeline",
+		"advance",
+		"parallel_checks",
+		"--repo",
+		root,
+		"--all-ready-steps",
+		"--limit",
+		"1",
+	}), " ")
+	if got := strings.TrimSpace(allCommandsOut.String()); got != wantAllReadyCommand {
+		t.Fatalf("pipeline advance all-ready --commands output = %q, want %q", got, wantAllReadyCommand)
+	}
+
 	limited := NewRootCmd()
 	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	limited.SetOut(limitedOut)
@@ -10560,6 +10583,34 @@ func TestPipelineAdvanceDryRunAndDispatch(t *testing.T) {
 		t.Fatalf("route preview changed job = %+v", routeUnchanged)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "advance", "ticket_triage", "--repo", target, "--limit", "1", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--preview-routes", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline advance dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"pipeline",
+		"advance",
+		"ticket_triage",
+		"--repo",
+		target,
+		"--workspace",
+		"repo",
+		"--runtime",
+		"codex",
+		"--runtime-bin",
+		"codex-dev",
+		"--limit",
+		"1",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("pipeline advance dry-run --commands output = %q, want %q", got, wantCommand)
+	}
+
 	textDry := NewRootCmd()
 	textDryOut, textDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textDry.SetOut(textDryOut)
@@ -10725,6 +10776,9 @@ func TestPipelineAdvanceWaitValidation(t *testing.T) {
 		want string
 	}{
 		{[]string{"pipeline", "advance", "ticket_to_pr", "--wait", "--dry-run"}, "--wait cannot be combined with --dry-run"},
+		{[]string{"pipeline", "advance", "ticket_to_pr", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"pipeline", "advance", "ticket_to_pr", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "advance", "ticket_to_pr", "--dry-run", "--commands", "--format", "{{.JobID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"pipeline", "advance", "ticket_to_pr", "--wait-status", "running"}, "wait-related flags require --wait"},
 		{[]string{"pipeline", "advance", "ticket_to_pr", "--wait-next-state", "running"}, "wait-related flags require --wait"},
 		{[]string{"pipeline", "advance", "ticket_to_pr", "--wait-step", "review"}, "wait-related flags require --wait"},

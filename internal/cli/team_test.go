@@ -442,6 +442,33 @@ since = "2026-06-18T12:00:00Z"
 		t.Fatalf("team advance payload = %+v", advancePayload)
 	}
 
+	advanceCommands := NewRootCmd()
+	advanceCommandsOut, advanceCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	advanceCommands.SetOut(advanceCommandsOut)
+	advanceCommands.SetErr(advanceCommandsErr)
+	advanceCommands.SetArgs([]string{"team", "advance", "delivery", "--repo", root, "--dry-run", "--preview-routes", "--commands", "--runtime", "codex", "--runtime-bin", "codex-dev", "--all-ready-steps", "--limit", "1"})
+	if err := advanceCommands.Execute(); err != nil {
+		t.Fatalf("team advance --commands: %v\nstderr=%s", err, advanceCommandsErr.String())
+	}
+	wantAdvanceCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"team",
+		"advance",
+		"delivery",
+		"--repo",
+		root,
+		"--all-ready-steps",
+		"--runtime",
+		"codex",
+		"--runtime-bin",
+		"codex-dev",
+		"--limit",
+		"1",
+	}), " ")
+	if got := strings.TrimSpace(advanceCommandsOut.String()); got != wantAdvanceCommand {
+		t.Fatalf("team advance --commands output = %q, want %q", got, wantAdvanceCommand)
+	}
+
 	advanceFormat := NewRootCmd()
 	advanceFormatOut, advanceFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	advanceFormat.SetOut(advanceFormatOut)
@@ -4513,6 +4540,9 @@ func TestTeamAdvanceWaitValidation(t *testing.T) {
 		want string
 	}{
 		{[]string{"team", "advance", "delivery", "--wait", "--dry-run"}, "--wait cannot be combined with --dry-run"},
+		{[]string{"team", "advance", "delivery", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"team", "advance", "delivery", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"team", "advance", "delivery", "--dry-run", "--commands", "--format", "{{.JobID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"team", "advance", "delivery", "--wait-status", "running"}, "wait-related flags require --wait"},
 		{[]string{"team", "advance", "delivery", "--wait-next-state", "running"}, "wait-related flags require --wait"},
 		{[]string{"team", "advance", "delivery", "--wait-step", "review"}, "wait-related flags require --wait"},

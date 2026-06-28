@@ -2138,6 +2138,7 @@ func newPipelineAdvanceCmd() *cobra.Command {
 		all           bool
 		allReadySteps bool
 		dryRun        bool
+		commands      bool
 		previewRoutes bool
 		wait          bool
 		waitStatuses  []string
@@ -2159,6 +2160,18 @@ func newPipelineAdvanceCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline advance: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline advance: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline advance: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline advance: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if all && len(args) > 0 {
@@ -2231,6 +2244,26 @@ func newPipelineAdvanceCmd() *cobra.Command {
 					return err
 				}
 			}
+			if commands {
+				baseArgs := []string{"agent-team", "pipeline", "advance"}
+				if !all {
+					baseArgs = append(baseArgs, pipelineName)
+				}
+				return renderPipelineApplyCommand(cmd.OutOrStdout(), pipelineAdvanceResultsHaveDryRunAction(results, "would_advance"), pipelineApplyCommandOptions{
+					BaseArgs:       baseArgs,
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					All:            all,
+					AllReadySteps:  allReadySteps,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Limit:          limit,
+				})
+			}
 			if err := renderPipelineAdvanceResults(cmd.OutOrStdout(), results, jsonOut, tmpl); err != nil {
 				return err
 			}
@@ -2248,6 +2281,7 @@ func newPipelineAdvanceCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "Advance ready steps across all pipelines.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent step for each selected job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready steps without dispatching them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching advance apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After advancing, wait for advanced jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
@@ -11342,6 +11376,7 @@ type pipelineApplyCommandOptions struct {
 	Repo           string
 	RepoSet        bool
 	All            bool
+	AllReadySteps  bool
 	Dispatch       bool
 	Workspace      string
 	WorkspaceSet   bool
@@ -11417,6 +11452,9 @@ func pipelineApplyCommandArgs(opts pipelineApplyCommandOptions) []string {
 	}
 	if opts.All {
 		args = append(args, "--all")
+	}
+	if opts.AllReadySteps {
+		args = append(args, "--all-ready-steps")
 	}
 	if opts.Dispatch {
 		args = append(args, "--dispatch")
@@ -11533,6 +11571,15 @@ func pipelineRetryApplyCommandArgs(opts pipelineRetryApplyCommandOptions) []stri
 		args = append(args, "--message-file", opts.MessageFile)
 	}
 	return args
+}
+
+func pipelineAdvanceResultsHaveDryRunAction(results []pipelineAdvanceResult, action string) bool {
+	for _, result := range results {
+		if result.DryRun && strings.TrimSpace(result.Action) == action {
+			return true
+		}
+	}
+	return false
 }
 
 func pipelineApproveResultsHaveDryRunAction(results []pipelineApproveResult, action string) bool {

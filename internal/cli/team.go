@@ -1768,6 +1768,7 @@ func newTeamAdvanceCmd() *cobra.Command {
 		limit         int
 		allReadySteps bool
 		dryRun        bool
+		commands      bool
 		previewRoutes bool
 		wait          bool
 		waitStatuses  []string
@@ -1789,6 +1790,18 @@ func newTeamAdvanceCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team advance: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team advance: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team advance: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team advance: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if limit < 0 {
@@ -1855,6 +1868,21 @@ func newTeamAdvanceCmd() *cobra.Command {
 					return err
 				}
 			}
+			if commands {
+				return renderPipelineApplyCommand(cmd.OutOrStdout(), pipelineAdvanceResultsHaveDryRunAction(results, "would_advance"), pipelineApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "team", "advance", strings.TrimSpace(args[0])},
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					AllReadySteps:  allReadySteps,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Limit:          limit,
+				})
+			}
 			if err := renderPipelineAdvanceResults(cmd.OutOrStdout(), results, jsonOut, tmpl); err != nil {
 				return err
 			}
@@ -1871,6 +1899,7 @@ func newTeamAdvanceCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready team jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent step for each selected team job.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready steps without dispatching them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team advance apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After advancing, wait for advanced jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
