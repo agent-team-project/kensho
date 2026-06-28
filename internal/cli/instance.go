@@ -1940,6 +1940,7 @@ type lifecycleCommandOptions struct {
 	Target          string
 	TargetSet       bool
 	Names           []string
+	Step            string
 	All             bool
 	Finished        bool
 	Latest          bool
@@ -1989,6 +1990,9 @@ func lifecycleApplyCommandArgs(opts lifecycleCommandOptions) []string {
 		args = append(args, opts.TargetFlag, opts.Target)
 	}
 	args = append(args, opts.Names...)
+	if step := strings.TrimSpace(opts.Step); step != "" {
+		args = append(args, "--step", step)
+	}
 	if opts.All {
 		args = append(args, "--all")
 	}

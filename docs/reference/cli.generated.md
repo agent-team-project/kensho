@@ -2292,6 +2292,7 @@ agent-team job kill <job-id> [flags]
 Flags:
 
 ```text
+      --commands                With --dry-run, print the matching job kill command when the preview has actionable work.
       --dry-run                 Preview the kill action without changing daemon or job state.
       --format string           Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                    Emit machine-readable lifecycle action JSON.
@@ -3366,6 +3367,7 @@ agent-team job start <job-id> [flags]
 Flags:
 
 ```text
+      --commands                 With --dry-run, print the matching job start command when the preview has actionable work.
       --dry-run                  Preview the start/resume action without changing daemon or job state.
       --format string            Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                     Emit machine-readable lifecycle action JSON.
@@ -3462,6 +3464,7 @@ agent-team job stop <job-id> [flags]
 Flags:
 
 ```text
+      --commands                With --dry-run, print the matching job stop command when the preview has actionable work.
       --dry-run                 Preview the stop action without changing daemon or job state.
   -f, --force                   Escalate to SIGKILL if the owning instance does not stop within --timeout.
       --format string           Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.

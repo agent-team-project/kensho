@@ -1838,6 +1838,7 @@ func newJobStartCmd() *cobra.Command {
 		timeout      time.Duration
 		readyTimeout time.Duration
 		dryRun       bool
+		commands     bool
 		quiet        bool
 		jsonOut      bool
 		format       string
@@ -1854,12 +1855,19 @@ func newJobStartCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runJobInstanceUp(cmd, repo, args[0], stepID, instanceUpOptions{
-				Wait:    wait,
-				Timeout: timeout,
-				DryRun:  dryRun,
-				Quiet:   quiet,
-				JSON:    jsonOut,
-				Format:  formatTemplate,
+				Wait:     wait,
+				Timeout:  timeout,
+				DryRun:   dryRun,
+				Commands: commands,
+				Quiet:    quiet,
+				JSON:     jsonOut,
+				Format:   formatTemplate,
+				Command: jobLifecycleCommandOptions(cmd, repo, []string{"agent-team", "job", "start"}, args[0], stepID, lifecycleCommandOptions{
+					Timeout:         timeout,
+					TimeoutSet:      cmd.Flags().Changed("timeout"),
+					ReadyTimeout:    readyTimeout,
+					ReadyTimeoutSet: cmd.Flags().Changed("ready-timeout"),
+				}),
 			}, readyTimeout)
 		},
 	}
@@ -1869,6 +1877,7 @@ func newJobStartCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the start/resume action without changing daemon or job state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job start command when the preview has actionable work.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable lifecycle action JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
@@ -3475,6 +3484,7 @@ func newJobStopCmd() *cobra.Command {
 		waitTimeout time.Duration
 		dryRun      bool
 		remove      bool
+		commands    bool
 		quiet       bool
 		jsonOut     bool
 		format      string
@@ -3498,9 +3508,16 @@ func newJobStopCmd() *cobra.Command {
 				WaitTimeoutSet: cmd.Flags().Changed("wait-timeout"),
 				DryRun:         dryRun,
 				Remove:         remove,
+				Commands:       commands,
 				Quiet:          quiet,
 				JSON:           jsonOut,
 				Format:         formatTemplate,
+				Command: jobLifecycleCommandOptions(cmd, repo, []string{"agent-team", "job", "stop"}, args[0], stepID, lifecycleCommandOptions{
+					Force:      force,
+					Remove:     remove,
+					Timeout:    timeout,
+					TimeoutSet: cmd.Flags().Changed("timeout"),
+				}),
 			}, job.StatusBlocked)
 		},
 	}
@@ -3512,6 +3529,7 @@ func newJobStopCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the stop action without changing daemon or job state.")
 	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after stopping.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job stop command when the preview has actionable work.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable lifecycle action JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
@@ -3527,6 +3545,7 @@ func newJobKillCmd() *cobra.Command {
 		waitTimeout time.Duration
 		dryRun      bool
 		remove      bool
+		commands    bool
 		quiet       bool
 		jsonOut     bool
 		format      string
@@ -3551,9 +3570,15 @@ func newJobKillCmd() *cobra.Command {
 				DryRun:         dryRun,
 				Remove:         remove,
 				Quiet:          quiet,
+				Commands:       commands,
 				Action:         "kill",
 				JSON:           jsonOut,
 				Format:         formatTemplate,
+				Command: jobLifecycleCommandOptions(cmd, repo, []string{"agent-team", "job", "kill"}, args[0], stepID, lifecycleCommandOptions{
+					Remove:     remove,
+					Timeout:    timeout,
+					TimeoutSet: cmd.Flags().Changed("timeout"),
+				}),
 			}, job.StatusFailed)
 		},
 	}
@@ -3564,10 +3589,22 @@ func newJobKillCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait for terminal state with --wait.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the kill action without changing daemon or job state.")
 	cmd.Flags().BoolVar(&remove, "rm", false, "Remove selected instance state and daemon metadata after killing.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job kill command when the preview has actionable work.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable lifecycle action JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the lifecycle action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
+}
+
+func jobLifecycleCommandOptions(cmd *cobra.Command, repo string, baseArgs []string, jobID, stepID string, opts lifecycleCommandOptions) lifecycleCommandOptions {
+	scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
+	opts.BaseArgs = append([]string{}, baseArgs...)
+	opts.TargetFlag = "--repo"
+	opts.Target = scope.Repo
+	opts.TargetSet = scope.Set
+	opts.Names = []string{strings.TrimSpace(jobID)}
+	opts.Step = stepID
+	return opts
 }
 
 func newJobCloseCmd() *cobra.Command {
@@ -9550,6 +9587,9 @@ func runJobInstanceUp(cmd *cobra.Command, repo, id, stepID string, opts instance
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job start: --ready-timeout must be >= 0.")
 		return exitErr(2)
 	}
+	if err := validateJobLifecycleRenderOptions(cmd, "agent-team job start", opts.DryRun, opts.Wait, opts.Commands, opts.JSON, opts.Quiet, opts.Format); err != nil {
+		return err
+	}
 	teamDir, j, err := readJobAndTeamDir(cmd, repo, id)
 	if err != nil {
 		return err
@@ -9600,6 +9640,9 @@ func applyJobInstanceUpUpdate(j *job.Job, selection jobInstanceSelection) {
 }
 
 func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instanceDownOptions, nextStatus job.Status) error {
+	if err := validateJobLifecycleRenderOptions(cmd, "agent-team job "+downAction(opts), opts.DryRun, opts.Wait, opts.Commands, opts.JSON, opts.Quiet, opts.Format); err != nil {
+		return err
+	}
 	teamDir, j, err := readJobAndTeamDir(cmd, repo, id)
 	if err != nil {
 		return err
@@ -9622,6 +9665,30 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instan
 	}
 	applyJobInstanceDownUpdate(j, selection, downAction(opts), nextStatus)
 	return writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection))
+}
+
+func validateJobLifecycleRenderOptions(cmd *cobra.Command, label string, dryRun, wait, commands, jsonOut, quiet bool, format *template.Template) error {
+	if dryRun && wait {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --dry-run cannot be combined with --wait.\n", label)
+		return exitErr(2)
+	}
+	if commands && !dryRun {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands requires --dry-run.\n", label)
+		return exitErr(2)
+	}
+	if commands && jsonOut {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --json.\n", label)
+		return exitErr(2)
+	}
+	if commands && quiet {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --quiet.\n", label)
+		return exitErr(2)
+	}
+	if commands && format != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --format.\n", label)
+		return exitErr(2)
+	}
+	return nil
 }
 
 func applyJobInstanceDownUpdate(j *job.Job, selection jobInstanceSelection, action string, nextStatus job.Status) {

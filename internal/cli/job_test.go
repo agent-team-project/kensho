@@ -8084,6 +8084,58 @@ func TestJobAttachRequiresOwningInstance(t *testing.T) {
 	}
 }
 
+func TestJobLifecycleCommandsValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "start without dry-run",
+			args: []string{"job", "start", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "start json",
+			args: []string{"job", "start", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "stop quiet",
+			args: []string{"job", "stop", "squ-1", "--dry-run", "--commands", "--quiet"},
+			want: "--commands cannot be combined with --quiet",
+		},
+		{
+			name: "kill format",
+			args: []string{"job", "kill", "squ-1", "--dry-run", "--commands", "--format", "{{.Action}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("%s accepted invalid flags; stdout=%s", tc.name, out.String())
+			}
+			var ec ExitCode
+			if !errors.As(err, &ec) || int(ec) != 2 {
+				t.Fatalf("%s err = %v, want exit 2", tc.name, err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("%s validation wrote stdout: %q", tc.name, out.String())
+			}
+		})
+	}
+}
+
 func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-start-")
 	if err != nil {
@@ -8117,6 +8169,26 @@ func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
 		UpdatedAt: now,
 	}); err != nil {
 		t.Fatalf("write job: %v", err)
+	}
+
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "start", "squ-63", "--repo", tmp, "--ready-timeout", "4s", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job start --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantStartCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "start", "--repo", tmp, "squ-63", "--ready-timeout", "4s"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantStartCommand {
+		t.Fatalf("job start --commands = %q, want %q", got, wantStartCommand)
+	}
+	unchanged, err := job.Read(teamDir, "squ-63")
+	if err != nil {
+		t.Fatalf("read dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusBlocked || unchanged.LastEvent != "" {
+		t.Fatalf("job start commands dry-run mutated job = %+v", unchanged)
 	}
 
 	cmd := NewRootCmd()
@@ -8183,6 +8255,19 @@ func TestJobStartResumesExplicitStepInstanceAndMarksStepRunning(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "start", "squ-163", "--repo", tmp, "--step", "implement", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job start step --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantStartCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "start", "--repo", tmp, "squ-163", "--step", "implement"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantStartCommand {
+		t.Fatalf("job start step --commands = %q, want %q", got, wantStartCommand)
+	}
+
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -8246,6 +8331,26 @@ func TestJobStopStopsOwningInstanceAndBlocksJob(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "stop", "squ-61", "--repo", tmp, "--force", "--rm", "--timeout", "2s", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job stop --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantStopCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "stop", "--repo", tmp, "squ-61", "--force", "--rm", "--timeout", "2s"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantStopCommand {
+		t.Fatalf("job stop --commands = %q, want %q", got, wantStopCommand)
+	}
+	unchanged, err := job.Read(teamDir, "squ-61")
+	if err != nil {
+		t.Fatalf("read stop commands dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusRunning || unchanged.LastEvent != "" {
+		t.Fatalf("job stop commands dry-run mutated job = %+v", unchanged)
+	}
+
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -8301,6 +8406,19 @@ func TestJobStopStopsExplicitStepInstanceAndBlocksStep(t *testing.T) {
 		UpdatedAt: now,
 	}); err != nil {
 		t.Fatalf("write job: %v", err)
+	}
+
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "stop", "squ-161", "--repo", tmp, "--step", "implement", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job stop step --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantStopCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "stop", "--repo", tmp, "squ-161", "--step", "implement"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantStopCommand {
+		t.Fatalf("job stop step --commands = %q, want %q", got, wantStopCommand)
 	}
 
 	cmd := NewRootCmd()
@@ -8376,6 +8494,18 @@ func TestJobKillDryRunDoesNotMutateJob(t *testing.T) {
 	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != "worker-squ-62" || !rows[0].DryRun {
 		t.Fatalf("rows = %+v", rows)
 	}
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "kill", "squ-62", "--repo", tmp, "--rm", "--timeout", "3s", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job kill --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantKillCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "kill", "--repo", tmp, "squ-62", "--rm", "--timeout", "3s"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantKillCommand {
+		t.Fatalf("job kill --commands = %q, want %q", got, wantKillCommand)
+	}
 	updated, err := job.Read(teamDir, "squ-62")
 	if err != nil {
 		t.Fatalf("read job: %v", err)
@@ -8433,6 +8563,18 @@ func TestJobKillDryRunUsesExplicitStepInstance(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != "worker-squ-162-implement" || !rows[0].DryRun {
 		t.Fatalf("rows = %+v", rows)
+	}
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"job", "kill", "squ-162", "--repo", tmp, "--step", "implement", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("job kill step --dry-run --commands: %v\nstdout=%s\nstderr=%s", err, commandsOut.String(), commandsErr.String())
+	}
+	wantKillCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "kill", "--repo", tmp, "squ-162", "--step", "implement"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantKillCommand {
+		t.Fatalf("job kill step --commands = %q, want %q", got, wantKillCommand)
 	}
 	updated, err := job.Read(teamDir, "squ-162")
 	if err != nil {

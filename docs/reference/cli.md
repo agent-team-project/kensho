@@ -105,6 +105,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
 | `agent-team job top <job-id>` | `agent-team job stats <job-id>` |
 | `agent-team job exec <job-id>` | `agent-team job attach <job-id>` |
+| `agent-team job start|stop|kill <job-id>` | Control a job's owning instance; add `--step` for a pipeline stage and `--dry-run --commands` for the selected lifecycle apply command |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, events, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, and formatted summary fields |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage, or `--commands` for nested action commands |
 | `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
