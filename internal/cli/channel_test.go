@@ -203,7 +203,7 @@ func TestChannelCommandsUseLocalStoreWhenDaemonStopped(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	if err := runChannelPublish(out, stderr, teamDir, "#ops", "tester", "offline broadcast"); err != nil {
+	if err := runChannelPublish(out, stderr, teamDir, "#ops", "tester", "offline broadcast", channelPublishOptions{}); err != nil {
 		t.Fatalf("publish local channel: %v\nstderr=%s", err, stderr.String())
 	}
 	if !strings.Contains(out.String(), "published seq=1") {
@@ -227,7 +227,7 @@ func TestChannelCommandsUseLocalStoreWhenDaemonStopped(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runChannelRm(out, stderr, teamDir, "#ops"); err != nil {
+	if _, err := runChannelRm(out, stderr, teamDir, "#ops", channelRmOptions{}); err != nil {
 		t.Fatalf("rm local channel: %v\nstderr=%s", err, stderr.String())
 	}
 	if !strings.Contains(out.String(), "removed #ops") {
@@ -256,7 +256,7 @@ func TestChannelLsSortLimitFormatAndJSON(t *testing.T) {
 		{channel: "#gamma", bodies: []string{"g1", "g2"}},
 	} {
 		for _, body := range item.bodies {
-			if err := runChannelPublish(&bytes.Buffer{}, &bytes.Buffer{}, teamDir, item.channel, "tester", body); err != nil {
+			if err := runChannelPublish(&bytes.Buffer{}, &bytes.Buffer{}, teamDir, item.channel, "tester", body, channelPublishOptions{}); err != nil {
 				t.Fatalf("publish %s/%s: %v", item.channel, body, err)
 			}
 		}
@@ -288,7 +288,7 @@ func TestChannelShowTailJSONAndFormat(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	for _, body := range []string{"first", "second", "third"} {
-		if err := runChannelPublish(&bytes.Buffer{}, &bytes.Buffer{}, teamDir, "#ops", "tester", body); err != nil {
+		if err := runChannelPublish(&bytes.Buffer{}, &bytes.Buffer{}, teamDir, "#ops", "tester", body, channelPublishOptions{}); err != nil {
 			t.Fatalf("publish %s: %v", body, err)
 		}
 	}
@@ -314,6 +314,67 @@ func TestChannelShowTailJSONAndFormat(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(stdout), "#ops 1 third"; got != want {
 		t.Fatalf("channel show format = %q, want %q", got, want)
+	}
+}
+
+func TestChannelPublishAndRmMachineOutput(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	stdout, stderr, err := executeChannelCommand("channel", "publish", "#ops", "--target", tmp, "--sender", "tester", "--message", "deploy ready", "--json")
+	if err != nil {
+		t.Fatalf("channel publish json: %v\nstderr=%s", err, stderr)
+	}
+	var published channelPublishResult
+	if err := json.Unmarshal([]byte(stdout), &published); err != nil {
+		t.Fatalf("decode publish json: %v\nbody=%s", err, stdout)
+	}
+	if published.Channel != "#ops" || published.Sender != "tester" || published.Body != "deploy ready" || published.Seq != 1 {
+		t.Fatalf("publish json = %+v, want #ops/tester/seq1", published)
+	}
+
+	stdout, stderr, err = executeChannelCommand("channel", "publish", "#ops", "--target", tmp, "--message", "second", "--format", "{{.Channel}} {{.Seq}} {{.Body}}")
+	if err != nil {
+		t.Fatalf("channel publish format: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "#ops 2 second"; got != want {
+		t.Fatalf("publish format = %q, want %q", got, want)
+	}
+
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--dry-run", "--format", "{{.Name}} {{.Action}} {{.DryRun}}")
+	if err != nil {
+		t.Fatalf("channel rm dry-run format: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "#ops would-remove true"; got != want {
+		t.Fatalf("rm dry-run format = %q, want %q", got, want)
+	}
+	stdout, stderr, err = executeChannelCommand("channel", "show", "#ops", "--target", tmp, "--tail", "0", "--format", "{{.Channel.MessageCount}}")
+	if err != nil {
+		t.Fatalf("channel show after dry-run rm: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "2"; got != want {
+		t.Fatalf("channel after dry-run rm count = %q, want %q", got, want)
+	}
+
+	stdout, stderr, err = executeChannelCommand("--repo", tmp, "channel", "rm", "#ops", "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("channel rm commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "channel", "rm", "#ops", "--repo", tmp, "--force"}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("rm commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--force", "--json")
+	if err != nil {
+		t.Fatalf("channel rm json: %v\nstderr=%s", err, stderr)
+	}
+	var removed channelRmResult
+	if err := json.Unmarshal([]byte(stdout), &removed); err != nil {
+		t.Fatalf("decode rm json: %v\nbody=%s", err, stdout)
+	}
+	if removed.Name != "#ops" || !removed.Removed || removed.Action != "removed" || removed.DryRun {
+		t.Fatalf("rm json = %+v, want removed #ops", removed)
 	}
 }
 
@@ -350,6 +411,31 @@ func TestChannelMachineOutputValidation(t *testing.T) {
 			name: "show rejects negative tail",
 			args: []string{"channel", "show", "#ops", "--target", tmp, "--tail", "-1"},
 			want: "--tail must be >= 0",
+		},
+		{
+			name: "publish rejects json format",
+			args: []string{"channel", "publish", "#ops", "--target", tmp, "--message", "body", "--json", "--format", "{{.Seq}}"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "rm rejects commands without dry run",
+			args: []string{"channel", "rm", "#ops", "--target", tmp, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "rm rejects commands json",
+			args: []string{"channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "rm rejects commands format",
+			args: []string{"channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands", "--format", "{{.Name}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "rm rejects json format",
+			args: []string{"channel", "rm", "#ops", "--target", tmp, "--json", "--format", "{{.Name}}"},
+			want: "--format cannot be combined with --json",
 		},
 	}
 	for _, tt := range tests {

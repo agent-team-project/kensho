@@ -127,6 +127,8 @@ func newChannelPublishCmd() *cobra.Command {
 		sender      string
 		message     string
 		messageFile string
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -134,6 +136,15 @@ func newChannelPublishCmd() *cobra.Command {
 		Short: "Publish a message to a channel from the CLI (creates the channel if missing).",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team channel publish: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseChannelFormat(format, "channel-publish-format")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team channel publish: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -143,20 +154,29 @@ func newChannelPublishCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team channel publish: %v\n", err)
 				return exitErr(2)
 			}
-			return runChannelPublish(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], sender, body)
+			return runChannelPublish(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], sender, body, channelPublishOptions{
+				JSON:   jsonOut,
+				Format: tmpl,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&sender, "sender", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to publish.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the publish result with a Go template, e.g. '{{.Channel}} {{.Seq}}'.")
 	return cmd
 }
 
 func newChannelRmCmd() *cobra.Command {
 	var (
-		target string
-		force  bool
+		target   string
+		force    bool
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -164,11 +184,32 @@ func newChannelRmCmd() *cobra.Command {
 		Short: "Delete a channel and all of its on-disk state.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team channel rm: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team channel rm: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team channel rm: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team channel rm: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseChannelFormat(format, "channel-rm-format")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team channel rm: %v\n", err)
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
 			}
-			if !force {
+			if !dryRun && !force {
 				ok, err := confirm(cmd, fmt.Sprintf("Delete channel %s?", args[0]))
 				if err != nil {
 					return err
@@ -178,11 +219,32 @@ func newChannelRmCmd() *cobra.Command {
 					return nil
 				}
 			}
-			return runChannelRm(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0])
+			result, err := runChannelRm(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], channelRmOptions{
+				DryRun: dryRun,
+				Quiet:  commands,
+				JSON:   jsonOut,
+				Format: tmpl,
+			})
+			if err != nil {
+				return err
+			}
+			if commands {
+				return renderChannelRmApplyCommand(cmd.OutOrStdout(), result.DryRun && result.Removed, channelRmApplyCommandOptions{
+					Name:     args[0],
+					RepoFlag: channelRepoFlag(cmd),
+					Repo:     channelRepo(cmd, target),
+					RepoSet:  channelRepoSet(cmd),
+				})
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview channel removal without deleting it.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching channel rm apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the removal result with a Go template, e.g. '{{.Name}} {{.Action}}'.")
 	return cmd
 }
 
@@ -212,6 +274,40 @@ type channelShowOptions struct {
 type channelShowResult struct {
 	Channel  *channelInfo      `json:"channel"`
 	Messages []*channelMessage `json:"messages"`
+}
+
+type channelPublishOptions struct {
+	JSON   bool
+	Format *template.Template
+}
+
+type channelPublishResult struct {
+	Channel string    `json:"channel"`
+	Sender  string    `json:"sender"`
+	Body    string    `json:"body"`
+	Seq     int64     `json:"seq"`
+	TS      time.Time `json:"ts"`
+}
+
+type channelRmOptions struct {
+	DryRun bool
+	Quiet  bool
+	JSON   bool
+	Format *template.Template
+}
+
+type channelRmResult struct {
+	Name    string `json:"name"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+	Removed bool   `json:"removed"`
+	Action  string `json:"action"`
+}
+
+type channelRmApplyCommandOptions struct {
+	Name     string
+	RepoFlag string
+	Repo     string
+	RepoSet  bool
 }
 
 func addChannelListFlags(cmd *cobra.Command, opts *channelListCommandOptions, defaultTarget string) {
@@ -432,7 +528,7 @@ func runChannelShow(stdout, stderr io.Writer, teamDir, name string, opts channel
 	return nil
 }
 
-func runChannelPublish(stdout, stderr io.Writer, teamDir, name, sender, body string) error {
+func runChannelPublish(stdout, stderr io.Writer, teamDir, name, sender, body string, opts channelPublishOptions) error {
 	client, err := channelClientForTeamDir(teamDir)
 	if err != nil {
 		return err
@@ -441,20 +537,138 @@ func runChannelPublish(stdout, stderr io.Writer, teamDir, name, sender, body str
 	if err != nil {
 		return err
 	}
+	result := channelPublishResult{
+		Channel: name,
+		Sender:  sender,
+		Body:    body,
+		Seq:     res.Seq,
+		TS:      res.TS,
+	}
+	if opts.JSON {
+		return json.NewEncoder(stdout).Encode(result)
+	}
+	if opts.Format != nil {
+		if err := opts.Format.Execute(stdout, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(stdout)
+		return err
+	}
 	fmt.Fprintf(stdout, "  published seq=%d  %s\n", res.Seq, res.TS.Format(time.RFC3339))
 	return nil
 }
 
-func runChannelRm(stdout, stderr io.Writer, teamDir, name string) error {
+func runChannelRm(stdout, stderr io.Writer, teamDir, name string, opts channelRmOptions) (channelRmResult, error) {
 	client, err := channelClientForTeamDir(teamDir)
 	if err != nil {
-		return err
+		return channelRmResult{}, err
 	}
-	if err := client.ChannelDelete(name); err != nil {
-		return err
+	result := channelRmResult{
+		Name:    name,
+		DryRun:  opts.DryRun,
+		Removed: true,
+		Action:  "removed",
+	}
+	if opts.DryRun {
+		exists, err := channelExists(client, name)
+		if err != nil {
+			return channelRmResult{}, err
+		}
+		if !exists {
+			return channelRmResult{}, fmt.Errorf("no such channel %q", name)
+		}
+		result.Action = "would-remove"
+	} else if err := client.ChannelDelete(name); err != nil {
+		return channelRmResult{}, err
+	}
+	if opts.JSON {
+		return result, json.NewEncoder(stdout).Encode(result)
+	}
+	if opts.Format != nil {
+		if err := opts.Format.Execute(stdout, result); err != nil {
+			return result, err
+		}
+		_, err := fmt.Fprintln(stdout)
+		return result, err
+	}
+	if opts.Quiet {
+		return result, nil
+	}
+	if opts.DryRun {
+		fmt.Fprintf(stdout, "  would remove %s\n", name)
+		return result, nil
 	}
 	fmt.Fprintf(stdout, "  removed %s\n", name)
-	return nil
+	return result, nil
+}
+
+func channelExists(client channelClient, name string) (bool, error) {
+	infos, err := client.ChannelList()
+	if err != nil {
+		return false, err
+	}
+	for _, info := range infos {
+		if info != nil && info.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func renderChannelRmApplyCommand(w io.Writer, hasAction bool, opts channelRmApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(channelRmApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func channelRmApplyCommandArgs(opts channelRmApplyCommandOptions) []string {
+	args := []string{"agent-team", "channel", "rm", opts.Name}
+	args = appendChannelRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+	args = append(args, "--force")
+	return args
+}
+
+func appendChannelRepoArgs(args []string, repoFlag, repo string, repoSet bool) []string {
+	if !repoSet || strings.TrimSpace(repo) == "" {
+		return args
+	}
+	flag := strings.TrimSpace(repoFlag)
+	if flag == "" {
+		flag = "target"
+	}
+	return append(args, "--"+flag, repo)
+}
+
+func channelRepoSet(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+		return true
+	}
+	return cmd.Flags().Changed("target")
+}
+
+func channelRepoFlag(cmd *cobra.Command) string {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			return rootRepoFlagName
+		}
+	}
+	return "target"
+}
+
+func channelRepo(cmd *cobra.Command, target string) string {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return value
+			}
+		}
+	}
+	return target
 }
 
 type channelClient interface {

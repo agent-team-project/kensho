@@ -365,11 +365,12 @@ agent-team channels [--sort messages] [--limit N] [--format '{{.Name}}'] [--json
                                                 # list pub/sub channels; reads local channel state if the daemon is down
 agent-team channel show <name> [--tail N] [--format '{{.Channel.Name}} {{len .Messages}}'] [--json]
                                                 # show a channel summary and recent messages
-agent-team channel publish <name> [body...] [--message "..."] [--message-file <path|->] [--sender user]
+agent-team channel publish <name> [body...] [--message "..."] [--message-file <path|->] [--sender user] [--format '{{.Seq}}'] [--json]
                                                 # publish to a channel; appends locally if the daemon is down
 agent-team event publish <type> [--payload <json> | --payload-file <path|->] [--dry-run] [--format '{{len .Matched}} {{len .Dispatched}}'] [--json]
                                                 # manually publish a topology event through the daemon
-agent-team channel rm <name> -f                 # delete a channel and its durable state
+agent-team channel rm <name> [-f] [--dry-run] [--commands] [--format '{{.Action}}'] [--json]
+                                                # delete a channel and its durable state; dry-run can print the force apply command
 agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--agent manager] [--dry-run] [--commands] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
                                                 # remove instance state and daemon metadata, using persisted metadata if the daemon is down
 agent-team prune [-q] [--dry-run] [--commands] [--runtime codex] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished or runtime-stale persisted daemon metadata and state

@@ -272,6 +272,8 @@ agent-team channel publish <name> [body...] [flags]
 Flags:
 
 ```text
+      --format string         Render the publish result with a Go template, e.g. '{{.Channel}} {{.Seq}}'.
+      --json                  Emit machine-readable JSON.
       --message string        Message text to publish.
       --message-file string   Read message text from a file, or '-' for stdin.
       --sender string         Sender label recorded with the message. (default "(cli)")
@@ -295,7 +297,11 @@ agent-team channel rm <name> [flags]
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching channel rm apply command when the preview has actionable work.
+      --dry-run         Preview channel removal without deleting it.
   -f, --force           Skip confirmation.
+      --format string   Render the removal result with a Go template, e.g. '{{.Name}} {{.Action}}'.
+      --json            Emit machine-readable JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
