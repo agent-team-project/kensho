@@ -3133,7 +3133,7 @@ Aliases: `retry`
 Flags:
 
 ```text
-      --commands                  With --dry-run, print the matching job retry apply command when the preview has actionable work.
+      --commands                  With --dry-run, print the matching job reopen/retry apply command when the preview has actionable work.
       --dispatch                  Dispatch the reopened job immediately using the running daemon.
       --dry-run                   Preview the reopened job and optional dispatch without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.

@@ -326,6 +326,8 @@ agent-team job retry squ-42 --dispatch --wait --wait-next-state running --wait-s
 ```
 
 For normal jobs this reopens the job and can dispatch a fresh attempt.
+`job reopen` is the canonical command and `job retry` is an alias; `--commands`
+prints the same spelling used for the dry-run.
 
 For pipeline jobs it resets the first failed step whose dependencies are
 satisfied, then advances work. Add `--wait` when recovery automation should

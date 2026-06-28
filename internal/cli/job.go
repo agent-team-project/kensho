@@ -5138,6 +5138,7 @@ func newJobReopenCmd() *cobra.Command {
 			j.UpdatedAt = time.Now().UTC()
 			if dryRun {
 				commandOptions := jobRetryApplyCommandOptions{
+					Command:        jobReopenCommandName(cmd),
 					JobID:          j.ID,
 					Repo:           repo,
 					RepoSet:        cmd.Flags().Changed("repo"),
@@ -5307,7 +5308,7 @@ func newJobReopenCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the reopened job and optional dispatch without writing job or daemon state.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job retry apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reopen/retry apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After reopening or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -5319,6 +5320,20 @@ func newJobReopenCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or dry-run preview as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template.")
 	return cmd
+}
+
+func jobReopenCommandName(cmd *cobra.Command) string {
+	if cmd == nil {
+		return "reopen"
+	}
+	name := strings.TrimSpace(cmd.CalledAs())
+	if name == "" {
+		name = strings.TrimSpace(cmd.Name())
+	}
+	if name == "retry" {
+		return "retry"
+	}
+	return "reopen"
 }
 
 func newJobCleanupCmd() *cobra.Command {
@@ -12632,6 +12647,7 @@ type jobDispatchApplyCommandOptions struct {
 }
 
 type jobRetryApplyCommandOptions struct {
+	Command        string
 	JobID          string
 	Repo           string
 	RepoSet        bool
@@ -12660,7 +12676,11 @@ func renderJobRetryApplyCommand(w io.Writer, hasAction bool, opts jobRetryApplyC
 }
 
 func jobRetryApplyCommandArgs(opts jobRetryApplyCommandOptions) []string {
-	args := []string{"agent-team", "job", "retry", opts.JobID}
+	command := strings.TrimSpace(opts.Command)
+	if command == "" {
+		command = "retry"
+	}
+	args := []string{"agent-team", "job", command, opts.JobID}
 	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
 		args = append(args, "--repo", opts.Repo)
 	}

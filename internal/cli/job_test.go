@@ -5900,6 +5900,19 @@ func TestJobReopenResetsStatusAndAudits(t *testing.T) {
 		t.Fatalf("dry-run wrote events = %+v", previewEvents)
 	}
 
+	reopenCommands := NewRootCmd()
+	reopenCommandsOut, reopenCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reopenCommands.SetOut(reopenCommandsOut)
+	reopenCommands.SetErr(reopenCommandsErr)
+	reopenCommands.SetArgs([]string{"job", "reopen", "SQU-68", "--repo", tmp, "--message", "retry after fix", "--dry-run", "--commands"})
+	if err := reopenCommands.Execute(); err != nil {
+		t.Fatalf("job reopen dry-run commands: %v\nstderr=%s", err, reopenCommandsErr.String())
+	}
+	wantReopenCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reopen", "squ-68", "--repo", tmp, "--message", "retry after fix"}), " ")
+	if got := strings.TrimSpace(reopenCommandsOut.String()); got != wantReopenCommand {
+		t.Fatalf("job reopen dry-run commands = %q, want %q", got, wantReopenCommand)
+	}
+
 	commands := NewRootCmd()
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
