@@ -1929,6 +1929,9 @@ func snapshotDiffProvenanceMap(provenance *snapshotProvenance) map[string]string
 	if provenance.Options.Timeline != nil {
 		out["timeline"] = fmt.Sprintf("%d", *provenance.Options.Timeline)
 	}
+	if value := strings.TrimSpace(provenance.Options.TimelineSort); value != "" {
+		out["timeline_sort"] = value
+	}
 	if provenance.Options.Tail != nil {
 		out["tail"] = fmt.Sprintf("%d", *provenance.Options.Tail)
 	}

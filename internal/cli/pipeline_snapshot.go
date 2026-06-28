@@ -20,6 +20,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		repo         string
 		output       string
 		timelineTail string
+		timelineSort string
 		jsonOut      bool
 		noRedact     bool
 		format       string
@@ -55,6 +56,11 @@ func newPipelineSnapshotCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: --timeline must be >= 0 or \"all\".")
 				return exitErr(2)
 			}
+			timelineSortMode, err := parseEventSort(timelineSort)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: --timeline-sort must be oldest or newest.")
+				return exitErr(2)
+			}
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
@@ -67,10 +73,16 @@ func newPipelineSnapshotCmd() *cobra.Command {
 				Redact:       !noRedact,
 				Now:          time.Now().UTC(),
 				TimelineTail: timelineEvents,
+				TimelineSort: timelineSortMode,
 			})
+			timelineSortProvenance := ""
+			if cmd.Flags().Changed("timeline-sort") {
+				timelineSortProvenance = timelineSortMode
+			}
 			snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "pipeline", pipelineName, snapshotProvenanceOptions{
-				Timeline: intValuePtr(timelineEvents),
-				Redacted: !noRedact,
+				Timeline:     intValuePtr(timelineEvents),
+				TimelineSort: timelineSortProvenance,
+				Redacted:     !noRedact,
 			})
 			switch {
 			case jsonOut || output == "-":
@@ -93,6 +105,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON pipeline snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().StringVar(&timelineTail, "timeline", "50", "Include the last N combined audit/lifecycle timeline rows in the snapshot (0 or all = all).")
+	cmd.Flags().StringVar(&timelineSort, "timeline-sort", "oldest", "Sort included combined audit/lifecycle timeline rows by oldest or newest after applying --timeline.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full pipeline snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values and latest inbox bodies instead of redacting them.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
@@ -103,6 +116,7 @@ type pipelineSnapshotOptions struct {
 	Redact       bool
 	Now          time.Time
 	TimelineTail int
+	TimelineSort string
 }
 
 type pipelineSnapshotResult struct {
@@ -165,7 +179,11 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 		out.Jobs = filterJobsByPipeline(jobs, pipeline)
 		sortJobs(out.Jobs, "updated")
 	}
-	if timeline, err := collectJobTimelineForJobs(teamDir, out.Jobs, "all", nil, opts.TimelineTail, "oldest"); err != nil {
+	timelineSort := opts.TimelineSort
+	if timelineSort == "" {
+		timelineSort = "oldest"
+	}
+	if timeline, err := collectJobTimelineForJobs(teamDir, out.Jobs, "all", nil, opts.TimelineTail, timelineSort); err != nil {
 		out.addError("timeline", err)
 	} else {
 		out.Timeline = timeline

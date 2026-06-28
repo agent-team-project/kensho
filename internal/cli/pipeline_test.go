@@ -3005,6 +3005,25 @@ target = "worker"
 		t.Fatalf("limited pipeline snapshot timeline = %+v", timelineSnapshot.Timeline)
 	}
 
+	timelineNewest := NewRootCmd()
+	timelineNewestOut, timelineNewestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	timelineNewest.SetOut(timelineNewestOut)
+	timelineNewest.SetErr(timelineNewestErr)
+	timelineNewest.SetArgs([]string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--timeline-sort", "newest", "--json"})
+	if err := timelineNewest.Execute(); err != nil {
+		t.Fatalf("pipeline snapshot timeline newest: %v\nstderr=%s", err, timelineNewestErr.String())
+	}
+	var newestSnapshot pipelineSnapshotResult
+	if err := json.Unmarshal(timelineNewestOut.Bytes(), &newestSnapshot); err != nil {
+		t.Fatalf("decode newest pipeline snapshot: %v\nbody=%s", err, timelineNewestOut.String())
+	}
+	if len(newestSnapshot.Timeline) != 2 || newestSnapshot.Timeline[0].Kind != "dispatch" || newestSnapshot.Timeline[1].Kind != "note" {
+		t.Fatalf("newest pipeline snapshot timeline = %+v", newestSnapshot.Timeline)
+	}
+	if newestSnapshot.Provenance == nil || newestSnapshot.Provenance.Options.TimelineSort != "newest" {
+		t.Fatalf("newest pipeline snapshot provenance = %+v", newestSnapshot.Provenance)
+	}
+
 	text := NewRootCmd()
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)

@@ -202,6 +202,7 @@ type snapshotProvenanceOptions struct {
 	IntakeDeliveries *int   `json:"intake_deliveries,omitempty"`
 	ScheduleLimit    *int   `json:"schedule_limit,omitempty"`
 	Timeline         *int   `json:"timeline,omitempty"`
+	TimelineSort     string `json:"timeline_sort,omitempty"`
 	Tail             *int   `json:"tail,omitempty"`
 	Redacted         bool   `json:"redacted"`
 }

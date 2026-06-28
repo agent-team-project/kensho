@@ -5623,12 +5623,13 @@ agent-team pipeline snapshot <pipeline> [flags]
 Flags:
 
 ```text
-      --format string     Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
-      --json              Emit the full pipeline snapshot JSON to stdout.
-      --no-redact         Include raw payload values and latest inbox bodies instead of redacting them.
-  -o, --output string     Write the full JSON pipeline snapshot to this file. Use '-' for stdout.
-      --repo string       Repo root containing .agent_team. (default "<repo>")
-      --timeline string   Include the last N combined audit/lifecycle timeline rows in the snapshot (0 or all = all). (default "50")
+      --format string          Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
+      --json                   Emit the full pipeline snapshot JSON to stdout.
+      --no-redact              Include raw payload values and latest inbox bodies instead of redacting them.
+  -o, --output string          Write the full JSON pipeline snapshot to this file. Use '-' for stdout.
+      --repo string            Repo root containing .agent_team. (default "<repo>")
+      --timeline string        Include the last N combined audit/lifecycle timeline rows in the snapshot (0 or all = all). (default "50")
+      --timeline-sort string   Sort included combined audit/lifecycle timeline rows by oldest or newest after applying --timeline. (default "oldest")
 ```
 
 ## `agent-team pipeline stats`

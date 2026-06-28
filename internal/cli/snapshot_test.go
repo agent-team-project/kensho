@@ -526,6 +526,11 @@ pipelines = ["ticket_to_pr"]
 			args: []string{"team", "snapshot", "delivery", "--repo", target, "--events-sort", "sideways"},
 			want: "agent-team team snapshot: --events-sort must be oldest or newest.",
 		},
+		{
+			name: "pipeline timeline sort",
+			args: []string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--timeline-sort", "sideways"},
+			want: "agent-team pipeline snapshot: --timeline-sort must be oldest or newest.",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()
