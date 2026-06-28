@@ -66,6 +66,52 @@ func TestInboxLsJSONIncludesMetadataAndBareMailbox(t *testing.T) {
 	if future.HasMetadata || future.Total != 1 || future.Unread != 1 || future.LatestID != "msg-future" {
 		t.Fatalf("future-worker row = %+v", future)
 	}
+
+	stdout, stderr, err = executeInboxCommand("--repo", tmp, "inbox", "ls", "--commands")
+	if err != nil {
+		t.Fatalf("inbox ls --commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommands := strings.Join([]string{
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "future-worker", "--unread", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--repo", tmp}), " "),
+	}, "\n")
+	if got := strings.TrimSpace(stdout); got != wantCommands {
+		t.Fatalf("inbox ls --commands = %q, want %q", got, wantCommands)
+	}
+}
+
+func TestInboxLsCommandsValidation(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "rejects json",
+			args: []string{"inbox", "ls", "--target", tmp, "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "rejects format",
+			args: []string{"inbox", "ls", "--target", tmp, "--commands", "--format", "{{.Instance}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, stderr, err := executeInboxCommand(tt.args...)
+			var code ExitCode
+			if !errors.As(err, &code) || code != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(stderr, tt.want) {
+				t.Fatalf("stderr = %q, want %q", stderr, tt.want)
+			}
+		})
+	}
 }
 
 func TestInboxShowUnreadAndAckCursor(t *testing.T) {
@@ -276,6 +322,18 @@ instances = ["manager", "worker"]
 	}
 	if len(rows) != 2 || findInboxSummary(rows, "manager") == nil || findInboxSummary(rows, "worker-squ-1") == nil || findInboxSummary(rows, "outsider") != nil {
 		t.Fatalf("team inbox rows = %+v", rows)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--team", "delivery", "--commands")
+	if err != nil {
+		t.Fatalf("inbox ls --team --commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommands := strings.Join([]string{
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--target", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-squ-1", "--unread", "--target", tmp}), " "),
+	}, "\n")
+	if got := strings.TrimSpace(stdout); got != wantCommands {
+		t.Fatalf("team inbox commands = %q, want %q", got, wantCommands)
 	}
 }
 

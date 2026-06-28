@@ -1087,6 +1087,7 @@ agent-team inbox ls [flags]
 Flags:
 
 ```text
+      --commands        Print inbox show commands for inboxes with unread messages.
       --format string   Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.
       --json            Emit machine-readable JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")

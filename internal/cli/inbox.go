@@ -37,6 +37,7 @@ func newInboxLsCmd() *cobra.Command {
 		target     string
 		teamName   string
 		unreadOnly bool
+		commands   bool
 		jsonOut    bool
 		format     string
 	)
@@ -45,6 +46,14 @@ func newInboxLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List inbox summaries by instance.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ls: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ls: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ls: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -61,6 +70,10 @@ func newInboxLsCmd() *cobra.Command {
 			return runInboxLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, inboxListOptions{
 				TeamName:   teamName,
 				UnreadOnly: unreadOnly,
+				Commands:   commands,
+				RepoFlag:   inboxRepoFlag(cmd),
+				Repo:       inboxRepo(cmd, target),
+				RepoSet:    inboxRepoSet(cmd),
 				JSON:       jsonOut,
 				Format:     tmpl,
 			})
@@ -69,6 +82,7 @@ func newInboxLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Only list inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox show commands for inboxes with unread messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.")
 	return cmd
@@ -178,9 +192,9 @@ func newInboxAckCmd() *cobra.Command {
 				ID:       id,
 				DryRun:   dryRun,
 				Commands: commands,
-				RepoFlag: inboxAckRepoFlag(cmd),
-				Repo:     inboxAckRepo(cmd, target),
-				RepoSet:  inboxAckRepoSet(cmd),
+				RepoFlag: inboxRepoFlag(cmd),
+				Repo:     inboxRepo(cmd, target),
+				RepoSet:  inboxRepoSet(cmd),
 				JSON:     jsonOut,
 				Format:   tmpl,
 			})
@@ -198,6 +212,10 @@ func newInboxAckCmd() *cobra.Command {
 type inboxListOptions struct {
 	TeamName   string
 	UnreadOnly bool
+	Commands   bool
+	RepoFlag   string
+	Repo       string
+	RepoSet    bool
 	JSON       bool
 	Format     *template.Template
 }
@@ -277,6 +295,13 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 	rows, err := collectInboxSummaryRows(daemonRoot, instances, metaByInstance, opts.UnreadOnly)
 	if err != nil {
 		return err
+	}
+	if opts.Commands {
+		return renderInboxListCommands(stdout, rows, inboxListCommandOptions{
+			RepoFlag: opts.RepoFlag,
+			Repo:     opts.Repo,
+			RepoSet:  opts.RepoSet,
+		})
 	}
 	if opts.JSON {
 		return json.NewEncoder(stdout).Encode(rows)
@@ -486,6 +511,26 @@ func runInboxAck(stdout, stderr io.Writer, teamDir, instance string, opts inboxA
 	return nil
 }
 
+type inboxListCommandOptions struct {
+	RepoFlag string
+	Repo     string
+	RepoSet  bool
+}
+
+func renderInboxListCommands(w io.Writer, rows []inboxSummaryRow, opts inboxListCommandOptions) error {
+	for _, row := range rows {
+		if row.Unread <= 0 {
+			continue
+		}
+		args := []string{"agent-team", "inbox", "show", row.Instance, "--unread"}
+		args = appendInboxRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+		if _, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(args), " ")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type inboxAckApplyCommandOptions struct {
 	Instance string
 	ID       string
@@ -510,17 +555,21 @@ func inboxAckApplyCommandArgs(opts inboxAckApplyCommandOptions) []string {
 	} else {
 		args = append(args, opts.ID)
 	}
-	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
-		flag := strings.TrimSpace(opts.RepoFlag)
-		if flag == "" {
-			flag = "target"
-		}
-		args = append(args, "--"+flag, opts.Repo)
-	}
-	return args
+	return appendInboxRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
 }
 
-func inboxAckRepoSet(cmd *cobra.Command) bool {
+func appendInboxRepoArgs(args []string, repoFlag, repo string, repoSet bool) []string {
+	if !repoSet || strings.TrimSpace(repo) == "" {
+		return args
+	}
+	flag := strings.TrimSpace(repoFlag)
+	if flag == "" {
+		flag = "target"
+	}
+	return append(args, "--"+flag, repo)
+}
+
+func inboxRepoSet(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
@@ -530,7 +579,7 @@ func inboxAckRepoSet(cmd *cobra.Command) bool {
 	return cmd.Flags().Changed("target")
 }
 
-func inboxAckRepoFlag(cmd *cobra.Command) string {
+func inboxRepoFlag(cmd *cobra.Command) string {
 	if cmd != nil {
 		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 			return rootRepoFlagName
@@ -539,7 +588,7 @@ func inboxAckRepoFlag(cmd *cobra.Command) string {
 	return "target"
 }
 
-func inboxAckRepo(cmd *cobra.Command, target string) string {
+func inboxRepo(cmd *cobra.Command, target string) string {
 	if cmd != nil {
 		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 			if value := strings.TrimSpace(flag.Value.String()); value != "" {
