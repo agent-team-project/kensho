@@ -105,6 +105,40 @@ func TestMailbox_CursorAdvancesUnacked(t *testing.T) {
 	}
 }
 
+func TestMailbox_RewriteMessagesPreservesCursorSemantics(t *testing.T) {
+	root := t.TempDir()
+	for _, body := range []string{"a", "b", "c", "d"} {
+		if err := AppendMessage(root, "w", &Message{From: "x", Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := ReadMessages(root, "w")
+	if err != nil {
+		t.Fatalf("read seed: %v", err)
+	}
+	if err := WriteCursor(root, "w", all[1].ID); err != nil {
+		t.Fatalf("cursor: %v", err)
+	}
+	if err := RewriteMessages(root, "w", all[1:]); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+
+	got, err := ReadMessages(root, "w")
+	if err != nil {
+		t.Fatalf("read rewritten: %v", err)
+	}
+	if len(got) != 3 || got[0].Body != "b" || got[1].Body != "c" || got[2].Body != "d" {
+		t.Fatalf("rewritten messages = %+v", got)
+	}
+	un, err := ReadUnacked(root, "w")
+	if err != nil {
+		t.Fatalf("unacked: %v", err)
+	}
+	if len(un) != 2 || un[0].Body != "c" || un[1].Body != "d" {
+		t.Fatalf("unacked after rewrite = %+v", un)
+	}
+}
+
 func TestMailbox_CursorMissingIDFallsBackToAll(t *testing.T) {
 	root := t.TempDir()
 	if err := AppendMessage(root, "w", &Message{From: "x", Body: "only"}); err != nil {

@@ -117,6 +117,49 @@ func ReadMessages(daemonRoot, instance string) ([]*Message, error) {
 	return out, nil
 }
 
+// RewriteMessages replaces an instance mailbox with messages in arrival order.
+// Atomic: writes a temp file and renames over the JSONL mailbox. The same
+// process-wide lock as AppendMessage prevents interleaved local rewrites/appends.
+func RewriteMessages(daemonRoot, instance string, messages []*Message) error {
+	if instance == "" {
+		return errors.New("mailbox: instance is required")
+	}
+	dir := instanceDir(daemonRoot, instance)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mailbox: mkdir: %w", err)
+	}
+
+	mailboxLock.Lock()
+	defer mailboxLock.Unlock()
+
+	tmp, err := os.CreateTemp(dir, "mailbox-*.tmp")
+	if err != nil {
+		return fmt.Errorf("mailbox: temp: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	enc := json.NewEncoder(tmp)
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		if err := enc.Encode(msg); err != nil {
+			_ = tmp.Close()
+			return fmt.Errorf("mailbox: encode: %w", err)
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("mailbox: sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("mailbox: close: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), MailboxPath(daemonRoot, instance)); err != nil {
+		return fmt.Errorf("mailbox: rename: %w", err)
+	}
+	return nil
+}
+
 // ReadUnacked returns every message that follows the cursor. The cursor stores
 // the highest-acked message ID; we yield messages whose index is strictly
 // greater than the cursor's match. If the cursor points at an ID no longer in
@@ -181,4 +224,3 @@ func ReadCursor(daemonRoot, instance string) (string, error) {
 	}
 	return strings.TrimSpace(string(body)), nil
 }
-

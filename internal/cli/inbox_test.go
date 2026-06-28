@@ -336,6 +336,256 @@ func TestInboxShowCommandsValidation(t *testing.T) {
 	}
 }
 
+func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	for _, msg := range []*daemon.Message{
+		{ID: "msg-1", From: "tester", Body: "first", TS: now.Add(-3 * time.Hour)},
+		{ID: "msg-2", From: "tester", Body: "cursor", TS: now.Add(-2 * time.Hour)},
+		{ID: "msg-3", From: "tester", Body: "third", TS: now.Add(-time.Hour)},
+		{ID: "msg-4", From: "tester", Body: "fourth", TS: now},
+	} {
+		if err := daemon.AppendMessage(root, "worker", msg); err != nil {
+			t.Fatalf("append %s: %v", msg.ID, err)
+		}
+	}
+	if err := daemon.WriteCursor(root, "worker", "msg-2"); err != nil {
+		t.Fatalf("write cursor: %v", err)
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("inbox prune dry-run: %v\nstderr=%s", err, stderr)
+	}
+	var dry []inboxPruneResult
+	if err := json.Unmarshal([]byte(stdout), &dry); err != nil {
+		t.Fatalf("decode prune dry-run: %v\nbody=%s", err, stdout)
+	}
+	if len(dry) != 1 || !dry[0].DryRun || dry[0].Dropped != 1 || dry[0].Kept != 3 || dry[0].Unread != 2 || dry[0].Action != "would-prune" {
+		t.Fatalf("dry-run prune = %+v", dry)
+	}
+	messages, err := daemon.ReadMessages(root, "worker")
+	if err != nil {
+		t.Fatalf("read after dry-run: %v", err)
+	}
+	if len(messages) != 4 {
+		t.Fatalf("dry-run rewrote messages: got %d want 4", len(messages))
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("inbox prune commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--target", tmp}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox prune commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--format", "{{.Instance}} {{.Dropped}} {{.Action}}")
+	if err != nil {
+		t.Fatalf("inbox prune: %v\nstderr=%s", err, stderr)
+	}
+	if got, want := strings.TrimSpace(stdout), "worker 1 pruned"; got != want {
+		t.Fatalf("inbox prune format = %q, want %q", got, want)
+	}
+	messages, err = daemon.ReadMessages(root, "worker")
+	if err != nil {
+		t.Fatalf("read after prune: %v", err)
+	}
+	gotIDs := []string{}
+	for _, msg := range messages {
+		gotIDs = append(gotIDs, msg.ID)
+	}
+	if strings.Join(gotIDs, ",") != "msg-2,msg-3,msg-4" {
+		t.Fatalf("messages after prune = %v", gotIDs)
+	}
+	unread, err := daemon.ReadUnacked(root, "worker")
+	if err != nil {
+		t.Fatalf("read unacked after prune: %v", err)
+	}
+	if len(unread) != 2 || unread[0].ID != "msg-3" || unread[1].ID != "msg-4" {
+		t.Fatalf("unread after prune = %+v", unread)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("inbox prune no-op commands: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != "" {
+		t.Fatalf("inbox prune no-op commands = %q, want empty", got)
+	}
+}
+
+func TestInboxPruneOlderThanKeepsRecentAcknowledgedMessages(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	now := time.Now().UTC()
+	for _, msg := range []*daemon.Message{
+		{ID: "old-acked", Body: "old", TS: now.Add(-48 * time.Hour)},
+		{ID: "recent-acked", Body: "recent", TS: now.Add(-time.Hour)},
+		{ID: "cursor", Body: "cursor", TS: now.Add(-30 * time.Minute)},
+		{ID: "unread", Body: "unread", TS: now},
+	} {
+		if err := daemon.AppendMessage(root, "worker", msg); err != nil {
+			t.Fatalf("append %s: %v", msg.ID, err)
+		}
+	}
+	if err := daemon.WriteCursor(root, "worker", "cursor"); err != nil {
+		t.Fatalf("write cursor: %v", err)
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--older-than", "24h", "--json")
+	if err != nil {
+		t.Fatalf("inbox prune older-than: %v\nstderr=%s", err, stderr)
+	}
+	var rows []inboxPruneResult
+	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
+		t.Fatalf("decode prune older-than: %v\nbody=%s", err, stdout)
+	}
+	if len(rows) != 1 || rows[0].Dropped != 1 || rows[0].Kept != 3 {
+		t.Fatalf("older-than prune rows = %+v", rows)
+	}
+	messages, err := daemon.ReadMessages(root, "worker")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	gotIDs := []string{}
+	for _, msg := range messages {
+		gotIDs = append(gotIDs, msg.ID)
+	}
+	if strings.Join(gotIDs, ",") != "recent-acked,cursor,unread" {
+		t.Fatalf("messages after older-than prune = %v", gotIDs)
+	}
+}
+
+func TestInboxPruneAllTeamCommandsScopesInboxes(t *testing.T) {
+	tmp := t.TempDir()
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	instances := `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	for _, instance := range []string{"manager", "worker-squ-1", "outsider"} {
+		for _, id := range []string{"a", "b"} {
+			msgID := instance + "-" + id
+			if err := daemon.AppendMessage(root, instance, &daemon.Message{ID: msgID, Body: msgID}); err != nil {
+				t.Fatalf("append %s: %v", msgID, err)
+			}
+		}
+		if err := daemon.WriteCursor(root, instance, instance+"-b"); err != nil {
+			t.Fatalf("cursor %s: %v", instance, err)
+		}
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "--target", tmp, "--all", "--team", "delivery", "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("team prune commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "--target", tmp, "--all", "--team", "delivery"}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("team prune commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "--target", tmp, "--all", "--team", "delivery", "--json")
+	if err != nil {
+		t.Fatalf("team prune: %v\nstderr=%s", err, stderr)
+	}
+	var rows []inboxPruneResult
+	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
+		t.Fatalf("decode team prune: %v\nbody=%s", err, stdout)
+	}
+	if len(rows) != 2 || rows[0].Instance != "manager" || rows[1].Instance != "worker-squ-1" {
+		t.Fatalf("team prune rows = %+v", rows)
+	}
+	outsider, err := daemon.ReadMessages(root, "outsider")
+	if err != nil {
+		t.Fatalf("read outsider: %v", err)
+	}
+	if len(outsider) != 2 {
+		t.Fatalf("outsider messages = %d, want untouched 2", len(outsider))
+	}
+}
+
+func TestInboxPruneValidation(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	if err := daemon.AppendMessage(root, "worker", &daemon.Message{ID: "msg-1", Body: "hello"}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "requires target",
+			args: []string{"inbox", "prune", "--target", tmp},
+			want: "instance or --all is required",
+		},
+		{
+			name: "all rejects instances",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--all"},
+			want: "--all cannot be combined with explicit instances",
+		},
+		{
+			name: "team requires all",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--team", "delivery"},
+			want: "--team requires --all",
+		},
+		{
+			name: "commands require dry run",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "commands reject json",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands reject format",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands", "--format", "{{.Instance}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "rejects negative older-than",
+			args: []string{"inbox", "prune", "worker", "--target", tmp, "--older-than", "-1s"},
+			want: "--older-than must be >= 0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, stderr, err := executeInboxCommand(tt.args...)
+			var code ExitCode
+			if !errors.As(err, &code) || code != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(stderr, tt.want) {
+				t.Fatalf("stderr = %q, want %q", stderr, tt.want)
+			}
+		})
+	}
+}
+
 func TestInboxLsTeamScopesUnreadSummaries(t *testing.T) {
 	tmp := t.TempDir()
 	teamDir := filepath.Join(tmp, ".agent_team")

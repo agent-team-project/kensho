@@ -1049,6 +1049,7 @@ Subcommands:
 
 - `agent-team inbox ack` - Advance an instance inbox cursor.
 - `agent-team inbox ls` - List inbox summaries by instance.
+- `agent-team inbox prune` - Prune acknowledged inbox messages.
 - `agent-team inbox show` - Show messages for one instance inbox.
 
 ## `agent-team inbox ack`
@@ -1093,6 +1094,35 @@ Flags:
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string     Only list inboxes owned by this declared team.
       --unread          Show only inboxes with unread messages.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team inbox prune`
+
+Prune acknowledged inbox messages.
+
+Prune acknowledged inbox messages while preserving the cursor anchor message. Unread messages are never removed.
+
+```text
+agent-team inbox prune <instance>...|--all [flags]
+```
+
+Flags:
+
+```text
+      --all                   Prune every current inbox.
+      --commands              With --dry-run, print the matching inbox prune apply command when the preview has actionable work.
+      --dry-run               Preview inbox compaction without rewriting mailbox files.
+      --format string         Render each prune result with a Go template, e.g. '{{.Instance}} {{.Dropped}}'.
+      --json                  Emit machine-readable JSON.
+      --older-than duration   Only prune acknowledged messages older than this duration.
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --team string           With --all, only prune inboxes owned by this declared team.
 ```
 
 Inherited Flags:

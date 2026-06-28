@@ -29,6 +29,7 @@ func newInboxCmd() *cobra.Command {
 	cmd.AddCommand(newInboxLsCmd())
 	cmd.AddCommand(newInboxShowCmd())
 	cmd.AddCommand(newInboxAckCmd())
+	cmd.AddCommand(newInboxPruneCmd())
 	return cmd
 }
 
@@ -223,6 +224,108 @@ func newInboxAckCmd() *cobra.Command {
 	return cmd
 }
 
+func newInboxPruneCmd() *cobra.Command {
+	var (
+		target    string
+		teamName  string
+		all       bool
+		olderThan time.Duration
+		dryRun    bool
+		commands  bool
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "prune <instance>...|--all",
+		Short: "Prune acknowledged inbox messages.",
+		Long: "Prune acknowledged inbox messages while preserving the cursor anchor message. " +
+			"Unread messages are never removed.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --all cannot be combined with explicit instances.")
+				return exitErr(2)
+			}
+			if !all && len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: instance or --all is required.")
+				return exitErr(2)
+			}
+			if strings.TrimSpace(teamName) != "" && !all {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --team requires --all.")
+				return exitErr(2)
+			}
+			if olderThan < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox prune: --older-than must be >= 0.")
+				return exitErr(2)
+			}
+			tmpl, err := parseInboxFormat(format, "inbox-prune-format")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox prune: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			instances, err := resolveInboxPruneInstances(teamDir, args, all, teamName)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox prune: %v\n", err)
+				return exitErr(2)
+			}
+			opts := inboxPruneOptions{
+				OlderThan: olderThan,
+				Now:       time.Now().UTC(),
+				DryRun:    dryRun,
+			}
+			results, err := runInboxPrune(teamDir, instances, opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox prune: %v\n", err)
+				return exitErr(2)
+			}
+			if commands {
+				return renderInboxPruneApplyCommand(cmd.OutOrStdout(), inboxPruneResultsHaveDryRunAction(results), inboxPruneApplyCommandOptions{
+					Instances:    args,
+					All:          all,
+					TeamName:     teamName,
+					TeamSet:      cmd.Flags().Changed("team"),
+					OlderThan:    olderThan,
+					OlderThanSet: cmd.Flags().Changed("older-than"),
+					RepoFlag:     inboxRepoFlag(cmd),
+					Repo:         inboxRepo(cmd, target),
+					RepoSet:      inboxRepoSet(cmd),
+				})
+			}
+			return renderInboxPruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().StringVar(&teamName, "team", "", "With --all, only prune inboxes owned by this declared team.")
+	cmd.Flags().BoolVar(&all, "all", false, "Prune every current inbox.")
+	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune acknowledged messages older than this duration.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview inbox compaction without rewriting mailbox files.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox prune apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.Instance}} {{.Dropped}}'.")
+	return cmd
+}
+
 type inboxListOptions struct {
 	TeamName   string
 	UnreadOnly bool
@@ -255,6 +358,12 @@ type inboxAckOptions struct {
 	RepoSet  bool
 	JSON     bool
 	Format   *template.Template
+}
+
+type inboxPruneOptions struct {
+	OlderThan time.Duration
+	Now       time.Time
+	DryRun    bool
 }
 
 type inboxSummaryRow struct {
@@ -295,6 +404,20 @@ type inboxAckResult struct {
 	CursorBefore  string `json:"cursor_before,omitempty"`
 	CursorAfter   string `json:"cursor_after,omitempty"`
 	CursorChanged bool   `json:"cursor_changed"`
+}
+
+type inboxPruneResult struct {
+	Instance    string `json:"instance"`
+	Total       int    `json:"total"`
+	Dropped     int    `json:"dropped"`
+	Kept        int    `json:"kept"`
+	Unread      int    `json:"unread"`
+	Cursor      string `json:"cursor,omitempty"`
+	CursorFound bool   `json:"cursor_found"`
+	DryRun      bool   `json:"dry_run,omitempty"`
+	Changed     bool   `json:"changed"`
+	Action      string `json:"action"`
+	MailboxPath string `json:"mailbox_path,omitempty"`
 }
 
 func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions) error {
@@ -539,6 +662,157 @@ func runInboxAck(stdout, stderr io.Writer, teamDir, instance string, opts inboxA
 	return nil
 }
 
+func resolveInboxPruneInstances(teamDir string, args []string, all bool, teamName string) ([]string, error) {
+	if all {
+		daemonRoot := daemon.DaemonRoot(teamDir)
+		instances, metaByInstance, err := listInboxInstances(daemonRoot)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(teamName) != "" {
+			top, team, err := loadTopologyTeam(teamDir, teamName)
+			if err != nil {
+				return nil, err
+			}
+			instances = filterInboxInstancesForTeam(top, team, instances, metaByInstance)
+		}
+		return instances, nil
+	}
+	return uniqueNonEmptyStrings(args), nil
+}
+
+func runInboxPrune(teamDir string, instances []string, opts inboxPruneOptions) ([]inboxPruneResult, error) {
+	daemonRoot := daemon.DaemonRoot(teamDir)
+	results := make([]inboxPruneResult, 0, len(instances))
+	for _, instance := range instances {
+		instance = strings.TrimSpace(instance)
+		if instance == "" {
+			continue
+		}
+		exists, err := inboxInstanceExists(daemonRoot, instance)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("no such inbox: %s", instance)
+		}
+		messages, err := daemon.ReadMessages(daemonRoot, instance)
+		if err != nil {
+			return nil, err
+		}
+		cursor, err := daemon.ReadCursor(daemonRoot, instance)
+		if err != nil {
+			return nil, err
+		}
+		kept, dropped, cursorFound := planInboxPrune(messages, cursor, opts)
+		result := inboxPruneResult{
+			Instance:    instance,
+			Total:       len(messages),
+			Dropped:     dropped,
+			Kept:        len(kept),
+			Unread:      inboxUnreadCount(messages, cursor),
+			Cursor:      cursor,
+			CursorFound: cursorFound,
+			DryRun:      opts.DryRun,
+			Changed:     dropped > 0,
+			MailboxPath: daemon.MailboxPath(daemonRoot, instance),
+		}
+		result.Action = inboxPruneAction(result)
+		if dropped > 0 && !opts.DryRun {
+			if err := daemon.RewriteMessages(daemonRoot, instance, kept); err != nil {
+				return nil, err
+			}
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func planInboxPrune(messages []*daemon.Message, cursor string, opts inboxPruneOptions) ([]*daemon.Message, int, bool) {
+	cursorIndex := inboxCursorIndex(messages, cursor)
+	if strings.TrimSpace(cursor) == "" || cursorIndex < 0 {
+		return messages, 0, false
+	}
+	kept := make([]*daemon.Message, 0, len(messages))
+	dropped := 0
+	for i, msg := range messages {
+		if i < cursorIndex && inboxPruneMessageEligible(msg, opts) {
+			dropped++
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	return kept, dropped, true
+}
+
+func inboxPruneMessageEligible(msg *daemon.Message, opts inboxPruneOptions) bool {
+	if opts.OlderThan <= 0 {
+		return true
+	}
+	if msg == nil || msg.TS.IsZero() {
+		return false
+	}
+	now := opts.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return !msg.TS.After(now.Add(-opts.OlderThan))
+}
+
+func renderInboxPruneResults(w io.Writer, results []inboxPruneResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(results)
+	}
+	if tmpl != nil {
+		for _, result := range results {
+			if err := tmpl.Execute(w, result); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(w, "(no inboxes pruned)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "INSTANCE\tTOTAL\tDROPPED\tKEPT\tUNREAD\tACTION\tCURSOR")
+	for _, result := range results {
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\t%s\n",
+			result.Instance,
+			result.Total,
+			result.Dropped,
+			result.Kept,
+			result.Unread,
+			result.Action,
+			emptyDash(result.Cursor),
+		)
+	}
+	return tw.Flush()
+}
+
+func inboxPruneAction(result inboxPruneResult) string {
+	if result.Dropped == 0 {
+		return "kept"
+	}
+	if result.DryRun {
+		return "would-prune"
+	}
+	return "pruned"
+}
+
+func inboxPruneResultsHaveDryRunAction(results []inboxPruneResult) bool {
+	for _, result := range results {
+		if result.DryRun && result.Dropped > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 type inboxListCommandOptions struct {
 	RepoFlag string
 	Repo     string
@@ -577,11 +851,31 @@ type inboxAckApplyCommandOptions struct {
 	RepoSet  bool
 }
 
+type inboxPruneApplyCommandOptions struct {
+	Instances    []string
+	All          bool
+	TeamName     string
+	TeamSet      bool
+	OlderThan    time.Duration
+	OlderThanSet bool
+	RepoFlag     string
+	Repo         string
+	RepoSet      bool
+}
+
 func renderInboxAckApplyCommand(w io.Writer, hasAction bool, opts inboxAckApplyCommandOptions) error {
 	if !hasAction {
 		return nil
 	}
 	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(inboxAckApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func renderInboxPruneApplyCommand(w io.Writer, hasAction bool, opts inboxPruneApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(inboxPruneApplyCommandArgs(opts)), " "))
 	return err
 }
 
@@ -593,6 +887,24 @@ func inboxAckApplyCommandArgs(opts inboxAckApplyCommandOptions) []string {
 		args = append(args, opts.ID)
 	}
 	return appendInboxRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+}
+
+func inboxPruneApplyCommandArgs(opts inboxPruneApplyCommandOptions) []string {
+	args := []string{"agent-team", "inbox", "prune"}
+	if !opts.All {
+		args = append(args, uniqueNonEmptyStrings(opts.Instances)...)
+	}
+	args = appendInboxRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+	if opts.All {
+		args = append(args, "--all")
+	}
+	if opts.TeamSet && strings.TrimSpace(opts.TeamName) != "" {
+		args = append(args, "--team", opts.TeamName)
+	}
+	if opts.OlderThanSet {
+		args = append(args, "--older-than", opts.OlderThan.String())
+	}
+	return args
 }
 
 func appendInboxRepoArgs(args []string, repoFlag, repo string, repoSet bool) []string {
