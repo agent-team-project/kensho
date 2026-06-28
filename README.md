@@ -250,7 +250,7 @@ agent-team send [<instance>] [message...] [--message "..."] [--message-file <pat
                                                 # send a daemon mailbox message; phase/stale/runtime-stale/unhealthy selectors use current metadata; appends locally if the daemon is down
 agent-team inbox ls [--team delivery] [--unread] [--format '{{.Instance}} {{.Unread}}'] [--json] | show <instance> [--unread] [--tail N] [--format '{{.ID}} {{.Body}}'] [--json] | ack <instance> <message-id>|--all [--dry-run] [--format '{{.Instance}} {{.Acked}}'] [--json]
                                                 # inspect daemon mailbox summaries, show instance messages, or advance an inbox cursor
-agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source <instance>] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--kickoff "..."] [--kickoff-file <path|->] [--dry-run] [--format <template>] [--json]
+agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source <instance>] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--kickoff "..."] [--kickoff-file <path|->] [--dry-run] [--commands] [--format <template>] [--json]
                                                 # publish an agent.dispatch topology event, or preview local topology matches without a daemon
 agent-team job create <ticket> [kickoff...] [--target worker] [--ticket-url <url>] [--kickoff "..."] [--kickoff-file <path|->] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--instance <name>] [--dry-run] [--json]
 agent-team job ls [-w] [--summary] [--sort id|status|target|updated|created] [--limit N] [--status queued|running|blocked|done|failed] [--held|--unheld] [--target-agent worker] [--pipeline name] [--instance name] [--runtime codex] [--json]
@@ -443,6 +443,8 @@ For pipeline or team retry dry-runs, add `--commands` when scripts should print 
 For job block, cancel, close, dispatch, advance, note, reopen/retry, send, update, or step dry-runs, add `--commands` when scripts should print only the matching block, cancel, close, dispatch, note, reopen/retry, send, metadata, or step apply command.
 
 For pipeline or team send dry-runs, add `--commands` when scripts should print only the matching scoped send apply command for actionable recipients.
+
+For top-level dispatch dry-runs, add `--commands` when scripts should print only the matching dispatch apply command for matched topology routes.
 
 Add `--dry-run --commands` to global, job, pipeline, or team queue and outbox retry/drop/prune, to job, pipeline, or team hold/release, timeout, and cleanup, to job rm/prune, to job block, cancel, close, dispatch, advance, approve, reject, note, reopen/retry, send, unblock, update, or step, or to pipeline/team approve, reject, unblock, retry, skip, and cancel, when automation should print only the matching apply command for actionable previews.
 

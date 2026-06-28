@@ -22,6 +22,7 @@ as the output directory instead.
 | `agent-team upgrade --check|--apply` | Compare current template lock to target or apply clean template changes |
 | `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`; `agents` is a plural alias |
 | `agent-team doctor` | Validate local layout, durable job files, runtime availability, and workflow runtime defaults |
+| `agent-team dispatch <target> <ticket>` | Publish or preview an `agent.dispatch` topology event; add `--dry-run --commands` to print the matching dispatch apply command for matched routes |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 
 ## Runtime and Daemon

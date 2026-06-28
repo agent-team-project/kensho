@@ -24,6 +24,7 @@ func newDispatchCmd() *cobra.Command {
 		runtimeKind string
 		runtimeBin  string
 		dryRun      bool
+		commands    bool
 		jsonOut     bool
 		format      string
 	)
@@ -37,6 +38,18 @@ func newDispatchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team dispatch: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team dispatch: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team dispatch: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team dispatch: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			formatTemplate, err := parseDispatchFormat(format)
@@ -73,6 +86,29 @@ func newDispatchCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team dispatch: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderDispatchApplyCommand(cmd.OutOrStdout(), dispatchPreviewHasRoutes(preview), dispatchApplyCommandOptions{
+						Target:          targetAgent,
+						Ticket:          ticket,
+						RepoTarget:      repoTarget,
+						RepoTargetSet:   cmd.Flags().Changed("target"),
+						Name:            name,
+						NameSet:         cmd.Flags().Changed("name"),
+						Source:          source,
+						SourceSet:       cmd.Flags().Changed("source"),
+						Workspace:       workspace,
+						WorkspaceSet:    cmd.Flags().Changed("workspace"),
+						RuntimeKind:     runtimeKind,
+						RuntimeKindSet:  cmd.Flags().Changed("runtime"),
+						RuntimeBin:      runtimeBin,
+						RuntimeBinSet:   cmd.Flags().Changed("runtime-bin"),
+						Kickoff:         kickoff,
+						KickoffSet:      cmd.Flags().Changed("kickoff"),
+						KickoffFile:     kickoffFile,
+						KickoffFileSet:  cmd.Flags().Changed("kickoff-file"),
+						PositionalWords: args[2:],
+					})
+				}
 				return renderDispatchRoutePreview(cmd.OutOrStdout(), preview, jsonOut, formatTemplate)
 			}
 			dc, err := newDaemonClient(teamDir)
@@ -105,6 +141,7 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching dispatch apply command when the preview has actionable routes.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template.")
 	return cmd
@@ -151,6 +188,70 @@ func renderDispatchRoutePreview(w io.Writer, result *dispatchRoutePreview, jsonO
 		return nil
 	}
 	return renderEventPublishRoutePreview(w, result.Preview)
+}
+
+type dispatchApplyCommandOptions struct {
+	Target          string
+	Ticket          string
+	RepoTarget      string
+	RepoTargetSet   bool
+	Name            string
+	NameSet         bool
+	Source          string
+	SourceSet       bool
+	Workspace       string
+	WorkspaceSet    bool
+	RuntimeKind     string
+	RuntimeKindSet  bool
+	RuntimeBin      string
+	RuntimeBinSet   bool
+	Kickoff         string
+	KickoffSet      bool
+	KickoffFile     string
+	KickoffFileSet  bool
+	PositionalWords []string
+}
+
+func renderDispatchApplyCommand(w io.Writer, hasRoutes bool, opts dispatchApplyCommandOptions) error {
+	if !hasRoutes {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(dispatchApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func dispatchApplyCommandArgs(opts dispatchApplyCommandOptions) []string {
+	args := []string{"agent-team", "dispatch", opts.Target, opts.Ticket}
+	kickoffSet := opts.KickoffSet && strings.TrimSpace(opts.Kickoff) != ""
+	kickoffFileSet := opts.KickoffFileSet && strings.TrimSpace(opts.KickoffFile) != ""
+	if opts.RepoTargetSet && strings.TrimSpace(opts.RepoTarget) != "" {
+		args = append(args, "--target", opts.RepoTarget)
+	}
+	if opts.NameSet && strings.TrimSpace(opts.Name) != "" {
+		args = append(args, "--name", opts.Name)
+	}
+	if opts.SourceSet && strings.TrimSpace(opts.Source) != "" {
+		args = append(args, "--source", opts.Source)
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if kickoffSet {
+		args = append(args, "--kickoff", opts.Kickoff)
+	}
+	if kickoffFileSet {
+		args = append(args, "--kickoff-file", opts.KickoffFile)
+	}
+	if !kickoffSet && !kickoffFileSet && len(opts.PositionalWords) > 0 {
+		args = append(args, opts.PositionalWords...)
+	}
+	return args
 }
 
 func buildDispatchEventPayload(targetAgent, ticket, kickoff, name, source, workspace string) (map[string]any, string, error) {

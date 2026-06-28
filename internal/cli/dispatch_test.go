@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,6 +166,81 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	for _, want := range []string{"Dispatch: worker instance=worker-squ-243", "Dry run: true", "Matched: worker"} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("dry-run text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{
+		"dispatch", "worker", "SQU-244",
+		"--target", target,
+		"--source", "manager",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--kickoff", "direct kickoff",
+		"--dry-run",
+		"--commands",
+	})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("dispatch --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "dispatch", "worker", "SQU-244",
+		"--target", target,
+		"--source", "manager",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--kickoff", "direct kickoff",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("dispatch --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+
+	noRoute := NewRootCmd()
+	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRoute.SetOut(noRouteOut)
+	noRoute.SetErr(noRouteErr)
+	noRoute.SetArgs([]string{"dispatch", "reviewer", "SQU-245", "--target", target, "--dry-run", "--commands"})
+	if err := noRoute.Execute(); err != nil {
+		t.Fatalf("dispatch no-route --dry-run --commands: %v\nstderr=%s", err, noRouteErr.String())
+	}
+	if got := strings.TrimSpace(noRouteOut.String()); got != "" {
+		t.Fatalf("dispatch no-route --dry-run --commands = %q, want empty", got)
+	}
+}
+
+func TestDispatchCommandCommandsValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"dispatch", "worker", "SQU-246", "--commands"}, "dispatch: --commands requires --dry-run"},
+		{[]string{"dispatch", "worker", "SQU-246", "--dry-run", "--commands", "--json"}, "dispatch: --commands cannot be combined with --json"},
+		{[]string{"dispatch", "worker", "SQU-246", "--dry-run", "--commands", "--format", "{{.Target}}"}, "dispatch: --commands cannot be combined with --format"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
 		}
 	}
 }
