@@ -7177,6 +7177,8 @@ func TestTeamLifecycleOutputFlagConflicts(t *testing.T) {
 		{"team", "monitor", "delivery", "--events", "-1"},
 		{"team", "monitor", "delivery", "--since", "10m"},
 		{"team", "monitor", "delivery", "--event-action", "dispatch"},
+		{"team", "monitor", "delivery", "--events-sort", "newest"},
+		{"team", "monitor", "delivery", "--events", "5", "--events-sort", "sideways"},
 		{"team", "monitor", "delivery", "--stop-extras"},
 		{"team", "monitor", "delivery", "--action", "start"},
 		{"team", "monitor", "delivery", "--latest", "--last", "1"},
@@ -10100,6 +10102,22 @@ since = "2026-06-18T12:00:00Z"
 	}
 	if got := lifecycleEventInstances(snapshot.Events); strings.Join(got, ",") != "manager,worker-squ-702" {
 		t.Fatalf("events = %v\nbody=%s", got, out.String())
+	}
+
+	newest := NewRootCmd()
+	newestOut, newestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	newest.SetOut(newestOut)
+	newest.SetErr(newestErr)
+	newest.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--all", "--events", "2", "--events-sort", "newest", "--json"})
+	if err := newest.Execute(); err != nil {
+		t.Fatalf("team monitor newest events: %v\nstderr=%s", err, newestErr.String())
+	}
+	var newestSnapshot monitorSnapshot
+	if err := json.Unmarshal(newestOut.Bytes(), &newestSnapshot); err != nil {
+		t.Fatalf("decode team monitor newest events: %v\nbody=%s", err, newestOut.String())
+	}
+	if got := lifecycleEventInstances(newestSnapshot.Events); strings.Join(got, ",") != "worker-squ-702,manager" {
+		t.Fatalf("team monitor newest events = %v\nbody=%s", got, newestOut.String())
 	}
 	body := out.String()
 	for _, leak := range []string{"platform_due", "platform_work", "oth-702", "q-platform-monitor", "platform worker", "build-worker-1", "monitor inbox"} {

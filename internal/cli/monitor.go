@@ -43,6 +43,7 @@ func newMonitorCmd() *cobra.Command {
 		runtimeStaleOnly bool
 		unhealthyOnly    bool
 		eventTail        int
+		eventSortBy      string
 		eventSince       string
 		interval         time.Duration
 		statusFilters    []string
@@ -92,6 +93,10 @@ func newMonitorCmd() *cobra.Command {
 			}
 			if len(eventActions) > 0 && eventTail == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --event-action requires --events.")
+				return exitErr(2)
+			}
+			if strings.TrimSpace(eventSortBy) != "" && cmd.Flags().Changed("events-sort") && eventTail == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --events-sort requires --events.")
 				return exitErr(2)
 			}
 			if len(actionFilters) > 0 && !plan {
@@ -150,6 +155,11 @@ func newMonitorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team monitor: %v\n", err)
 				return exitErr(2)
 			}
+			eventSortMode, err := parseEventSort(eventSortBy)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --events-sort must be oldest or newest.")
+				return exitErr(2)
+			}
 			opts.PS.Sort = sortMode
 			opts.PS.SortSet = cmd.Flags().Changed("sort")
 			opts.Stats.Sort = statsSortMode
@@ -167,6 +177,7 @@ func newMonitorCmd() *cobra.Command {
 			opts.StopExtras = stopExtras
 			opts.PlanActions = planActions
 			opts.EventTail = eventTail
+			opts.EventSort = eventSortMode
 			opts.EventFilters = eventFilters
 			opts.StrictTopology = strictTopology
 			opts.LastMessage = lastMessage
@@ -241,6 +252,7 @@ func newMonitorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().IntVar(&eventTail, "events", 0, "Include the last N matching daemon lifecycle events in the full monitor (0 = omit).")
+	cmd.Flags().StringVar(&eventSortBy, "events-sort", "oldest", "Sort the visible --events section by oldest or newest.")
 	cmd.Flags().StringSliceVar(&eventActions, "event-action", nil, "With --events, only show lifecycle events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&eventSince, "since", "", "With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -264,6 +276,7 @@ type monitorOptions struct {
 	StopExtras       bool
 	PlanActions      map[string]bool
 	EventTail        int
+	EventSort        string
 	EventFilters     eventFilters
 	StrictTopology   bool
 	LastMessage      bool
@@ -610,7 +623,7 @@ func collectMonitorSummarySnapshot(teamDir string, now time.Time, opts monitorOp
 		if selectedInstances != nil {
 			eventInstanceFilter = selectedInstances
 		}
-		events, err := collectMonitorSummaryEvents(teamDir, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter))
+		events, err := collectMonitorSummaryEvents(teamDir, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter), opts.EventSort)
 		if err != nil {
 			snapshot.EventsError = err.Error()
 		} else {
@@ -691,7 +704,7 @@ func newMonitorEventFilters(actions []string, sinceRaw string, now func() time.T
 	return filters, nil
 }
 
-func collectMonitorSummaryEvents(teamDir string, tail int, filters eventFilters) (*eventSummaryJSON, error) {
+func collectMonitorSummaryEvents(teamDir string, tail int, filters eventFilters, sortMode string) (*eventSummaryJSON, error) {
 	var client eventsClient
 	daemonClient, err := newDaemonClient(teamDir)
 	switch {
@@ -702,7 +715,7 @@ func collectMonitorSummaryEvents(teamDir string, tail int, filters eventFilters)
 	default:
 		return nil, err
 	}
-	events, err := collectMonitorEvents(context.Background(), client, tail, filters)
+	events, err := collectMonitorEvents(context.Background(), client, tail, filters, sortMode)
 	if err != nil {
 		return nil, err
 	}
@@ -993,7 +1006,7 @@ func collectMonitorSnapshot(teamDir string, now time.Time, probe processStatsPro
 			snapshot.Stats = statsJSONRows(statsRows)
 		}
 		if opts.EventTail > 0 {
-			events, err := collectMonitorEvents(context.Background(), client, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter))
+			events, err := collectMonitorEvents(context.Background(), client, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter), opts.EventSort)
 			if err != nil {
 				snapshot.EventsError = err.Error()
 			} else {
@@ -1013,7 +1026,7 @@ func collectMonitorSnapshot(teamDir string, now time.Time, probe processStatsPro
 			snapshot.Stats = statsJSONRows(statsRows)
 		}
 		if opts.EventTail > 0 {
-			events, err := collectMonitorEvents(context.Background(), localEventsClient{daemonRoot: daemon.DaemonRoot(teamDir)}, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter))
+			events, err := collectMonitorEvents(context.Background(), localEventsClient{daemonRoot: daemon.DaemonRoot(teamDir)}, opts.EventTail, monitorEventFilters(opts, eventInstanceFilter), opts.EventSort)
 			if err != nil {
 				snapshot.EventsError = err.Error()
 			} else {
@@ -1149,7 +1162,7 @@ func collectTeamMonitorSnapshot(teamDir, name string, now time.Time, probe proce
 			if client != nil {
 				eventClient = client
 			}
-			events, err := collectMonitorEvents(context.Background(), eventClient, opts.EventTail, filters)
+			events, err := collectMonitorEvents(context.Background(), eventClient, opts.EventTail, filters, opts.EventSort)
 			if err != nil {
 				snapshot.EventsError = err.Error()
 			} else {
@@ -1413,7 +1426,7 @@ func renderMonitorInboxSummary(w io.Writer, inbox overviewInboxSummary, inboxErr
 		inbox.UnreadInstances)
 }
 
-func collectMonitorEvents(ctx context.Context, client eventsClient, tail int, filters eventFilters) ([]daemon.LifecycleEvent, error) {
+func collectMonitorEvents(ctx context.Context, client eventsClient, tail int, filters eventFilters, sortMode string) ([]daemon.LifecycleEvent, error) {
 	rc, err := client.Events(ctx, false, 0)
 	if err != nil {
 		return nil, err
@@ -1440,6 +1453,7 @@ func collectMonitorEvents(ctx context.Context, client eventsClient, tail int, fi
 	if tail > 0 && len(events) > tail {
 		events = events[len(events)-tail:]
 	}
+	sortLifecycleEventsForDisplay(events, sortMode)
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return events, nil

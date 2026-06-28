@@ -684,25 +684,36 @@ func sortEventLinesForDisplay(events []filteredEventLine, sortMode string) {
 		return
 	}
 	sort.SliceStable(events, func(i, j int) bool {
-		left := events[i].ev
-		right := events[j].ev
-		if !left.TS.Equal(right.TS) {
-			if left.TS.IsZero() {
-				return false
-			}
-			if right.TS.IsZero() {
-				return true
-			}
-			return left.TS.After(right.TS)
-		}
-		if left.Instance != right.Instance {
-			return left.Instance < right.Instance
-		}
-		if left.Action != right.Action {
-			return left.Action < right.Action
-		}
-		return left.Message < right.Message
+		return lifecycleEventNewestFirstLess(events[i].ev, events[j].ev)
 	})
+}
+
+func sortLifecycleEventsForDisplay(events []daemon.LifecycleEvent, sortMode string) {
+	if sortMode != "newest" {
+		return
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return lifecycleEventNewestFirstLess(events[i], events[j])
+	})
+}
+
+func lifecycleEventNewestFirstLess(left, right daemon.LifecycleEvent) bool {
+	if !left.TS.Equal(right.TS) {
+		if left.TS.IsZero() {
+			return false
+		}
+		if right.TS.IsZero() {
+			return true
+		}
+		return left.TS.After(right.TS)
+	}
+	if left.Instance != right.Instance {
+		return left.Instance < right.Instance
+	}
+	if left.Action != right.Action {
+		return left.Action < right.Action
+	}
+	return left.Message < right.Message
 }
 
 func renderEventTextLines(w io.Writer, events []filteredEventLine) error {

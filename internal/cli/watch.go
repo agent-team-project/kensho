@@ -32,6 +32,7 @@ func newWatchCmd() *cobra.Command {
 		runtimeStaleOnly bool
 		unhealthyOnly    bool
 		eventTail        int
+		eventSortBy      string
 		eventSince       string
 		interval         time.Duration
 		statusFilters    []string
@@ -82,6 +83,10 @@ func newWatchCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team watch: --event-action requires --events.")
 				return exitErr(2)
 			}
+			if strings.TrimSpace(eventSortBy) != "" && cmd.Flags().Changed("events-sort") && eventTail == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team watch: --events-sort requires --events.")
+				return exitErr(2)
+			}
 			if len(actionFilters) > 0 && !plan {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team watch: --action requires --plan.")
 				return exitErr(2)
@@ -122,6 +127,11 @@ func newWatchCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team watch: %v\n", err)
 				return exitErr(2)
 			}
+			eventSortMode, err := parseEventSort(eventSortBy)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team watch: --events-sort must be oldest or newest.")
+				return exitErr(2)
+			}
 			opts.PS.Sort = sortMode
 			opts.PS.SortSet = cmd.Flags().Changed("sort")
 			opts.Stats.Sort = statsSortMode
@@ -139,6 +149,7 @@ func newWatchCmd() *cobra.Command {
 			opts.StopExtras = stopExtras
 			opts.PlanActions = planActions
 			opts.EventTail = eventTail
+			opts.EventSort = eventSortMode
 			opts.EventFilters = eventFilters
 			opts.StrictTopology = strictTopology
 			opts.LastMessage = lastMessage
@@ -178,6 +189,7 @@ func newWatchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed, status-stale, or runtime-stale instances.")
 	cmd.Flags().IntVar(&eventTail, "events", 0, "Include the last N matching daemon lifecycle events in the full monitor (0 = omit).")
+	cmd.Flags().StringVar(&eventSortBy, "events-sort", "oldest", "Sort the visible --events section by oldest or newest.")
 	cmd.Flags().StringSliceVar(&eventActions, "event-action", nil, "With --events, only show lifecycle events with this action. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&eventSince, "since", "", "With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval.")

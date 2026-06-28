@@ -1856,6 +1856,16 @@ func TestMonitorEventsTailAppliesAfterFilters(t *testing.T) {
 	if len(snapshot.Events) != 1 || snapshot.Events[0].Instance != "manager-new" {
 		t.Fatalf("events = %+v, want last matching manager event", snapshot.Events)
 	}
+
+	opts.EventTail = 2
+	opts.EventSort = "newest"
+	snapshot, err = collectMonitorSnapshot(teamDir, time.Now(), nil, opts)
+	if err != nil {
+		t.Fatalf("collect monitor with newest events: %v", err)
+	}
+	if got := lifecycleEventInstances(snapshot.Events); strings.Join(got, ",") != "manager-new,manager-old" {
+		t.Fatalf("newest events = %v, want manager-new,manager-old", got)
+	}
 }
 
 func TestMonitorStatsUseLocalMetadataWhenDaemonStopped(t *testing.T) {
@@ -2290,6 +2300,10 @@ func TestMonitorEventFiltersRequireEvents(t *testing.T) {
 	}{
 		{args: []string{"monitor", "--since", "10m"}, want: "--since requires --events"},
 		{args: []string{"monitor", "--event-action", "stop"}, want: "--event-action requires --events"},
+		{args: []string{"monitor", "--events-sort", "newest"}, want: "--events-sort requires --events"},
+		{args: []string{"monitor", "--events", "5", "--events-sort", "sideways"}, want: "--events-sort must be oldest or newest"},
+		{args: []string{"watch", "--events-sort", "newest"}, want: "--events-sort requires --events"},
+		{args: []string{"watch", "--events", "5", "--events-sort", "sideways"}, want: "--events-sort must be oldest or newest"},
 		{args: []string{"monitor", "--events", "5", "--since", "recently"}, want: "--since must be a duration"},
 		{args: []string{"monitor", "--events", "5", "--event-action", ","}, want: "--event-action requires at least one non-empty action"},
 	} {

@@ -1233,7 +1233,7 @@ func collectStatusSummarySnapshot(teamDir string, now time.Time, opts statusSumm
 	if selectedInstances != nil {
 		eventInstanceFilter = selectedInstances
 	}
-	events, err := collectMonitorSummaryEvents(teamDir, opts.EventTail, statusSummaryEventFilters(opts, eventInstanceFilter))
+	events, err := collectMonitorSummaryEvents(teamDir, opts.EventTail, statusSummaryEventFilters(opts, eventInstanceFilter), "oldest")
 	if err != nil {
 		snapshot.EventsError = err.Error()
 	} else {
