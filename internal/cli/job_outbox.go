@@ -26,6 +26,7 @@ func newJobOutboxCmd() *cobra.Command {
 		watch       bool
 		noClear     bool
 		summary     bool
+		commands    bool
 		jsonOut     bool
 		format      string
 		interval    time.Duration
@@ -43,6 +44,22 @@ func newJobOutboxCmd() *cobra.Command {
 			}
 			if format != "" && summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job outbox: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job outbox: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job outbox: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job outbox: --commands cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job outbox: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if summary && (cmd.Flags().Changed("sort") || cmd.Flags().Changed("limit")) {
@@ -87,6 +104,9 @@ func newJobOutboxCmd() *cobra.Command {
 			if summary {
 				return runJobOutboxSummary(cmd.OutOrStdout(), teamDir, j, filters, jsonOut)
 			}
+			if commands {
+				return runJobOutboxListCommands(cmd.OutOrStdout(), teamDir, j, filters, outboxListOptions{Sort: sortMode, Limit: limit}, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			}
 			return runJobOutboxList(cmd.OutOrStdout(), teamDir, j, filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
@@ -99,6 +119,7 @@ func newJobOutboxCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the job outbox table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate outbox counts instead of rows.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from the visible job-owned outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit job-owned outbox rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -959,6 +980,14 @@ func runJobOutboxList(w io.Writer, teamDir string, j *job.Job, filters outboxLis
 		return err
 	}
 	return runOutboxListItems(w, items, filters, opts, jsonOut, tmpl)
+}
+
+func runJobOutboxListCommands(w io.Writer, teamDir string, j *job.Job, filters outboxListFilters, opts outboxListOptions, scope operatorCommandScope) error {
+	items, err := outboxItemsForJob(teamDir, j)
+	if err != nil {
+		return err
+	}
+	return renderOutboxListCommands(w, items, filters, opts, jobOutboxActionResolver(j.ID), scope)
 }
 
 func runJobOutboxSummary(w io.Writer, teamDir string, j *job.Job, filters outboxListFilters, jsonOut bool) error {

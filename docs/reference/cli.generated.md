@@ -2414,6 +2414,7 @@ agent-team job outbox <job-id> [flags]
 Flags:
 
 ```text
+      --commands            Print recommended commands from the visible job-owned outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each job-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --json                Emit job-owned outbox rows as JSON.
@@ -3913,6 +3914,7 @@ Aliases: `watch`
 Flags:
 
 ```text
+      --commands            Print recommended commands from the visible outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --job strings         Filter by job id or ticket; repeat or comma-separate values.
@@ -4694,6 +4696,7 @@ Flags:
 
 ```text
       --all                 List outbox events across all pipelines. This is the default when no pipeline is passed.
+      --commands            Print recommended commands from the visible pipeline-owned outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each pipeline-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --job strings         Filter by job id or ticket; repeat or comma-separate values.
@@ -7806,6 +7809,7 @@ agent-team team outbox <team> [flags]
 Flags:
 
 ```text
+      --commands            Print recommended commands from the visible team-owned outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string       Render each team-owned outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --interval duration   Refresh interval for --watch. (default 2s)
       --job strings         Filter by job id or ticket; repeat or comma-separate values.

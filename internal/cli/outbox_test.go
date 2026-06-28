@@ -54,6 +54,20 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("filtered output = %q", filtered.String())
 	}
 
+	listCommands := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--sort", "id", "--commands")
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team job outbox squ-501 --state pending",
+		"agent-team outbox drain --dry-run",
+		"agent-team job outbox retry squ-502 outbox-b",
+		"agent-team job outbox drop squ-502 outbox-b --dry-run",
+	}, operatorCommandScope{Repo: target, Set: true}), "\n") + "\n"
+	if got, want := listCommands.String(), wantListCommands; got != want {
+		t.Fatalf("outbox ls --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(listCommands.String(), "ID") || strings.Contains(listCommands.String(), "STATE") {
+		t.Fatalf("outbox ls --commands included table output:\n%s", listCommands.String())
+	}
+
 	shown := runRootForOutboxTest(t, "outbox", "show", "--target", target, "outbox-b", "--json")
 	var shownItem daemon.OutboxItem
 	if err := json.Unmarshal(shown.Bytes(), &shownItem); err != nil {
@@ -671,12 +685,28 @@ func TestOutboxDoctorFormatValidation(t *testing.T) {
 		{[]string{"outbox", "doctor", "--commands", "--format", "{{.OK}}"}, "--commands cannot be combined with --format"},
 		{[]string{"outbox", "doctor", "--format", "{{.OK}}", "--json"}, "--format cannot be combined"},
 		{[]string{"outbox", "doctor", "--format", "{{"}, "invalid --format template"},
+		{[]string{"outbox", "ls", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"outbox", "ls", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"outbox", "ls", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"outbox", "watch", "--commands"}, "--commands cannot be combined with --watch"},
 		{[]string{"outbox", "show", "outbox-b", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"outbox", "show", "outbox-b", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "outbox", "squ-1", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "outbox", "squ-1", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "outbox", "squ-1", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"job", "outbox", "squ-1", "--commands", "--watch"}, "--commands cannot be combined with --watch"},
 		{[]string{"job", "outbox", "show", "squ-1", "outbox-b", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"job", "outbox", "show", "squ-1", "outbox-b", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"pipeline", "outbox", "ticket_to_pr", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "outbox", "ticket_to_pr", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"pipeline", "outbox", "ticket_to_pr", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"pipeline", "outbox", "ticket_to_pr", "--commands", "--watch"}, "--commands cannot be combined with --watch"},
 		{[]string{"pipeline", "outbox", "show", "ticket_to_pr", "outbox-b", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"pipeline", "outbox", "show", "ticket_to_pr", "outbox-b", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"team", "outbox", "delivery", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"team", "outbox", "delivery", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
+		{[]string{"team", "outbox", "delivery", "--commands", "--summary"}, "--commands cannot be combined with --summary"},
+		{[]string{"team", "outbox", "delivery", "--commands", "--watch"}, "--commands cannot be combined with --watch"},
 		{[]string{"team", "outbox", "show", "delivery", "outbox-b", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"team", "outbox", "show", "delivery", "outbox-b", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 		{[]string{"outbox", "quarantine", "show", "quarantine/pending/outbox.json", "--commands", "--json"}, "--commands cannot be combined with --json"},
@@ -1206,6 +1236,20 @@ instances = ["other"]
 		t.Fatalf("team outbox list = %+v", listed)
 	}
 
+	listCommands := runRootForOutboxTest(t, "team", "outbox", "delivery", "--repo", root, "--sort", "id", "--commands")
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team team outbox retry delivery outbox-delivery-failed",
+		"agent-team team outbox drop delivery outbox-delivery-failed --dry-run",
+		"agent-team team outbox delivery --state pending",
+		"agent-team outbox drain --dry-run",
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got, want := listCommands.String(), wantListCommands; got != want {
+		t.Fatalf("team outbox --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(listCommands.String(), "ID") || strings.Contains(listCommands.String(), "STATE") {
+		t.Fatalf("team outbox --commands included table output:\n%s", listCommands.String())
+	}
+
 	summaryOut := runRootForOutboxTest(t, "team", "outbox", "delivery", "--repo", root, "--summary", "--json")
 	var summary outboxSummary
 	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
@@ -1625,6 +1669,20 @@ target = "worker"
 		t.Fatalf("pipeline outbox list = %+v", listed)
 	}
 
+	listCommands := runRootForOutboxTest(t, "pipeline", "outbox", "ticket_to_pr", "--repo", root, "--sort", "id", "--commands")
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team pipeline outbox retry ticket_to_pr outbox-ticket-failed",
+		"agent-team pipeline outbox drop ticket_to_pr outbox-ticket-failed --dry-run",
+		"agent-team pipeline outbox ticket_to_pr --state pending",
+		"agent-team outbox drain --dry-run",
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got, want := listCommands.String(), wantListCommands; got != want {
+		t.Fatalf("pipeline outbox --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(listCommands.String(), "ID") || strings.Contains(listCommands.String(), "STATE") {
+		t.Fatalf("pipeline outbox --commands included table output:\n%s", listCommands.String())
+	}
+
 	allOut := runRootForOutboxTest(t, "pipeline", "outbox", "--repo", root, "--sort", "id", "--json")
 	var allListed []*daemon.OutboxItem
 	if err := json.Unmarshal(allOut.Bytes(), &allListed); err != nil {
@@ -1632,6 +1690,21 @@ target = "worker"
 	}
 	if len(allListed) != 3 {
 		t.Fatalf("all pipeline outbox list = %+v", allListed)
+	}
+
+	allCommands := runRootForOutboxTest(t, "pipeline", "outbox", "--repo", root, "--sort", "id", "--commands")
+	wantAllCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team pipeline outbox ops_review --state pending",
+		"agent-team outbox drain --dry-run",
+		"agent-team pipeline outbox retry ticket_to_pr outbox-ticket-failed",
+		"agent-team pipeline outbox drop ticket_to_pr outbox-ticket-failed --dry-run",
+		"agent-team pipeline outbox ticket_to_pr --state pending",
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got, want := allCommands.String(), wantAllCommands; got != want {
+		t.Fatalf("all pipeline outbox --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(allCommands.String(), "ID") || strings.Contains(allCommands.String(), "STATE") {
+		t.Fatalf("all pipeline outbox --commands included table output:\n%s", allCommands.String())
 	}
 
 	summaryOut := runRootForOutboxTest(t, "pipeline", "outbox", "ticket_to_pr", "--repo", root, "--summary", "--json")
@@ -2022,6 +2095,20 @@ func TestJobOutboxScopesItemsAndActions(t *testing.T) {
 	}
 	if len(listed) != 2 || listed[0].ID != "outbox-job-failed" || listed[1].ID != "outbox-job-pending" {
 		t.Fatalf("job outbox list = %+v", listed)
+	}
+
+	listCommands := runRootForOutboxTest(t, "job", "outbox", "SQU-903", "--repo", root, "--sort", "id", "--commands")
+	wantListCommands := strings.Join(scopedOperatorActions([]string{
+		"agent-team job outbox retry squ-903 outbox-job-failed",
+		"agent-team job outbox drop squ-903 outbox-job-failed --dry-run",
+		"agent-team job outbox squ-903 --state pending",
+		"agent-team outbox drain --dry-run",
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got, want := listCommands.String(), wantListCommands; got != want {
+		t.Fatalf("job outbox --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(listCommands.String(), "ID") || strings.Contains(listCommands.String(), "STATE") {
+		t.Fatalf("job outbox --commands included table output:\n%s", listCommands.String())
 	}
 
 	summaryOut := runRootForOutboxTest(t, "job", "outbox", "squ-903", "--repo", root, "--summary", "--json")

@@ -65,6 +65,7 @@ func newOutboxLsCmd() *cobra.Command {
 		watch       bool
 		noClear     bool
 		summary     bool
+		commands    bool
 		jsonOut     bool
 		format      string
 		interval    time.Duration
@@ -85,6 +86,22 @@ func newOutboxLsCmd() *cobra.Command {
 			}
 			if format != "" && summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --commands cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if commands && watch {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
 			if summary && (cmd.Flags().Changed("sort") || cmd.Flags().Changed("limit")) {
@@ -129,6 +146,9 @@ func newOutboxLsCmd() *cobra.Command {
 			if summary {
 				return renderOutboxSummary(cmd.OutOrStdout(), teamDir, filters, jsonOut)
 			}
+			if commands {
+				return runOutboxListCommands(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+			}
 			return runOutboxList(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
@@ -142,6 +162,7 @@ func newOutboxLsCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the outbox table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate outbox counts instead of rows.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from the visible outbox rows, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -821,6 +842,14 @@ func runOutboxList(w io.Writer, teamDir string, filters outboxListFilters, opts 
 	return runOutboxListItems(w, items, filters, opts, jsonOut, tmpl)
 }
 
+func runOutboxListCommands(w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, actions outboxActionResolver, scope operatorCommandScope) error {
+	items, err := daemon.ListOutboxItems(teamDir)
+	if err != nil {
+		return err
+	}
+	return renderOutboxListCommands(w, items, filters, opts, actions, scope)
+}
+
 func runOutboxListItems(w io.Writer, items []*daemon.OutboxItem, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template) error {
 	filtered := filterOutboxItems(items, filters)
 	sortOutboxItems(filtered, opts.Sort)
@@ -832,6 +861,13 @@ func runOutboxListItems(w io.Writer, items []*daemon.OutboxItem, filters outboxL
 		return renderOutboxItemsFormat(w, filtered, tmpl)
 	}
 	return renderOutboxItemsTable(w, filtered)
+}
+
+func renderOutboxListCommands(w io.Writer, items []*daemon.OutboxItem, filters outboxListFilters, opts outboxListOptions, actions outboxActionResolver, scope operatorCommandScope) error {
+	filtered := filterOutboxItems(items, filters)
+	sortOutboxItems(filtered, opts.Sort)
+	filtered = limitOutboxItems(filtered, opts.Limit)
+	return renderOutboxItemsCommands(w, filtered, actions, scope)
 }
 
 func runOutboxListWatch(ctx context.Context, w io.Writer, teamDir string, filters outboxListFilters, opts outboxListOptions, jsonOut bool, tmpl *template.Template, interval time.Duration, clear bool) error {
@@ -1228,6 +1264,14 @@ func renderOutboxItemCommands(w io.Writer, item *daemon.OutboxItem, actions outb
 	return renderOperatorActionCommands(w, outboxItemResolvedActions(item, actions), scope)
 }
 
+func renderOutboxItemsCommands(w io.Writer, items []*daemon.OutboxItem, actions outboxActionResolver, scope operatorCommandScope) error {
+	out := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		out = append(out, outboxItemResolvedActions(item, actions)...)
+	}
+	return renderOperatorActionCommands(w, out, scope)
+}
+
 func outboxItemResolvedActions(item *daemon.OutboxItem, actions outboxActionResolver) []string {
 	if actions != nil {
 		return actions(item)
@@ -1288,6 +1332,28 @@ func pipelineOutboxActionResolver(pipeline string) outboxActionResolver {
 			return nil
 		}
 	}
+}
+
+func pipelineOutboxActionResolverForScope(teamDir, pipeline string) (outboxActionResolver, error) {
+	pipeline = strings.TrimSpace(pipeline)
+	if pipeline != "" {
+		return pipelineOutboxActionResolver(pipeline), nil
+	}
+	jobs, err := selectedPipelineJobs(teamDir, "")
+	if err != nil {
+		return nil, err
+	}
+	return func(item *daemon.OutboxItem) []string {
+		for _, j := range jobs {
+			if j == nil || strings.TrimSpace(j.Pipeline) == "" {
+				continue
+			}
+			if len(outboxItemsForJobs([]*daemon.OutboxItem{item}, []*job.Job{j})) > 0 {
+				return pipelineOutboxActionResolver(j.Pipeline)(item)
+			}
+		}
+		return nil
+	}, nil
 }
 
 func teamOutboxActionResolver(team string) outboxActionResolver {
