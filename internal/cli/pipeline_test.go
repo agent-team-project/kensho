@@ -5718,8 +5718,8 @@ target = "worker"
 		t.Fatalf("pipeline resume-plan commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	if got, want := strings.TrimSpace(commandsOut.String()), strings.Join([]string{
-		"agent-team start worker-squ-942",
-		"agent-team logs manager-squ-940 --follow",
+		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", root, "worker-squ-942"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", root, "manager-squ-940", "--follow"}), " "),
 	}, "\n"); got != want {
 		t.Fatalf("pipeline commands resume-plan = %q, want %q", got, want)
 	}

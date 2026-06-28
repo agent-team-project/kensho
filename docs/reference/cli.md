@@ -42,7 +42,7 @@ as the output directory instead.
 | `agent-team runtime ls` | List supported runtime profiles, availability, and capabilities |
 | `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, Codex socket reachability with `--exec-socket-check`, loopback HTTP reachability with `--exec-http-check`, print follow-up commands with `--commands`, and write diagnostics with `--output`; aliases: `doctor`, `check` |
 | `agent-team adopt <instance>` | Adopt a live external runtime process into daemon metadata and return follow-up actions; add `--commands` for one follow-up command per line; `runtime adopt` remains available |
-| `agent-team resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print one command per line with `--commands`, or summarize with `--summary`; `runtime resume-plan` remains available |
+| `agent-team resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, or summarize with `--summary`; `runtime resume-plan` remains available |
 
 ## Instance Lifecycle
 
@@ -100,7 +100,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job quarantine` | Inspect, summarize, restore, or drop job TOML files preserved by `job doctor --quarantine`; `quarantine show` accepts `--commands` |
 | `agent-team job wait <job-id>` | Wait for lifecycle status, last event, or next-step state/stage with `--next-state` and `--step` |
 | `agent-team job next <job-id>` | Show the next pipeline step without dispatching it; add `--state`, `--step`, or `--commands` when scripts need a compact assertion or next-action commands |
-| `agent-team job resume-plan <job-id>` | Show runtime resume, attach, and log fallback commands for one job; add `--step` for one pipeline stage, `--commands` for one command per line, or `--sort`/`--limit` for multi-runtime jobs |
+| `agent-team job resume-plan <job-id>` | Show runtime resume, attach, and log fallback commands for one job; add `--step` for one pipeline stage, `--commands` for repo-scoped command lines, or `--sort`/`--limit` for multi-runtime jobs |
 | `agent-team job ps <job-id>` | List daemon-aware instance rows for one job; add `--step` for one pipeline stage |
 | `agent-team job stats <job-id>` | Show CPU and memory usage for one job's instances; add `--step` for one pipeline stage |
 | `agent-team job top <job-id>` | `agent-team job stats <job-id>` |
@@ -237,7 +237,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline skip <pipeline> --step <id>` | Mark matching non-running steps intentionally skipped |
 | `agent-team pipeline cancel <pipeline>` | Cancel non-terminal pipeline jobs without stopping instances |
 | `agent-team pipeline adopt <pipeline> <job-id>` | Adopt a live external process for a job after verifying pipeline ownership; output includes scoped follow-up actions and `--commands` |
-| `agent-team pipeline resume-plan [<pipeline>]` | Pipeline-owned runtime recovery commands across all workflows by default; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print one command per line with `--commands`, or summarize with `--summary` |
+| `agent-team pipeline resume-plan [<pipeline>]` | Pipeline-owned runtime recovery commands across all workflows by default; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, or summarize with `--summary` |
 | `agent-team pipeline send <pipeline>` | Send a mailbox message to pipeline-owned daemon-known instances; add `--dry-run --commands` to print the matching scoped send apply command |
 | `agent-team pipeline ps [<pipeline>\|--all]` | List daemon-aware instance rows for pipeline-owned jobs across all workflows by default |
 | `agent-team pipeline stats [<pipeline>\|--all]` | Show CPU and memory usage for pipeline-owned instances across all workflows by default; filter by `--runtime`, `--status`, `--phase`, or summarize with `--summary` |
@@ -272,7 +272,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team doctor --all` | Validate team-owned workflow wiring; add `--strict-runtime` to fail on unavailable step runtime defaults |
 | `agent-team team overview <team>` | Scoped operator overview; add `--commands` for one scoped action command per line |
 | `agent-team team health <team>` | Scoped health; add `--commands` for one scoped remediation command per line |
-| `agent-team team resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print one command per line with `--commands`, or summarize with `--summary`; `team runtime resume-plan` remains available |
+| `agent-team team resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, or summarize with `--summary`; `team runtime resume-plan` remains available |
 | `agent-team team status <team>` | Scoped status; add `--commands` for one scoped action command per line |
 | `agent-team team monitor <team>` | Scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team watch <team>` | Continuous scoped dashboard with team-owned queue/outbox recovery signals |

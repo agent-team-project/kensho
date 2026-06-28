@@ -55,6 +55,12 @@ type runtimeResumeSummary struct {
 	Unhealthy        int            `json:"unhealthy"`
 }
 
+type runtimeResumeCommandOptions struct {
+	Target     string
+	TargetFlag string
+	TargetSet  bool
+}
+
 func newResumePlanCmd() *cobra.Command {
 	return newRuntimeResumePlanCommand(runtimeResumePlanCommandConfig{
 		Use:       "resume-plan [<instance>...]",
@@ -175,7 +181,7 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
 			if commandsOnly {
-				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans)
+				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans, runtimeResumeCommandOptionsFromFlag(cmd, target, runtimeResumePlanRepoFlag(cfg)))
 				return nil
 			}
 			if tmpl != nil {
@@ -201,7 +207,7 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
 	cmd.Flags().BoolVar(&summary, "summary", false, cfg.SummaryHelp)
-	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting.")
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd
@@ -293,7 +299,7 @@ func newJobResumePlanCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plans)
 			}
 			if commandsOnly {
-				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans)
+				renderRuntimeResumePlanCommands(cmd.OutOrStdout(), plans, runtimeResumeCommandOptionsFromFlag(cmd, repo, "repo"))
 				return nil
 			}
 			if tmpl != nil {
@@ -314,7 +320,7 @@ func newJobResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching resume plans by recommended action, runtime, and status.")
-	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting.")
+	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
 	return cmd
@@ -852,14 +858,88 @@ func renderRuntimeResumePlans(w fmtWriter, plans []runtimeResumePlan) {
 	}
 }
 
-func renderRuntimeResumePlanCommands(w fmtWriter, plans []runtimeResumePlan) {
+func renderRuntimeResumePlanCommands(w fmtWriter, plans []runtimeResumePlan, opts runtimeResumeCommandOptions) {
 	for _, plan := range plans {
-		command := strings.TrimSpace(plan.RecommendedCommand)
+		command := runtimeResumePlanCommand(plan, opts)
 		if command == "" {
 			continue
 		}
 		fmt.Fprintln(w, command)
 	}
+}
+
+func runtimeResumePlanCommand(plan runtimeResumePlan, opts runtimeResumeCommandOptions) string {
+	var args []string
+	instance := strings.TrimSpace(plan.Instance)
+	switch strings.TrimSpace(plan.RecommendedAction) {
+	case "start":
+		if instance == "" {
+			return strings.TrimSpace(plan.RecommendedCommand)
+		}
+		args = []string{"agent-team", "start"}
+		args = appendRuntimeResumeCommandTargetArgs(args, opts)
+		args = append(args, instance)
+	case "attach":
+		if instance == "" {
+			return strings.TrimSpace(plan.RecommendedCommand)
+		}
+		args = []string{"agent-team", "attach"}
+		args = appendRuntimeResumeCommandTargetArgs(args, opts)
+		args = append(args, instance)
+		args = append(args, "--dry-run")
+	case "logs":
+		if instance == "" {
+			return strings.TrimSpace(plan.RecommendedCommand)
+		}
+		args = []string{"agent-team", "logs"}
+		args = appendRuntimeResumeCommandTargetArgs(args, opts)
+		args = append(args, instance)
+		args = append(args, "--follow")
+	}
+	if len(args) > 0 {
+		return strings.Join(shellQuoteArgs(args), " ")
+	}
+	return strings.TrimSpace(plan.RecommendedCommand)
+}
+
+func appendRuntimeResumeCommandTargetArgs(args []string, opts runtimeResumeCommandOptions) []string {
+	if !opts.TargetSet || strings.TrimSpace(opts.Target) == "" {
+		return args
+	}
+	flag := strings.TrimSpace(opts.TargetFlag)
+	if flag == "" {
+		flag = "--target"
+	}
+	return append(args, flag, opts.Target)
+}
+
+func runtimeResumeCommandOptionsFromFlag(cmd *cobra.Command, target string, localFlag string) runtimeResumeCommandOptions {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return runtimeResumeCommandOptions{
+					Target:     value,
+					TargetFlag: "--" + rootRepoFlagName,
+					TargetSet:  true,
+				}
+			}
+		}
+		if flagName := strings.TrimSpace(localFlag); flagName != "" && cmd.Flags().Changed(flagName) {
+			return runtimeResumeCommandOptions{
+				Target:     target,
+				TargetFlag: "--" + flagName,
+				TargetSet:  true,
+			}
+		}
+	}
+	return runtimeResumeCommandOptions{}
+}
+
+func runtimeResumePlanRepoFlag(cfg runtimeResumePlanCommandConfig) string {
+	if cfg.RepoFlag {
+		return "repo"
+	}
+	return "target"
 }
 
 func summarizeRuntimeResumePlans(plans []runtimeResumePlan) runtimeResumeSummary {

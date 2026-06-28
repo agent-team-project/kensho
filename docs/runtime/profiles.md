@@ -271,7 +271,9 @@ before rendering when a large recovery list needs stable grouping, add
 `--limit N` to cap rows after filtering and sorting, and add `--summary` to
 count matching plans by recommended action, runtime, lifecycle status, stale
 running metadata, and unhealthy metadata. Add `--commands` when scripts need
-only the recommended command lines after filtering, sorting, and limiting.
+only the recommended command lines after filtering, sorting, and limiting; any
+`agent-team` follow-up preserves the selected `--repo` or `--target` scope, while
+direct runtime commands such as `codex resume <session>` remain unchanged.
 `--limit` cannot be combined with `--summary`.
 When a positive recorded `running` PID is no longer live, resume-plan marks the
 row as `stale` and recommends the recovery path that can reconcile or resume it.

@@ -1049,8 +1049,8 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 		t.Fatalf("runtime resume-plan unhealthy commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	commandsWant := strings.Join([]string{
-		"agent-team start stale-manager",
-		"agent-team logs crashed-worker --follow",
+		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--target", tmp, "stale-manager"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--target", tmp, "crashed-worker", "--follow"}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(commandsOut.String()); got != commandsWant {
 		t.Fatalf("command-only unhealthy resume-plan = %q, want %q", got, commandsWant)
@@ -1247,6 +1247,19 @@ func TestRuntimeResumePlanJobStepFilter(t *testing.T) {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("resume-plan text missing %q:\n%s", want, textOut.String())
 		}
+	}
+
+	jobCommands := NewRootCmd()
+	jobCommandsOut, jobCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobCommands.SetOut(jobCommandsOut)
+	jobCommands.SetErr(jobCommandsErr)
+	jobCommands.SetArgs([]string{"job", "resume-plan", "SQU-43", "--repo", tmp, "--step", "review", "--commands"})
+	if err := jobCommands.Execute(); err != nil {
+		t.Fatalf("job resume-plan --commands --step: %v\nstderr=%s", err, jobCommandsErr.String())
+	}
+	jobCommandsWant := strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", tmp, "manager-squ-43-review"}), " ")
+	if got := strings.TrimSpace(jobCommandsOut.String()); got != jobCommandsWant {
+		t.Fatalf("job step resume-plan commands = %q, want %q", got, jobCommandsWant)
 	}
 }
 

@@ -6460,8 +6460,8 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team resume-plan commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	if got, want := strings.TrimSpace(commandsOut.String()), strings.Join([]string{
-		"agent-team start worker-squ-902",
-		"agent-team logs manager --follow",
+		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", root, "worker-squ-902"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", root, "manager", "--follow"}), " "),
 	}, "\n"); got != want {
 		t.Fatalf("team commands resume-plan = %q, want %q", got, want)
 	}
