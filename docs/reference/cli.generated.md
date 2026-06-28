@@ -7023,6 +7023,7 @@ Flags:
 
 ```text
       --events int              Recent lifecycle events to include. Use -1 for all events or 0 to skip events. (default 50)
+      --events-sort string      Sort included lifecycle events by oldest or newest after applying --events. (default "oldest")
       --format string           Render the snapshot with a Go template, e.g. '{{.Repo}} {{len .Jobs}}'.
       --intake-deliveries int   Recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries. (default 50)
       --json                    Emit the full snapshot JSON to stdout.
@@ -8941,6 +8942,7 @@ Flags:
 
 ```text
       --events int           Recent matching team lifecycle events to include. Use -1 for all matching events or 0 to skip events. (default 50)
+      --events-sort string   Sort included team lifecycle events by oldest or newest after applying --events. (default "oldest")
       --format string        Render the team snapshot with a Go template, e.g. '{{.Team.Name}} {{len .Jobs}}'.
       --json                 Emit the full snapshot JSON to stdout.
       --no-redact            Include raw payload values instead of redacting sensitive keys.

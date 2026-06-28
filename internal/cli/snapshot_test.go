@@ -258,6 +258,89 @@ updated_at = 2026-06-19T02:00:00Z
 	}
 }
 
+func TestSnapshotEventsSortNewestTailsAfterLimit(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, ev := range []*daemon.LifecycleEvent{
+		{TS: now.Add(-3 * time.Minute), Action: "start", Instance: "old-worker", Agent: "worker", Status: daemon.StatusRunning, Message: "old"},
+		{TS: now.Add(-2 * time.Minute), Action: "dispatch", Instance: "middle-worker", Agent: "worker", Status: daemon.StatusRunning, Message: "middle"},
+		{TS: now.Add(-time.Minute), Action: "stop", Instance: "new-worker", Agent: "worker", Status: daemon.StatusStopped, Message: "new"},
+	} {
+		if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), ev); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "2", "--events-sort", "newest", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("snapshot events newest: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v\nbody=%s", err, out.String())
+	}
+	if got := lifecycleEventInstances(snapshot.Events); strings.Join(got, ",") != "new-worker,middle-worker" {
+		t.Fatalf("snapshot events = %v\nbody=%s", got, out.String())
+	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Options.EventSort != "newest" {
+		t.Fatalf("snapshot provenance = %+v", snapshot.Provenance)
+	}
+}
+
+func TestTeamSnapshotEventsSortNewestTailsAfterScopedLimit(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[instances.other]
+agent = "other"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+`), 0o644); err != nil {
+		t.Fatalf("write team topology: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, ev := range []*daemon.LifecycleEvent{
+		{TS: now.Add(-4 * time.Minute), Action: "start", Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, Message: "manager"},
+		{TS: now.Add(-3 * time.Minute), Action: "dispatch", Instance: "worker", Agent: "worker", Status: daemon.StatusRunning, Message: "worker"},
+		{TS: now.Add(-2 * time.Minute), Action: "dispatch", Instance: "other", Agent: "other", Status: daemon.StatusRunning, Message: "other"},
+		{TS: now.Add(-time.Minute), Action: "stop", Instance: "manager", Agent: "manager", Status: daemon.StatusStopped, Message: "manager stopped"},
+	} {
+		if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), ev); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "snapshot", "delivery", "--repo", root, "--events", "2", "--events-sort", "newest", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team snapshot events newest: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot snapshotResult
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team snapshot: %v\nbody=%s", err, out.String())
+	}
+	if got := lifecycleEventInstances(snapshot.Events); strings.Join(got, ",") != "manager,worker" {
+		t.Fatalf("team snapshot events = %v\nbody=%s", got, out.String())
+	}
+	if snapshot.Provenance == nil || snapshot.Provenance.Options.EventSort != "newest" {
+		t.Fatalf("team snapshot provenance = %+v", snapshot.Provenance)
+	}
+	if strings.Contains(out.String(), "other") {
+		t.Fatalf("team snapshot leaked non-team event:\n%s", out.String())
+	}
+}
+
 func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	target, _, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()
@@ -426,6 +509,37 @@ pipelines = ["ticket_to_pr"]
 	}
 	if !strings.Contains(invalidErr.String(), "invalid --format template") {
 		t.Fatalf("invalid format stderr = %q", invalidErr.String())
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "global events sort",
+			args: []string{"snapshot", "--target", target, "--events-sort", "sideways"},
+			want: "agent-team snapshot: --events-sort must be oldest or newest.",
+		},
+		{
+			name: "team events sort",
+			args: []string{"team", "snapshot", "delivery", "--repo", target, "--events-sort", "sideways"},
+			want: "agent-team team snapshot: --events-sort must be oldest or newest.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("%s succeeded", tc.name)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+			}
+		})
 	}
 }
 

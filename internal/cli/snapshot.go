@@ -28,6 +28,7 @@ func newSnapshotCmd() *cobra.Command {
 		jsonOut       bool
 		noRedact      bool
 		eventLimit    int
+		eventSortBy   string
 		intakeLimit   int
 		scheduleLimit int
 		format        string
@@ -50,6 +51,11 @@ func newSnapshotCmd() *cobra.Command {
 			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			eventSortMode, err := parseEventSort(eventSortBy)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot: --events-sort must be oldest or newest.")
 				return exitErr(2)
 			}
 			if jsonOut && output != "" && output != "-" {
@@ -75,13 +81,19 @@ func newSnapshotCmd() *cobra.Command {
 			}
 			snapshot := collectSnapshot(teamDir, repoRoot, snapshotOptions{
 				EventLimit:    eventLimit,
+				EventSort:     eventSortMode,
 				IntakeLimit:   intakeLimit,
 				ScheduleLimit: scheduleLimit,
 				Redact:        !noRedact,
 				Now:           time.Now().UTC(),
 			})
+			eventSortProvenance := ""
+			if cmd.Flags().Changed("events-sort") {
+				eventSortProvenance = eventSortMode
+			}
 			setSnapshotProvenance(snapshot, cmd.CommandPath(), "global", "", snapshotProvenanceOptions{
 				Events:           intValuePtr(eventLimit),
+				EventSort:        eventSortProvenance,
 				IntakeDeliveries: intValuePtr(intakeLimit),
 				ScheduleLimit:    intValuePtr(scheduleLimit),
 				Redacted:         !noRedact,
@@ -110,6 +122,7 @@ func newSnapshotCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the snapshot with a Go template, e.g. '{{.Repo}} {{len .Jobs}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "Recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
+	cmd.Flags().StringVar(&eventSortBy, "events-sort", "oldest", "Sort included lifecycle events by oldest or newest after applying --events.")
 	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "Recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "Upcoming schedules to include after ordering; 0 means all.")
 	cmd.AddCommand(newSnapshotDiffCmd())
@@ -118,6 +131,7 @@ func newSnapshotCmd() *cobra.Command {
 
 type snapshotOptions struct {
 	EventLimit    int
+	EventSort     string
 	IntakeLimit   int
 	ScheduleLimit int
 	Redact        bool
@@ -175,11 +189,12 @@ type snapshotProvenance struct {
 }
 
 type snapshotProvenanceOptions struct {
-	Events           *int `json:"events,omitempty"`
-	IntakeDeliveries *int `json:"intake_deliveries,omitempty"`
-	ScheduleLimit    *int `json:"schedule_limit,omitempty"`
-	Tail             *int `json:"tail,omitempty"`
-	Redacted         bool `json:"redacted"`
+	Events           *int   `json:"events,omitempty"`
+	EventSort        string `json:"events_sort,omitempty"`
+	IntakeDeliveries *int   `json:"intake_deliveries,omitempty"`
+	ScheduleLimit    *int   `json:"schedule_limit,omitempty"`
+	Tail             *int   `json:"tail,omitempty"`
+	Redacted         bool   `json:"redacted"`
 }
 
 type snapshotGitInfo struct {
@@ -314,7 +329,7 @@ func collectSnapshot(teamDir, repoRoot string, opts snapshotOptions) *snapshotRe
 		out.IntakeDuplicates = duplicateIntakeRequestIDs(deliveries, "", "")
 		out.Intake = collectSnapshotIntakeDeliveries(deliveries, opts.IntakeLimit)
 	}
-	if events, err := collectSnapshotEvents(teamDir, opts.EventLimit); err != nil {
+	if events, err := collectSnapshotEvents(teamDir, opts.EventLimit, opts.EventSort); err != nil {
 		out.addError("events", err)
 	} else {
 		out.Events = events
@@ -464,7 +479,7 @@ func collectTeamSnapshot(teamDir, repoRoot, name string, opts snapshotOptions) (
 		out.Schedules = teamSchedules(team, schedules)
 		out.ScheduleNext = nextScheduleRows(out.Schedules, now, opts.ScheduleLimit)
 	}
-	if events, err := collectTeamSnapshotEvents(teamDir, name, opts.EventLimit, now); err != nil {
+	if events, err := collectTeamSnapshotEvents(teamDir, name, opts.EventLimit, opts.EventSort, now); err != nil {
 		out.addError("events", err)
 	} else {
 		out.Events = events
@@ -712,7 +727,7 @@ func snapshotGitCommand(repoRoot string, args ...string) (string, bool) {
 	return string(out), true
 }
 
-func collectSnapshotEvents(teamDir string, limit int) ([]daemon.LifecycleEvent, error) {
+func collectSnapshotEvents(teamDir string, limit int, sortMode string) ([]daemon.LifecycleEvent, error) {
 	if limit == 0 {
 		return nil, nil
 	}
@@ -732,6 +747,7 @@ func collectSnapshotEvents(teamDir string, limit int) ([]daemon.LifecycleEvent, 
 	for _, line := range lines {
 		out = append(out, line.ev)
 	}
+	sortLifecycleEventsForDisplay(out, sortMode)
 	return out, nil
 }
 
@@ -743,7 +759,7 @@ func collectSnapshotIntakeDeliveries(deliveries []intakeDelivery, limit int) []i
 	return withIntakeDeliveryActions(deliveries)
 }
 
-func collectTeamSnapshotEvents(teamDir, name string, limit int, now time.Time) ([]daemon.LifecycleEvent, error) {
+func collectTeamSnapshotEvents(teamDir, name string, limit int, sortMode string, now time.Time) ([]daemon.LifecycleEvent, error) {
 	if limit == 0 {
 		return nil, nil
 	}
@@ -751,7 +767,7 @@ func collectTeamSnapshotEvents(teamDir, name string, limit int, now time.Time) (
 	if err != nil {
 		return nil, err
 	}
-	events, err := collectSnapshotEvents(teamDir, -1)
+	events, err := collectSnapshotEvents(teamDir, -1, "oldest")
 	if err != nil {
 		return nil, err
 	}
@@ -764,6 +780,7 @@ func collectTeamSnapshotEvents(teamDir, name string, limit int, now time.Time) (
 	if limit > 0 && len(matches) > limit {
 		matches = matches[len(matches)-limit:]
 	}
+	sortLifecycleEventsForDisplay(matches, sortMode)
 	return matches, nil
 }
 

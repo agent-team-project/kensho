@@ -5132,6 +5132,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 		jsonOut       bool
 		noRedact      bool
 		eventLimit    int
+		eventSortBy   string
 		scheduleLimit int
 		format        string
 	)
@@ -5149,6 +5150,11 @@ func newTeamSnapshotCmd() *cobra.Command {
 			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team snapshot: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			eventSortMode, err := parseEventSort(eventSortBy)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team snapshot: --events-sort must be oldest or newest.")
 				return exitErr(2)
 			}
 			if jsonOut && output != "" && output != "-" {
@@ -5174,6 +5180,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 			}
 			snapshot, err := collectTeamSnapshot(teamDir, repoRoot, args[0], snapshotOptions{
 				EventLimit:    eventLimit,
+				EventSort:     eventSortMode,
 				ScheduleLimit: scheduleLimit,
 				Redact:        !noRedact,
 				Now:           time.Now().UTC(),
@@ -5182,8 +5189,13 @@ func newTeamSnapshotCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team snapshot: %v\n", err)
 				return exitErr(1)
 			}
+			eventSortProvenance := ""
+			if cmd.Flags().Changed("events-sort") {
+				eventSortProvenance = eventSortMode
+			}
 			setSnapshotProvenance(snapshot, cmd.CommandPath(), "team", args[0], snapshotProvenanceOptions{
 				Events:        intValuePtr(eventLimit),
+				EventSort:     eventSortProvenance,
 				ScheduleLimit: intValuePtr(scheduleLimit),
 				Redacted:      !noRedact,
 			})
@@ -5211,6 +5223,7 @@ func newTeamSnapshotCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the team snapshot with a Go template, e.g. '{{.Team.Name}} {{len .Jobs}}'.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "Recent matching team lifecycle events to include. Use -1 for all matching events or 0 to skip events.")
+	cmd.Flags().StringVar(&eventSortBy, "events-sort", "oldest", "Sort included team lifecycle events by oldest or newest after applying --events.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "Upcoming team schedules to include after ordering; 0 means all.")
 	return cmd
 }
