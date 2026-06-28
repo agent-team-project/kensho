@@ -5364,6 +5364,7 @@ Flags:
 
 ```text
       --all                   Send to every daemon-known pipeline instance regardless of lifecycle status.
+      --commands              With --dry-run, print the matching pipeline send apply command when the preview has actionable recipients.
       --dry-run               Preview matching recipients without appending mailbox messages.
       --format string         Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.
       --from string           Sender label recorded with the message. (default "(cli)")
@@ -8633,6 +8634,7 @@ Flags:
 
 ```text
       --all                   Send to every daemon-known team instance regardless of lifecycle status.
+      --commands              With --dry-run, print the matching team send apply command when the preview has actionable recipients.
       --dry-run               Preview matching recipients without appending mailbox messages.
       --format string         Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.
       --from string           Sender label recorded with the message. (default "(cli)")

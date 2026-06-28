@@ -449,6 +449,108 @@ func renderSendFormat(w io.Writer, rows []sendJSON, tmpl *template.Template) err
 	return nil
 }
 
+type scopedSendApplyCommandOptions struct {
+	BaseArgs       []string
+	Repo           string
+	RepoSet        bool
+	From           string
+	FromSet        bool
+	Message        string
+	MessageSet     bool
+	MessageFile    string
+	MessageFileSet bool
+	Positional     []string
+	All            bool
+	Latest         bool
+	Last           int
+	StatusFilters  []string
+	StatusSet      bool
+	RuntimeFilters []string
+	RuntimeSet     bool
+	PhaseFilters   []string
+	PhaseSet       bool
+	Stale          bool
+	RuntimeStale   bool
+	Unhealthy      bool
+}
+
+func renderScopedSendApplyCommand(w io.Writer, hasRecipients bool, opts scopedSendApplyCommandOptions) error {
+	if !hasRecipients {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(scopedSendApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func scopedSendApplyCommandArgs(opts scopedSendApplyCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.FromSet && strings.TrimSpace(opts.From) != "" {
+		args = append(args, "--from", opts.From)
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.MessageFileSet && strings.TrimSpace(opts.MessageFile) != "" {
+		args = append(args, "--message-file", opts.MessageFile)
+	}
+	if opts.All {
+		args = append(args, "--all")
+	}
+	if opts.Latest {
+		args = append(args, "--latest")
+	}
+	if opts.Last > 0 {
+		args = append(args, "--last", fmt.Sprint(opts.Last))
+	}
+	if opts.StatusSet {
+		if filters := normalizeCommandList(opts.StatusFilters); len(filters) > 0 {
+			args = append(args, "--status", strings.Join(filters, ","))
+		}
+	}
+	if opts.RuntimeSet {
+		if filters := normalizeCommandList(opts.RuntimeFilters); len(filters) > 0 {
+			args = append(args, "--runtime", strings.Join(filters, ","))
+		}
+	}
+	if opts.PhaseSet {
+		if filters := normalizeCommandList(opts.PhaseFilters); len(filters) > 0 {
+			args = append(args, "--phase", strings.Join(filters, ","))
+		}
+	}
+	if opts.Stale {
+		args = append(args, "--stale")
+	}
+	if opts.RuntimeStale {
+		args = append(args, "--runtime-stale")
+	}
+	if opts.Unhealthy {
+		args = append(args, "--unhealthy")
+	}
+	if !opts.MessageSet && !opts.MessageFileSet && len(opts.Positional) > 0 {
+		args = append(args, opts.Positional...)
+	}
+	return args
+}
+
+func normalizeCommandList(raw []string) []string {
+	seen := map[string]bool{}
+	values := make([]string, 0, len(raw))
+	for _, item := range raw {
+		for _, part := range strings.Split(item, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
 func selectSendTargets(client sendClient, opts sendOptions) ([]string, error) {
 	agents := lifecycleAgentFilterSet(opts.AgentFilters)
 	if len(opts.AgentFilters) > 0 && len(agents) == 0 {

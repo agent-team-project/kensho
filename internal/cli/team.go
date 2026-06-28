@@ -4029,6 +4029,7 @@ func newTeamSendCmd() *cobra.Command {
 		runtimeStale   bool
 		unhealthyOnly  bool
 		dryRun         bool
+		commands       bool
 		jsonOut        bool
 		format         string
 	)
@@ -4042,6 +4043,18 @@ func newTeamSendCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team send: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team send: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team send: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team send: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if last < 0 {
@@ -4099,6 +4112,37 @@ func newTeamSendCmd() *cobra.Command {
 				opts.PhaseByInstance = sendPhaseByInstance(teamDir, time.Now())
 			}
 			client := teamSendClient{sendClient: baseClient, top: top, team: team}
+			if commands {
+				targets, err := selectSendTargets(client, opts)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team send: %v\n", err)
+					return exitErr(2)
+				}
+				return renderScopedSendApplyCommand(cmd.OutOrStdout(), len(targets) > 0, scopedSendApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "team", "send", args[0]},
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					From:           from,
+					FromSet:        cmd.Flags().Changed("from"),
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					MessageFile:    messageFile,
+					MessageFileSet: cmd.Flags().Changed("message-file"),
+					Positional:     args[1:],
+					All:            allStatuses,
+					Latest:         latest,
+					Last:           last,
+					StatusFilters:  statusFilters,
+					StatusSet:      cmd.Flags().Changed("status"),
+					RuntimeFilters: runtimeFilters,
+					RuntimeSet:     cmd.Flags().Changed("runtime"),
+					PhaseFilters:   phaseFilters,
+					PhaseSet:       cmd.Flags().Changed("phase"),
+					Stale:          staleOnly,
+					RuntimeStale:   runtimeStale,
+					Unhealthy:      unhealthyOnly,
+				})
+			}
 			return runSendSelectionWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, body, opts)
 		},
 	}
@@ -4116,6 +4160,7 @@ func newTeamSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Send to team-owned running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to team-owned instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team send apply command when the preview has actionable recipients.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.")
 	return cmd

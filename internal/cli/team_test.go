@@ -6751,6 +6751,31 @@ instances = ["other", "build-worker"]
 		t.Fatalf("team send --runtime targets = %v", got)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "send", "delivery", "--repo", root, "--from", "ops", "--runtime", "codex", "--message", "hello", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team send dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "team", "send", "delivery", "--repo", root, "--from", "ops", "--message", "hello", "--runtime", "codex"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("team send dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	noRecipients := NewRootCmd()
+	noRecipientsOut, noRecipientsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRecipients.SetOut(noRecipientsOut)
+	noRecipients.SetErr(noRecipientsErr)
+	noRecipients.SetArgs([]string{"team", "send", "delivery", "--repo", root, "--status", "crashed", "--dry-run", "--commands", "hello"})
+	if err := noRecipients.Execute(); err != nil {
+		t.Fatalf("team send no-recipient dry-run commands: %v\nstderr=%s", err, noRecipientsErr.String())
+	}
+	if got := strings.TrimSpace(noRecipientsOut.String()); got != "" {
+		t.Fatalf("team send no-recipient dry-run commands = %q, want empty", got)
+	}
+
 	badRuntime := NewRootCmd()
 	badRuntime.SetOut(&bytes.Buffer{})
 	badRuntimeErr := &bytes.Buffer{}

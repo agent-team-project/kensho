@@ -5884,6 +5884,31 @@ target = "worker"
 		t.Fatalf("pipeline send --runtime targets = %v", got)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--from", "ops", "--runtime", "codex", "--message", "hello", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline send dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "pipeline", "send", "ticket_to_pr", "--repo", root, "--from", "ops", "--message", "hello", "--runtime", "codex"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("pipeline send dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	noRecipients := NewRootCmd()
+	noRecipientsOut, noRecipientsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRecipients.SetOut(noRecipientsOut)
+	noRecipients.SetErr(noRecipientsErr)
+	noRecipients.SetArgs([]string{"pipeline", "send", "ticket_to_pr", "--repo", root, "--status", "crashed", "--dry-run", "--commands", "hello"})
+	if err := noRecipients.Execute(); err != nil {
+		t.Fatalf("pipeline send no-recipient dry-run commands: %v\nstderr=%s", err, noRecipientsErr.String())
+	}
+	if got := strings.TrimSpace(noRecipientsOut.String()); got != "" {
+		t.Fatalf("pipeline send no-recipient dry-run commands = %q, want empty", got)
+	}
+
 	allStatuses := NewRootCmd()
 	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
 	allStatuses.SetOut(allOut)
@@ -6617,6 +6642,41 @@ target = "worker"
 	}
 	if got := sendTargets(rows); strings.Join(got, ",") != "worker-squ-970" {
 		t.Fatalf("pipeline send --runtime-stale targets = %v", got)
+	}
+}
+
+func TestScopedSendCommandValidation(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"pipeline", "send", "ticket_to_pr", "--commands"}, "pipeline send: --commands requires --dry-run"},
+		{[]string{"pipeline", "send", "ticket_to_pr", "--dry-run", "--commands", "--json"}, "pipeline send: --commands cannot be combined with --json"},
+		{[]string{"pipeline", "send", "ticket_to_pr", "--dry-run", "--commands", "--format", "{{.To}}"}, "pipeline send: --commands cannot be combined with --format"},
+		{[]string{"team", "send", "delivery", "--commands"}, "team send: --commands requires --dry-run"},
+		{[]string{"team", "send", "delivery", "--dry-run", "--commands", "--json"}, "team send: --commands cannot be combined with --json"},
+		{[]string{"team", "send", "delivery", "--dry-run", "--commands", "--format", "{{.To}}"}, "team send: --commands cannot be combined with --format"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		var code ExitCode
+		if !errors.As(err, &code) || int(code) != 2 {
+			t.Fatalf("%v: err = %v, want exit 2", tc.args, err)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%v: validation wrote stdout: %q", tc.args, out.String())
+		}
 	}
 }
 
