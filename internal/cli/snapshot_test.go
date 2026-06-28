@@ -1673,9 +1673,35 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 		t.Fatalf("new job: %v", err)
 	}
 	j.Pipeline = "ticket_to_pr"
+	j.Instance = "worker-squ-260"
 	j.Status = job.StatusQueued
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
+	}
+	timelineBase := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	for _, ev := range []job.Event{
+		{
+			TS:       timelineBase.Add(time.Minute),
+			JobID:    j.ID,
+			Type:     "created",
+			Status:   job.StatusQueued,
+			Instance: j.Instance,
+			Actor:    "test",
+			Message:  "queued",
+		},
+		{
+			TS:       timelineBase.Add(2 * time.Minute),
+			JobID:    j.ID,
+			Type:     "note",
+			Status:   job.StatusQueued,
+			Instance: j.Instance,
+			Actor:    "test",
+			Message:  "newer",
+		},
+	} {
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append timeline event: %v", err)
+		}
 	}
 
 	currentAfter := NewRootCmd()
@@ -1753,6 +1779,24 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 		t.Fatalf("pipeline current result = %+v changes=%+v", pipelineResult.Summary, pipelineResult.Changes)
 	}
 
+	pipelineTimeline := NewRootCmd()
+	pipelineTimelineOut, pipelineTimelineErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineTimeline.SetOut(pipelineTimelineOut)
+	pipelineTimeline.SetErr(pipelineTimelineErr)
+	pipelineTimeline.SetArgs([]string{"--repo", tmp, "snapshot", "diff", pipelineBeforePath, "--current-after", "--section", "timeline", "--timeline", "1", "--json"})
+	if err := pipelineTimeline.Execute(); err != nil {
+		t.Fatalf("pipeline snapshot diff --current-after --timeline: %v\nstderr=%s", err, pipelineTimelineErr.String())
+	}
+	var pipelineTimelineResult snapshotDiffResult
+	if err := json.Unmarshal(pipelineTimelineOut.Bytes(), &pipelineTimelineResult); err != nil {
+		t.Fatalf("decode pipeline timeline current diff: %v\nbody=%s", err, pipelineTimelineOut.String())
+	}
+	newerTimelineID := "job|squ-260|2026-06-25T12:02:00Z|note|worker-squ-260"
+	olderTimelineID := "job|squ-260|2026-06-25T12:01:00Z|created|worker-squ-260"
+	if pipelineTimelineResult.Summary.TotalChanges != 1 || pipelineTimelineResult.Summary.Timeline.Added != 1 || !hasSnapshotDiffChange(pipelineTimelineResult.Changes, "timeline", newerTimelineID, "added") || hasSnapshotDiffChange(pipelineTimelineResult.Changes, "timeline", olderTimelineID, "added") {
+		t.Fatalf("pipeline current timeline result = %+v changes=%+v", pipelineTimelineResult.Summary, pipelineTimelineResult.Changes)
+	}
+
 	both := NewRootCmd()
 	bothOut, bothErr := &bytes.Buffer{}, &bytes.Buffer{}
 	both.SetOut(bothOut)
@@ -1787,6 +1831,18 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(unusedCurrentOptionErr.String(), "current snapshot options require") {
 		t.Fatalf("unused current option stderr = %q", unusedCurrentOptionErr.String())
+	}
+
+	unusedTimelineOption := NewRootCmd()
+	unusedTimelineOptionOut, unusedTimelineOptionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unusedTimelineOption.SetOut(unusedTimelineOptionOut)
+	unusedTimelineOption.SetErr(unusedTimelineOptionErr)
+	unusedTimelineOption.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--timeline", "1"})
+	if err := unusedTimelineOption.Execute(); err == nil {
+		t.Fatalf("snapshot diff unused timeline option succeeded")
+	}
+	if !strings.Contains(unusedTimelineOptionErr.String(), "current snapshot options require") {
+		t.Fatalf("unused timeline option stderr = %q", unusedTimelineOptionErr.String())
 	}
 }
 

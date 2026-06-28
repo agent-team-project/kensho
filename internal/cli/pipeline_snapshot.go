@@ -69,6 +69,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 				TimelineTail: timelineEvents,
 			})
 			snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "pipeline", pipelineName, snapshotProvenanceOptions{
+				Timeline: intValuePtr(timelineEvents),
 				Redacted: !noRedact,
 			})
 			switch {

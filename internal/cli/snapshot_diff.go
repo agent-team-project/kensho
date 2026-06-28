@@ -32,6 +32,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		eventLimit    int
 		intakeLimit   int
 		scheduleLimit int
+		timelineTail  string
 		noRedact      bool
 	)
 	cwd, _ := os.Getwd()
@@ -61,7 +62,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: pass two snapshot files, or one file with --current-after/--current-before.")
 				return exitErr(2)
 			}
-			if !currentRequested && (cmd.Flags().Changed("events") || cmd.Flags().Changed("intake-deliveries") || cmd.Flags().Changed("schedule-limit") || cmd.Flags().Changed("no-redact")) {
+			if !currentRequested && (cmd.Flags().Changed("events") || cmd.Flags().Changed("intake-deliveries") || cmd.Flags().Changed("schedule-limit") || cmd.Flags().Changed("timeline") || cmd.Flags().Changed("no-redact")) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: current snapshot options require --current-after or --current-before.")
 				return exitErr(2)
 			}
@@ -75,6 +76,11 @@ func newSnapshotDiffCmd() *cobra.Command {
 			}
 			if scheduleLimit < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --schedule-limit must be >= 0.")
+				return exitErr(2)
+			}
+			timelineEvents, err := parseLogTail(timelineTail)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --timeline must be >= 0 or \"all\".")
 				return exitErr(2)
 			}
 			if jsonOut && output != "" && output != "-" {
@@ -125,6 +131,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 				Events:           eventLimit,
 				IntakeDeliveries: intakeLimit,
 				ScheduleLimit:    scheduleLimit,
+				TimelineTail:     timelineEvents,
 				Redact:           !noRedact,
 				CurrentAfter:     currentAfter,
 				CurrentBefore:    currentBefore,
@@ -177,6 +184,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
 	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all.")
+	cmd.Flags().StringVar(&timelineTail, "timeline", "50", "With --current-after/--current-before on pipeline snapshots, include the last N combined audit/lifecycle timeline rows (0 or all = all).")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "With --current-after/--current-before, include raw payload values instead of redacting sensitive keys.")
 	return cmd
 }
@@ -185,6 +193,7 @@ type snapshotDiffCurrentOptions struct {
 	Events           int
 	IntakeDeliveries int
 	ScheduleLimit    int
+	TimelineTail     int
 	Redact           bool
 	CurrentAfter     bool
 	CurrentBefore    bool
@@ -741,9 +750,10 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 		snapshot := collectPipelineSnapshot(teamDir, repoRoot, scope, pipelineSnapshotOptions{
 			Redact:       opts.Redact,
 			Now:          now,
-			TimelineTail: 50,
+			TimelineTail: opts.TimelineTail,
 		})
 		snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "pipeline", scope, snapshotProvenanceOptions{
+			Timeline: intValuePtr(opts.TimelineTail),
 			Redacted: opts.Redact,
 		})
 		return snapshotDiffComparableFromValue("<current>", snapshot)
@@ -1887,6 +1897,9 @@ func snapshotDiffProvenanceMap(provenance *snapshotProvenance) map[string]string
 	}
 	if provenance.Options.ScheduleLimit != nil {
 		out["schedule_limit"] = fmt.Sprintf("%d", *provenance.Options.ScheduleLimit)
+	}
+	if provenance.Options.Timeline != nil {
+		out["timeline"] = fmt.Sprintf("%d", *provenance.Options.Timeline)
 	}
 	if provenance.Options.Tail != nil {
 		out["tail"] = fmt.Sprintf("%d", *provenance.Options.Tail)
