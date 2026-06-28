@@ -927,7 +927,7 @@ func runtimeResumeCommandOptionsFromFlag(cmd *cobra.Command, target string, loca
 		if flagName := strings.TrimSpace(localFlag); flagName != "" && cmd.Flags().Changed(flagName) {
 			return runtimeResumeCommandOptions{
 				Target:     target,
-				TargetFlag: "--" + flagName,
+				TargetFlag: "--" + rootRepoFlagName,
 				TargetSet:  true,
 			}
 		}

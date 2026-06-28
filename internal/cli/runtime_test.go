@@ -293,7 +293,7 @@ func TestRuntimeSetDryRunCommands(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime set --dry-run --commands failed: %v\nstderr: %s", err, errOut.String())
 	}
-	want := strings.Join(shellQuoteArgs([]string{"agent-team", "runtime", "set", "--target", tmp, "codex", "--runtime-bin", "codex-dev"}), " ") + "\n"
+	want := strings.Join(shellQuoteArgs([]string{"agent-team", "runtime", "set", "--repo", tmp, "codex", "--runtime-bin", "codex-dev"}), " ") + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("commands output = %q, want %q", got, want)
 	}
@@ -303,6 +303,19 @@ func TestRuntimeSetDryRunCommands(t *testing.T) {
 	}
 	if string(after) != string(before) {
 		t.Fatalf("dry-run changed config:\nbefore:\n%s\nafter:\n%s", string(before), string(after))
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "runtime", "set", "claude", "--dry-run", "--commands"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("runtime set root --repo --dry-run --commands failed: %v\nstderr: %s", err, rootScopedErr.String())
+	}
+	wantRootScoped := strings.Join(shellQuoteArgs([]string{"agent-team", "runtime", "set", "--repo", tmp, "claude"}), " ") + "\n"
+	if got := rootScopedOut.String(); got != wantRootScoped {
+		t.Fatalf("root-scoped commands output = %q, want %q", got, wantRootScoped)
 	}
 
 	if err := os.WriteFile(cfg, []byte("[runtime]\nkind = \"codex\"\nbinary = \"codex-dev\"\n"), 0o644); err != nil {
@@ -1049,8 +1062,8 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 		t.Fatalf("runtime resume-plan unhealthy commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	commandsWant := strings.Join([]string{
-		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--target", tmp, "stale-manager"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--target", tmp, "crashed-worker", "--follow"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", tmp, "stale-manager"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", tmp, "crashed-worker", "--follow"}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(commandsOut.String()); got != commandsWant {
 		t.Fatalf("command-only unhealthy resume-plan = %q, want %q", got, commandsWant)

@@ -132,7 +132,7 @@ func newRuntimeSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary or wrapper to store. Defaults to the runtime's built-in binary.")
 	cmd.Flags().StringVar(&runtimeBinary, "binary", "", "Alias for --runtime-bin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the config change without writing.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the set result with a Go template, e.g. '{{.Runtime}} {{.Binary}}'.")
 	return cmd
@@ -204,7 +204,7 @@ func newRuntimeUnsetCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the config change without writing.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the unset result with a Go template, e.g. '{{.Changed}} {{.DryRun}}'.")
 	return cmd
@@ -841,12 +841,7 @@ func runtimeCommandRepoSet(cmd *cobra.Command) bool {
 }
 
 func runtimeCommandRepoFlag(cmd *cobra.Command) string {
-	if cmd != nil {
-		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
-			return rootRepoFlagName
-		}
-	}
-	return "target"
+	return rootRepoFlagName
 }
 
 func runtimeCommandRepo(cmd *cobra.Command, target string) string {
