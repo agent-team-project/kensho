@@ -129,15 +129,18 @@ Health exits nonzero when unhealthy in one-shot mode.
 
 With `--jobs`, stuck or failed jobs can make health fail. This is useful in CI or operator dashboards.
 
-Add `--commands` when a script needs only the issue remediation commands, one
-per line, while preserving the same healthy/unhealthy exit code. When `health`
-or `team health` is scoped with `--target` or `--repo`, command-only
-`agent-team` follow-ups preserve that selected repo.
+Add `--last-message` when runtime issue remediation should carry clean Codex
+final-message fallbacks into `resume-plan` follow-ups. Add `--commands` when a
+script needs only the issue remediation commands, one per line, while
+preserving the same healthy/unhealthy exit code. When `health` or `team health`
+is scoped with `--target` or `--repo`, command-only `agent-team` follow-ups
+preserve that selected repo.
 
 Health also reports job, queue, and outbox quarantine inventory as warning issues with scoped recovery actions when ownership resolves to one job, pipeline, or team.
 
-Crashed instance issues include an `action=` hint for `agent-team runtime
-resume-plan`, scoped to the owning job when daemon metadata records one.
+Crashed and stale-runtime instance issues include an `action=` hint for
+`agent-team runtime resume-plan`, scoped to the owning job when daemon metadata
+records one and scoped to `team resume-plan` from team health.
 
 ## Monitor and Watch
 

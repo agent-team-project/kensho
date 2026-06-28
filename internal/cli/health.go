@@ -28,6 +28,7 @@ func newHealthCmd() *cobra.Command {
 		noClear          bool
 		format           string
 		commands         bool
+		lastMessage      bool
 		latest           bool
 		last             int
 		statusFilters    []string
@@ -135,6 +136,7 @@ func newHealthCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				result = healthResultWithLastMessageActions(result, lastMessage)
 				if !quiet {
 					if err := writeHealthResultWithFormat(cmd.OutOrStdout(), result, jsonOut, formatTemplate); err != nil {
 						return err
@@ -152,15 +154,16 @@ func newHealthCmd() *cobra.Command {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 				defer stop()
 				if formatTemplate != nil {
-					return runHealthFormatWatch(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, opts, formatTemplate)
+					return runHealthFormatWatchWithLastMessage(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, opts, formatTemplate, lastMessage)
 				}
 				clear := !noClear && !jsonOut
-				return runHealthWatchWithClear(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, jsonOut, opts, clear)
+				return runHealthWatchWithClearAndLastMessage(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, jsonOut, opts, clear, lastMessage)
 			}
 			result, err := collectHealthWithOptions(teamDir, time.Now(), opts)
 			if err != nil {
 				return err
 			}
+			result = healthResultWithLastMessageActions(result, lastMessage)
 			if !quiet {
 				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				if err := writeHealthResultWithFormatAndCommands(cmd.OutOrStdout(), result, jsonOut, formatTemplate, commands, scope); err != nil {
@@ -181,6 +184,7 @@ func newHealthCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Poll until the fleet is healthy, then exit.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the health result with a Go template, e.g. '{{.Healthy}} {{.Summary.Running}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print issue remediation commands, one per line. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Only check the most recently started instance after other filters. Daemon health remains global.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Only check the N most recently started instances after other filters (0 = all). Daemon health remains global.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
@@ -282,6 +286,10 @@ func runHealthWatch(ctx context.Context, w io.Writer, teamDir string, interval t
 }
 
 func runHealthWatchWithClear(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, jsonOut bool, opts healthOptions, clear bool) error {
+	return runHealthWatchWithClearAndLastMessage(ctx, w, teamDir, interval, now, jsonOut, opts, clear, false)
+}
+
+func runHealthWatchWithClearAndLastMessage(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, jsonOut bool, opts healthOptions, clear bool, lastMessage bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -292,6 +300,7 @@ func runHealthWatchWithClear(ctx context.Context, w io.Writer, teamDir string, i
 		if err != nil {
 			return err
 		}
+		result = healthResultWithLastMessageActions(result, lastMessage)
 		if jsonOut {
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				return err
@@ -312,6 +321,10 @@ func runHealthWatchWithClear(ctx context.Context, w io.Writer, teamDir string, i
 }
 
 func runHealthFormatWatch(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, opts healthOptions, tmpl *template.Template) error {
+	return runHealthFormatWatchWithLastMessage(ctx, w, teamDir, interval, now, opts, tmpl, false)
+}
+
+func runHealthFormatWatchWithLastMessage(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, opts healthOptions, tmpl *template.Template, lastMessage bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -322,6 +335,7 @@ func runHealthFormatWatch(ctx context.Context, w io.Writer, teamDir string, inte
 		if err != nil {
 			return err
 		}
+		result = healthResultWithLastMessageActions(result, lastMessage)
 		if err := renderHealthFormat(w, result, tmpl); err != nil {
 			return err
 		}
@@ -420,6 +434,18 @@ func renderHealthCommands(w io.Writer, result *healthResult, scope operatorComma
 		}
 	}
 	return renderActionCommands(w, scopedOperatorActions(actions, scope))
+}
+
+func healthResultWithLastMessageActions(result *healthResult, lastMessage bool) *healthResult {
+	if result == nil || !lastMessage {
+		return result
+	}
+	for i := range result.Issues {
+		for j := range result.Issues[i].Actions {
+			result.Issues[i].Actions[j] = operatorActionWithLastMessage(result.Issues[i].Actions[j])
+		}
+	}
+	return result
 }
 
 func collectHealth(teamDir string, now time.Time) (*healthResult, error) {

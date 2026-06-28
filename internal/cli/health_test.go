@@ -1752,6 +1752,59 @@ func TestHealthCommandUnhealthyIncludesRuntimeStaleIssue(t *testing.T) {
 	t.Fatalf("issues = %+v, missing runtime_stale issue", body.Issues)
 }
 
+func TestHealthCommandLastMessageRewritesRuntimeRecoveryActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	now := time.Now()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "fresh", Agent: "worker", Runtime: "codex", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
+		{Instance: "runtime-stale", Agent: "worker", Job: "SQU-88", Runtime: "codex", Status: daemon.StatusRunning, PID: 99999999, StartedAt: now.Add(-time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(root, meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"health", "--unhealthy", "--last-message", "--json", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 1 {
+		t.Fatalf("err = %v, want exit 1 from runtime-stale health\nstderr=%s", err, stderr.String())
+	}
+	var body healthResult
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode health json: %v\nbody=%s", err, stdout.String())
+	}
+	var sawLastMessage bool
+	for _, issue := range body.Issues {
+		if issue.Code == "runtime_stale" && issue.Instance == "runtime-stale" {
+			sawLastMessage = containsString(issue.Actions, "agent-team job resume-plan squ-88 --runtime-stale --last-message")
+		}
+	}
+	if !sawLastMessage {
+		t.Fatalf("runtime stale last-message action missing: %+v", body.Issues)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"health", "--unhealthy", "--last-message", "--commands", "--target", tmp})
+	if err := commands.Execute(); !errors.As(err, &code) || code != 1 {
+		t.Fatalf("health commands err = %v, want exit 1\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "job", "resume-plan", "squ-88", "--runtime-stale", "--last-message"}), " ")
+	if !strings.Contains(commandsOut.String(), wantCommand) {
+		t.Fatalf("health last-message commands missing %q:\n%s", wantCommand, commandsOut.String())
+	}
+}
+
 func TestHealthCommandRuntimeStaleFilterOnlyIncludesRuntimeStaleInstances(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

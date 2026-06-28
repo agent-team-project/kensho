@@ -1007,6 +1007,7 @@ Flags:
       --jobs                Include durable job triage and status-file previews; treat jobs needing attention as unhealthy.
       --json                Emit machine-readable JSON.
   -n, --last int            Only check the N most recently started instances after other filters (0 = all). Daemon health remains global.
+      --last-message        When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.
       --latest              Only check the most recently started instance after other filters. Daemon health remains global.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
@@ -7605,6 +7606,7 @@ Flags:
       --format string     Render team health with a Go template, e.g. '{{.Team.Name}} {{.Health.Healthy}}'.
       --jobs              Include team-owned job and pipeline health.
       --json              Emit team health as JSON.
+      --last-message      When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.
   -q, --quiet             Suppress output and use only the exit code.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only check team-owned daemon-known instances for this runtime: claude or codex. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.

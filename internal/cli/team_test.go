@@ -11710,6 +11710,7 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 		{Code: "instance_crashed", Actions: []string{"agent-team resume-plan worker-squ-1 --status crashed"}},
 		{Code: "instance_crashed", Actions: []string{"agent-team job resume-plan squ-1 --status crashed"}},
 		{Code: "instance_crashed", Actions: []string{"agent-team runtime resume-plan worker-squ-2 --status crashed"}},
+		{Code: "runtime_stale", Actions: []string{"agent-team resume-plan worker-squ-3 --runtime-stale"}},
 	}}
 	scopeTeamHealthIssueActions(result, "delivery")
 	if got := result.Issues[0].Actions; !containsString(got, "agent-team team sync delivery --dry-run") || containsString(got, "agent-team sync --dry-run") || !containsString(got, "agent-team daemon start") {
@@ -11726,6 +11727,97 @@ func TestScopeTeamHealthIssueActions(t *testing.T) {
 	}
 	if got := result.Issues[4].Actions; !containsString(got, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") || containsString(got, "agent-team runtime resume-plan worker-squ-2 --status crashed") {
 		t.Fatalf("legacy runtime actions = %+v", got)
+	}
+	if got := result.Issues[5].Actions; !containsString(got, "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10") || containsString(got, "agent-team resume-plan worker-squ-3 --runtime-stale") {
+		t.Fatalf("runtime-stale actions = %+v", got)
+	}
+}
+
+func TestTeamHealthLastMessageScopesRuntimeStaleActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"worker"} {
+		if err := os.MkdirAll(filepath.Join(teamDir, "agents", name), 0o755); err != nil {
+			t.Fatalf("mkdir agent %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["worker"]
+
+[teams.platform]
+instances = ["build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-902", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: 99999999, Workspace: root, StartedAt: now},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: 99999999, Workspace: root, StartedAt: now},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "health", "delivery", "--repo", root, "--runtime-stale", "--last-message", "--json"})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("team health runtime-stale err = %v, want exit 1\nstderr=%s", err, stderr.String())
+	}
+	var snapshot teamHealthSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team health runtime-stale: %v\nbody=%s", err, out.String())
+	}
+	if snapshot.Health == nil || snapshot.Health.Summary.Total != 1 || snapshot.Health.Summary.RuntimeStale != 1 {
+		t.Fatalf("team health runtime-stale summary = %+v", snapshot.Health)
+	}
+	if got := healthInstanceNames(snapshot.Health.Instances); strings.Join(got, ",") != "worker-squ-902" {
+		t.Fatalf("team health runtime-stale instances = %v", got)
+	}
+	wantAction := "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10 --last-message"
+	var sawAction bool
+	for _, issue := range snapshot.Health.Issues {
+		if issue.Code == "runtime_stale" && containsString(issue.Actions, wantAction) {
+			sawAction = true
+		}
+		for _, action := range issue.Actions {
+			if strings.Contains(action, "build-worker-1") || strings.Contains(action, "agent-team resume-plan worker-squ-902 --runtime-stale") {
+				t.Fatalf("team health runtime-stale leaked unscoped action %q in %+v", action, snapshot.Health.Issues)
+			}
+		}
+	}
+	if !sawAction {
+		t.Fatalf("team health runtime-stale action missing %q in %+v", wantAction, snapshot.Health.Issues)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "health", "delivery", "--repo", root, "--runtime-stale", "--last-message", "--commands"})
+	if err := commands.Execute(); !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("team health runtime-stale commands err = %v, want exit 1\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", root, "team", "resume-plan", "delivery", "--runtime-stale", "--sort", "stale", "--limit", "10", "--last-message"}), " ")
+	if !strings.Contains(commandsOut.String(), wantCommand) {
+		t.Fatalf("team health runtime-stale commands missing %q:\n%s", wantCommand, commandsOut.String())
 	}
 }
 

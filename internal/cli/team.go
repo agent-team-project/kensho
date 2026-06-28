@@ -6370,6 +6370,7 @@ func newTeamHealthCmd() *cobra.Command {
 		jsonOut          bool
 		format           string
 		commands         bool
+		lastMessage      bool
 		runtimeFilters   []string
 		runtimeStaleOnly bool
 	)
@@ -6419,6 +6420,9 @@ func newTeamHealthCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team health: %v\n", err)
 				return exitErr(1)
 			}
+			if snapshot != nil {
+				snapshot.Health = healthResultWithLastMessageActions(snapshot.Health, lastMessage)
+			}
 			if !quiet {
 				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
 				if err := renderTeamHealth(cmd.OutOrStdout(), snapshot, jsonOut, tmpl, commands, scope); err != nil {
@@ -6436,6 +6440,7 @@ func newTeamHealthCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team health as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print issue remediation commands, one per line. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only check team-owned daemon-known instances for this runtime: claude or codex. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only check team-owned running instances whose recorded runtime PID is no longer live. Daemon, queue, and job health remain team-scoped.")
 	cmd.Flags().StringVar(&format, "format", "", "Render team health with a Go template, e.g. '{{.Team.Name}} {{.Health.Healthy}}'.")
@@ -7364,7 +7369,6 @@ func scopeTeamHealthIssueActions(result *healthResult, teamName string) {
 	}
 	teamName = strings.TrimSpace(teamName)
 	scopedSync := fmt.Sprintf("agent-team team sync %s --dry-run", teamName)
-	scopedRuntimeResume := fmt.Sprintf("agent-team team resume-plan %s %s", teamName, runtimeResumePlanHintFlag("--status crashed"))
 	for i := range result.Issues {
 		for j, action := range result.Issues[i].Actions {
 			action = strings.TrimSpace(action)
@@ -7372,7 +7376,7 @@ func scopeTeamHealthIssueActions(result *healthResult, teamName string) {
 			case action == "agent-team sync --dry-run":
 				result.Issues[i].Actions[j] = scopedSync
 			case teamHealthActionIsInstanceRuntimeResumePlan(action):
-				result.Issues[i].Actions[j] = scopedRuntimeResume
+				result.Issues[i].Actions[j] = teamHealthScopedRuntimeResumePlanAction(teamName, action)
 			}
 		}
 	}
@@ -7383,7 +7387,15 @@ func teamHealthActionIsInstanceRuntimeResumePlan(action string) bool {
 	return (strings.HasPrefix(action, "agent-team resume-plan ") ||
 		strings.HasPrefix(action, "agent-team runtime resume-plan ")) &&
 		!strings.Contains(action, " --job ") &&
-		strings.HasSuffix(action, " --status crashed")
+		(strings.HasSuffix(action, " --status crashed") || strings.HasSuffix(action, " --runtime-stale"))
+}
+
+func teamHealthScopedRuntimeResumePlanAction(teamName, action string) string {
+	flag := "--status crashed"
+	if strings.HasSuffix(strings.TrimSpace(action), " --runtime-stale") {
+		flag = "--runtime-stale"
+	}
+	return fmt.Sprintf("agent-team team resume-plan %s %s", teamName, runtimeResumePlanHintFlag(flag))
 }
 
 func collectTeamPsRows(teamDir, name string, now time.Time) ([]instanceRow, error) {
