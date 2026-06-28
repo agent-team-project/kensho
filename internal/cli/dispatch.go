@@ -87,11 +87,12 @@ func newDispatchCmd() *cobra.Command {
 					return exitErr(1)
 				}
 				if commands {
+					scope := operatorCommandScopeFromCommand(cmd, repoTarget, "target")
 					return renderDispatchApplyCommand(cmd.OutOrStdout(), dispatchPreviewHasRoutes(preview), dispatchApplyCommandOptions{
 						Target:          targetAgent,
 						Ticket:          ticket,
-						RepoTarget:      repoTarget,
-						RepoTargetSet:   cmd.Flags().Changed("target"),
+						Repo:            scope.Repo,
+						RepoSet:         scope.Set,
 						Name:            name,
 						NameSet:         cmd.Flags().Changed("name"),
 						Source:          source,
@@ -141,7 +142,7 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching dispatch apply command when the preview has actionable routes.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching dispatch apply command when the preview has actionable routes. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template.")
 	return cmd
@@ -193,8 +194,8 @@ func renderDispatchRoutePreview(w io.Writer, result *dispatchRoutePreview, jsonO
 type dispatchApplyCommandOptions struct {
 	Target          string
 	Ticket          string
-	RepoTarget      string
-	RepoTargetSet   bool
+	Repo            string
+	RepoSet         bool
 	Name            string
 	NameSet         bool
 	Source          string
@@ -224,8 +225,8 @@ func dispatchApplyCommandArgs(opts dispatchApplyCommandOptions) []string {
 	args := []string{"agent-team", "dispatch", opts.Target, opts.Ticket}
 	kickoffSet := opts.KickoffSet && strings.TrimSpace(opts.Kickoff) != ""
 	kickoffFileSet := opts.KickoffFileSet && strings.TrimSpace(opts.KickoffFile) != ""
-	if opts.RepoTargetSet && strings.TrimSpace(opts.RepoTarget) != "" {
-		args = append(args, "--target", opts.RepoTarget)
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
 	}
 	if opts.NameSet && strings.TrimSpace(opts.Name) != "" {
 		args = append(args, "--name", opts.Name)

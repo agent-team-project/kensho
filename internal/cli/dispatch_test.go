@@ -189,7 +189,7 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	}
 	wantCommand := strings.Join(shellQuoteArgs([]string{
 		"agent-team", "dispatch", "worker", "SQU-244",
-		"--target", target,
+		"--repo", target,
 		"--source", "manager",
 		"--workspace", "repo",
 		"--runtime", "codex",
@@ -200,11 +200,33 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 		t.Fatalf("dispatch --dry-run --commands = %q, want %q", got, wantCommand)
 	}
 
+	rootScopedCommands := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScopedCommands.SetOut(rootScopedOut)
+	rootScopedCommands.SetErr(rootScopedErr)
+	rootScopedCommands.SetArgs([]string{
+		"--repo", target,
+		"dispatch", "worker", "SQU-245", "root", "scoped",
+		"--dry-run",
+		"--commands",
+	})
+	if err := rootScopedCommands.Execute(); err != nil {
+		t.Fatalf("dispatch root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedErr.String())
+	}
+	wantRootScopedCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "dispatch", "worker", "SQU-245",
+		"--repo", target,
+		"root", "scoped",
+	}), " ")
+	if got := strings.TrimSpace(rootScopedOut.String()); got != wantRootScopedCommand {
+		t.Fatalf("dispatch root --repo --dry-run --commands = %q, want %q", got, wantRootScopedCommand)
+	}
+
 	noRoute := NewRootCmd()
 	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noRoute.SetOut(noRouteOut)
 	noRoute.SetErr(noRouteErr)
-	noRoute.SetArgs([]string{"dispatch", "reviewer", "SQU-245", "--target", target, "--dry-run", "--commands"})
+	noRoute.SetArgs([]string{"dispatch", "reviewer", "SQU-246", "--target", target, "--dry-run", "--commands"})
 	if err := noRoute.Execute(); err != nil {
 		t.Fatalf("dispatch no-route --dry-run --commands: %v\nstderr=%s", err, noRouteErr.String())
 	}

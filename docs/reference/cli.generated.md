@@ -768,7 +768,7 @@ agent-team dispatch <target> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
-      --commands              With --dry-run, print the matching dispatch apply command when the preview has actionable routes.
+      --commands              With --dry-run, print the matching dispatch apply command when the preview has actionable routes. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview topology matches without publishing to the daemon.
       --format string         Render the event outcome or dry-run preview with a Go template.
       --json                  Emit the daemon event outcome as JSON.
