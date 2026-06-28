@@ -715,6 +715,7 @@ agent-team daemon status [flags]
 Flags:
 
 ```text
+      --commands            Print only recommended follow-up commands for the daemon state. agent-team follow-ups preserve the selected repo scope.
       --down                With --wait, wait until agent-teamd is not running.
       --format string       Render daemon status with a Go template, e.g. '{{.Ready}} {{.PID}}'.
       --interval duration   Polling interval for --wait. (default 200ms)

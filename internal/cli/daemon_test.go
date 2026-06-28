@@ -118,6 +118,91 @@ func TestDaemonStatus_ReadyWithInstanceCount(t *testing.T) {
 	}
 }
 
+func TestDaemonStatusCommandsNotRunning(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon start",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --commands output = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("status --commands should not write stderr, got %q", stderr.String())
+	}
+}
+
+func TestDaemonStatusCommandsRunningNotReady(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.PidPath(teamDir), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon restart",
+		"agent-team daemon logs --tail 80",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --commands output = %q, want %q", got, want)
+	}
+}
+
+func TestDaemonStatusCommandsReady(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-daemon-status-commands-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "manager", Name: "manager", Workspace: tmp}); err != nil {
+		t.Fatal(err)
+	}
+	defer stopAndWaitForTest(t, mgr, "manager")
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team ps",
+		"agent-team monitor",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("status --commands output = %q, want %q", got, want)
+	}
+}
+
 func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -832,6 +917,31 @@ func TestDaemonStatusQuietRejectsJSON(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "choose one of --quiet or --json") {
 		t.Fatalf("stderr = %q, want quiet/json validation", stderr.String())
+	}
+}
+
+func TestDaemonStatusCommandsRejectsConflictingModes(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"daemon", "status", "--commands", "--json"}, "--commands cannot be combined"},
+		{[]string{"daemon", "status", "--commands", "--quiet"}, "--commands cannot be combined"},
+		{[]string{"daemon", "status", "--commands", "--format", "{{.Ready}}"}, "--commands cannot be combined"},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		stderr := &bytes.Buffer{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%v: expected validation error", tc.args)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
 	}
 }
 

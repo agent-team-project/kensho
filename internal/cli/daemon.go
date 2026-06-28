@@ -243,6 +243,7 @@ func newDaemonStatusCmd() *cobra.Command {
 		target   string
 		jsonOut  bool
 		quiet    bool
+		commands bool
 		wait     bool
 		down     bool
 		timeout  time.Duration
@@ -274,8 +275,16 @@ func newDaemonStatusCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon status: choose one of --quiet or --json.")
 				return exitErr(2)
 			}
+			if commands && (quiet || jsonOut) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon status: --commands cannot be combined with --quiet or --json.")
+				return exitErr(2)
+			}
 			if format != "" && (quiet || jsonOut) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon status: --format cannot be combined with --quiet or --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon status: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			formatTemplate, err := parseDaemonStatusFormat(format)
@@ -283,7 +292,7 @@ func newDaemonStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon status: %v\n", err)
 				return exitErr(2)
 			}
-			return runDaemonStatus(cmd, target, jsonOut, quiet, daemonStatusOptions{
+			return runDaemonStatus(cmd, target, jsonOut, quiet, commands, operatorCommandScopeFromCommand(cmd, target, "target"), daemonStatusOptions{
 				Wait:     wait,
 				Down:     down,
 				Timeout:  timeout,
@@ -294,6 +303,7 @@ func newDaemonStatusCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use the exit code as a readiness probe.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands for the daemon state. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait until agent-teamd is running and ready.")
 	cmd.Flags().BoolVar(&down, "down", false, "With --wait, wait until agent-teamd is not running.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Maximum time to wait with --wait (0 = no timeout).")
@@ -906,7 +916,7 @@ type daemonStatusOptions struct {
 	Interval time.Duration
 }
 
-func runDaemonStatus(cmd *cobra.Command, target string, jsonOut, quiet bool, opts daemonStatusOptions, tmpl *template.Template) error {
+func runDaemonStatus(cmd *cobra.Command, target string, jsonOut, quiet, commands bool, scope operatorCommandScope, opts daemonStatusOptions, tmpl *template.Template) error {
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
 		return err
@@ -928,6 +938,15 @@ func runDaemonStatus(cmd *cobra.Command, target string, jsonOut, quiet bool, opt
 	}
 	if jsonOut {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(status); err != nil {
+			return err
+		}
+		if timedOut {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if commands {
+		if err := renderDaemonStatusCommands(cmd.OutOrStdout(), status, scope); err != nil {
 			return err
 		}
 		if timedOut {
@@ -964,6 +983,26 @@ func runDaemonStatus(cmd *cobra.Command, target string, jsonOut, quiet bool, opt
 		return exitErr(1)
 	}
 	return nil
+}
+
+func renderDaemonStatusCommands(w io.Writer, status daemonStatusJSON, scope operatorCommandScope) error {
+	return renderOperatorActionCommands(w, daemonStatusCommandActions(status), scope)
+}
+
+func daemonStatusCommandActions(status daemonStatusJSON) []string {
+	if !status.Running {
+		return []string{"agent-team daemon start"}
+	}
+	if !status.Ready {
+		return []string{
+			"agent-team daemon restart",
+			"agent-team daemon logs --tail 80",
+		}
+	}
+	return []string{
+		"agent-team ps",
+		"agent-team monitor",
+	}
 }
 
 func parseDaemonStatusFormat(format string) (*template.Template, error) {
