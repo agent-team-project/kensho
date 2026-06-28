@@ -48,10 +48,10 @@ as the output directory instead.
 | Command | Purpose |
 | --- | --- |
 | `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach`; use `--runtime` for one-off Claude/Codex selection |
-| `agent-team start [instances...]` | Start/resume persistent or selected instances |
-| `agent-team stop [instances...]` | Stop selected instances |
-| `agent-team kill [instances...]` | Force-stop selected instances |
-| `agent-team restart [instances...]` | Restart/resume selected instances |
+| `agent-team start [instances...]` | Start/resume persistent or selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
+| `agent-team stop [instances...]` | Stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
+| `agent-team kill [instances...]` | Force-stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
+| `agent-team restart [instances...]` | Restart/resume selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team ps` | List instance rows; filter mixed-runtime views with `--runtime` |
 | `agent-team inspect [instances...]` | Show runtime and state detail |
 | `agent-team logs [instance]` | Read/follow instance logs, use `--last-message` for clean Codex final responses, or `--clean` to hide known Codex diagnostics |

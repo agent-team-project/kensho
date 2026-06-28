@@ -1345,6 +1345,8 @@ type instanceUpOptions struct {
 	Quiet          bool
 	JSON           bool
 	Format         *template.Template
+	Commands       bool
+	Command        lifecycleCommandOptions
 	Health         healthOptions
 }
 
@@ -1435,6 +1437,30 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 	}
 	if opts.DryRun && opts.Wait {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --dry-run cannot be combined with --wait.")
+		return exitErr(2)
+	}
+	if opts.Commands && !opts.DryRun {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands requires --dry-run.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.JSON {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --json.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Summary {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --summary.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Quiet {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --quiet.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Format != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --format.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Attach {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --attach.")
 		return exitErr(2)
 	}
 	if opts.Attach && opts.JSON {
@@ -1576,6 +1602,9 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 		waitHealth = lifecycleWaitHealthOptionsForTargets(targets)
 	}
 	if len(targets) == 0 {
+		if opts.Commands {
+			return nil
+		}
 		if opts.JSON {
 			if opts.Summary {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(lifecycleActionSummaryResult{
@@ -1603,7 +1632,7 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 		if opts.DryRun {
 			result := dryRunStartResultWithDaemonState(lt, daemonRunning)
 			results = append(results, result)
-			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary && !opts.Commands {
 				renderLifecycleDryRun(out, result)
 			}
 			continue
@@ -1667,6 +1696,9 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 		}
 	}
 	if opts.DryRun {
+		if opts.Commands {
+			return renderLifecycleActionCommands(out, results, opts.Command)
+		}
 		if opts.JSON {
 			if opts.Summary {
 				return json.NewEncoder(out).Encode(lifecycleActionSummaryResult{
@@ -1814,6 +1846,101 @@ func renderLifecycleActionFormat(w io.Writer, rows []lifecycleActionResult, tmpl
 		}
 	}
 	return nil
+}
+
+type lifecycleCommandOptions struct {
+	BaseArgs        []string
+	TargetFlag      string
+	Target          string
+	TargetSet       bool
+	Names           []string
+	All             bool
+	Latest          bool
+	Limit           int
+	AgentFilters    []string
+	RuntimeFilters  []string
+	StatusFilters   []string
+	PhaseFilters    []string
+	Stale           bool
+	RuntimeStale    bool
+	Unhealthy       bool
+	Prompt          string
+	PromptSet       bool
+	PromptFile      string
+	PromptFileSet   bool
+	Force           bool
+	Remove          bool
+	Timeout         time.Duration
+	TimeoutSet      bool
+	ReadyTimeout    time.Duration
+	ReadyTimeoutSet bool
+}
+
+func renderLifecycleActionCommands(w fmtWriter, rows []lifecycleActionResult, opts lifecycleCommandOptions) error {
+	if !lifecycleActionResultsHaveApplyCommand(rows) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(lifecycleApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func lifecycleActionResultsHaveApplyCommand(rows []lifecycleActionResult) bool {
+	for _, row := range rows {
+		switch row.Action {
+		case "start", "resume", "restart":
+			return true
+		}
+	}
+	return false
+}
+
+func lifecycleApplyCommandArgs(opts lifecycleCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.TargetSet && strings.TrimSpace(opts.Target) != "" {
+		args = append(args, opts.TargetFlag, opts.Target)
+	}
+	args = append(args, opts.Names...)
+	if opts.All {
+		args = append(args, "--all")
+	}
+	if opts.Latest {
+		args = append(args, "--latest")
+	}
+	if opts.Limit > 0 {
+		args = append(args, "--last", fmt.Sprintf("%d", opts.Limit))
+	}
+	args = appendPlanCommandFilterArgs(args, "--agent", opts.AgentFilters)
+	args = appendPlanCommandFilterArgs(args, "--runtime", opts.RuntimeFilters)
+	args = appendPlanCommandFilterArgs(args, "--status", opts.StatusFilters)
+	args = appendPlanCommandFilterArgs(args, "--phase", opts.PhaseFilters)
+	if opts.Stale {
+		args = append(args, "--stale")
+	}
+	if opts.RuntimeStale {
+		args = append(args, "--runtime-stale")
+	}
+	if opts.Unhealthy {
+		args = append(args, "--unhealthy")
+	}
+	if opts.PromptSet {
+		args = append(args, "--prompt", opts.Prompt)
+	}
+	if opts.PromptFileSet {
+		args = append(args, "--prompt-file", opts.PromptFile)
+	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
+	if opts.Remove {
+		args = append(args, "--rm")
+	}
+	if opts.TimeoutSet {
+		args = append(args, "--timeout", opts.Timeout.String())
+	}
+	if opts.ReadyTimeoutSet {
+		args = append(args, "--ready-timeout", opts.ReadyTimeout.String())
+	}
+	return args
 }
 
 func summarizeLifecycleActions(results []lifecycleActionResult, dryRun bool) lifecycleActionSummary {
@@ -2584,6 +2711,8 @@ type instanceDownOptions struct {
 	Quiet          bool
 	JSON           bool
 	Format         *template.Template
+	Commands       bool
+	Command        lifecycleCommandOptions
 }
 
 type instanceDownResult struct {
@@ -2659,6 +2788,26 @@ func runInstanceDownWithOptions(cmd *cobra.Command, target string, names []strin
 	}
 	if opts.DryRun && opts.Wait {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --dry-run cannot be combined with --wait.")
+		return exitErr(2)
+	}
+	if opts.Commands && !opts.DryRun {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands requires --dry-run.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.JSON {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --json.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Summary {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --summary.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Quiet {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --quiet.")
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Format != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --commands cannot be combined with --format.")
 		return exitErr(2)
 	}
 	if opts.Quiet && opts.JSON {
@@ -2752,6 +2901,9 @@ func runInstanceDownWithOptions(cmd *cobra.Command, target string, names []strin
 	}
 	out := cmd.OutOrStdout()
 	if len(targets) == 0 {
+		if opts.Commands {
+			return nil
+		}
 		if opts.JSON {
 			if opts.Summary {
 				return json.NewEncoder(out).Encode(lifecycleActionSummaryResult{
@@ -2788,7 +2940,7 @@ func runInstanceDownWithOptions(cmd *cobra.Command, target string, names []strin
 			}
 			resultByInstance[name] = len(results)
 			results = append(results, result)
-			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary && !opts.Commands {
 				renderDownDryRun(out, result)
 			}
 			continue
@@ -2834,6 +2986,9 @@ func runInstanceDownWithOptions(cmd *cobra.Command, target string, names []strin
 		stopped = append(stopped, name)
 	}
 	if opts.DryRun {
+		if opts.Commands {
+			return renderInstanceDownCommands(out, results, opts.Command)
+		}
 		if opts.JSON {
 			if opts.Summary {
 				return json.NewEncoder(out).Encode(lifecycleActionSummaryResult{
@@ -2938,6 +3093,28 @@ func renderInstanceDownFormat(w io.Writer, rows []instanceDownResult, tmpl *temp
 		}
 	}
 	return nil
+}
+
+func renderInstanceDownCommands(w fmtWriter, rows []instanceDownResult, opts lifecycleCommandOptions) error {
+	if !instanceDownResultsHaveApplyCommand(rows, opts.Remove) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(lifecycleApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func instanceDownResultsHaveApplyCommand(rows []instanceDownResult, remove bool) bool {
+	for _, row := range rows {
+		switch row.Action {
+		case "stop", "kill":
+			return true
+		case "skip":
+			if remove {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeDownResults(cmd *cobra.Command, teamDir string, dc *daemonClient, results []instanceDownResult, metaByName map[string]*daemon.Metadata, jsonOut bool) {

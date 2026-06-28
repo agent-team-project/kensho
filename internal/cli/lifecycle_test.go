@@ -524,6 +524,49 @@ func TestStartDryRunJSONDoesNotStartDaemon(t *testing.T) {
 	}
 }
 
+func TestStartDryRunCommandsPrintsApplyCommand(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"start", "--target", tmp, "--dry-run", "--agent", "manager", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("start --dry-run --commands: %v\nstderr: %s", err, stderr.String())
+	}
+	want := "agent-team start --target " + tmp + " --agent manager"
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Fatalf("start --dry-run --commands = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(daemon.PidPath(teamDir)); !os.IsNotExist(err) {
+		t.Fatalf("commands dry-run should not create daemon pidfile, stat err=%v", err)
+	}
+
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Runtime:  string(runtimebin.KindClaude),
+		Status:   daemon.StatusRunning,
+		PID:      os.Getpid(),
+	}); err != nil {
+		t.Fatalf("write manager metadata: %v", err)
+	}
+	noAction := NewRootCmd()
+	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noAction.SetOut(noActionOut)
+	noAction.SetErr(noActionErr)
+	noAction.SetArgs([]string{"start", "--target", tmp, "--dry-run", "--agent", "manager", "--commands"})
+	if err := noAction.Execute(); err != nil {
+		t.Fatalf("start --dry-run --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
+	}
+	if got := strings.TrimSpace(noActionOut.String()); got != "" {
+		t.Fatalf("start --dry-run --commands with no actionable rows = %q, want empty", got)
+	}
+}
+
 func TestStartDryRunSummaryJSONCountsActions(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -847,6 +890,58 @@ func TestStartFormatRejectsConflictingModes(t *testing.T) {
 		}
 		if !strings.Contains(stderr.String(), tc.want) {
 			t.Fatalf("%v: stderr = %q, want %q", tc.args, stderr.String(), tc.want)
+		}
+	}
+}
+
+func TestLifecycleCommandsRejectsInvalidRenderModes(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "start no dry-run",
+			args: []string{"start", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "start json",
+			args: []string{"start", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "stop summary",
+			args: []string{"stop", "--dry-run", "--commands", "--summary"},
+			want: "--commands cannot be combined with --summary",
+		},
+		{
+			name: "kill quiet",
+			args: []string{"kill", "--dry-run", "--commands", "--quiet"},
+			want: "--commands cannot be combined with --quiet",
+		},
+		{
+			name: "restart format",
+			args: []string{"restart", "--dry-run", "--commands", "--format", "{{.Instance}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "restart attach",
+			args: []string{"restart", "manager", "--dry-run", "--commands", "--attach"},
+			want: "--commands cannot be combined with --attach",
+		},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("%s succeeded\nstdout=%s\nstderr=%s", tc.name, out.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
 		}
 	}
 }
@@ -1830,6 +1925,69 @@ func TestStopDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	}
 	if _, err := os.Stat(daemon.PidPath(teamDir)); !os.IsNotExist(err) {
 		t.Fatalf("dry-run should not create daemon pidfile, stat err=%v", err)
+	}
+}
+
+func TestStopKillRestartDryRunCommandsPrintApplyCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "manager",
+		Agent:     "manager",
+		Runtime:   string(runtimebin.KindClaude),
+		Status:    daemon.StatusRunning,
+		PID:       os.Getpid(),
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("write manager metadata: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "stop named remove timeout",
+			args: []string{"stop", "manager", "--target", tmp, "--dry-run", "--rm", "--timeout", "10s", "--commands"},
+			want: "agent-team stop --target " + tmp + " manager --rm --timeout 10s",
+		},
+		{
+			name: "kill filtered",
+			args: []string{"kill", "--target", tmp, "--dry-run", "--all", "--runtime", "claude", "--commands"},
+			want: "agent-team kill --target " + tmp + " --all --runtime claude",
+		},
+		{
+			name: "restart filtered force timeout",
+			args: []string{"restart", "--target", tmp, "--dry-run", "--agent", "manager", "--force", "--timeout", "5s", "--commands"},
+			want: "agent-team restart --target " + tmp + " --agent manager --force --timeout 5s",
+		},
+	}
+	for _, tc := range cases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%s: %v\nstderr: %s", tc.name, err, stderr.String())
+		}
+		if got := strings.TrimSpace(out.String()); got != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	noAction := NewRootCmd()
+	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noAction.SetOut(noActionOut)
+	noAction.SetErr(noActionErr)
+	noAction.SetArgs([]string{"kill", "ticket-manager", "--target", tmp, "--dry-run", "--commands"})
+	if err := noAction.Execute(); err != nil {
+		t.Fatalf("kill --dry-run --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
+	}
+	if got := strings.TrimSpace(noActionOut.String()); got != "" {
+		t.Fatalf("kill --dry-run --commands with no actionable rows = %q, want empty", got)
 	}
 }
 

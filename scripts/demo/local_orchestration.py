@@ -130,6 +130,11 @@ def main(argv: list[str]) -> int:
         require_command(team_sync_commands, f"agent-team team sync delivery --repo {repo}")
         print("sync commands verified: sync apply, team sync apply")
 
+        step("verify command-only lifecycle apply hints")
+        start_commands = run(binary, "start", "--target", repo, "--dry-run", "--commands")
+        require_command(start_commands, f"agent-team start --target {repo}")
+        print("lifecycle commands verified: start apply")
+
         step("start daemon")
         run(binary, "daemon", "start", "--target", repo, "--ready-timeout", "5s", "--json", env=env, parse_json=True)
         if args.runtime == "claude":

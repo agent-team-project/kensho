@@ -3524,6 +3524,7 @@ Flags:
 ```text
       --agent strings           Force-stop every running instance for this agent. Can repeat or comma-separate.
   -a, --all                     Force-stop every daemon-managed running instance.
+      --commands                With --dry-run, print the matching apply command when the preview has actionable work.
       --dry-run                 Preview planned kill actions without changing daemon state.
       --format string           Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                    Emit machine-readable JSON.
@@ -6183,6 +6184,7 @@ Flags:
       --agent strings            Restart or resume every declared persistent and daemon-known instance for this agent. Can repeat or comma-separate.
   -a, --all                      Restart or resume every declared persistent and daemon-known instance.
       --attach                   Follow the selected instance log after restarting or resuming. Requires exactly one selected instance.
+      --commands                 With --dry-run, print the matching apply command when the preview has actionable work.
       --dry-run                  Preview planned restart/resume actions without changing daemon state.
   -f, --force                    Escalate to SIGKILL if a running instance does not stop within --timeout before restarting.
       --format string            Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
@@ -6858,6 +6860,7 @@ Flags:
       --agent strings            Start or resume every declared persistent and daemon-known instance for this agent. Can repeat or comma-separate.
   -a, --all                      Start or resume every declared persistent and daemon-known instance.
       --attach                   Follow the selected instance log after starting or resuming. Requires exactly one selected instance.
+      --commands                 With --dry-run, print the matching apply command when the preview has actionable work.
       --dry-run                  Preview planned start/resume actions without changing daemon state.
       --format string            Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json                     Emit machine-readable JSON.
@@ -6989,6 +6992,7 @@ Flags:
 ```text
       --agent strings           Stop every running instance for this agent. Can repeat or comma-separate.
   -a, --all                     Stop every daemon-managed running instance.
+      --commands                With --dry-run, print the matching apply command when the preview has actionable work.
       --dry-run                 Preview planned stop actions without changing daemon state.
   -f, --force                   Escalate to SIGKILL if an instance does not stop within --timeout.
       --format string           Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
