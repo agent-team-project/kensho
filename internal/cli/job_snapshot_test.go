@@ -50,7 +50,7 @@ func TestJobSnapshotCapturesPostMortemRuntimeState(t *testing.T) {
 		Instance: j.Instance,
 		Message:  "done",
 		Actor:    "daemon",
-		Data:     map[string]string{"instance": j.Instance},
+		Data:     map[string]string{"api_key": "timeline-secret", "instance": j.Instance},
 	}); err != nil {
 		t.Fatalf("append exit event: %v", err)
 	}
@@ -198,6 +198,21 @@ description = "complete"
 	if snapshot.LifecycleEvents[0].Action != "exit" || snapshot.LifecycleEvents[1].Action != "dispatch" {
 		t.Fatalf("lifecycle events order = %+v", snapshot.LifecycleEvents)
 	}
+	if len(snapshot.Timeline) != 4 {
+		t.Fatalf("timeline = %+v", snapshot.Timeline)
+	}
+	jobRows, lifecycleRows := countJobTimelineSources(snapshot.Timeline)
+	if jobRows != 2 || lifecycleRows != 2 {
+		t.Fatalf("timeline source counts: job=%d lifecycle=%d entries=%+v", jobRows, lifecycleRows, snapshot.Timeline)
+	}
+	for _, entry := range snapshot.Timeline {
+		if entry.JobID != j.ID {
+			t.Fatalf("timeline entry not scoped to job: %+v", entry)
+		}
+		if entry.Source == "job" && entry.Data["api_key"] != "" && entry.Data["api_key"] != snapshotRedactedValue {
+			t.Fatalf("timeline data not redacted: %+v", entry)
+		}
+	}
 	if len(snapshot.Queue) != 1 || snapshot.Queue[0].Payload["api_key"] != snapshotRedactedValue {
 		t.Fatalf("queue not redacted: %+v", snapshot.Queue)
 	}
@@ -248,6 +263,9 @@ description = "complete"
 	if len(rawSnapshot.OutboxQuarantine) != 1 || rawSnapshot.OutboxQuarantine[0].ID != "outbox-quarantined-160" {
 		t.Fatalf("raw outbox quarantine rows = %+v", rawSnapshot.OutboxQuarantine)
 	}
+	if rawSnapshot.Timeline != nil {
+		t.Fatalf("raw snapshot with --events 0 included timeline: %+v", rawSnapshot.Timeline)
+	}
 }
 
 func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
@@ -284,7 +302,7 @@ func TestJobSnapshotHumanSummaryAndOutputFile(t *testing.T) {
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("job snapshot summary: %v\nstderr=%s", err, stderr.String())
 	}
-	for _, want := range []string{"job snapshot:", "command: agent-team job snapshot scope=job subject=squ-161", "job: squ-161", "events: job=0 lifecycle=0", "outbox: total=1 pending=1 failed=0 processed=0", "actions:"} {
+	for _, want := range []string{"job snapshot:", "command: agent-team job snapshot scope=job subject=squ-161", "job: squ-161", "events: job=0 lifecycle=0", "timeline: events=0 job=0 lifecycle=0", "outbox: total=1 pending=1 failed=0 processed=0", "actions:"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary missing %q:\n%s", want, out.String())
 		}

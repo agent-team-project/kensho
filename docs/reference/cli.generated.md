@@ -3352,7 +3352,7 @@ Flags:
 
 Capture a job-scoped diagnostic snapshot.
 
-Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, queue/outbox ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.
+Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, daemon lifecycle rows, combined audit/lifecycle timeline rows, queue/outbox ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.
 
 ```text
 agent-team job snapshot <job-id> [flags]

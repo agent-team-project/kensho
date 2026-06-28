@@ -34,7 +34,7 @@ func newJobSnapshotCmd() *cobra.Command {
 		Use:   "snapshot <job-id>",
 		Short: "Capture a job-scoped diagnostic snapshot.",
 		Long: "Capture a read-only diagnostic snapshot for one durable job, including job state, audit events, " +
-			"daemon lifecycle rows, queue/outbox ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.",
+			"daemon lifecycle rows, combined audit/lifecycle timeline rows, queue/outbox ownership, inbox summaries, runtime metadata, state files, optional log tail content, and command provenance.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if eventLimit < -1 {
@@ -150,6 +150,7 @@ type jobSnapshotResult struct {
 	LastMessage             *jobSnapshotFile         `json:"last_message,omitempty"`
 	JobEvents               []job.Event              `json:"job_events,omitempty"`
 	LifecycleEvents         []daemon.LifecycleEvent  `json:"lifecycle_events,omitempty"`
+	Timeline                []jobTimelineEntry       `json:"timeline,omitempty"`
 	Queue                   []*daemon.QueueItem      `json:"queue,omitempty"`
 	QueueSummary            *queueSummary            `json:"queue_summary,omitempty"`
 	QueueQuarantine         []queueQuarantineItem    `json:"queue_quarantine,omitempty"`
@@ -222,6 +223,16 @@ func collectJobSnapshot(teamDir, repoRoot string, j *job.Job, opts jobSnapshotOp
 			out.addError("lifecycle_events", err)
 		} else {
 			out.LifecycleEvents = events
+		}
+		if timeline, err := collectJobTimeline(teamDir, j, "all", nil, opts.EventLimit, opts.EventSort); err != nil {
+			out.addError("timeline", err)
+		} else {
+			if opts.Redact {
+				for i := range timeline {
+					timeline[i].Data = redactSnapshotStringMap(timeline[i].Data)
+				}
+			}
+			out.Timeline = timeline
 		}
 	}
 	if queue, err := queueItemsForJob(teamDir, j); err != nil {
@@ -670,6 +681,10 @@ func renderJobSnapshotSummary(w io.Writer, snapshot *jobSnapshotResult) {
 		fmt.Fprintf(w, "last_message: exists=%s size=%d path=%s\n", yesNo(snapshot.LastMessage.Exists), snapshot.LastMessage.Size, snapshot.LastMessage.Path)
 	}
 	fmt.Fprintf(w, "events: job=%d lifecycle=%d\n", len(snapshot.JobEvents), len(snapshot.LifecycleEvents))
+	if snapshot.Timeline != nil {
+		jobRows, lifecycleRows := countJobTimelineSources(snapshot.Timeline)
+		fmt.Fprintf(w, "timeline: events=%d job=%d lifecycle=%d\n", len(snapshot.Timeline), jobRows, lifecycleRows)
+	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintln(w, queueSummaryLine(*snapshot.QueueSummary))
 	}
