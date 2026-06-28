@@ -4442,6 +4442,7 @@ Flags:
 
 ```text
       --all              Validate all pipelines. This is the default when no pipeline is passed.
+      --commands         Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string    Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json             Emit pipeline doctor findings as JSON.
       --repo string      Repo root containing .agent_team. (default "<repo>")
@@ -7472,6 +7473,7 @@ Flags:
 
 ```text
       --all              Validate all declared teams.
+      --commands         Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string    Render the team doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json             Emit team doctor findings as JSON.
       --repo string      Repo root containing .agent_team. (default "<repo>")

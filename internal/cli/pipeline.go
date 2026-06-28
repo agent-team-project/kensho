@@ -194,6 +194,7 @@ func newPipelineDoctorCmd() *cobra.Command {
 		all           bool
 		strictRuntime bool
 		jsonOut       bool
+		commands      bool
 		format        string
 	)
 	cwd, _ := os.Getwd()
@@ -206,6 +207,14 @@ func newPipelineDoctorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline doctor: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if all && len(args) > 0 {
@@ -241,13 +250,14 @@ func newPipelineDoctorCmd() *cobra.Command {
 			if strictRuntime {
 				promotePipelineDoctorRuntimeWarnings(result)
 			}
-			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl)
+			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, tmpl, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when a step-declared runtime default cannot be resolved or is not discoverable.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline doctor findings as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	return cmd
 }
@@ -10434,12 +10444,21 @@ func renderPipelineInfoFormat(w io.Writer, info pipelineInfo, tmpl *template.Tem
 	return err
 }
 
-func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult, jsonOut bool, tmpl *template.Template) error {
+func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult, jsonOut, commands, strictRuntime bool, tmpl *template.Template, scope operatorCommandScope) error {
 	if result == nil {
 		result = &pipelineDoctorResult{OK: true}
 	}
 	if jsonOut {
 		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			return err
+		}
+		if !result.OK {
+			return exitErr(1)
+		}
+		return nil
+	}
+	if commands {
+		if err := renderOperatorActionCommands(stdout, pipelineDoctorCommandActions(result, strictRuntime), scope); err != nil {
 			return err
 		}
 		if !result.OK {
@@ -10483,6 +10502,64 @@ func renderPipelineDoctor(stdout, stderr io.Writer, result *pipelineDoctorResult
 		fmt.Fprintf(stderr, "  warning: %s\n", warning.Message)
 	}
 	return exitErr(1)
+}
+
+func pipelineDoctorCommandActions(result *pipelineDoctorResult, strictRuntime bool) []string {
+	names := pipelineDoctorAffectedPipelines(result)
+	actions := make([]string, 0, len(names)*2)
+	for _, name := range names {
+		actions = append(actions, pipelineDoctorDetailAction(name, strictRuntime), pipelineDoctorGraphAction(name))
+	}
+	return actions
+}
+
+func pipelineDoctorAffectedPipelines(result *pipelineDoctorResult) []string {
+	if result == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for _, pipeline := range result.Pipelines {
+		if !pipeline.OK || len(pipeline.Problems) > 0 || len(pipeline.Warnings) > 0 {
+			add(pipeline.Name)
+		}
+	}
+	for _, finding := range result.Problems {
+		add(finding.Pipeline)
+	}
+	for _, finding := range result.Warnings {
+		add(finding.Pipeline)
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func pipelineDoctorDetailAction(name string, strictRuntime bool) string {
+	args := []string{"agent-team", "pipeline", "doctor"}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		args = append(args, "--all")
+	} else {
+		args = append(args, name)
+	}
+	if strictRuntime {
+		args = append(args, "--strict-runtime")
+	}
+	args = append(args, "--json")
+	return strings.Join(shellQuoteArgs(args), " ")
+}
+
+func pipelineDoctorGraphAction(name string) string {
+	return strings.Join(shellQuoteArgs([]string{"agent-team", "pipeline", "graph", strings.TrimSpace(name), "--routes"}), " ")
 }
 
 func parsePipelineDoctorFormat(format string) (*template.Template, error) {

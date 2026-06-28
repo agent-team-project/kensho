@@ -4933,6 +4933,25 @@ schedules = ["nightly"]
 	if formatErr.Len() != 0 {
 		t.Fatalf("team doctor failure format stderr = %q", formatErr.String())
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "doctor", "delivery", "--repo", root, "--commands"})
+	if err := commands.Execute(); err == nil {
+		t.Fatal("team doctor commands unexpectedly succeeded")
+	}
+	wantCommands := strings.Join(scopedOperatorActions([]string{
+		teamDoctorDetailAction("delivery", false),
+		teamDoctorGraphAction("delivery"),
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("team doctor commands output = %q, want %q", got, wantCommands)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("team doctor commands stderr = %q", commandsErr.String())
+	}
 }
 
 func TestTeamDoctorAllValidatesEveryTeam(t *testing.T) {
@@ -5025,6 +5044,25 @@ pipelines = ["platform"]
 		t.Fatalf("team doctor --all format stderr = %q", formatErr.String())
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "doctor", "--all", "--repo", root, "--commands"})
+	if err := commands.Execute(); err == nil {
+		t.Fatal("team doctor --all commands unexpectedly succeeded")
+	}
+	wantCommands := strings.Join(scopedOperatorActions([]string{
+		teamDoctorDetailAction("platform", false),
+		teamDoctorGraphAction("platform"),
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("team doctor --all commands output = %q, want %q", got, wantCommands)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("team doctor --all commands stderr = %q", commandsErr.String())
+	}
+
 	invalid := NewRootCmd()
 	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalid.SetOut(invalidOut)
@@ -5042,6 +5080,8 @@ pipelines = ["platform"]
 		want string
 	}{
 		{[]string{"team", "doctor", "delivery", "--format", "{{.OK}}", "--json", "--repo", root}, "--format cannot be combined"},
+		{[]string{"team", "doctor", "delivery", "--commands", "--json", "--repo", root}, "--commands cannot be combined with --json"},
+		{[]string{"team", "doctor", "delivery", "--commands", "--format", "{{.OK}}", "--repo", root}, "--commands cannot be combined with --format"},
 		{[]string{"team", "doctor", "delivery", "--format", "{{", "--repo", root}, "invalid --format template"},
 	}
 	for _, tc := range cases {

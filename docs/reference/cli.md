@@ -218,7 +218,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline ls` | List pipeline declarations |
 | `agent-team pipeline show <pipeline>` | Show one declaration; `inspect` is an alias |
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
-| `agent-team pipeline doctor --all` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults |
+| `agent-team pipeline doctor --all [--commands]` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults or `--commands` for route-aware graph/detail follow-ups |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--commands` scripts dry-run previews, `--dispatch` accepts workspace/runtime overrides, and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one repo-scoped row action command per line |
 | `agent-team pipeline watch [<pipeline>]` | Continuous pipeline status shortcut with queue/outbox and quarantine counts |
@@ -271,7 +271,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team ls` | List teams |
 | `agent-team team show <team>` | Show team declaration; `inspect` is an alias |
 | `agent-team team graph <team>` | Render team-owned instance, schedule, and pipeline wiring |
-| `agent-team team doctor --all` | Validate team-owned workflow wiring; add `--strict-runtime` to fail on unavailable step runtime defaults |
+| `agent-team team doctor --all [--commands]` | Validate team-owned workflow wiring; add `--strict-runtime` to fail on unavailable step runtime defaults or `--commands` for team graph/detail follow-ups |
 | `agent-team team overview <team>` | Scoped operator overview; add `--last-message` when runtime resume-plan hints should prefer clean Codex final-message fallbacks, or `--commands` for one scoped action command per line while preserving an explicit `--repo` selector |
 | `agent-team team health <team>` | Scoped health; add `--last-message` when runtime remediation should prefer clean Codex final-message fallbacks, or `--commands` for one scoped remediation command per line while preserving an explicit `--repo` selector |
 | `agent-team team resume-plan <team>` | Team-scoped runtime recovery commands; filter by `--step`, `--action`, `--runtime-stale`, or `--unhealthy`, prefer clean Codex sidecars with `--last-message`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, or summarize with `--summary`; `team runtime resume-plan` remains available |

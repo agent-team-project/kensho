@@ -759,6 +759,25 @@ after = ["implement"]
 	if formatErr.Len() != 0 {
 		t.Fatalf("pipeline doctor failure format stderr = %q", formatErr.String())
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "doctor", "broken", "--repo", root, "--commands"})
+	if err := commands.Execute(); err == nil {
+		t.Fatal("pipeline doctor commands unexpectedly succeeded")
+	}
+	wantCommands := strings.Join(scopedOperatorActions([]string{
+		pipelineDoctorDetailAction("broken", false),
+		pipelineDoctorGraphAction("broken"),
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("pipeline doctor commands output = %q, want %q", got, wantCommands)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("pipeline doctor commands stderr = %q", commandsErr.String())
+	}
 }
 
 func TestPipelineDoctorRejectsInvalidArguments(t *testing.T) {
@@ -788,6 +807,8 @@ func TestPipelineDoctorRejectsInvalidArguments(t *testing.T) {
 		want string
 	}{
 		{[]string{"pipeline", "doctor", "--format", "{{.OK}}", "--json", "--repo", root}, "--format cannot be combined"},
+		{[]string{"pipeline", "doctor", "--commands", "--json", "--repo", root}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "doctor", "--commands", "--format", "{{.OK}}", "--repo", root}, "--commands cannot be combined with --format"},
 		{[]string{"pipeline", "doctor", "--format", "{{", "--repo", root}, "invalid --format template"},
 	}
 	for _, tc := range cases {
