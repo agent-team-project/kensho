@@ -11198,6 +11198,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			args: []string{"job", "approve", "squ-1", "--wait-next-state", "running"},
 			want: "wait-related flags require --wait",
 		},
+		{
+			name: "approve commands without dry-run",
+			args: []string{"job", "approve", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "approve commands with json",
+			args: []string{"job", "approve", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "approve commands with format",
+			args: []string{"job", "approve", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()
@@ -11476,6 +11491,47 @@ func TestJobApproveAdvanceWaitsForRequestedStatus(t *testing.T) {
 		t.Fatalf("approve advance wait step = %+v", result.Step)
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-918-review")
+}
+
+func TestJobApproveManualGateDryRunCommands(t *testing.T) {
+	root, _, cleanup := setupManualGateApprovalRepo(t, false)
+	defer cleanup()
+	teamDir := filepath.Join(root, ".agent_team")
+	writeManualGateApprovalJob(t, teamDir, "squ-921")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "approve", "squ-921", "--repo", root, "--advance", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--message", "manual approval", "--dry-run", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job approve --dry-run --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "approve", "squ-921", "--repo", root, "--advance", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--step", "review", "--message", "manual approval"}), " ")
+	if got := strings.TrimSpace(out.String()); got != wantCommand {
+		t.Fatalf("job approve --commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err := job.Read(teamDir, "squ-921")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusBlocked || unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("dry-run changed job = %+v", unchanged)
+	}
+
+	writeManualGateApprovalJob(t, teamDir, "squ-922")
+	positional := NewRootCmd()
+	positionalOut, positionalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	positional.SetOut(positionalOut)
+	positional.SetErr(positionalErr)
+	positional.SetArgs([]string{"job", "approve", "squ-922", "looks", "good", "--repo", root, "--dry-run", "--commands"})
+	if err := positional.Execute(); err != nil {
+		t.Fatalf("job approve positional --commands: %v\nstderr=%s", err, positionalErr.String())
+	}
+	wantPositional := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "approve", "squ-922", "--repo", root, "--step", "review", "looks", "good"}), " ")
+	if got := strings.TrimSpace(positionalOut.String()); got != wantPositional {
+		t.Fatalf("job approve positional --commands = %q, want %q", got, wantPositional)
+	}
 }
 
 func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {

@@ -1902,6 +1902,7 @@ Flags:
 
 ```text
       --advance                   After approval, dispatch the newly ready step.
+      --commands                  With --dry-run, print the matching job approve apply command when the preview has actionable work.
       --dry-run                   Preview approval and optional advance dispatch without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
