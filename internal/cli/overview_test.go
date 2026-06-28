@@ -87,8 +87,30 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("overview --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), strings.Join(overview.Actions, "\n")+"\n"; got != want {
-		t.Fatalf("overview --commands = %q, want %q", got, want)
+	wantCommands := strings.Join(scopedOperatorActions(commandActionsOnly(overview.Actions), operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("overview --commands = %q, want %q", got, wantCommands)
+	}
+}
+
+func TestScopedOperatorActionsPreserveCommandTails(t *testing.T) {
+	scope := operatorCommandScope{Repo: "/tmp/repo with spaces", Set: true}
+	actions := []string{
+		"agent-team repair --dry-run",
+		"agent-team --repo /already/scoped repair --dry-run",
+		"agent-team job note squ-1 --message 'hello world'",
+		"git status --short",
+	}
+
+	got := scopedOperatorActions(actions, scope)
+	want := []string{
+		"agent-team --repo '/tmp/repo with spaces' repair --dry-run",
+		"agent-team --repo /already/scoped repair --dry-run",
+		"agent-team --repo '/tmp/repo with spaces' job note squ-1 --message 'hello world'",
+		"git status --short",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("scoped actions = %#v, want %#v", got, want)
 	}
 }
 
@@ -1537,8 +1559,9 @@ func TestTeamOverviewScopesCountsAndActions(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("team overview --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), strings.Join(overview.Actions, "\n")+"\n"; got != want {
-		t.Fatalf("team overview --commands = %q, want %q", got, want)
+	wantCommands := strings.Join(scopedOperatorActions(commandActionsOnly(overview.Actions), operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("team overview --commands = %q, want %q", got, wantCommands)
 	}
 }
 

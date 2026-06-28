@@ -178,8 +178,8 @@ func TestNextCommandCommandsPrintsOnlyActions(t *testing.T) {
 		t.Fatalf("next commands: %v\nstderr=%s", err, stderr.String())
 	}
 	want := strings.Join([]string{
-		"agent-team job queue retry squ-700 --all --sort attempts --limit 10 --dry-run",
-		"agent-team repair --skip-tick --dry-run",
+		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", root, "job", "queue", "retry", "squ-700", "--all", "--sort", "attempts", "--limit", "10", "--dry-run"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", root, "repair", "--skip-tick", "--dry-run"}), " "),
 	}, "\n") + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("next commands output = %q, want %q", got, want)
@@ -196,7 +196,8 @@ func TestNextCommandCommandsPrintsOnlyActions(t *testing.T) {
 	if strings.Contains(teamOut.String(), "next:") || strings.Contains(teamOut.String(), "team:") || strings.Contains(teamOut.String(), "[queue/") {
 		t.Fatalf("team next commands should not include headers or detail labels:\n%s", teamOut.String())
 	}
-	if !strings.Contains(teamOut.String(), "agent-team team queue retry delivery --all --job squ-700 --sort attempts --limit 10 --dry-run") {
+	wantTeamRetry := strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", root, "team", "queue", "retry", "delivery", "--all", "--job", "squ-700", "--sort", "attempts", "--limit", "10", "--dry-run"}), " ")
+	if !strings.Contains(teamOut.String(), wantTeamRetry) {
 		t.Fatalf("team next commands missing scoped queue retry:\n%s", teamOut.String())
 	}
 }
@@ -814,7 +815,7 @@ func TestNextActionResultHandlesNoActions(t *testing.T) {
 	}
 
 	out := &bytes.Buffer{}
-	if err := renderNextActionResult(out, result, false, nil, false, false); err != nil {
+	if err := renderNextActionResult(out, result, false, nil, false, false, operatorCommandScope{}); err != nil {
 		t.Fatalf("render next: %v", err)
 	}
 	if !strings.Contains(out.String(), "actions: none") {

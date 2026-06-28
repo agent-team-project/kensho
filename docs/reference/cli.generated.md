@@ -3757,7 +3757,7 @@ agent-team next [flags]
 Flags:
 
 ```text
-      --commands             Print only recommended commands, one per line.
+      --commands             Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --details              Include source and reason metadata in text output.
       --format string        Render the next-action result with a Go template, e.g. '{{.State}} {{len .Actions}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
@@ -4178,7 +4178,7 @@ agent-team overview [flags]
 Flags:
 
 ```text
-      --commands             Print recommended actions, one per line.
+      --commands             Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string        Render the overview result with a Go template, e.g. '{{.State}} {{len .Actions}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
       --json                 Emit overview as JSON.
@@ -7763,7 +7763,7 @@ agent-team team next <team> [flags]
 Flags:
 
 ```text
-      --commands             Print only recommended commands, one per line.
+      --commands             Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --details              Include source and reason metadata in text output.
       --format string        Render the next-action result with a Go template, e.g. '{{.Team.Name}} {{len .Actions}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
@@ -8032,7 +8032,7 @@ agent-team team overview <team> [flags]
 Flags:
 
 ```text
-      --commands             Print recommended team actions, one per line.
+      --commands             Print recommended team actions, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string        Render the team overview result with a Go template, e.g. '{{.Team.Name}} {{.State}}'.
       --interval duration    Refresh interval for --watch. (default 2s)
       --json                 Emit team overview as JSON.

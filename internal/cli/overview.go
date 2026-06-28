@@ -79,14 +79,14 @@ func newOverviewCmd() *cobra.Command {
 			}
 			result := collectOverview(teamDir, time.Now().UTC(), scheduleLimit)
 			if commands {
-				return renderOverviewCommands(cmd.OutOrStdout(), result)
+				return renderOverviewCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, "target"))
 			}
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit overview as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended actions, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect after ordering; 0 means all.")
@@ -160,14 +160,14 @@ func newTeamOverviewCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if commands {
-				return renderOverviewCommands(cmd.OutOrStdout(), result)
+				return renderOverviewCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 			}
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team overview as JSON.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended team actions, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended team actions, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh team overview until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming team schedules to inspect after ordering; 0 means all.")
@@ -1602,11 +1602,80 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 	return nil
 }
 
-func renderOverviewCommands(w io.Writer, result *overviewResult) error {
+func renderOverviewCommands(w io.Writer, result *overviewResult, scope operatorCommandScope) error {
 	if result == nil {
 		return nil
 	}
-	return renderActionCommands(w, commandActionsOnly(result.Actions))
+	return renderOperatorActionCommands(w, result.Actions, scope)
+}
+
+type operatorCommandScope struct {
+	Repo string
+	Set  bool
+}
+
+func renderOperatorActionCommands(w io.Writer, actions []string, scope operatorCommandScope) error {
+	return renderActionCommands(w, scopedOperatorActions(commandActionsOnly(actions), scope))
+}
+
+func scopedOperatorActions(actions []string, scope operatorCommandScope) []string {
+	if len(actions) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, scopedOperatorAction(action, scope))
+	}
+	return out
+}
+
+func scopedOperatorAction(action string, scope operatorCommandScope) string {
+	action = strings.TrimSpace(action)
+	if action == "" || !scope.Set || strings.TrimSpace(scope.Repo) == "" {
+		return action
+	}
+	fields := strings.Fields(action)
+	if len(fields) == 0 || fields[0] != "agent-team" {
+		return action
+	}
+	if operatorActionHasRepoScope(fields) {
+		return action
+	}
+	prefix := strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", scope.Repo}), " ")
+	remainder := strings.TrimSpace(action[len("agent-team"):])
+	if remainder == "" {
+		return prefix
+	}
+	return prefix + " " + remainder
+}
+
+func operatorActionHasRepoScope(fields []string) bool {
+	for _, field := range fields[1:] {
+		switch {
+		case field == "--repo", field == "--target":
+			return true
+		case strings.HasPrefix(field, "--repo="), strings.HasPrefix(field, "--target="):
+			return true
+		}
+	}
+	return false
+}
+
+func operatorCommandScopeFromCommand(cmd *cobra.Command, target string, localFlag string) operatorCommandScope {
+	if cmd == nil {
+		return operatorCommandScope{}
+	}
+	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+		if value := strings.TrimSpace(flag.Value.String()); value != "" {
+			return operatorCommandScope{Repo: value, Set: true}
+		}
+	}
+	if flagName := strings.TrimSpace(localFlag); flagName != "" && cmd.Flags().Changed(flagName) {
+		if value := strings.TrimSpace(target); value != "" {
+			return operatorCommandScope{Repo: value, Set: true}
+		}
+	}
+	return operatorCommandScope{}
 }
 
 func parseOverviewFormat(format string) (*template.Template, error) {

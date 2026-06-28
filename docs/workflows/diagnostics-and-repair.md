@@ -85,7 +85,9 @@ agent-team team next delivery --source jobs --reason stale_running
 focused on copyable commands; JSON output also includes `action_details` so
 scripts can group recommendations by source and reason without parsing command
 strings. Add `--commands` when scripts need only the filtered, sorted, and
-limited commands with no headers or reason labels.
+limited commands with no headers or reason labels. When `overview`,
+`team overview`, `next`, or `team next` was scoped with `--target` or `--repo`,
+command-only `agent-team` follow-ups preserve that selected repo.
 
 Use `--source` to narrow recommendations to one subsystem such as `queue`,
 `jobs`, `runtime`, or `pipelines`. Use `--reason` when an automation only wants a
