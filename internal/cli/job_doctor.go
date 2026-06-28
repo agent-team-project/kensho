@@ -123,7 +123,7 @@ func newJobDoctorCmd() *cobra.Command {
 					result = refreshed
 				}
 			}
-			if err := renderJobDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands); err != nil {
+			if err := renderJobDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, repo, "repo")); err != nil {
 				return err
 			}
 			if !result.OK && !quarantine {
@@ -260,14 +260,14 @@ func jobDoctorActions(result jobDoctorResult) []string {
 	return []string{"agent-team job doctor --quarantine --dry-run", "agent-team job doctor --json", "agent-team snapshot --json"}
 }
 
-func renderJobDoctor(stdout, stderr io.Writer, result jobDoctorResult, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderJobDoctor(stdout, stderr io.Writer, result jobDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	sortJobDoctorFindings(result.Problems)
 	sortJobDoctorFindings(result.Warnings)
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderActionCommands(stdout, result.Actions)
+		return renderOperatorActionCommands(stdout, result.Actions, scope)
 	}
 	if tmpl != nil {
 		return renderJobDoctorFormat(stdout, result, tmpl)

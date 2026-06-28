@@ -131,7 +131,7 @@ func newOutboxDoctorCmd() *cobra.Command {
 					result = refreshed
 				}
 			}
-			if err := renderOutboxDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands); err != nil {
+			if err := renderOutboxDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
 				return err
 			}
 			if !result.OK && !quarantine {
@@ -397,14 +397,14 @@ func outboxDoctorActions(result outboxDoctorResult) []string {
 	return []string{"agent-team outbox doctor --quarantine --dry-run", "agent-team outbox doctor --json", "agent-team snapshot --json"}
 }
 
-func renderOutboxDoctor(stdout, stderr io.Writer, result outboxDoctorResult, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderOutboxDoctor(stdout, stderr io.Writer, result outboxDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	sortOutboxDoctorFindings(result.Problems)
 	sortOutboxDoctorFindings(result.Warnings)
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderActionCommands(stdout, result.Actions)
+		return renderOperatorActionCommands(stdout, result.Actions, scope)
 	}
 	if tmpl != nil {
 		return renderOutboxDoctorFormat(stdout, result, tmpl)

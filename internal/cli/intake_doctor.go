@@ -69,7 +69,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake doctor: %v\n", err)
 				return exitErr(1)
 			}
-			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands); err != nil {
+			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
 				return err
 			}
 			if !result.OK {
@@ -237,12 +237,12 @@ func validateIntakeDeliveryRecord(line int, delivery intakeDelivery, seenIDs map
 	}
 }
 
-func renderIntakeDoctor(stdout, stderr io.Writer, result intakeDoctorResult, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderIntakeDoctor(stdout, stderr io.Writer, result intakeDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderActionCommands(stdout, intakeDoctorActions(result))
+		return renderOperatorActionCommands(stdout, intakeDoctorActions(result), scope)
 	}
 	if tmpl != nil {
 		return renderIntakeDoctorFormat(stdout, result, tmpl)

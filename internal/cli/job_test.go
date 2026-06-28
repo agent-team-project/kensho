@@ -162,7 +162,11 @@ updated_at = 2026-06-18T12:00:00Z
 	if !errors.As(err, &code) || int(code) != 1 {
 		t.Fatalf("job doctor --commands err = %v, want exit 1", err)
 	}
-	if got, want := commandsOut.String(), "agent-team job doctor --quarantine --dry-run\nagent-team job doctor --json\nagent-team snapshot --json\n"; got != want {
+	if got, want := commandsOut.String(), strings.Join(scopedOperatorActions([]string{
+		"agent-team job doctor --quarantine --dry-run",
+		"agent-team job doctor --json",
+		"agent-team snapshot --json",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n")+"\n"; got != want {
 		t.Fatalf("job doctor --commands output = %q, want %q", got, want)
 	}
 	if commandsErr.Len() != 0 {

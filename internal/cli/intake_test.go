@@ -2431,7 +2431,9 @@ func TestIntakeDoctorWarnsDuplicateProviderRequestID(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake doctor --commands duplicate warning: %v\nstderr=%s", err, commandsErr.String())
 	}
-	if got, want := commandsOut.String(), "agent-team intake duplicates --provider github --request-id delivery-1\n"; got != want {
+	if got, want := commandsOut.String(), strings.Join(scopedOperatorActions([]string{
+		"agent-team intake duplicates --provider github --request-id delivery-1",
+	}, operatorCommandScope{Repo: target, Set: true}), "\n")+"\n"; got != want {
 		t.Fatalf("intake doctor --commands output = %q, want %q", got, want)
 	}
 	if commandsErr.Len() != 0 {

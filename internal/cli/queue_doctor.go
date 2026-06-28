@@ -130,7 +130,7 @@ func newQueueDoctorCmd() *cobra.Command {
 					result = refreshed
 				}
 			}
-			if err := renderQueueDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands); err != nil {
+			if err := renderQueueDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
 				return err
 			}
 			if !result.OK && !quarantine {
@@ -412,14 +412,14 @@ func queueDoctorActions(result queueDoctorResult) []string {
 	return []string{"agent-team queue doctor --quarantine --dry-run", "agent-team queue doctor --json", "agent-team snapshot --json"}
 }
 
-func renderQueueDoctor(stdout, stderr io.Writer, result queueDoctorResult, jsonOut bool, tmpl *template.Template, commands bool) error {
+func renderQueueDoctor(stdout, stderr io.Writer, result queueDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {
 	sortQueueDoctorFindings(result.Problems)
 	sortQueueDoctorFindings(result.Warnings)
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderActionCommands(stdout, result.Actions)
+		return renderOperatorActionCommands(stdout, result.Actions, scope)
 	}
 	if tmpl != nil {
 		return renderQueueDoctorFormat(stdout, result, tmpl)
