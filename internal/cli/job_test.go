@@ -8752,6 +8752,26 @@ func TestJobUnblockInfersUniqueBlockedStepInstance(t *testing.T) {
 	if preview.Job.Status != job.StatusQueued || idx < 0 || preview.Job.Steps[idx].Status != job.StatusQueued {
 		t.Fatalf("preview job = %+v", preview.Job)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "unblock", "SQU-183", "--repo", tmp, "--from", "ops", "--status", "queued", "--message", "continue", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job unblock inferred step dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "unblock", "squ-183",
+		"--repo", tmp,
+		"--from", "ops",
+		"--step", "implement",
+		"--status", "queued",
+		"--message", "continue",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job unblock inferred step dry-run commands = %q, want %q", got, wantCommand)
+	}
 	persisted, err := job.Read(teamDir, "squ-183")
 	if err != nil {
 		t.Fatalf("read persisted job: %v", err)
@@ -8778,6 +8798,9 @@ func TestJobUnblockMessageSourceValidation(t *testing.T) {
 		{[]string{"job", "unblock", "SQU-82", "hello", "--message", "also"}, "provide message text using only one"},
 		{[]string{"job", "unblock", "SQU-82", "--message-file", filepath.Join(t.TempDir(), "missing.txt")}, "--message-file:"},
 		{[]string{"job", "unblock", "SQU-82", "--message", "hello", "--json", "--format", "{{.ID}}"}, "--format cannot be combined"},
+		{[]string{"job", "unblock", "SQU-82", "--message", "hello", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"job", "unblock", "SQU-82", "--message", "hello", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "unblock", "SQU-82", "--message", "hello", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -8931,6 +8954,24 @@ branch = "worker-squ-85"
 	}
 	if !preview.DryRun || preview.Job == nil || preview.Job.Status != job.StatusRunning || preview.Job.Instance != "worker-squ-85" || !preview.StatusPreview {
 		t.Fatalf("preview = %+v", preview)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "unblock", "SQU-85", "token is configured", "--repo", tmp, "--allow-missing", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job unblock status preview dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "unblock", "squ-85",
+		"--repo", tmp,
+		"--allow-missing",
+		"token is configured",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job unblock status preview dry-run commands = %q, want %q", got, wantCommand)
 	}
 	persisted, err := job.Read(teamDir, "squ-85")
 	if err != nil {

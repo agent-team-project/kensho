@@ -3453,6 +3453,7 @@ Flags:
 
 ```text
       --allow-missing         Allow queueing a message for an owning instance the daemon does not know yet.
+      --commands              With --dry-run, print the matching job unblock apply command when the preview has actionable work.
       --dry-run               Preview the unblock without sending a mailbox message or updating the job.
   -f, --force                 Allow unblocking a job not currently marked blocked.
       --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.Status}}'.

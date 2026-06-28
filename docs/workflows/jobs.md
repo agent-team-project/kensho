@@ -267,6 +267,7 @@ Add `--commands` when scripts need only those follow-up commands, one per line.
 agent-team job block squ-42 "Waiting on staging credentials"
 agent-team job block squ-42 "Linear moved ticket to blocked" --actor linear
 agent-team job block squ-42 --message-file blocker.md --dry-run --json
+agent-team job unblock squ-42 "Credentials are configured; continue" --dry-run --commands
 agent-team job unblock squ-42 "Credentials are configured; continue"
 ```
 
@@ -276,7 +277,8 @@ when work should keep its lifecycle status but automation should stop advancing
 it.
 
 `job unblock` sends the supplied message to the owning instance and changes job
-state from blocked back to running when appropriate.
+state from blocked back to running when appropriate. Add `--commands` to a
+dry-run when scripts should print only the matching unblock apply command.
 
 ## Sending Messages
 
