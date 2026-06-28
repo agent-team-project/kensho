@@ -16,14 +16,15 @@ import (
 )
 
 type upgradeConfig struct {
-	target string
-	toRef  string
-	check  bool
-	apply  bool
-	dryRun bool
-	strict bool
-	json   bool
-	format string
+	target   string
+	toRef    string
+	check    bool
+	apply    bool
+	dryRun   bool
+	commands bool
+	strict   bool
+	json     bool
+	format   string
 }
 
 type upgradeCheckResult struct {
@@ -74,6 +75,10 @@ func newUpgradeCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: choose exactly one of --check or --apply.")
 				return exitErr(2)
 			}
+			if cfg.commands && (!cfg.apply || !cfg.dryRun) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: --commands requires --apply --dry-run.")
+				return exitErr(2)
+			}
 			if cfg.dryRun && !cfg.apply {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: --dry-run requires --apply.")
 				return exitErr(2)
@@ -94,6 +99,7 @@ func newUpgradeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.check, "check", false, "Compare current template lock against a resolved template ref without writing files.")
 	cmd.Flags().BoolVar(&cfg.apply, "apply", false, "Apply clean template changes and update .template.lock; refuses to run when local conflicts are detected.")
 	cmd.Flags().BoolVar(&cfg.dryRun, "dry-run", false, "With --apply, preview the clean/conflicting file actions without writing files.")
+	cmd.Flags().BoolVar(&cfg.commands, "commands", false, "With --apply --dry-run, print the matching apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&cfg.strict, "strict", false, "With --check, exit 1 when the target template differs from the lock.")
 	cmd.Flags().BoolVar(&cfg.json, "json", false, "Emit the upgrade check result as JSON.")
 	cmd.Flags().StringVar(&cfg.format, "format", "", "Render the upgrade check result with a Go template, e.g. '{{.Differs}} {{.TargetVersion}}'.")
@@ -135,6 +141,14 @@ func runUpgradeCheck(cmd *cobra.Command, cfg upgradeConfig) error {
 }
 
 func runUpgradeApply(cmd *cobra.Command, cfg upgradeConfig) error {
+	if cfg.commands && cfg.json {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: --commands cannot be combined with --json.")
+		return exitErr(2)
+	}
+	if cfg.commands && cfg.format != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: --commands cannot be combined with --format.")
+		return exitErr(2)
+	}
 	if cfg.format != "" && cfg.json {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team upgrade: --format cannot be combined with --json.")
 		return exitErr(2)
@@ -165,6 +179,13 @@ func runUpgradeApply(cmd *cobra.Command, cfg upgradeConfig) error {
 	}
 
 	out := cmd.OutOrStdout()
+	if cfg.commands {
+		return renderUpgradeApplyCommand(out, result.Conflicts == 0 && result.Added+result.Updated+result.Removed > 0, upgradeApplyCommandOptions{
+			Scope:    operatorCommandScopeFromCommand(cmd, cfg.target, "target"),
+			ToRef:    cfg.toRef,
+			ToRefSet: cmd.Flags().Changed("to"),
+		})
+	}
 	if cfg.json {
 		if err := json.NewEncoder(out).Encode(result); err != nil {
 			return err
@@ -180,6 +201,31 @@ func runUpgradeApply(cmd *cobra.Command, cfg upgradeConfig) error {
 		return exitErr(1)
 	}
 	return nil
+}
+
+type upgradeApplyCommandOptions struct {
+	Scope    operatorCommandScope
+	ToRef    string
+	ToRefSet bool
+}
+
+func renderUpgradeApplyCommand(out fmtWriter, hasAction bool, opts upgradeApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(out, strings.Join(shellQuoteArgs(upgradeApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func upgradeApplyCommandArgs(opts upgradeApplyCommandOptions) []string {
+	args := []string{"agent-team", "upgrade", "--apply"}
+	if opts.Scope.Set && strings.TrimSpace(opts.Scope.Repo) != "" {
+		args = append(args, "--repo", opts.Scope.Repo)
+	}
+	if opts.ToRefSet && strings.TrimSpace(opts.ToRef) != "" {
+		args = append(args, "--to", opts.ToRef)
+	}
+	return args
 }
 
 func loadUpgradeTarget(cmd *cobra.Command, cfg upgradeConfig) (string, *template.ResolvedTemplate, *template.ResolvedTemplate, upgradeCheckResult, error) {

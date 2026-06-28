@@ -9481,6 +9481,7 @@ Flags:
 ```text
       --apply           Apply clean template changes and update .template.lock; refuses to run when local conflicts are detected.
       --check           Compare current template lock against a resolved template ref without writing files.
+      --commands        With --apply --dry-run, print the matching apply command when the preview has actionable work.
       --dry-run         With --apply, preview the clean/conflicting file actions without writing files.
       --format string   Render the upgrade check result with a Go template, e.g. '{{.Differs}} {{.TargetVersion}}'.
       --json            Emit the upgrade check result as JSON.

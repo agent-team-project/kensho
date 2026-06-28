@@ -61,7 +61,7 @@ template pull  →  init  →  run  →  upgrade
 1. **(Optional) `template pull`** — fetch a template into the local cache. Skip this for the bundled default.
 2. **`init`** — instantiate a template into the current repo. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
 3. **`run`** — launch the selected runtime as one of the agents.
-4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref; `upgrade --apply --dry-run` previews clean three-way changes and conflicts; `upgrade --apply` updates only files that still match the locked template version.
+4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref; `upgrade --apply --dry-run` previews clean three-way changes and conflicts; `upgrade --apply --dry-run --commands` prints the clean apply command; `upgrade --apply` updates only files that still match the locked template version.
 
 The full design is in [`documentation/templates.md`](./documentation/templates.md).
 
@@ -378,7 +378,7 @@ agent-team agent ls [--format '{{.Name}} {{len .Skills}}'] [--json] | show <agen
                                                 # list or inspect runnable agent definitions before launching them
 agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <path>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."|--prompt-file <path|->] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
-agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--format '{{.Differs}}'] [--json]
+agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--commands] [--format '{{.Differs}}'] [--json]
                                                 # compare or apply clean three-way template changes; --dry-run previews apply actions
 agent-team doctor [--strict-daemon] [--strict-runtime] [--strict-template] [--runtime codex] [--runtime-bin <path>] [--format '{{.OK}}'] [--json]
                                                 # validate layout, config, provenance, skill wiring, durable jobs, pipeline workflows, selected/runtime-default binaries, and daemon binary availability

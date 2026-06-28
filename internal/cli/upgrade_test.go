@@ -192,6 +192,31 @@ func TestUpgradeApplyDryRunAndApplyCleanChanges(t *testing.T) {
 		t.Fatalf("dry-run should not create new file, err=%v", err)
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--target", target, "--to", nextDir})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("upgrade --apply --dry-run --commands: %v\nstderr: %s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "upgrade", "--apply", "--repo", target, "--to", nextDir}), " ") + "\n"
+	if got := commandsOut.String(); got != wantCommand {
+		t.Fatalf("upgrade --commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScopedCommands := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScopedCommands.SetOut(rootScopedOut)
+	rootScopedCommands.SetErr(rootScopedErr)
+	rootScopedCommands.SetArgs([]string{"--repo", target, "upgrade", "--apply", "--dry-run", "--commands", "--to", nextDir})
+	if err := rootScopedCommands.Execute(); err != nil {
+		t.Fatalf("upgrade root --repo --dry-run --commands: %v\nstderr: %s", err, rootScopedErr.String())
+	}
+	if got := rootScopedOut.String(); got != wantCommand {
+		t.Fatalf("upgrade root --commands = %q, want %q", got, wantCommand)
+	}
+
 	applyCmd := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	applyCmd.SetOut(applyOut)
@@ -239,6 +264,18 @@ func TestUpgradeApplyReportsConflictForLocalEdit(t *testing.T) {
 	nextDir := t.TempDir()
 	writeTinyTemplate(t, nextDir, "tiny", "0.0.2", "target edit\n")
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--target", target, "--to", nextDir})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("conflict upgrade --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	if commandsOut.Len() != 0 {
+		t.Fatalf("conflict upgrade --commands should not emit apply command: %q", commandsOut.String())
+	}
+
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
@@ -259,7 +296,7 @@ func TestUpgradeApplyReportsConflictForLocalEdit(t *testing.T) {
 	assertFileBody(t, currentPath, "local edit\n")
 }
 
-func TestUpgradeCheckFormatValidation(t *testing.T) {
+func TestUpgradeOutputValidation(t *testing.T) {
 	cases := []struct {
 		args []string
 		want string
@@ -271,6 +308,22 @@ func TestUpgradeCheckFormatValidation(t *testing.T) {
 		{
 			args: []string{"upgrade", "--check", "--format", "{{"},
 			want: "invalid --format template",
+		},
+		{
+			args: []string{"upgrade", "--apply", "--commands"},
+			want: "--commands requires --apply --dry-run",
+		},
+		{
+			args: []string{"upgrade", "--check", "--commands"},
+			want: "--commands requires --apply --dry-run",
+		},
+		{
+			args: []string{"upgrade", "--apply", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			args: []string{"upgrade", "--apply", "--dry-run", "--commands", "--format", "{{.Differs}}"},
+			want: "--commands cannot be combined with --format",
 		},
 	}
 	for _, tc := range cases {
