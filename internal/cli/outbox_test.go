@@ -447,6 +447,21 @@ func TestOutboxRecoveryCommandsRejectInvalidCombinations(t *testing.T) {
 			want: "--commands cannot be combined with --format",
 		},
 		{
+			name: "global drain commands requires dry run",
+			args: []string{"outbox", "drain", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "global drain commands rejects json",
+			args: []string{"outbox", "drain", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "global drain commands rejects format",
+			args: []string{"outbox", "drain", "--dry-run", "--commands", "--format", "{{.Pending}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "global quarantine restore commands requires dry run",
 			args: []string{"outbox", "quarantine", "restore", "quarantine/20260627T120000.000000000Z/pending/outbox.json", "--commands"},
 			want: "--commands requires --dry-run",
@@ -1045,6 +1060,21 @@ func TestOutboxDrainDryRunOffline(t *testing.T) {
 	}
 	if _, err := daemon.ReadOutboxItem(teamDir, "outbox-offline"); err != nil {
 		t.Fatalf("dry-run removed outbox item: %v", err)
+	}
+
+	commands := runRootForOutboxTest(t, "outbox", "drain", "--target", target, "--dry-run", "--commands")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "drain", "--target", target}), " ")
+	if got := strings.TrimSpace(commands.String()); got != wantCommand {
+		t.Fatalf("outbox drain dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	empty := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(empty, ".agent_team"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptyCommands := runRootForOutboxTest(t, "outbox", "drain", "--target", empty, "--dry-run", "--commands")
+	if got := strings.TrimSpace(emptyCommands.String()); got != "" {
+		t.Fatalf("empty outbox drain dry-run commands = %q, want no output", got)
 	}
 }
 

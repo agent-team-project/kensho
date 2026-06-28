@@ -201,10 +201,11 @@ func newOutboxShowCmd() *cobra.Command {
 
 func newOutboxDrainCmd() *cobra.Command {
 	var (
-		target  string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		target   string
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -212,6 +213,18 @@ func newOutboxDrainCmd() *cobra.Command {
 		Short: "Ask the running daemon to publish pending outbox events.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox drain: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox drain: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox drain: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox drain: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -233,6 +246,9 @@ func newOutboxDrainCmd() *cobra.Command {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team outbox drain: %v\n", previewErr)
 						return exitErr(1)
 					}
+					if commands {
+						return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+					}
 					return renderOutboxDrainCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 				}
 				if errors.Is(err, errDaemonNotRunning) {
@@ -247,11 +263,15 @@ func newOutboxDrainCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team outbox drain: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderOutboxDrainApplyCommand(cmd.OutOrStdout(), result, target, cmd.Flags().Changed("target"))
+			}
 			return renderOutboxDrainCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pending outbox events without publishing them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the drain result with a Go template, e.g. '{{.WouldPublish}} {{.Pending}}'.")
 	return cmd
@@ -1356,6 +1376,17 @@ func renderOutboxApplyCommand(w io.Writer, hasAction bool, opts outboxApplyComma
 	}
 	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(outboxApplyCommandArgs(opts)), " "))
 	return err
+}
+
+func renderOutboxDrainApplyCommand(w io.Writer, result *daemon.OutboxDrainResult, target string, targetSet bool) error {
+	if result == nil || !result.DryRun || result.WouldPublish == 0 {
+		return nil
+	}
+	return renderOutboxApplyCommand(w, true, outboxApplyCommandOptions{
+		BaseArgs:  []string{"agent-team", "outbox", "drain"},
+		Target:    target,
+		TargetSet: targetSet,
+	})
 }
 
 func outboxApplyCommandArgs(opts outboxApplyCommandOptions) []string {

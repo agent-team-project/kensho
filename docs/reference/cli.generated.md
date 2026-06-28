@@ -3836,6 +3836,7 @@ agent-team outbox drain [flags]
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching drain command when the preview has actionable work.
       --dry-run         Preview pending outbox events without publishing them.
       --format string   Render the drain result with a Go template, e.g. '{{.WouldPublish}} {{.Pending}}'.
       --json            Emit machine-readable JSON.

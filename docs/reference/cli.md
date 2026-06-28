@@ -195,7 +195,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team outbox ls` | List or watch sandboxed agent outbox events; filter by state, type, source, or job and sort/cap rows |
 | `agent-team outbox watch` | Continuous outbox list shortcut with the same filters and formatting as `outbox ls --watch` |
 | `agent-team outbox show <id>` | Inspect one outbox event and its payload; add `--commands` to print only follow-up commands |
-| `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down |
+| `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down, and `--commands` prints the apply command when work is ready |
 | `agent-team outbox doctor` | Validate persisted outbox files without relying on normal listing paths; `--quarantine --dry-run` previews isolating malformed active files and `--commands` prints recovery commands |
 | `agent-team outbox quarantine ls` | List or summarize quarantined outbox files; filter by state, type, source, job, or restorable state and sort/cap rows |
 | `agent-team outbox quarantine show <path>` | Inspect one quarantined outbox file and its payload when parseable; add `--commands` to print only follow-up commands |

@@ -211,6 +211,7 @@ agent-team job outbox SQU-42 --watch --state failed
 agent-team pipeline outbox ticket_to_pr --watch --summary
 agent-team team outbox delivery --watch --job SQU-42
 agent-team outbox drain --dry-run
+agent-team outbox drain --dry-run --commands
 ```
 
 Use `outbox watch` or a scoped `--watch` view while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
