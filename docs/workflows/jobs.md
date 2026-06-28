@@ -283,6 +283,7 @@ dry-run when scripts should print only the matching unblock apply command.
 ## Sending Messages
 
 ```sh
+agent-team job send squ-42 "Please continue with the new API constraint" --dry-run --commands
 agent-team job send squ-42 "Please continue with the new API constraint"
 agent-team job send squ-42 --message-file notes.md
 agent-team job ps squ-42 --runtime codex
@@ -293,7 +294,8 @@ agent-team job stats squ-42 --step review --all
 
 `job send` targets the current instance. For pipeline jobs with distinct stage
 owners, `job ps` and `job stats` show every job-owned runtime by default while
-`--step` focuses one stage.
+`--step` focuses one stage. Add `--commands` to a dry-run when scripts should
+print only the matching send apply command.
 
 ## Recording Notes
 

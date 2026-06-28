@@ -8120,6 +8120,31 @@ func TestJobDispatchAndSend(t *testing.T) {
 		t.Fatalf("dry-run mutated job before=%+v after=%+v", beforeDryRun, afterDryRun)
 	}
 
+	dryRunCommands := NewRootCmd()
+	dryRunCommandsOut, dryRunCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryRunCommands.SetOut(dryRunCommandsOut)
+	dryRunCommands.SetErr(dryRunCommandsErr)
+	dryRunCommands.SetArgs([]string{"job", "send", "SQU-43", "--message", "preview status ping", "--repo", target, "--from", "ops", "--dry-run", "--commands"})
+	if err := dryRunCommands.Execute(); err != nil {
+		t.Fatalf("job send dry-run commands: %v\nstderr=%s", err, dryRunCommandsErr.String())
+	}
+	wantSendCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "send", "squ-43",
+		"--repo", target,
+		"--from", "ops",
+		"--message", "preview status ping",
+	}), " ")
+	if got := strings.TrimSpace(dryRunCommandsOut.String()); got != wantSendCommand {
+		t.Fatalf("job send dry-run commands = %q, want %q", got, wantSendCommand)
+	}
+	messages, err = daemon.ReadMessages(daemon.DaemonRoot(filepath.Join(target, ".agent_team")), "worker-squ-43")
+	if err != nil {
+		t.Fatalf("read messages after commands dry-run: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("commands dry-run appended messages = %+v", messages)
+	}
+
 	dryRunFormat := NewRootCmd()
 	dryRunFormatOut, dryRunFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryRunFormat.SetOut(dryRunFormatOut)
@@ -8351,6 +8376,72 @@ func TestJobSendUsesExplicitStepInstance(t *testing.T) {
 	}
 }
 
+func TestJobSendDryRunCommandsInferUniqueRunningStep(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:       "squ-45",
+		Ticket:   "SQU-45",
+		Target:   "manager",
+		Instance: "manager-squ-45",
+		Pipeline: "ticket_to_pr",
+		Status:   job.StatusRunning,
+		Steps: []job.Step{
+			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager-squ-45"},
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-45-implement", After: []string{"triage"}},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance:  "worker-squ-45-implement",
+		Agent:     "worker",
+		Status:    daemon.StatusRunning,
+		StartedAt: now,
+		Job:       "squ-45",
+		Ticket:    "SQU-45",
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "send", "SQU-45", "continue implementation", "--repo", tmp, "--dry-run", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job send inferred step dry-run commands: %v\nstderr=%s", err, stderr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "send", "squ-45",
+		"--repo", tmp,
+		"--step", "implement",
+		"continue implementation",
+	}), " ")
+	if got := strings.TrimSpace(out.String()); got != wantCommand {
+		t.Fatalf("job send inferred step dry-run commands = %q, want %q", got, wantCommand)
+	}
+	messages, err := daemon.ReadMessages(root, "worker-squ-45-implement")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("dry-run commands sent messages = %+v", messages)
+	}
+	updated, err := job.Read(teamDir, "squ-45")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.LastEvent != "" || updated.LastStatus != "" {
+		t.Fatalf("dry-run commands mutated job = %+v", updated)
+	}
+}
+
 func TestJobSendMessageSourceValidation(t *testing.T) {
 	cases := []struct {
 		args []string
@@ -8360,6 +8451,9 @@ func TestJobSendMessageSourceValidation(t *testing.T) {
 		{[]string{"job", "send", "SQU-43", "hello", "--message", "also"}, "provide message text using only one"},
 		{[]string{"job", "send", "SQU-43", "--message-file", filepath.Join(t.TempDir(), "missing.txt")}, "--message-file:"},
 		{[]string{"job", "send", "SQU-43", "--message", "hello", "--json", "--format", "{{.ID}}"}, "--format cannot be combined"},
+		{[]string{"job", "send", "SQU-43", "--message", "hello", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"job", "send", "SQU-43", "--message", "hello", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "send", "SQU-43", "--message", "hello", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

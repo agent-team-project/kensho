@@ -110,7 +110,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed; add `--dry-run --commands` for the apply command |
 | `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |
 | `agent-team job dispatch <job-id>` | Dispatch a job; add `--dry-run --commands` for the apply command, use `--runtime` for one-off Claude/Codex selection, and `--wait` for bounded automation |
-| `agent-team job send <job-id>` | Send message to job instance |
+| `agent-team job send <job-id>` | Send message to job instance; add `--dry-run --commands` for the apply command |
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |
 | `agent-team job block <job-id>` | Mark a job blocked and record the reason |
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running; add `--dry-run --commands` for the apply command |

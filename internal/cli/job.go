@@ -1965,6 +1965,7 @@ func newJobSendCmd() *cobra.Command {
 		stepID       string
 		allowMissing bool
 		dryRun       bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -1976,6 +1977,18 @@ func newJobSendCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job send: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job send: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job send: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job send: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobFormat(format)
@@ -2013,6 +2026,23 @@ func newJobSendCmd() *cobra.Command {
 					DryRun:       true,
 				}); err != nil {
 					return err
+				}
+				if commands {
+					return renderJobSendApplyCommand(cmd.OutOrStdout(), true, jobSendApplyCommandOptions{
+						JobID:             j.ID,
+						Repo:              repo,
+						RepoSet:           cmd.Flags().Changed("repo"),
+						From:              from,
+						FromSet:           cmd.Flags().Changed("from"),
+						Step:              selection.StepID,
+						StepSet:           selection.StepID != "",
+						AllowMissing:      allowMissing,
+						Message:           message,
+						MessageSet:        cmd.Flags().Changed("message"),
+						MessageFile:       messageFile,
+						MessageFileSet:    cmd.Flags().Changed("message-file"),
+						PositionalMessage: args[1:],
+					})
 				}
 				return renderJobSendPreview(cmd.OutOrStdout(), j, instance, from, body, jsonOut, tmpl)
 			}
@@ -2052,6 +2082,7 @@ func newJobSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the send without appending a mailbox message or updating the job.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job send apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job or batch rows as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.")
 	return cmd
@@ -12841,6 +12872,56 @@ type jobUnblockApplyCommandOptions struct {
 	MessageFile       string
 	MessageFileSet    bool
 	PositionalMessage []string
+}
+
+type jobSendApplyCommandOptions struct {
+	JobID             string
+	Repo              string
+	RepoSet           bool
+	From              string
+	FromSet           bool
+	Step              string
+	StepSet           bool
+	AllowMissing      bool
+	Message           string
+	MessageSet        bool
+	MessageFile       string
+	MessageFileSet    bool
+	PositionalMessage []string
+}
+
+func renderJobSendApplyCommand(w io.Writer, hasAction bool, opts jobSendApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobSendApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobSendApplyCommandArgs(opts jobSendApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "send", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.FromSet && strings.TrimSpace(opts.From) != "" {
+		args = append(args, "--from", opts.From)
+	}
+	if opts.StepSet && strings.TrimSpace(opts.Step) != "" {
+		args = append(args, "--step", opts.Step)
+	}
+	if opts.AllowMissing {
+		args = append(args, "--allow-missing")
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.MessageFileSet && strings.TrimSpace(opts.MessageFile) != "" {
+		args = append(args, "--message-file", opts.MessageFile)
+	}
+	if !opts.MessageSet && !opts.MessageFileSet && len(opts.PositionalMessage) > 0 {
+		args = append(args, opts.PositionalMessage...)
+	}
+	return args
 }
 
 func renderJobUnblockApplyCommand(w io.Writer, hasAction bool, opts jobUnblockApplyCommandOptions) error {

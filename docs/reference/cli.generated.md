@@ -3215,6 +3215,7 @@ Flags:
 
 ```text
       --allow-missing         Allow queueing a message for an instance the daemon does not know yet.
+      --commands              With --dry-run, print the matching job send apply command when the preview has actionable work.
       --dry-run               Preview the send without appending a mailbox message or updating the job.
       --format string         Render the updated job or dry-run preview with a Go template, e.g. '{{.ID}} {{.LastEvent}}'.
       --from string           Sender label recorded with the message. (default "(cli)")
