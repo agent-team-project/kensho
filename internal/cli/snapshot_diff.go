@@ -30,6 +30,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 		currentAfter  bool
 		currentBefore bool
 		eventLimit    int
+		eventSortBy   string
 		intakeLimit   int
 		scheduleLimit int
 		timelineTail  string
@@ -62,12 +63,17 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: pass two snapshot files, or one file with --current-after/--current-before.")
 				return exitErr(2)
 			}
-			if !currentRequested && (cmd.Flags().Changed("events") || cmd.Flags().Changed("intake-deliveries") || cmd.Flags().Changed("schedule-limit") || cmd.Flags().Changed("timeline") || cmd.Flags().Changed("no-redact")) {
+			if !currentRequested && (cmd.Flags().Changed("events") || cmd.Flags().Changed("events-sort") || cmd.Flags().Changed("intake-deliveries") || cmd.Flags().Changed("schedule-limit") || cmd.Flags().Changed("timeline") || cmd.Flags().Changed("no-redact")) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: current snapshot options require --current-after or --current-before.")
 				return exitErr(2)
 			}
 			if eventLimit < -1 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --events must be >= -1.")
+				return exitErr(2)
+			}
+			eventSortMode, err := parseEventSort(eventSortBy)
+			if err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team snapshot diff: --events-sort must be oldest or newest.")
 				return exitErr(2)
 			}
 			if intakeLimit < -1 {
@@ -129,6 +135,8 @@ func newSnapshotDiffCmd() *cobra.Command {
 			}
 			result, err := diffSnapshotInputs(cmd, cwd, args, snapshotDiffOptions{Sections: sectionSet}, snapshotDiffCurrentOptions{
 				Events:           eventLimit,
+				EventSort:        eventSortMode,
+				EventSortChanged: cmd.Flags().Changed("events-sort"),
 				IntakeDeliveries: intakeLimit,
 				ScheduleLimit:    scheduleLimit,
 				TimelineTail:     timelineEvents,
@@ -182,6 +190,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&currentAfter, "current-after", false, "Compare the saved snapshot argument against the current repo state for the saved snapshot scope as the after snapshot.")
 	cmd.Flags().BoolVar(&currentBefore, "current-before", false, "Compare the current repo state for the saved snapshot scope as the before snapshot against the saved snapshot argument.")
 	cmd.Flags().IntVar(&eventLimit, "events", 50, "With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events.")
+	cmd.Flags().StringVar(&eventSortBy, "events-sort", "oldest", "With --current-after/--current-before, sort included lifecycle events by oldest or newest after applying --events.")
 	cmd.Flags().IntVar(&intakeLimit, "intake-deliveries", 50, "With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 10, "With --current-after/--current-before, upcoming schedules to include after ordering; 0 means all.")
 	cmd.Flags().StringVar(&timelineTail, "timeline", "50", "With --current-after/--current-before on pipeline snapshots, include the last N combined audit/lifecycle timeline rows (0 or all = all).")
@@ -191,6 +200,8 @@ func newSnapshotDiffCmd() *cobra.Command {
 
 type snapshotDiffCurrentOptions struct {
 	Events           int
+	EventSort        string
+	EventSortChanged bool
 	IntakeDeliveries int
 	ScheduleLimit    int
 	TimelineTail     int
@@ -734,13 +745,18 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 		}
 		snapshot := collectJobSnapshot(teamDir, repoRoot, j, jobSnapshotOptions{
 			EventLimit: opts.Events,
-			EventSort:  "oldest",
+			EventSort:  opts.EventSort,
 			Redact:     opts.Redact,
 			Now:        now,
 		})
+		eventSortProvenance := ""
+		if opts.EventSortChanged {
+			eventSortProvenance = opts.EventSort
+		}
 		snapshot.Provenance = newSnapshotProvenance(cmd.CommandPath(), "job", j.ID, snapshotProvenanceOptions{
-			Events:   intValuePtr(opts.Events),
-			Redacted: opts.Redact,
+			Events:    intValuePtr(opts.Events),
+			EventSort: eventSortProvenance,
+			Redacted:  opts.Redact,
 		})
 		return snapshotDiffComparableFromValue("<current>", snapshot)
 	case "pipeline":
@@ -763,6 +779,7 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 		}
 		snapshot, err := collectTeamSnapshot(teamDir, repoRoot, scope, snapshotOptions{
 			EventLimit:    opts.Events,
+			EventSort:     opts.EventSort,
 			ScheduleLimit: opts.ScheduleLimit,
 			Redact:        opts.Redact,
 			Now:           now,
@@ -770,8 +787,13 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 		if err != nil {
 			return snapshotDiffComparable{}, err
 		}
+		eventSortProvenance := ""
+		if opts.EventSortChanged {
+			eventSortProvenance = opts.EventSort
+		}
 		setSnapshotProvenance(snapshot, cmd.CommandPath(), "team", scope, snapshotProvenanceOptions{
 			Events:        intValuePtr(opts.Events),
+			EventSort:     eventSortProvenance,
 			ScheduleLimit: intValuePtr(opts.ScheduleLimit),
 			Redacted:      opts.Redact,
 		})
@@ -779,13 +801,19 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 	}
 	snapshot := collectSnapshot(teamDir, repoRoot, snapshotOptions{
 		EventLimit:    opts.Events,
+		EventSort:     opts.EventSort,
 		IntakeLimit:   opts.IntakeDeliveries,
 		ScheduleLimit: opts.ScheduleLimit,
 		Redact:        opts.Redact,
 		Now:           now,
 	})
+	eventSortProvenance := ""
+	if opts.EventSortChanged {
+		eventSortProvenance = opts.EventSort
+	}
 	setSnapshotProvenance(snapshot, cmd.CommandPath(), "global", "", snapshotProvenanceOptions{
 		Events:           intValuePtr(opts.Events),
+		EventSort:        eventSortProvenance,
 		IntakeDeliveries: intValuePtr(opts.IntakeDeliveries),
 		ScheduleLimit:    intValuePtr(opts.ScheduleLimit),
 		Redacted:         opts.Redact,

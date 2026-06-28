@@ -7112,6 +7112,7 @@ Flags:
       --current-after           Compare the saved snapshot argument against the current repo state for the saved snapshot scope as the after snapshot.
       --current-before          Compare the current repo state for the saved snapshot scope as the before snapshot against the saved snapshot argument.
       --events int              With --current-after/--current-before, recent lifecycle events to include. Use -1 for all events or 0 to skip events. (default 50)
+      --events-sort string      With --current-after/--current-before, sort included lifecycle events by oldest or newest after applying --events. (default "oldest")
       --exit-code               Exit with status 1 when snapshots differ.
       --format string           Render the diff result with a Go template, e.g. '{{.Summary.TotalChanges}} {{len .Changes}}'.
       --intake-deliveries int   With --current-after/--current-before, recent intake deliveries to include. Use -1 for all deliveries or 0 to skip deliveries. (default 50)

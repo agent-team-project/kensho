@@ -1703,6 +1703,30 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 			t.Fatalf("append timeline event: %v", err)
 		}
 	}
+	for _, ev := range []*daemon.LifecycleEvent{
+		{
+			ID:       "old-event",
+			TS:       timelineBase.Add(3 * time.Minute),
+			Action:   "start",
+			Instance: "old-worker",
+			Agent:    "worker",
+			Status:   daemon.StatusRunning,
+			Message:  "old",
+		},
+		{
+			ID:       "new-event",
+			TS:       timelineBase.Add(4 * time.Minute),
+			Action:   "stop",
+			Instance: "new-worker",
+			Agent:    "worker",
+			Status:   daemon.StatusStopped,
+			Message:  "new",
+		},
+	} {
+		if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), ev); err != nil {
+			t.Fatalf("append lifecycle event: %v", err)
+		}
+	}
 
 	currentAfter := NewRootCmd()
 	currentAfterOut, currentAfterErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1740,6 +1764,24 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 	}
 	if beforeResult.Summary.TotalChanges != 1 || beforeResult.Summary.Jobs.Removed != 1 || !hasSnapshotDiffChange(beforeResult.Changes, "jobs", "squ-260", "removed") {
 		t.Fatalf("current-before result = %+v changes=%+v", beforeResult.Summary, beforeResult.Changes)
+	}
+
+	currentEvents := NewRootCmd()
+	currentEventsOut, currentEventsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	currentEvents.SetOut(currentEventsOut)
+	currentEvents.SetErr(currentEventsErr)
+	currentEvents.SetArgs([]string{"--repo", tmp, "snapshot", "diff", beforePath, "--current-after", "--section", "events", "--events", "1", "--events-sort", "newest", "--json"})
+	if err := currentEvents.Execute(); err != nil {
+		t.Fatalf("snapshot diff --current-after --events-sort: %v\nstderr=%s", err, currentEventsErr.String())
+	}
+	var currentEventsResult snapshotDiffResult
+	if err := json.Unmarshal(currentEventsOut.Bytes(), &currentEventsResult); err != nil {
+		t.Fatalf("decode current event diff: %v\nbody=%s", err, currentEventsOut.String())
+	}
+	newerEventID := "new-event"
+	olderEventID := "old-event"
+	if currentEventsResult.Summary.TotalChanges != 1 || currentEventsResult.Summary.Events.Added != 1 || !hasSnapshotDiffChange(currentEventsResult.Changes, "events", newerEventID, "added") || hasSnapshotDiffChange(currentEventsResult.Changes, "events", olderEventID, "added") {
+		t.Fatalf("current events result = %+v changes=%+v", currentEventsResult.Summary, currentEventsResult.Changes)
 	}
 
 	other, err := job.New("OPS-260", "worker", "outside pipeline scope", time.Now().UTC())
@@ -1831,6 +1873,18 @@ func TestSnapshotDiffCommandComparesCurrentSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(unusedCurrentOptionErr.String(), "current snapshot options require") {
 		t.Fatalf("unused current option stderr = %q", unusedCurrentOptionErr.String())
+	}
+
+	unusedEventsSortOption := NewRootCmd()
+	unusedEventsSortOptionOut, unusedEventsSortOptionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unusedEventsSortOption.SetOut(unusedEventsSortOptionOut)
+	unusedEventsSortOption.SetErr(unusedEventsSortOptionErr)
+	unusedEventsSortOption.SetArgs([]string{"snapshot", "diff", beforePath, afterPath, "--events-sort", "newest"})
+	if err := unusedEventsSortOption.Execute(); err == nil {
+		t.Fatalf("snapshot diff unused events-sort option succeeded")
+	}
+	if !strings.Contains(unusedEventsSortOptionErr.String(), "current snapshot options require") {
+		t.Fatalf("unused events-sort option stderr = %q", unusedEventsSortOptionErr.String())
 	}
 
 	unusedTimelineOption := NewRootCmd()
