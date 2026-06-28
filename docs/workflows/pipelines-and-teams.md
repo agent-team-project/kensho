@@ -173,6 +173,7 @@ agent-team job release squ-42
 agent-team job step squ-42 implement --advance --dry-run
 agent-team job step squ-42 implement --status done --advance --wait --wait-next-state running --wait-step review --wait-timeout 30s
 agent-team job approve squ-42 --step review --advance --wait --wait-next-state running --wait-step review --wait-timeout 30s
+agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 --advance --dry-run --commands
 agent-team job update squ-42 --pr https://github.com/acme/repo/pull/42 --advance --wait --wait-next-state running --wait-step review --wait-timeout 30s
 agent-team job step squ-42 review --skip --message "review folded into implementation"
 agent-team pipeline skip ticket_to_pr --step review --dry-run
@@ -223,7 +224,7 @@ Pipeline status, health, overview, and next-action hints recommend tick previews
 Supported gates:
 
 - `gate = "manual"`: wait for operator approval with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; reject gates with `agent-team pipeline reject <pipeline>`, `agent-team team reject <team>`, or `agent-team job reject <job-id> --step <step-id>`.
-- `gate = "pr"`: wait until the job has PR metadata, then advance normally. Use `agent-team job update <job-id> --pr <url> --advance --dry-run` to preview the metadata update and next-step dispatch together before rerunning without `--dry-run`; add `--wait --wait-status running` when the handoff should block until the unblocked step has a live owner, or `--wait --wait-next-state running --wait-step review` when it should wait for the review stage specifically. GitHub PR webhooks can do the same via `agent-team intake github --reconcile-job --advance --dry-run` or `agent-team job reconcile github --advance --dry-run`; rerun without `--dry-run` and add the same wait flags when a foreground script should wait for the next owner.
+- `gate = "pr"`: wait until the job has PR metadata, then advance normally. Use `agent-team job update <job-id> --pr <url> --advance --dry-run` to preview the metadata update and next-step dispatch together before rerunning without `--dry-run`, or add `--commands` when scripts should print the apply command after that preview; add `--wait --wait-status running` when the handoff should block until the unblocked step has a live owner, or `--wait --wait-next-state running --wait-step review` when it should wait for the review stage specifically. GitHub PR webhooks can do the same via `agent-team intake github --reconcile-job --advance --dry-run` or `agent-team job reconcile github --advance --dry-run`; rerun without `--dry-run` and add the same wait flags when a foreground script should wait for the next owner.
 
 When a ready step targets a persistent instance that is not currently running,
 advancement writes the mailbox message and leaves the step `queued` with the

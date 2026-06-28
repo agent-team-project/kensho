@@ -6223,6 +6223,49 @@ func TestJobUpdateSetsClearsAndAuditsMetadata(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{
+		"job", "update", "SQU-70",
+		"--repo", tmp,
+		"--status", "running",
+		"--target", "manager",
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-70",
+		"--instance", "worker-squ-70",
+		"--branch", "squ-70-metadata",
+		"--worktree", "/tmp/squ-70-worktree",
+		"--pr", "https://github.com/acme/repo/pull/70",
+		"--message", "metadata repaired",
+		"--dry-run", "--commands",
+	})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job update --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "update", "squ-70",
+		"--repo", tmp,
+		"--status", "running",
+		"--target", "manager",
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-70",
+		"--instance", "worker-squ-70",
+		"--branch", "squ-70-metadata",
+		"--worktree", "/tmp/squ-70-worktree",
+		"--pr", "https://github.com/acme/repo/pull/70",
+		"--message", "metadata repaired",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job update --commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err := job.Read(teamDir, "squ-70")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.Target != "worker" || unchanged.Instance != "" || unchanged.PR != "" {
+		t.Fatalf("dry-run changed job = %+v", unchanged)
+	}
+
 	update := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	update.SetOut(out)
@@ -6252,6 +6295,26 @@ func TestJobUpdateSetsClearsAndAuditsMetadata(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "updated" || events[0].Data["status"] != "running" || events[0].Data["instance"] != "worker-squ-70" {
 		t.Fatalf("events = %+v", events)
+	}
+
+	clearCommands := NewRootCmd()
+	clearCommandsOut, clearCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	clearCommands.SetOut(clearCommandsOut)
+	clearCommands.SetErr(clearCommandsErr)
+	clearCommands.SetArgs([]string{"job", "update", "squ-70", "--repo", tmp, "--clear", "worktree,branch,pr", "--dry-run", "--commands"})
+	if err := clearCommands.Execute(); err != nil {
+		t.Fatalf("job update clear --dry-run --commands: %v\nstderr=%s", err, clearCommandsErr.String())
+	}
+	wantClearCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "update", "squ-70", "--repo", tmp, "--clear", "branch,pr,worktree"}), " ")
+	if got := strings.TrimSpace(clearCommandsOut.String()); got != wantClearCommand {
+		t.Fatalf("job update clear --commands = %q, want %q", got, wantClearCommand)
+	}
+	beforeClear, err := job.Read(teamDir, "squ-70")
+	if err != nil {
+		t.Fatalf("read before clear: %v", err)
+	}
+	if beforeClear.PR == "" || beforeClear.Worktree == "" {
+		t.Fatalf("clear dry-run changed job = %+v", beforeClear)
 	}
 
 	clear := NewRootCmd()
@@ -11149,6 +11212,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			want: "wait-related flags require --wait",
 		},
 		{
+			name: "update commands without dry-run",
+			args: []string{"job", "update", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "update commands with json",
+			args: []string{"job", "update", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "update commands with format",
+			args: []string{"job", "update", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "step format with json",
 			args: []string{"job", "step", "squ-1", "implement", "--format", "{{.ID}}", "--json"},
 			want: "--format cannot be combined",
@@ -11393,6 +11471,43 @@ func TestJobUpdateAdvanceWaitsForRequestedStatus(t *testing.T) {
 	}
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatalf("write PR-gated job: %v", err)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{
+		"job", "update", "squ-916",
+		"--repo", root,
+		"--pr", "https://github.com/acme/repo/pull/916",
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--dry-run", "--commands",
+	})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job update --advance dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "update", "squ-916",
+		"--repo", root,
+		"--pr", "https://github.com/acme/repo/pull/916",
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job update --advance dry-run commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err := job.Read(teamDir, "squ-916")
+	if err != nil {
+		t.Fatalf("read unchanged PR-gated job: %v", err)
+	}
+	if unchanged.PR != "" || unchanged.Steps[1].Status != job.StatusBlocked {
+		t.Fatalf("dry-run changed PR-gated job = %+v", unchanged)
 	}
 
 	cmd := NewRootCmd()

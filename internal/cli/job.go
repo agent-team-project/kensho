@@ -3965,6 +3965,7 @@ func newJobUpdateCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -3985,6 +3986,18 @@ func newJobUpdateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job update: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job update: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job update: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job update: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if waitInterval < 0 {
@@ -4040,12 +4053,14 @@ func newJobUpdateCmd() *cobra.Command {
 				return err
 			}
 			changed := map[string]string{}
+			var statusValue job.Status
 			if cmd.Flags().Changed("status") {
 				next, err := job.ParseStatus(status)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job update: %v\n", err)
 					return exitErr(2)
 				}
+				statusValue = next
 				j.Status = next
 				changed["status"] = string(next)
 			}
@@ -4093,13 +4108,48 @@ func newJobUpdateCmd() *cobra.Command {
 				j.UpdatedAt = time.Now().UTC()
 			}
 			if dryRun {
+				commandOptions := jobUpdateApplyCommandOptions{
+					JobID:          j.ID,
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					Status:         statusValue,
+					StatusSet:      cmd.Flags().Changed("status"),
+					Target:         target,
+					TargetSet:      cmd.Flags().Changed("target"),
+					TicketURL:      ticketURL,
+					TicketURLSet:   cmd.Flags().Changed("ticket-url"),
+					Instance:       instance,
+					InstanceSet:    cmd.Flags().Changed("instance"),
+					Branch:         branch,
+					BranchSet:      cmd.Flags().Changed("branch"),
+					Worktree:       worktree,
+					WorktreeSet:    cmd.Flags().Changed("worktree"),
+					PR:             pr,
+					PRSet:          cmd.Flags().Changed("pr"),
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					Clear:          jobUpdateClearCommandFields(clearSet),
+					Advance:        advance,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+				}
 				if advance {
 					preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job update: %v\n", err)
 						return exitErr(1)
 					}
+					if commands {
+						return renderJobUpdateApplyCommand(cmd.OutOrStdout(), true, commandOptions)
+					}
 					return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, advanceTmpl)
+				}
+				if commands {
+					return renderJobUpdateApplyCommand(cmd.OutOrStdout(), true, commandOptions)
 				}
 				return renderJobUpdatePreview(cmd.OutOrStdout(), j, changed, jsonOut, jobTmpl)
 			}
@@ -4167,6 +4217,7 @@ func newJobUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview metadata updates and optional advance dispatch without writing job or daemon state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job update apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the job to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -12290,6 +12341,107 @@ type jobStepApplyCommandOptions struct {
 	RuntimeKindSet bool
 	RuntimeBin     string
 	RuntimeBinSet  bool
+}
+
+type jobUpdateApplyCommandOptions struct {
+	JobID          string
+	Repo           string
+	RepoSet        bool
+	Status         job.Status
+	StatusSet      bool
+	Target         string
+	TargetSet      bool
+	TicketURL      string
+	TicketURLSet   bool
+	Instance       string
+	InstanceSet    bool
+	Branch         string
+	BranchSet      bool
+	Worktree       string
+	WorktreeSet    bool
+	PR             string
+	PRSet          bool
+	Message        string
+	MessageSet     bool
+	Clear          []string
+	Advance        bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
+}
+
+func renderJobUpdateApplyCommand(w io.Writer, hasAction bool, opts jobUpdateApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobUpdateApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobUpdateApplyCommandArgs(opts jobUpdateApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "update", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StatusSet {
+		args = append(args, "--status", string(opts.Status))
+	}
+	if opts.TargetSet && strings.TrimSpace(opts.Target) != "" {
+		args = append(args, "--target", opts.Target)
+	}
+	if opts.TicketURLSet {
+		args = append(args, "--ticket-url", opts.TicketURL)
+	}
+	if opts.InstanceSet {
+		args = append(args, "--instance", opts.Instance)
+	}
+	if opts.BranchSet {
+		args = append(args, "--branch", opts.Branch)
+	}
+	if opts.WorktreeSet {
+		args = append(args, "--worktree", opts.Worktree)
+	}
+	if opts.PRSet {
+		args = append(args, "--pr", opts.PR)
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if len(opts.Clear) > 0 {
+		args = append(args, "--clear", strings.Join(opts.Clear, ","))
+	}
+	if opts.Advance {
+		args = append(args, "--advance")
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	return args
+}
+
+func jobUpdateClearCommandFields(clearSet map[string]bool) []string {
+	if len(clearSet) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(clearSet))
+	for field := range clearSet {
+		if field == "ticket_url" {
+			fields = append(fields, "ticket-url")
+			continue
+		}
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	return fields
 }
 
 func renderJobStepApplyCommand(w io.Writer, hasAction bool, opts jobStepApplyCommandOptions) error {

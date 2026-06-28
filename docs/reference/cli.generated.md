@@ -3478,6 +3478,7 @@ Flags:
       --advance                   After updating metadata, dispatch the next ready pipeline step.
       --branch string             Set branch.
       --clear strings             Clear metadata fields: ticket-url, instance, branch, worktree, pr, or pipeline. Can repeat or comma-separate.
+      --commands                  With --dry-run, print the matching job update apply command when the preview has actionable work.
       --dry-run                   Preview metadata updates and optional advance dispatch without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
