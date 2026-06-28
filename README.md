@@ -392,7 +392,7 @@ agent-team template pull <ref> [--as <n>] [--dry-run] [--commands] [--format '{{
                                                 # copy a local template or clone a git ref into the cache
 agent-team template rm <ref> [--dry-run] [--commands] [--format '{{.Ref}} {{.Action}}'] [--json]
                                                 # remove a cached template
-agent-team template smoke [<ref>] [--set k=v]... [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--json]
+agent-team template smoke [<ref>] [--set k=v]... [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--format '{{.OK}} {{len .Steps}}'] [--json]
                                                 # init a template into a temp repo and run doctor/pipeline/team validation
 agent-team template run <ref> <agent> [--target <dir>] [--keep] [--runtime claude|codex] [--runtime-bin <path>] [--last-message] [--set k=v]... [-p "..."|--prompt-file <path|->]
                                                 # one-shot: init into a (temp)dir + spawn the agent

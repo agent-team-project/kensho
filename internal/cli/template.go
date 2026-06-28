@@ -258,6 +258,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 		setFlags       []string
 		keep           bool
 		jsonOut        bool
+		format         string
 		strictDaemon   bool
 		strictRuntime  bool
 		strictTemplate bool
@@ -268,6 +269,15 @@ func newTemplateSmokeCmd() *cobra.Command {
 		Long:  "Render a template into a temporary repo with init --no-input semantics, then run doctor, pipeline doctor, and team doctor. Pass --set for required parameters.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template smoke: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTemplateCLIFormat("template-smoke-format", format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template smoke: %v\n", err)
+				return exitErr(2)
+			}
 			ref := ""
 			if len(args) == 1 {
 				ref = args[0]
@@ -281,7 +291,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := renderTemplateSmoke(cmd.OutOrStdout(), result, jsonOut); err != nil {
+			if err := renderTemplateSmoke(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
 				return err
 			}
 			if !result.OK {
@@ -293,6 +303,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&setFlags, "set", nil, "Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.")
 	c.Flags().BoolVar(&keep, "keep", false, "Keep the temporary rendered repo for inspection.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit smoke results as JSON.")
+	c.Flags().StringVar(&format, "format", "", "Render the smoke result with a Go template, e.g. '{{.OK}} {{len .Steps}}'.")
 	c.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail doctor when the companion agent-teamd binary is not discoverable.")
 	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary or pipeline/team step runtime defaults are not discoverable.")
 	c.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail doctor when rendered template provenance does not resolve cleanly.")
@@ -461,9 +472,16 @@ func firstTeamProblem(result *allTeamDoctorResult) string {
 	return ""
 }
 
-func renderTemplateSmoke(w fmtWriter, result templateSmokeResult, jsonOut bool) error {
+func renderTemplateSmoke(w io.Writer, result templateSmokeResult, jsonOut bool, tmpl *texttemplate.Template) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		if err := tmpl.Execute(w, result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
 	}
 	state := "OK"
 	if !result.OK {

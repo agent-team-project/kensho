@@ -283,6 +283,16 @@ func TestTemplateOutputFlagValidation(t *testing.T) {
 			want: "invalid --format template",
 		},
 		{
+			name: "smoke format json",
+			args: []string{"template", "smoke", "--json", "--format", "{{.OK}}"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "smoke invalid format",
+			args: []string{"template", "smoke", "--format", "{{"},
+			want: "invalid --format template",
+		},
+		{
 			name: "pull commands without dry-run",
 			args: []string{"template", "pull", "sample", "--commands"},
 			want: "--commands requires --dry-run",
@@ -446,6 +456,25 @@ func TestTemplateSmokeBundledJSONCleansTempRepo(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.FromSlash(result.Target)); !os.IsNotExist(err) {
 		t.Fatalf("target should be removed after smoke, stat err=%v target=%s", err, result.Target)
+	}
+}
+
+func TestTemplateSmokeFormat(t *testing.T) {
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"template", "smoke",
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+		"--format", "{{.OK}} {{.Ref}} {{len .Steps}} {{.Kept}}",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template smoke --format: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+	}
+	if got, want := strings.TrimSpace(out.String()), "true bundled 4 false"; got != want {
+		t.Fatalf("template smoke format = %q, want %q", got, want)
 	}
 }
 

@@ -9226,6 +9226,7 @@ agent-team template smoke [ref] [flags]
 Flags:
 
 ```text
+      --format string     Render the smoke result with a Go template, e.g. '{{.OK}} {{len .Steps}}'.
       --json              Emit smoke results as JSON.
       --keep              Keep the temporary rendered repo for inspection.
       --set stringArray   Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.
