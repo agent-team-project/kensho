@@ -2275,6 +2275,7 @@ func newPipelineApproveCmd() *cobra.Command {
 		message       string
 		messageFile   string
 		dryRun        bool
+		commands      bool
 		previewRoutes bool
 		wait          bool
 		waitStatuses  []string
@@ -2297,6 +2298,18 @@ func newPipelineApproveCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline approve: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline approve: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline approve: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline approve: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if all && len(args) > 0 {
@@ -2366,6 +2379,36 @@ func newPipelineApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline approve: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				baseArgs := []string{"agent-team", "pipeline", "approve"}
+				if !all {
+					baseArgs = append(baseArgs, pipelineName)
+				}
+				action := "would_approve"
+				if dispatchNow {
+					action = "would_dispatch"
+				}
+				return renderPipelineApplyCommand(cmd.OutOrStdout(), pipelineApproveResultsHaveDryRunAction(results, action), pipelineApplyCommandOptions{
+					BaseArgs:       baseArgs,
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					All:            all,
+					Dispatch:       dispatchNow,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Step:           step,
+					StepSet:        cmd.Flags().Changed("step"),
+					Limit:          limit,
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					MessageFile:    messageFile,
+					MessageFileSet: cmd.Flags().Changed("message-file"),
+				})
+			}
 			if wait {
 				results, err = waitForPipelineApproveResults(cmd, teamDir, results, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team pipeline approve")
 				if err != nil {
@@ -2395,6 +2438,7 @@ func newPipelineApproveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each approved job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read approval message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching approve apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include route and payload previews.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
@@ -11051,6 +11095,13 @@ type pipelineApplyCommandOptions struct {
 	Repo           string
 	RepoSet        bool
 	All            bool
+	Dispatch       bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
 	Step           string
 	StepSet        bool
 	Limit          int
@@ -11119,6 +11170,18 @@ func pipelineApplyCommandArgs(opts pipelineApplyCommandOptions) []string {
 	}
 	if opts.All {
 		args = append(args, "--all")
+	}
+	if opts.Dispatch {
+		args = append(args, "--dispatch")
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
 	}
 	if opts.StepSet && strings.TrimSpace(opts.Step) != "" {
 		args = append(args, "--step", opts.Step)

@@ -1872,6 +1872,7 @@ func newTeamApproveCmd() *cobra.Command {
 		message       string
 		messageFile   string
 		dryRun        bool
+		commands      bool
 		previewRoutes bool
 		wait          bool
 		waitStatuses  []string
@@ -1894,6 +1895,18 @@ func newTeamApproveCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team approve: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if limit < 0 {
@@ -1956,6 +1969,31 @@ func newTeamApproveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team approve: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				action := "would_approve"
+				if dispatchNow {
+					action = "would_dispatch"
+				}
+				return renderPipelineApplyCommand(cmd.OutOrStdout(), pipelineApproveResultsHaveDryRunAction(results, action), pipelineApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "team", "approve", args[0]},
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					Dispatch:       dispatchNow,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Step:           step,
+					StepSet:        cmd.Flags().Changed("step"),
+					Limit:          limit,
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					MessageFile:    messageFile,
+					MessageFileSet: cmd.Flags().Changed("message-file"),
+				})
+			}
 			if wait {
 				results, err = waitForPipelineApproveResults(cmd, teamDir, results, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team team approve")
 				if err != nil {
@@ -1984,6 +2022,7 @@ func newTeamApproveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on each approved team job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read approval message from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview manual gate approvals and optional dispatches without writing job or daemon state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team approve apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run --dispatch, include local topology route and dispatch payload previews.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")

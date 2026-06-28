@@ -3467,6 +3467,19 @@ pipelines = ["ticket_to_pr"]
 		t.Fatalf("team approve leaked foreign job:\n%s", dryOut.String())
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "approve", "delivery", "--repo", root, "--step", "review", "--limit", "1", "--dispatch", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--message", "delivery approved", "--dry-run", "--preview-routes", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team approve commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "team", "approve", "delivery", "--repo", root, "--dispatch", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--step", "review", "--limit", "1", "--message", "delivery approved"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("team approve commands = %q, want %q", got, wantCommand)
+	}
+
 	status := NewRootCmd()
 	statusOut, statusErr := &bytes.Buffer{}, &bytes.Buffer{}
 	status.SetOut(statusOut)
@@ -3601,6 +3614,9 @@ func TestTeamApproveValidation(t *testing.T) {
 		{[]string{"team", "approve", "delivery", "--wait-next-state", "running"}, "wait-related flags require --wait"},
 		{[]string{"team", "approve", "delivery", "--wait-step", "review"}, "wait-related flags require --wait"},
 		{[]string{"team", "approve", "delivery", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
+		{[]string{"team", "approve", "delivery", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"team", "approve", "delivery", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"team", "approve", "delivery", "--dry-run", "--commands", "--format", "{{.JobID}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

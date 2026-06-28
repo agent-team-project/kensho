@@ -4247,6 +4247,7 @@ Flags:
 
 ```text
       --all                       Approve manual gates across all pipelines.
+      --commands                  With --dry-run, print the matching approve apply command when the preview has actionable work.
       --dispatch                  Dispatch each approved manual gate immediately.
       --dry-run                   Preview manual gate approvals and optional dispatches without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if any approved job resolves to failed.
@@ -7257,6 +7258,7 @@ agent-team team approve <team> [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching team approve apply command when the preview has actionable work.
       --dispatch                  Dispatch each approved manual gate immediately.
       --dry-run                   Preview manual gate approvals and optional dispatches without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if any approved job resolves to failed.

@@ -4444,6 +4444,20 @@ gate = "manual"
 	if preview[0].Preview.Dispatch.RequestedName != "manager-squ-902-review" {
 		t.Fatalf("dispatch preview = %+v", preview[0].Preview.Dispatch)
 	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "approve", "ticket_to_pr", "--repo", root, "--step", "review", "--limit", "1", "--dispatch", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--message", "manual review approved", "--dry-run", "--preview-routes", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline approve commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "pipeline", "approve", "ticket_to_pr", "--repo", root, "--dispatch", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--step", "review", "--limit", "1", "--message", "manual review approved"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("pipeline approve commands = %q, want %q", got, wantCommand)
+	}
+
 	unchanged, err := job.Read(teamDir, "squ-902")
 	if err != nil {
 		t.Fatalf("read unchanged job: %v", err)
@@ -4592,6 +4606,9 @@ func TestPipelineApproveValidation(t *testing.T) {
 		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait-next-state", "running"}, "wait-related flags require --wait"},
 		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait-step", "review"}, "wait-related flags require --wait"},
 		{[]string{"pipeline", "approve", "ticket_to_pr", "--wait", "--wait-next-state", "missing"}, "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all"},
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "approve", "ticket_to_pr", "--dry-run", "--commands", "--format", "{{.JobID}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
