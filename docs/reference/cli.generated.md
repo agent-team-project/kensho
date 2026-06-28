@@ -6769,6 +6769,7 @@ agent-team schedule fire [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching schedule fire apply command when schedules are due.
       --dry-run                   Preview due schedules without publishing events or writing schedule clocks.
       --fail-on-failed            With --wait, exit 1 if any schedule-created job resolves to failed.
       --format string             Render the fire result with a Go template, e.g. '{{.Fired}} {{len .Schedules}}'.
@@ -6829,6 +6830,7 @@ agent-team schedule run <schedule> [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching schedule run apply command.
       --dry-run                   Preview the schedule event without publishing it.
       --fail-on-failed            With --wait, exit 1 if any schedule-created job resolves to failed.
       --format string             Render the event result with a Go template, e.g. '{{.Event.Type}} {{.DryRun}}'.

@@ -334,8 +334,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team schedule ls` | List schedules |
 | `agent-team schedule due` | Show due schedules; add `--commands` to print the dry-run fire preview command when anything is due |
 | `agent-team schedule next` | Show upcoming schedules; add `--commands` to print the dry-run fire preview command when the forecast includes due work |
-| `agent-team schedule fire` | Fire due schedules; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
-| `agent-team schedule run <name>` | Publish one schedule event; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
+| `agent-team schedule fire` | Fire due schedules; add `--commands` to dry-run previews and `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
+| `agent-team schedule run <name>` | Publish one schedule event; add `--commands` to dry-run previews and `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |
 | `agent-team intake linear` | Normalize Linear payload |
 | `agent-team intake github` | Normalize GitHub payload, reconcile jobs, advance PR-gated work with `--wait-next-state`/`--wait-step`, and optionally verify PR cleanup |
 | `agent-team intake schedule` | Normalize schedule payload; add `--wait-next-state`/`--wait-step` for schedule-created pipeline jobs |

@@ -23,8 +23,10 @@ agent-team schedule ls
 agent-team schedule due
 agent-team schedule next --limit 5
 agent-team schedule fire --dry-run --preview-triggers
+agent-team schedule fire --dry-run --commands
 agent-team schedule fire --wait --wait-next-state queued --wait-step triage --wait-timeout 30s
 agent-team schedule run nightly --dry-run --preview-triggers
+agent-team schedule run nightly --dry-run --commands
 agent-team schedule run nightly --payload '{"ticket":"SQU-610"}' --wait --wait-next-state queued --wait-step triage --wait-timeout 30s
 agent-team intake schedule nightly --payload '{"ticket":"SQU-611"}' --wait --wait-next-state queued --wait-step triage --wait-timeout 30s
 ```

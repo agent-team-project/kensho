@@ -225,6 +225,7 @@ func newScheduleFireCmd() *cobra.Command {
 		repo          string
 		dryRun        bool
 		previewRoutes bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -244,6 +245,18 @@ func newScheduleFireCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule fire: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -289,6 +302,12 @@ func newScheduleFireCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team schedule fire: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderScheduleFireApplyCommand(cmd.OutOrStdout(), result != nil && result.WouldFire > 0, scheduleFireApplyCommandOptions{
+						Repo:    repo,
+						RepoSet: cmd.Flags().Changed("repo"),
+					})
+				}
 				return renderScheduleFireResultWithPreviews(cmd.OutOrStdout(), result, previews, jsonOut, tmpl)
 			}
 			dc, err := newDaemonClient(teamDir)
@@ -327,6 +346,7 @@ func newScheduleFireCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview due schedules without publishing events or writing schedule clocks.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching schedule fire apply command when schedules are due.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After schedules publish pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -347,6 +367,7 @@ func newScheduleRunCmd() *cobra.Command {
 		payloadFile   string
 		dryRun        bool
 		previewRoutes bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -366,6 +387,18 @@ func newScheduleRunCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team schedule run: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -430,6 +463,18 @@ func newScheduleRunCmd() *cobra.Command {
 						return exitErr(1)
 					}
 				}
+				if commands {
+					return renderScheduleRunApplyCommand(cmd.OutOrStdout(), true, scheduleRunApplyCommandOptions{
+						Name:           info.Name,
+						Repo:           repo,
+						RepoSet:        cmd.Flags().Changed("repo"),
+						Payload:        payload,
+						PayloadSet:     cmd.Flags().Changed("payload"),
+						PayloadFile:    payloadFile,
+						PayloadFileSet: cmd.Flags().Changed("payload-file"),
+						PayloadRaw:     strings.TrimSpace(string(override)),
+					})
+				}
 				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil, triggerPreview)
 			}
 			return publishScheduleEvent(cmd, repo, ev, "agent-team schedule run", wait, waitFilters, waitTimeout, waitInterval, failOnFailed, jsonOut, tmpl)
@@ -440,6 +485,7 @@ func newScheduleRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the schedule event without publishing it.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching schedule run apply command.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After the schedule publishes pipeline jobs, wait for those jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. pipeline_step, advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -802,6 +848,60 @@ func renderScheduleDueCommands(w io.Writer, rows []scheduleInfo) error {
 		return err
 	}
 	return nil
+}
+
+type scheduleFireApplyCommandOptions struct {
+	Repo    string
+	RepoSet bool
+}
+
+func renderScheduleFireApplyCommand(w io.Writer, hasAction bool, opts scheduleFireApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	args := []string{"agent-team", "schedule", "fire"}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(args), " "))
+	return err
+}
+
+type scheduleRunApplyCommandOptions struct {
+	Name           string
+	Repo           string
+	RepoSet        bool
+	Payload        string
+	PayloadSet     bool
+	PayloadFile    string
+	PayloadFileSet bool
+	PayloadRaw     string
+}
+
+func renderScheduleRunApplyCommand(w io.Writer, hasAction bool, opts scheduleRunApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(scheduleRunApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func scheduleRunApplyCommandArgs(opts scheduleRunApplyCommandOptions) []string {
+	args := []string{"agent-team", "schedule", "run", opts.Name}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.PayloadSet && strings.TrimSpace(opts.Payload) != "" {
+		args = append(args, "--payload", opts.Payload)
+	}
+	payloadFile := strings.TrimSpace(opts.PayloadFile)
+	if opts.PayloadFileSet && payloadFile != "" && payloadFile != "-" {
+		args = append(args, "--payload-file", opts.PayloadFile)
+	}
+	if opts.PayloadFileSet && payloadFile == "-" && strings.TrimSpace(opts.PayloadRaw) != "" {
+		args = append(args, "--payload", opts.PayloadRaw)
+	}
+	return args
 }
 
 func parseScheduleFireFormat(format string) (*template.Template, error) {

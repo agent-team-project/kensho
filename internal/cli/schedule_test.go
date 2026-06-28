@@ -113,6 +113,30 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 		t.Fatalf("dry-run payload = %+v", result.Event.Payload)
 	}
 
+	runCommands := NewRootCmd()
+	runCommandsOut, runCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runCommands.SetOut(runCommandsOut)
+	runCommands.SetErr(runCommandsErr)
+	runCommands.SetArgs([]string{
+		"schedule", "run", "nightly",
+		"--repo", tmp,
+		"--payload", `{"workspace":"scratch","extra":true}`,
+		"--dry-run",
+		"--preview-triggers",
+		"--commands",
+	})
+	if err := runCommands.Execute(); err != nil {
+		t.Fatalf("schedule run --commands: %v\nstderr=%s", err, runCommandsErr.String())
+	}
+	wantRunCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "schedule", "run", "nightly",
+		"--repo", tmp,
+		"--payload", `{"workspace":"scratch","extra":true}`,
+	}), " ") + "\n"
+	if got := runCommandsOut.String(); got != wantRunCommand {
+		t.Fatalf("schedule run --commands = %q, want %q", got, wantRunCommand)
+	}
+
 	override := NewRootCmd()
 	overrideOut, overrideErr := &bytes.Buffer{}, &bytes.Buffer{}
 	override.SetOut(overrideOut)
@@ -165,6 +189,26 @@ func TestScheduleListShowAndDryRun(t *testing.T) {
 	}
 	if fileResult.Event.Payload["name"] != "nightly" || fileResult.Event.Payload["source"] != "schedule" {
 		t.Fatalf("payload-file identity fields should be preserved: %+v", fileResult.Event.Payload)
+	}
+
+	prevInput := intakeInput
+	intakeInput = strings.NewReader(`{"workspace":"stdin","from_stdin":true}`)
+	t.Cleanup(func() { intakeInput = prevInput })
+	stdinCommands := NewRootCmd()
+	stdinCommandsOut, stdinCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stdinCommands.SetOut(stdinCommandsOut)
+	stdinCommands.SetErr(stdinCommandsErr)
+	stdinCommands.SetArgs([]string{"schedule", "run", "nightly", "--repo", tmp, "--payload-file", "-", "--dry-run", "--commands"})
+	if err := stdinCommands.Execute(); err != nil {
+		t.Fatalf("schedule run stdin --commands: %v\nstderr=%s", err, stdinCommandsErr.String())
+	}
+	wantStdinCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "schedule", "run", "nightly",
+		"--repo", tmp,
+		"--payload", `{"workspace":"stdin","from_stdin":true}`,
+	}), " ") + "\n"
+	if got := stdinCommandsOut.String(); got != wantStdinCommand {
+		t.Fatalf("schedule run stdin --commands = %q, want %q", got, wantStdinCommand)
 	}
 }
 
@@ -435,6 +479,19 @@ func TestScheduleFireUsesDaemonAndPreservesDryRun(t *testing.T) {
 		t.Fatalf("dry-run wrote schedule state, err=%v", err)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"schedule", "fire", "--repo", tmp, "--dry-run", "--preview-triggers", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("schedule fire --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantFireCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "schedule", "fire", "--repo", tmp}), " ") + "\n"
+	if got := commandsOut.String(); got != wantFireCommand {
+		t.Fatalf("schedule fire --commands = %q, want %q", got, wantFireCommand)
+	}
+
 	fire := NewRootCmd()
 	fireOut, fireErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fire.SetOut(fireOut)
@@ -462,6 +519,18 @@ func TestScheduleFireUsesDaemonAndPreservesDryRun(t *testing.T) {
 	}
 	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"event":"schedule"`) || !strings.Contains(messages[0].Body, `"name":"nightly"`) {
 		t.Fatalf("messages = %+v", messages)
+	}
+
+	noDueCommands := NewRootCmd()
+	noDueOut, noDueErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noDueCommands.SetOut(noDueOut)
+	noDueCommands.SetErr(noDueErr)
+	noDueCommands.SetArgs([]string{"schedule", "fire", "--repo", tmp, "--dry-run", "--commands"})
+	if err := noDueCommands.Execute(); err != nil {
+		t.Fatalf("schedule fire --commands no due: %v\nstderr=%s", err, noDueErr.String())
+	}
+	if got := noDueOut.String(); got != "" {
+		t.Fatalf("schedule fire --commands no due = %q, want empty", got)
 	}
 }
 
@@ -687,6 +756,21 @@ func TestScheduleWaitFlagValidation(t *testing.T) {
 			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 		{
+			name: "run commands without dry-run",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "run commands with json",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "run commands with format",
+			args: []string{"schedule", "run", "nightly", "--repo", tmp, "--dry-run", "--commands", "--format", "{{.DryRun}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "fire wait with dry-run",
 			args: []string{"schedule", "fire", "--repo", tmp, "--dry-run", "--wait"},
 			want: "--wait cannot be combined with --dry-run",
@@ -700,6 +784,21 @@ func TestScheduleWaitFlagValidation(t *testing.T) {
 			name: "fire invalid wait interval",
 			args: []string{"schedule", "fire", "--repo", tmp, "--wait", "--wait-interval", "-1s"},
 			want: "--wait-interval must be >= 0",
+		},
+		{
+			name: "fire commands without dry-run",
+			args: []string{"schedule", "fire", "--repo", tmp, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "fire commands with json",
+			args: []string{"schedule", "fire", "--repo", tmp, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "fire commands with format",
+			args: []string{"schedule", "fire", "--repo", tmp, "--dry-run", "--commands", "--format", "{{.WouldFire}}"},
+			want: "--commands cannot be combined with --format",
 		},
 	}
 	for _, tc := range cases {
