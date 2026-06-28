@@ -125,6 +125,9 @@ func TestInitJSONDefaultTemplate(t *testing.T) {
 	if result.Target != filepath.ToSlash(resolvedTarget) || result.TeamDir != teamDir || result.Kind != "default" || result.Ref != "bundled" || result.TemplateName != "default" || result.TemplateVersion != "1.0.0" || !strings.HasPrefix(result.ContentHash, "sha256:") || result.Empty || result.Force {
 		t.Fatalf("unexpected init json result: %+v", result)
 	}
+	if result.DryRun || result.Action != "initialized" {
+		t.Fatalf("unexpected init action fields: %+v", result)
+	}
 	if result.ConfigPath != filepath.ToSlash(filepath.Join(resolvedTarget, ".agent_team", "config.toml")) || result.LockPath != filepath.ToSlash(filepath.Join(resolvedTarget, ".agent_team", ".template.lock")) {
 		t.Fatalf("unexpected init paths: %+v", result)
 	}
@@ -133,6 +136,63 @@ func TestInitJSONDefaultTemplate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", ".template.lock")); err != nil {
 		t.Fatalf("template lock missing after init --json: %v", err)
+	}
+}
+
+func TestInitDryRunJSONDoesNotWrite(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(append(initArgsWithRequired(tmp), "--dry-run", "--json"))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init --dry-run --json: %v\nstderr: %s", err, errOut.String())
+	}
+	var result initResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode init dry-run json: %v\nbody=%s", err, out.String())
+	}
+	if !result.DryRun || result.Action != "would-init" || result.Ref != "bundled" || result.Kind != "default" {
+		t.Fatalf("unexpected dry-run init result: %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".agent_team")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not create .agent_team, stat err=%v", err)
+	}
+}
+
+func TestInitDryRunCommands(t *testing.T) {
+	tmp := t.TempDir()
+	resolvedTarget, err := resolveAbsTarget(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init",
+		"--target", tmp,
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+		"--dry-run",
+		"--commands",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init --dry-run --commands: %v\nstderr: %s", err, errOut.String())
+	}
+	want := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "init",
+		"--target", filepath.ToSlash(resolvedTarget),
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+	}), " ")
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Fatalf("init dry-run commands = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".agent_team")); !os.IsNotExist(err) {
+		t.Fatalf("commands dry-run should not create .agent_team, stat err=%v", err)
 	}
 }
 
@@ -325,9 +385,29 @@ func TestInitOutputFlagValidation(t *testing.T) {
 			want: "invalid --format template",
 		},
 		{
+			name: "commands without dry-run",
+			args: []string{"init", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "commands json",
+			args: []string{"init", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands format",
+			args: []string{"init", "--dry-run", "--commands", "--format", "{{.TeamDir}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "machine output no prompt",
 			args: []string{"init", "--json", "--target", t.TempDir()},
 			want: "machine-readable output requested but required parameters are missing",
+		},
+		{
+			name: "dry-run no prompt",
+			args: []string{"init", "--dry-run", "--target", t.TempDir()},
+			want: "--dry-run requested but required parameters are missing",
 		},
 	}
 	for _, tt := range tests {

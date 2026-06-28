@@ -166,7 +166,7 @@ The daemon is bypassed; the selected runtime is exec'd directly. For long-lived 
 Most repo-scoped commands accept the global `--repo <dir>` selector. Legacy repo-root `--target <dir>` flags remain for compatibility; `agent-team job create --target <agent>` still means the target agent for that job.
 
 ```sh
-agent-team init [<ref>] [--set k=v]... [--no-input] [--force] [--format '{{.TeamDir}} {{.Kind}}'] [--json]
+agent-team init [<ref>] [--set k=v]... [--no-input] [--force] [--dry-run] [--commands] [--format '{{.TeamDir}} {{.Kind}}'] [--json]
                                                 # instantiate a template into the current repo
 agent-team start [<instance>...] [-q] [--all] [--latest | --last N] [--runtime codex] [--agent manager] [--status stopped] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--prompt "..."] [--prompt-file <path|->] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--attach --tail N|all] [--json]
                                                 # start daemon, then start/resume persistent or daemon-known instances

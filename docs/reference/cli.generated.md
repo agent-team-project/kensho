@@ -1193,6 +1193,8 @@ agent-team init [<ref>] [flags]
 Flags:
 
 ```text
+      --commands           With --dry-run, print the matching init apply command.
+      --dry-run            Preview init without writing .agent_team/.
       --force              Overwrite existing .agent_team/ files (config.toml is never overwritten).
       --format string      Render the init result with a Go template, e.g. '{{.TeamDir}} {{.Kind}}'.
       --json               Emit machine-readable JSON on success.

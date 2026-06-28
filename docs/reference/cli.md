@@ -12,7 +12,7 @@ as the output directory instead.
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team init [ref] [--format <template>] [--json]` | Instantiate a template into `.agent_team/` and optionally emit a machine-readable success record |
+| `agent-team init [ref] [--dry-run] [--commands] [--format <template>] [--json]` | Instantiate a template into `.agent_team/`, preview it, or emit a machine-readable success record |
 | `agent-team template ls [--format <template>] [--json]` | List bundled and cached templates with text, Go-template, or JSON output |
 | `agent-team template show [ref] [--format <template>] [--json]` | Show a template manifest with content hash, agents, skills, and parameters |
 | `agent-team template pull <ref> [--as <cache-ref>] [--dry-run] [--commands] [--format <template>] [--json]` | Cache a template, or preview/print the apply command |
