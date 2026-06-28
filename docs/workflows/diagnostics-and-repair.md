@@ -237,6 +237,7 @@ Use `job quarantine --summary --json` when automation only needs preserved job-f
 
 ```sh
 agent-team repair --dry-run --jobs
+agent-team repair --dry-run --jobs --last-message
 agent-team repair --skip-daemon
 agent-team repair --skip-queue
 agent-team repair --skip-tick
@@ -262,6 +263,7 @@ agent-team drain --all-ready-steps --runtime codex
 agent-team drain --wait --wait-status running --wait-timeout 30s
 agent-team pipeline drain ticket_to_pr --wait --wait-status running --wait-timeout 30s
 agent-team team repair delivery --dry-run --jobs
+agent-team team repair delivery --dry-run --jobs --last-message
 agent-team team repair delivery --retry-pipelines --wait --wait-status running --wait-timeout 30s
 agent-team team drain delivery --wait --wait-status running --wait-timeout 30s
 ```
@@ -274,6 +276,9 @@ Repair can:
 4. optionally retry failed pipeline steps with `--retry-pipelines`
 5. run a maintenance tick
 6. include before/after health snapshots
+
+Add `--last-message` when repair health snapshots should prefer clean Codex
+final-response sidecar commands for stale runtime recovery hints.
 
 `--dry-run` should be the first step.
 Use `drain` when a script should keep running global maintenance cycles until

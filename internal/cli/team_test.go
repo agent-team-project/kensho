@@ -7450,6 +7450,11 @@ func TestTeamQueueScopesItems(t *testing.T) {
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"manager", "worker", "other"} {
+		if err := os.MkdirAll(filepath.Join(teamDir, "agents", name), 0o755); err != nil {
+			t.Fatalf("mkdir agent %s: %v", name, err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
 [instances.other]
 agent = "other"
@@ -8449,6 +8454,18 @@ instances = ["other"]
 		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
 			t.Fatalf("write queue item %s: %v", item.ID, err)
 		}
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-300",
+		Agent:     "worker",
+		Job:       "squ-300",
+		Runtime:   string(runtimebin.KindCodex),
+		Status:    daemon.StatusRunning,
+		PID:       99999999,
+		Workspace: root,
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("write runtime metadata: %v", err)
 	}
 
 	dry := NewRootCmd()
@@ -10717,6 +10734,96 @@ instances = ["other"]
 	}
 	if item, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-other-repair"); err != nil || item.State != daemon.QueueStateDead {
 		t.Fatalf("unrelated queue item changed=%+v err=%v", item, err)
+	}
+}
+
+func TestTeamRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "worker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.build-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["worker"]
+
+[teams.platform]
+instances = ["build-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), &daemon.QueueItem{
+		ID:             "q-team-last-message",
+		State:          daemon.QueueStateDead,
+		EventType:      "agent.dispatch",
+		Instance:       "worker",
+		InstanceID:     "worker-squ-902",
+		Payload:        map[string]any{"job_id": "squ-902", "target": "worker", "ticket": "SQU-902"},
+		Attempts:       daemon.MaxQueueAttempts,
+		LastError:      "spawn failed",
+		QueuedAt:       now.Add(-time.Hour),
+		UpdatedAt:      now,
+		DeadLetteredAt: now,
+	}); err != nil {
+		t.Fatalf("write queue item: %v", err)
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "worker-squ-902", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: 99999999, Workspace: root, StartedAt: now},
+		{Instance: "build-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: 99999999, Workspace: root, StartedAt: now},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team repair last-message json: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview teamRepairResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode team repair last-message: %v\nbody=%s", err, out.String())
+	}
+	wantAction := "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10 --last-message"
+	var sawAction bool
+	for _, issue := range preview.HealthBefore.Issues {
+		if issue.Code == "runtime_stale" && containsString(issue.Actions, wantAction) {
+			sawAction = true
+		}
+		for _, action := range issue.Actions {
+			if strings.Contains(action, "build-worker-1") || strings.Contains(action, "agent-team resume-plan worker-squ-902 --runtime-stale") {
+				t.Fatalf("team repair last-message leaked unscoped action %q in %+v", action, preview.HealthBefore.Issues)
+			}
+		}
+	}
+	if !sawAction {
+		t.Fatalf("team repair last-message action missing %q in %+v", wantAction, preview.HealthBefore.Issues)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team repair last-message commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "team", "repair", "delivery", "--repo", root, "--skip-daemon", "--skip-tick", "--last-message"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("team repair last-message commands = %q, want %q", got, wantCommand)
 	}
 }
 

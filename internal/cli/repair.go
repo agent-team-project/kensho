@@ -25,6 +25,7 @@ func newRepairCmd() *cobra.Command {
 		limit              int
 		dryRun             bool
 		commands           bool
+		lastMessage        bool
 		previewRoutes      bool
 		jsonOut            bool
 		format             string
@@ -250,6 +251,7 @@ func newRepairCmd() *cobra.Command {
 					return err
 				}
 			}
+			result = repairResultWithLastMessageActions(result, lastMessage)
 			if commands {
 				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				return renderRepairCommands(cmd.OutOrStdout(), result, repairApplyCommandOptions{
@@ -291,6 +293,7 @@ func newRepairCmd() *cobra.Command {
 					RetryForce:            retryForce,
 					ReadyTimeout:          readyTimeout,
 					ReadyTimeoutSet:       cmd.Flags().Changed("ready-timeout"),
+					LastMessage:           lastMessage,
 				})
 			}
 			if err := renderRepairResult(cmd.OutOrStdout(), result, jsonOut, formatTemplate); err != nil {
@@ -309,6 +312,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching repair apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When repair health snapshots include runtime recovery actions, prefer clean Codex final-message commands.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.")
@@ -471,6 +475,7 @@ type repairApplyCommandOptions struct {
 	RetryForce            bool
 	ReadyTimeout          time.Duration
 	ReadyTimeoutSet       bool
+	LastMessage           bool
 }
 
 func renderRepairCommands(w fmtWriter, result *repairResult, opts repairApplyCommandOptions) error {
@@ -631,7 +636,19 @@ func repairApplyCommandArgs(opts repairApplyCommandOptions) []string {
 	if opts.ReadyTimeoutSet {
 		args = append(args, "--ready-timeout", opts.ReadyTimeout.String())
 	}
+	if opts.LastMessage {
+		args = append(args, "--last-message")
+	}
 	return args
+}
+
+func repairResultWithLastMessageActions(result *repairResult, lastMessage bool) *repairResult {
+	if result == nil || !lastMessage {
+		return result
+	}
+	result.HealthBefore = healthResultWithLastMessageActions(result.HealthBefore, true)
+	result.HealthAfter = healthResultWithLastMessageActions(result.HealthAfter, true)
+	return result
 }
 
 func runRepair(cmd *cobra.Command, target, teamDir string, opts repairOptions) (*repairResult, error) {

@@ -6273,6 +6273,7 @@ Flags:
       --interval duration             Delay between --until-idle maintenance cycles. (default 2s)
       --jobs                          Include durable job triage and status-file previews in health snapshots.
       --json                          Emit machine-readable JSON.
+      --last-message                  When repair health snapshots include runtime recovery actions, prefer clean Codex final-message commands.
       --limit int                     Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int                With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes                With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.
@@ -8478,6 +8479,7 @@ Flags:
       --interval duration             Delay between --until-idle scoped team tick cycles. (default 2s)
       --jobs                          Include team-owned durable job and pipeline health.
       --json                          Emit machine-readable JSON.
+      --last-message                  When team repair health snapshots include runtime recovery actions, prefer clean Codex final-message commands.
       --limit int                     Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int                With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes                With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.

@@ -5490,6 +5490,7 @@ func newTeamRepairCmd() *cobra.Command {
 		limit              int
 		dryRun             bool
 		commands           bool
+		lastMessage        bool
 		previewRoutes      bool
 		jsonOut            bool
 		format             string
@@ -5714,6 +5715,7 @@ func newTeamRepairCmd() *cobra.Command {
 					return err
 				}
 			}
+			result = teamRepairResultWithLastMessageActions(result, lastMessage)
 			if commands {
 				return renderTeamRepairCommands(cmd.OutOrStdout(), result, repairApplyCommandOptions{
 					BaseArgs:              []string{"agent-team", "team", "repair", args[0]},
@@ -5754,6 +5756,7 @@ func newTeamRepairCmd() *cobra.Command {
 					RetryForce:            retryForce,
 					ReadyTimeout:          readyTimeout,
 					ReadyTimeoutSet:       cmd.Flags().Changed("ready-timeout"),
+					LastMessage:           lastMessage,
 				})
 			}
 			if err := renderTeamRepairResult(cmd.OutOrStdout(), result, jsonOut, formatTemplate); err != nil {
@@ -5772,6 +5775,7 @@ func newTeamRepairCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many team dead-letter queue items or failed team pipeline jobs, and advance at most this many ready team pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview team repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team repair apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When team repair health snapshots include runtime recovery actions, prefer clean Codex final-message commands.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready team pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the team repair result with a Go template, e.g. '{{.Team.Name}} {{.Queue.Action}}'.")
@@ -9359,6 +9363,15 @@ func teamRepairResultHasFailed(result *teamRepairResult) bool {
 		}
 	}
 	return false
+}
+
+func teamRepairResultWithLastMessageActions(result *teamRepairResult, lastMessage bool) *teamRepairResult {
+	if result == nil || !lastMessage {
+		return result
+	}
+	result.HealthBefore = healthResultWithLastMessageActions(result.HealthBefore, true)
+	result.HealthAfter = healthResultWithLastMessageActions(result.HealthAfter, true)
+	return result
 }
 
 func runTeamRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, team *topology.Team, opts teamRepairOptions) (repairPipelineRetryStep, error) {

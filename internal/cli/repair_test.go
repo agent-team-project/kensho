@@ -107,6 +107,71 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	}
 }
 
+func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeDeadQueueItemForRepairTest(t, teamDir, "q-repair-last-message")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "runtime-stale",
+		Agent:     "worker",
+		Job:       "SQU-88",
+		Runtime:   "codex",
+		Status:    daemon.StatusRunning,
+		PID:       99999999,
+		StartedAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("write runtime metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("repair last-message json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair last-message json: %v\nbody=%s", err, out.String())
+	}
+	var sawLastMessage bool
+	for _, issue := range result.HealthBefore.Issues {
+		if issue.Code == "runtime_stale" && issue.Instance == "runtime-stale" {
+			sawLastMessage = containsString(issue.Actions, "agent-team job resume-plan squ-88 --runtime-stale --last-message")
+		}
+	}
+	if !sawLastMessage {
+		t.Fatalf("repair health actions missing last-message hint: %+v", result.HealthBefore.Issues)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("repair last-message text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "agent-team job resume-plan squ-88 --runtime-stale --last-message") {
+		t.Fatalf("repair text missing last-message action:\n%s", textOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("repair last-message commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "repair", "--repo", tmp, "--skip-daemon", "--skip-tick", "--last-message"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("repair last-message commands = %q, want %q", got, wantCommand)
+	}
+}
+
 func TestRepairDryRunCommandsSilentWithoutAction(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
