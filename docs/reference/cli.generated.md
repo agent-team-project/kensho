@@ -3073,6 +3073,7 @@ agent-team job reconcile events [flags]
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching job reconcile events apply command when the preview has actionable work.
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
@@ -3092,6 +3093,7 @@ Flags:
 ```text
       --advance                   After reconciling PR metadata, dispatch the next ready pipeline step.
       --cleanup-merged            After a merged PR event, remove the job-owned worktree and branch.
+      --commands                  With --dry-run, print the matching job reconcile github apply command.
       --dry-run                   Preview the owning job update without writing it.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.
@@ -3123,6 +3125,7 @@ agent-team job reconcile queue [flags]
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching job reconcile queue apply command when the preview has actionable work.
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.
@@ -3141,6 +3144,7 @@ agent-team job reconcile status [flags]
 Flags:
 
 ```text
+      --commands        With --dry-run, print the matching job reconcile status apply command when the preview has actionable work.
       --dry-run         Preview job updates without writing them.
       --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
       --json            Emit machine-readable JSON.

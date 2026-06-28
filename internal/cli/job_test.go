@@ -4688,6 +4688,21 @@ func TestJobReconcileQueueUpdatesDeadJob(t *testing.T) {
 	if len(dryResults) != 1 || dryResults[0].JobID != "squ-110" || dryResults[0].After != job.StatusFailed || !dryResults[0].Changed || !dryResults[0].DryRun {
 		t.Fatalf("dry results = %+v", dryResults)
 	}
+	dryCommands := NewRootCmd()
+	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryCommands.SetOut(dryCommandsOut)
+	dryCommands.SetErr(dryCommandsErr)
+	dryCommands.SetArgs([]string{"job", "reconcile", "queue", "--repo", tmp, "--state", "dead", "--dry-run", "--commands"})
+	if err := dryCommands.Execute(); err != nil {
+		t.Fatalf("job reconcile queue dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
+	}
+	wantDryCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reconcile", "queue", "--repo", tmp, "--state", "dead"}), " ") + "\n"
+	if got, want := dryCommandsOut.String(), wantDryCommand; got != want {
+		t.Fatalf("job reconcile queue --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(dryCommandsOut.String(), "ACTION") || strings.Contains(dryCommandsOut.String(), "JOB") {
+		t.Fatalf("job reconcile queue --commands included table output:\n%s", dryCommandsOut.String())
+	}
 	unchanged, err := job.Read(teamDir, "squ-110")
 	if err != nil {
 		t.Fatalf("read dry-run job: %v", err)
@@ -4769,6 +4784,21 @@ branch = "worker-squ-120"
 	}
 	if len(preview) != 1 || preview[0].JobID != "squ-120" || preview[0].After != job.StatusRunning || !preview[0].Changed || !preview[0].DryRun {
 		t.Fatalf("preview = %+v", preview)
+	}
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job reconcile status commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reconcile", "status", "--repo", tmp}), " ") + "\n"
+	if got, want := commandsOut.String(), wantCommand; got != want {
+		t.Fatalf("job reconcile status --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(commandsOut.String(), "ACTION") || strings.Contains(commandsOut.String(), "JOB") {
+		t.Fatalf("job reconcile status --commands included table output:\n%s", commandsOut.String())
 	}
 	unchanged, err := job.Read(teamDir, "squ-120")
 	if err != nil {
@@ -4860,6 +4890,21 @@ func TestJobReconcileEventsFromTerminalMetadata(t *testing.T) {
 	}
 	if len(preview) != 1 || preview[0].JobID != "squ-130" || preview[0].After != job.StatusDone || preview[0].Event != "instance_exited" || !preview[0].Changed || !preview[0].DryRun {
 		t.Fatalf("preview = %+v", preview)
+	}
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "reconcile", "events", "--repo", tmp, "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job reconcile events commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reconcile", "events", "--repo", tmp}), " ") + "\n"
+	if got, want := commandsOut.String(), wantCommand; got != want {
+		t.Fatalf("job reconcile events --commands = %q, want %q", got, want)
+	}
+	if strings.Contains(commandsOut.String(), "ACTION") || strings.Contains(commandsOut.String(), "JOB") {
+		t.Fatalf("job reconcile events --commands included table output:\n%s", commandsOut.String())
 	}
 	unchanged, err := job.Read(teamDir, "squ-130")
 	if err != nil {
@@ -10398,6 +10443,36 @@ gate = "pr"
 	if result.AdvancePreview == nil || result.AdvancePreview.Step == nil || result.AdvancePreview.Step.ID != "review" || result.AdvancePreview.Dispatch == nil || result.AdvancePreview.Dispatch.RequestedName != "manager-squ-49-review" {
 		t.Fatalf("advance preview = %+v", result.AdvancePreview)
 	}
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", payload,
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--dry-run",
+		"--commands",
+		"--repo", target,
+	})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job reconcile github advance dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "reconcile", "github",
+		"--repo", target,
+		"--payload", payload,
+		"--advance",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ") + "\n"
+	if got, want := commandsOut.String(), wantCommand; got != want {
+		t.Fatalf("job reconcile github --commands = %q, want %q", got, want)
+	}
 	unchanged, err := job.Read(teamDir, "squ-49")
 	if err != nil {
 		t.Fatalf("read unchanged job: %v", err)
@@ -10559,6 +10634,70 @@ func TestJobReconcileGitHubVerifyPRRequiresCleanupMerged(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--verify-pr requires --cleanup-merged") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestJobReconcileCommandsValidation(t *testing.T) {
+	payload := `{"action":"opened","pull_request":{"number":1}}`
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "queue requires dry run",
+			args: []string{"job", "reconcile", "queue", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "queue rejects json",
+			args: []string{"job", "reconcile", "queue", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "status rejects format",
+			args: []string{"job", "reconcile", "status", "--dry-run", "--commands", "--format", "{{.JobID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "events requires dry run",
+			args: []string{"job", "reconcile", "events", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "github requires dry run",
+			args: []string{"job", "reconcile", "github", "--payload", payload, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "github rejects json",
+			args: []string{"job", "reconcile", "github", "--payload", payload, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "github rejects format",
+			args: []string{"job", "reconcile", "github", "--payload", payload, "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("job reconcile validation succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("err = %v, want exit 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
 	}
 }
 

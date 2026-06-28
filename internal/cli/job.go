@@ -6880,10 +6880,11 @@ func newJobReconcileCmd() *cobra.Command {
 
 func newJobReconcileEventsCmd() *cobra.Command {
 	var (
-		repo    string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo     string
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -6893,6 +6894,18 @@ func newJobReconcileEventsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile events: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile events: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile events: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile events: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobEventReconcileFormat(format)
@@ -6908,11 +6921,20 @@ func newJobReconcileEventsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if commands {
+				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
+				return renderJobReconcileApplyCommand(cmd.OutOrStdout(), jobEventReconcileResultsHaveDryRunAction(results), jobReconcileApplyCommandOptions{
+					BaseArgs: []string{"agent-team", "job", "reconcile", "events"},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
+				})
+			}
 			return renderJobEventReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reconcile events apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
 	return cmd
@@ -6920,10 +6942,11 @@ func newJobReconcileEventsCmd() *cobra.Command {
 
 func newJobReconcileStatusCmd() *cobra.Command {
 	var (
-		repo    string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo     string
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -6933,6 +6956,18 @@ func newJobReconcileStatusCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile status: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile status: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile status: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile status: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobStatusReconcileFormat(format)
@@ -6948,11 +6983,20 @@ func newJobReconcileStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if commands {
+				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
+				return renderJobReconcileApplyCommand(cmd.OutOrStdout(), jobStatusReconcileResultsHaveDryRunAction(results), jobReconcileApplyCommandOptions{
+					BaseArgs: []string{"agent-team", "job", "reconcile", "status"},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
+				})
+			}
 			return renderJobStatusReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reconcile status apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
 	return cmd
@@ -6960,11 +7004,12 @@ func newJobReconcileStatusCmd() *cobra.Command {
 
 func newJobReconcileQueueCmd() *cobra.Command {
 	var (
-		repo    string
-		state   string
-		dryRun  bool
-		jsonOut bool
-		format  string
+		repo     string
+		state    string
+		dryRun   bool
+		commands bool
+		jsonOut  bool
+		format   string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -6974,6 +7019,18 @@ func newJobReconcileQueueCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile queue: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile queue: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile queue: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile queue: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobQueueReconcileFormat(format)
@@ -6994,12 +7051,23 @@ func newJobReconcileQueueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if commands {
+				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
+				return renderJobReconcileApplyCommand(cmd.OutOrStdout(), jobQueueReconcileResultsHaveDryRunAction(results), jobReconcileApplyCommandOptions{
+					BaseArgs: []string{"agent-team", "job", "reconcile", "queue"},
+					Repo:     scope.Repo,
+					RepoSet:  scope.Set,
+					State:    stateFilter,
+					StateSet: cmd.Flags().Changed("state"),
+				})
+			}
 			return renderJobQueueReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&state, "state", queuePruneStateAll, "Queue state to reconcile: pending, dead, or all.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reconcile queue apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.")
 	return cmd
@@ -7025,6 +7093,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		waitTimeout   time.Duration
 		waitInterval  time.Duration
 		failOnFailed  bool
+		commands      bool
 		jsonOut       bool
 		format        string
 	)
@@ -7036,6 +7105,18 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reconcile github: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if verifyPR && !cleanupMerged {
@@ -7156,6 +7237,27 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					}
 				}
 			}
+			if dryRun && commands {
+				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
+				return renderJobReconcileGitHubApplyCommand(cmd.OutOrStdout(), result != nil && result.Job != nil, jobReconcileGitHubApplyCommandOptions{
+					Repo:           scope.Repo,
+					RepoSet:        scope.Set,
+					Payload:        payload,
+					PayloadSet:     cmd.Flags().Changed("payload"),
+					PayloadFile:    payloadFile,
+					PayloadFileSet: cmd.Flags().Changed("payload-file"),
+					PayloadRaw:     string(body),
+					CleanupMerged:  cleanupMerged,
+					VerifyPR:       verifyPR,
+					Advance:        advance,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+				})
+			}
 			if jsonOut {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
 					Event          *intake.Event        `json:"event"`
@@ -7231,6 +7333,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&waitInterval, "wait-interval", 500*time.Millisecond, "Polling interval with --wait.")
 	cmd.Flags().BoolVar(&failOnFailed, "fail-on-failed", false, "With --wait, exit 1 if the job resolves to failed.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reconcile github apply command.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the normalized event and reconciled job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the reconciled job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
@@ -12919,6 +13022,87 @@ type jobCreateApplyCommandOptions struct {
 	PositionalWords []string
 }
 
+type jobReconcileApplyCommandOptions struct {
+	BaseArgs []string
+	Repo     string
+	RepoSet  bool
+	State    string
+	StateSet bool
+}
+
+type jobReconcileGitHubApplyCommandOptions struct {
+	Repo           string
+	RepoSet        bool
+	Payload        string
+	PayloadSet     bool
+	PayloadFile    string
+	PayloadFileSet bool
+	PayloadRaw     string
+	CleanupMerged  bool
+	VerifyPR       bool
+	Advance        bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
+}
+
+func renderJobReconcileApplyCommand(w io.Writer, hasAction bool, opts jobReconcileApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobReconcileApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobReconcileApplyCommandArgs(opts jobReconcileApplyCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StateSet && strings.TrimSpace(opts.State) != "" {
+		args = append(args, "--state", opts.State)
+	}
+	return args
+}
+
+func renderJobReconcileGitHubApplyCommand(w io.Writer, hasAction bool, opts jobReconcileGitHubApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobReconcileGitHubApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobReconcileGitHubApplyCommandArgs(opts jobReconcileGitHubApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "reconcile", "github"}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	args = appendPayloadCommandArgs(args, opts.Payload, opts.PayloadSet, opts.PayloadFile, opts.PayloadFileSet, opts.PayloadRaw)
+	if opts.CleanupMerged {
+		args = append(args, "--cleanup-merged")
+	}
+	if opts.VerifyPR {
+		args = append(args, "--verify-pr")
+	}
+	if opts.Advance {
+		args = append(args, "--advance")
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	return args
+}
+
 func renderJobRetryApplyCommand(w io.Writer, hasAction bool, opts jobRetryApplyCommandOptions) error {
 	if !hasAction {
 		return nil
@@ -13970,6 +14154,33 @@ func jobRuntimeLabel(j *job.Job, runtimeByInstance map[string]string) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ",")
+}
+
+func jobQueueReconcileResultsHaveDryRunAction(results []jobQueueReconcileResult) bool {
+	for _, result := range results {
+		if result.DryRun && result.Changed {
+			return true
+		}
+	}
+	return false
+}
+
+func jobEventReconcileResultsHaveDryRunAction(results []jobEventReconcileResult) bool {
+	for _, result := range results {
+		if result.DryRun && result.Changed {
+			return true
+		}
+	}
+	return false
+}
+
+func jobStatusReconcileResultsHaveDryRunAction(results []jobStatusReconcileResult) bool {
+	for _, result := range results {
+		if result.DryRun && result.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 func renderJobQueueReconcileResults(w io.Writer, results []jobQueueReconcileResult, jsonOut bool, tmpl *template.Template) error {
