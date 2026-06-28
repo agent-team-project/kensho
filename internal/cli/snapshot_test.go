@@ -511,6 +511,18 @@ pipelines = ["ticket_to_pr"]
 		t.Fatalf("invalid format stderr = %q", invalidErr.String())
 	}
 
+	pipelineCommandsConflict := NewRootCmd()
+	pipelineCommandsConflictOut, pipelineCommandsConflictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineCommandsConflict.SetOut(pipelineCommandsConflictOut)
+	pipelineCommandsConflict.SetErr(pipelineCommandsConflictErr)
+	pipelineCommandsConflict.SetArgs([]string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--commands", "--json"})
+	if err := pipelineCommandsConflict.Execute(); err == nil {
+		t.Fatalf("pipeline snapshot --commands --json succeeded")
+	}
+	if !strings.Contains(pipelineCommandsConflictErr.String(), "--commands cannot be combined with --json, --output, or --format") {
+		t.Fatalf("pipeline commands/json stderr = %q", pipelineCommandsConflictErr.String())
+	}
+
 	for _, tc := range []struct {
 		name string
 		args []string

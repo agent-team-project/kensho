@@ -23,6 +23,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		timelineSort string
 		jsonOut      bool
 		noRedact     bool
+		commands     bool
 		format       string
 	)
 	cwd, _ := os.Getwd()
@@ -35,6 +36,10 @@ func newPipelineSnapshotCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && output != "" && output != "-" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: choose one of --json or --output.")
+				return exitErr(2)
+			}
+			if commands && (jsonOut || output != "" || format != "") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline snapshot: --commands cannot be combined with --json, --output, or --format.")
 				return exitErr(2)
 			}
 			if format != "" && (jsonOut || output != "") {
@@ -85,6 +90,8 @@ func newPipelineSnapshotCmd() *cobra.Command {
 				Redacted:     !noRedact,
 			})
 			switch {
+			case commands:
+				return renderPipelineSnapshotCommands(cmd.OutOrStdout(), snapshot, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 			case jsonOut || output == "-":
 				return writePipelineSnapshotJSON(cmd.OutOrStdout(), snapshot)
 			case output != "":
@@ -108,6 +115,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&timelineSort, "timeline-sort", "oldest", "Sort included combined audit/lifecycle timeline rows by oldest or newest after applying --timeline.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full pipeline snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values and latest inbox bodies instead of redacting them.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print snapshot follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.")
 	return cmd
 }
@@ -142,6 +150,7 @@ type pipelineSnapshotResult struct {
 	OutboxQuarantineSummary *outboxQuarantineSummary `json:"outbox_quarantine_summary,omitempty"`
 	Timeline                []jobTimelineEntry       `json:"timeline,omitempty"`
 	AdvancePreview          []pipelineAdvanceResult  `json:"advance_preview,omitempty"`
+	Actions                 []string                 `json:"actions,omitempty"`
 	SectionErrors           map[string]string        `json:"section_errors,omitempty"`
 }
 
@@ -226,10 +235,64 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 	} else {
 		out.AdvancePreview = advance
 	}
+	out.Actions = pipelineSnapshotActions(out)
 	if opts.Redact {
 		redactPipelineSnapshotResult(out)
 	}
 	return out
+}
+
+func pipelineSnapshotActions(snapshot *pipelineSnapshotResult) []string {
+	if snapshot == nil {
+		return nil
+	}
+	pipeline := strings.TrimSpace(snapshot.Pipeline)
+	if pipeline == "" {
+		return nil
+	}
+	added := map[string]bool{}
+	add := func(action string) {
+		if strings.TrimSpace(action) == "" || added[action] {
+			return
+		}
+		added[action] = true
+	}
+	add(fmt.Sprintf("agent-team pipeline status %s", pipeline))
+	add(fmt.Sprintf("agent-team pipeline explain %s", pipeline))
+	add(fmt.Sprintf("agent-team pipeline jobs %s --summary", pipeline))
+	add(fmt.Sprintf("agent-team pipeline timeline %s --tail 50 --sort newest", pipeline))
+	if snapshot.Status != nil && snapshot.Status.ReadySteps > 0 {
+		add(fmt.Sprintf("agent-team pipeline ready %s", pipeline))
+	}
+	if len(snapshot.AdvancePreview) > 0 {
+		add(fmt.Sprintf("agent-team pipeline advance %s --dry-run --preview-routes", pipeline))
+	}
+	if len(snapshot.Queue) > 0 {
+		add(fmt.Sprintf("agent-team pipeline queue %s --summary", pipeline))
+	}
+	if len(snapshot.QueueQuarantine) > 0 {
+		add(fmt.Sprintf("agent-team pipeline queue quarantine %s", pipeline))
+	}
+	if len(snapshot.Outbox) > 0 {
+		add(fmt.Sprintf("agent-team pipeline outbox %s --summary", pipeline))
+	}
+	if len(snapshot.OutboxQuarantine) > 0 {
+		add(fmt.Sprintf("agent-team pipeline outbox quarantine %s", pipeline))
+	}
+	for _, row := range snapshot.Inbox {
+		if row.Unread > 0 {
+			add(fmt.Sprintf("agent-team inbox show %s --unread", row.Instance))
+		}
+	}
+	if len(snapshot.SectionErrors) > 0 {
+		add(fmt.Sprintf("agent-team pipeline doctor %s", pipeline))
+	}
+	actions := make([]string, 0, len(added))
+	for action := range added {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+	return actions
 }
 
 func collectPipelineSnapshotInbox(teamDir string, jobs []*job.Job) ([]inboxSummaryRow, overviewInboxSummary, error) {
@@ -480,6 +543,12 @@ func renderPipelineSnapshotSummary(w io.Writer, snapshot *pipelineSnapshotResult
 			len(snapshot.AdvancePreview),
 			countPipelineAdvanceRoutePreviews(snapshot.AdvancePreview))
 	}
+	if len(snapshot.Actions) > 0 {
+		fmt.Fprintln(w, "actions:")
+		for _, action := range snapshot.Actions {
+			fmt.Fprintf(w, "  %s\n", action)
+		}
+	}
 	if len(snapshot.SectionErrors) > 0 {
 		fmt.Fprintln(w, "section errors:")
 		keys := make([]string, 0, len(snapshot.SectionErrors))
@@ -491,6 +560,13 @@ func renderPipelineSnapshotSummary(w io.Writer, snapshot *pipelineSnapshotResult
 			fmt.Fprintf(w, "  %s: %s\n", key, snapshot.SectionErrors[key])
 		}
 	}
+}
+
+func renderPipelineSnapshotCommands(w io.Writer, snapshot *pipelineSnapshotResult, scope operatorCommandScope) error {
+	if snapshot == nil {
+		return nil
+	}
+	return renderOperatorActionCommands(w, snapshot.Actions, scope)
 }
 
 func countJobTimelineSources(entries []jobTimelineEntry) (jobRows, lifecycleRows int) {

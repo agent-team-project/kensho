@@ -5623,6 +5623,7 @@ agent-team pipeline snapshot <pipeline> [flags]
 Flags:
 
 ```text
+      --commands               Print snapshot follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string          Render the pipeline snapshot with a Go template, e.g. '{{.Pipeline}} {{len .Jobs}}'.
       --json                   Emit the full pipeline snapshot JSON to stdout.
       --no-redact              Include raw payload values and latest inbox bodies instead of redacting them.

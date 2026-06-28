@@ -2956,6 +2956,28 @@ target = "worker"
 	if len(snapshot.AdvancePreview) != 1 || snapshot.AdvancePreview[0].JobID != "squ-704" || snapshot.AdvancePreview[0].Action != "would_advance" || !snapshot.AdvancePreview[0].DryRun {
 		t.Fatalf("snapshot advance = %+v", snapshot.AdvancePreview)
 	}
+	for _, want := range []string{
+		"agent-team pipeline status ticket_to_pr",
+		"agent-team pipeline explain ticket_to_pr",
+		"agent-team pipeline jobs ticket_to_pr --summary",
+		"agent-team pipeline timeline ticket_to_pr --tail 50 --sort newest",
+		"agent-team pipeline ready ticket_to_pr",
+		"agent-team pipeline advance ticket_to_pr --dry-run --preview-routes",
+		"agent-team pipeline queue ticket_to_pr --summary",
+		"agent-team pipeline queue quarantine ticket_to_pr",
+		"agent-team pipeline outbox ticket_to_pr --summary",
+		"agent-team pipeline outbox quarantine ticket_to_pr",
+		"agent-team inbox show worker-squ-704-implement --unread",
+	} {
+		if !containsString(snapshot.Actions, want) {
+			t.Fatalf("snapshot actions missing %q: %+v", want, snapshot.Actions)
+		}
+	}
+	for _, action := range snapshot.Actions {
+		if strings.Contains(action, "platform_work") || strings.Contains(action, "squ-705") || strings.Contains(action, "worker-squ-705") {
+			t.Fatalf("snapshot actions leaked unrelated pipeline: %+v", snapshot.Actions)
+		}
+	}
 	preview := snapshot.AdvancePreview[0].Preview
 	if preview == nil || preview.Step == nil || preview.Step.ID != "implement" || preview.Dispatch == nil || preview.Dispatch.RequestedName != "worker-squ-704-implement" {
 		t.Fatalf("snapshot route preview = %+v", preview)
@@ -3037,10 +3059,35 @@ target = "worker"
 			t.Fatalf("pipeline snapshot text missing %q:\n%s", want, textOut.String())
 		}
 	}
+	if !strings.Contains(textOut.String(), "actions:") || !strings.Contains(textOut.String(), "agent-team pipeline advance ticket_to_pr --dry-run --preview-routes") {
+		t.Fatalf("pipeline snapshot text missing actions:\n%s", textOut.String())
+	}
 	for _, leak := range []string{"platform_work", "squ-705", "q-platform", "outbox-platform", "outbox-ticket-secret", "ticket pipeline inbox secret", "platform pipeline inbox secret"} {
 		if strings.Contains(textOut.String(), leak) {
 			t.Fatalf("pipeline snapshot text leaked %q:\n%s", leak, textOut.String())
 		}
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "snapshot", "ticket_to_pr", "--repo", target, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline snapshot commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	for _, wantArgs := range [][]string{
+		{"agent-team", "--repo", target, "pipeline", "advance", "ticket_to_pr", "--dry-run", "--preview-routes"},
+		{"agent-team", "--repo", target, "pipeline", "queue", "ticket_to_pr", "--summary"},
+		{"agent-team", "--repo", target, "inbox", "show", "worker-squ-704-implement", "--unread"},
+	} {
+		wantCommand := strings.Join(shellQuoteArgs(wantArgs), " ")
+		if !strings.Contains(commandsOut.String(), wantCommand) {
+			t.Fatalf("pipeline snapshot commands missing %q:\n%s", wantCommand, commandsOut.String())
+		}
+	}
+	if strings.Contains(commandsOut.String(), "pipeline snapshot:") || strings.Contains(commandsOut.String(), "actions:") {
+		t.Fatalf("pipeline snapshot commands included summary text:\n%s", commandsOut.String())
 	}
 
 	outputPath := filepath.Join(target, "ticket-to-pr.snapshot.json")
