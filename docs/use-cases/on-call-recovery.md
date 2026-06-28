@@ -86,6 +86,7 @@ agent-team job queue quarantine drop squ-42 <path>
 agent-team intake summary
 agent-team intake deliveries --unresolved
 agent-team intake replay <delivery-id> --dry-run --preview-triggers
+agent-team intake replay <delivery-id> --dry-run --preview-triggers --commands
 agent-team intake replay <delivery-id>
 ```
 

@@ -1357,6 +1357,12 @@ func TestIntakeActionCommandsValidation(t *testing.T) {
 		{[]string{"intake", "summary", "--commands", "--format", "{{.Deliveries}}"}, "--commands cannot be combined with --format"},
 		{[]string{"intake", "duplicates", "--commands", "--json"}, "--commands cannot be combined with --json"},
 		{[]string{"intake", "duplicates", "--commands", "--format", "{{.Provider}}"}, "--commands cannot be combined with --format"},
+		{[]string{"intake", "replay", "delivery-1", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"intake", "replay", "delivery-1", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"intake", "replay", "delivery-1", "--dry-run", "--commands", "--format", "{{.Event.Type}}"}, "--commands cannot be combined with --format"},
+		{[]string{"intake", "prune", "--commands"}, "--commands requires --dry-run"},
+		{[]string{"intake", "prune", "--dry-run", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"intake", "prune", "--dry-run", "--commands", "--format", "{{.ID}}"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -1585,6 +1591,32 @@ func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 		t.Fatalf("dry-run rewrote ledger: %+v", deliveries)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake prune dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "prune", "--target", target, "--older-than", "24h0m0s"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("intake prune commands = %q, want %q", commandsOut.String(), wantCommand)
+	}
+
+	repoCommands := NewRootCmd()
+	repoCommandsOut, repoCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	repoCommands.SetOut(repoCommandsOut)
+	repoCommands.SetErr(repoCommandsErr)
+	repoCommands.SetArgs([]string{"--repo", target, "intake", "prune", "--older-than", "24h", "--dry-run", "--commands"})
+	if err := repoCommands.Execute(); err != nil {
+		t.Fatalf("intake prune dry-run commands with repo: %v\nstderr=%s", err, repoCommandsErr.String())
+	}
+	wantRepoCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "prune", "--repo", target, "--older-than", "24h0m0s"}), " ")
+	if got := strings.TrimSpace(repoCommandsOut.String()); got != wantRepoCommand {
+		t.Fatalf("intake prune repo commands = %q, want %q", repoCommandsOut.String(), wantRepoCommand)
+	}
+
 	prune := NewRootCmd()
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
@@ -1670,6 +1702,19 @@ func TestIntakePruneReplayStatus(t *testing.T) {
 		if err := appendIntakeDelivery(teamDir, delivery); err != nil {
 			t.Fatalf("append %s: %v", delivery.ID, err)
 		}
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "prune", "--target", target, "--replay-status", "ok", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake prune replay-status commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "prune", "--target", target, "--replay-status", "ok"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("intake prune replay-status commands = %q, want %q", commandsOut.String(), wantCommand)
 	}
 
 	cmd := NewRootCmd()
@@ -1761,6 +1806,32 @@ target = "manager"
 	}
 	if got, want := formatOut.String(), "ticket.created SQU-206 true 1\n"; got != want {
 		t.Fatalf("intake replay dry-run format = %q, want %q", got, want)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake replay dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "replay", "replay-preview", "--target", target}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("intake replay dry-run commands = %q, want %q", commandsOut.String(), wantCommand)
+	}
+
+	repoCommands := NewRootCmd()
+	repoCommandsOut, repoCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	repoCommands.SetOut(repoCommandsOut)
+	repoCommands.SetErr(repoCommandsErr)
+	repoCommands.SetArgs([]string{"--repo", target, "intake", "replay", "replay-preview", "--dry-run", "--preview-triggers", "--commands"})
+	if err := repoCommands.Execute(); err != nil {
+		t.Fatalf("intake replay dry-run commands with repo: %v\nstderr=%s", err, repoCommandsErr.String())
+	}
+	wantRepoCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "replay", "replay-preview", "--repo", target}), " ")
+	if got := strings.TrimSpace(repoCommandsOut.String()); got != wantRepoCommand {
+		t.Fatalf("intake replay repo commands = %q, want %q", repoCommandsOut.String(), wantRepoCommand)
 	}
 }
 
@@ -1908,6 +1979,19 @@ target = "manager"
 	}
 	if got, want := formatOut.String(), "linear-first true true 1\n"; got != want {
 		t.Fatalf("intake replay all dry-run format = %q, want %q", got, want)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--provider", "linear", "--status", "error", "--limit", "1", "--dedupe-request-id", "--dry-run", "--preview-triggers", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("intake replay all dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "intake", "replay", "--all", "--target", target, "--provider", "linear", "--status", "error", "--limit", "1", "--dedupe-request-id"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("intake replay all dry-run commands = %q, want %q", commandsOut.String(), wantCommand)
 	}
 }
 

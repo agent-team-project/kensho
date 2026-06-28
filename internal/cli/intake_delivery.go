@@ -233,6 +233,7 @@ func newIntakeReplayCmd() *cobra.Command {
 		dedupeRequest bool
 		dryRun        bool
 		previewRoutes bool
+		commands      bool
 		jsonOut       bool
 		format        string
 	)
@@ -244,6 +245,18 @@ func newIntakeReplayCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake replay: --commands requires --dry-run.")
 				return exitErr(2)
 			}
 			if previewRoutes && !dryRun {
@@ -287,6 +300,20 @@ func newIntakeReplayCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake replay: %v\n", err)
 					return exitErr(1)
 				}
+				if commands {
+					return renderIntakeReplayAllApplyCommand(cmd.OutOrStdout(), batch, intakeReplayAllApplyCommandOptions{
+						Repo:          intakeCommandRepo(cmd, target),
+						RepoSet:       intakeCommandRepoSet(cmd),
+						RepoFlag:      intakeCommandRepoFlag(cmd),
+						Provider:      provider,
+						ProviderSet:   cmd.Flags().Changed("provider"),
+						Status:        status,
+						StatusSet:     cmd.Flags().Changed("status"),
+						Limit:         limit,
+						LimitSet:      cmd.Flags().Changed("limit"),
+						DedupeRequest: dedupeRequest,
+					})
+				}
 				if err := renderIntakeReplayBatch(cmd.OutOrStdout(), batch, jsonOut, tmpl); err != nil {
 					return err
 				}
@@ -322,6 +349,13 @@ func newIntakeReplayCmd() *cobra.Command {
 						return exitErr(1)
 					}
 				}
+				if commands {
+					return renderIntakeReplayApplyCommand(cmd.OutOrStdout(), delivery.ID, intakeReplayApplyCommandOptions{
+						Repo:     intakeCommandRepo(cmd, target),
+						RepoSet:  intakeCommandRepoSet(cmd),
+						RepoFlag: intakeCommandRepoFlag(cmd),
+					})
+				}
 				return renderIntakeDryRun(cmd.OutOrStdout(), ev, jsonOut, tmpl, nil, nil, nil, triggerPreview)
 			}
 			err = publishIntakeEvent(cmd, target, ev, jsonOut, tmpl)
@@ -348,6 +382,7 @@ func newIntakeReplayCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dedupeRequest, "dedupe-request-id", false, "With --all, skip later deliveries with the same provider request id.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the normalized delivery without publishing it.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-triggers", false, "With --dry-run, include local topology instance and pipeline matches.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit replay result as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the replay result with a Go template, e.g. '{{.Event.Type}}'.")
 	return cmd
@@ -506,6 +541,7 @@ func newIntakePruneCmd() *cobra.Command {
 		replayStatus string
 		olderThan    time.Duration
 		dryRun       bool
+		commands     bool
 		jsonOut      bool
 		format       string
 	)
@@ -518,6 +554,18 @@ func newIntakePruneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team intake prune: --commands requires --dry-run.")
 				return exitErr(2)
 			}
 			if olderThan < 0 {
@@ -554,6 +602,19 @@ func newIntakePruneCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake prune: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderIntakePruneApplyCommand(cmd.OutOrStdout(), results, intakePruneApplyCommandOptions{
+					Repo:            intakeCommandRepo(cmd, target),
+					RepoSet:         intakeCommandRepoSet(cmd),
+					RepoFlag:        intakeCommandRepoFlag(cmd),
+					Status:          status,
+					StatusSet:       cmd.Flags().Changed("status"),
+					ReplayStatus:    replayStatus,
+					ReplayStatusSet: cmd.Flags().Changed("replay-status"),
+					OlderThan:       olderThan,
+					OlderThanSet:    cmd.Flags().Changed("older-than"),
+				})
+			}
 			return renderIntakePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
@@ -562,6 +623,7 @@ func newIntakePruneCmd() *cobra.Command {
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only prune deliveries with replay status: ok, error, none, or any. Defaults --status to all when set.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune deliveries older than this duration.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview deliveries that would be pruned without rewriting the ledger.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command, one per line.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit prune results as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.ID}} {{.Status}} {{.Dropped}}'.")
 	return cmd
@@ -1436,6 +1498,141 @@ func renderIntakeSummary(w io.Writer, summary intakeSummaryResult, jsonOut bool,
 		fmt.Fprintf(w, "  %s\n", action)
 	}
 	return nil
+}
+
+type intakeReplayApplyCommandOptions struct {
+	Repo     string
+	RepoSet  bool
+	RepoFlag string
+}
+
+func renderIntakeReplayApplyCommand(w io.Writer, deliveryID string, opts intakeReplayApplyCommandOptions) error {
+	deliveryID = strings.TrimSpace(deliveryID)
+	if deliveryID == "" {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(intakeReplayApplyCommandArgs(deliveryID, opts)), " "))
+	return err
+}
+
+func intakeReplayApplyCommandArgs(deliveryID string, opts intakeReplayApplyCommandOptions) []string {
+	args := []string{"agent-team", "intake", "replay", deliveryID}
+	return appendIntakeRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+}
+
+type intakeReplayAllApplyCommandOptions struct {
+	Repo          string
+	RepoSet       bool
+	RepoFlag      string
+	Provider      string
+	ProviderSet   bool
+	Status        string
+	StatusSet     bool
+	Limit         int
+	LimitSet      bool
+	DedupeRequest bool
+}
+
+func renderIntakeReplayAllApplyCommand(w io.Writer, batch intakeReplayBatchResult, opts intakeReplayAllApplyCommandOptions) error {
+	if len(batch.Results) == 0 {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(intakeReplayAllApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func intakeReplayAllApplyCommandArgs(opts intakeReplayAllApplyCommandOptions) []string {
+	args := []string{"agent-team", "intake", "replay", "--all"}
+	args = appendIntakeRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+	if opts.ProviderSet && strings.TrimSpace(opts.Provider) != "" {
+		args = append(args, "--provider", opts.Provider)
+	}
+	if opts.StatusSet && strings.TrimSpace(opts.Status) != "" {
+		args = append(args, "--status", opts.Status)
+	}
+	if opts.LimitSet {
+		args = append(args, "--limit", fmt.Sprint(opts.Limit))
+	}
+	if opts.DedupeRequest {
+		args = append(args, "--dedupe-request-id")
+	}
+	return args
+}
+
+type intakePruneApplyCommandOptions struct {
+	Repo            string
+	RepoSet         bool
+	RepoFlag        string
+	Status          string
+	StatusSet       bool
+	ReplayStatus    string
+	ReplayStatusSet bool
+	OlderThan       time.Duration
+	OlderThanSet    bool
+}
+
+func renderIntakePruneApplyCommand(w io.Writer, results []intakePruneResult, opts intakePruneApplyCommandOptions) error {
+	if len(results) == 0 {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(intakePruneApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func intakePruneApplyCommandArgs(opts intakePruneApplyCommandOptions) []string {
+	args := []string{"agent-team", "intake", "prune"}
+	args = appendIntakeRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
+	if opts.StatusSet && strings.TrimSpace(opts.Status) != "" {
+		args = append(args, "--status", opts.Status)
+	}
+	if opts.ReplayStatusSet && strings.TrimSpace(opts.ReplayStatus) != "" {
+		args = append(args, "--replay-status", opts.ReplayStatus)
+	}
+	if opts.OlderThanSet {
+		args = append(args, "--older-than", opts.OlderThan.String())
+	}
+	return args
+}
+
+func appendIntakeRepoArgs(args []string, repoFlag, repo string, repoSet bool) []string {
+	if !repoSet || strings.TrimSpace(repo) == "" {
+		return args
+	}
+	flag := strings.TrimSpace(repoFlag)
+	if flag == "" {
+		flag = "target"
+	}
+	return append(args, "--"+flag, repo)
+}
+
+func intakeCommandRepoSet(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+		return true
+	}
+	return cmd.Flags().Changed("target")
+}
+
+func intakeCommandRepoFlag(cmd *cobra.Command) string {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			return rootRepoFlagName
+		}
+	}
+	return "target"
+}
+
+func intakeCommandRepo(cmd *cobra.Command, target string) string {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return value
+			}
+		}
+	}
+	return target
 }
 
 func renderIntakeReplayBatch(w io.Writer, batch intakeReplayBatchResult, jsonOut bool, tmpl *template.Template) error {

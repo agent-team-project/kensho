@@ -344,9 +344,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team intake summary` | Summarize delivery history; add `--commands` to print recovery/prune commands only |
 | `agent-team intake duplicates` | List duplicate provider request IDs; add `--commands` to print matching delivery-inspection commands only |
 | `agent-team intake deliveries` | Inspect delivery rows; add `--commands` to print replay commands for matching rows only |
-| `agent-team intake replay` | Replay failed deliveries |
+| `agent-team intake replay` | Replay failed deliveries; add `--commands` to dry-run previews to print the apply command only |
 | `agent-team intake doctor` | Validate delivery history; add `--commands` to print warning follow-up commands only |
-| `agent-team intake prune` | Drop old delivery rows |
+| `agent-team intake prune` | Drop old delivery rows; add `--commands` to dry-run previews to print the apply command only |
 
 ## Diagnostics
 

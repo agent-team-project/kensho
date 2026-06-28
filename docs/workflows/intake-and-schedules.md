@@ -113,8 +113,11 @@ agent-team intake duplicates --commands
 agent-team intake doctor
 agent-team intake doctor --commands
 agent-team intake replay <delivery-id> --dry-run --preview-triggers
+agent-team intake replay <delivery-id> --dry-run --preview-triggers --commands
 agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers
+agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers --commands
 agent-team intake prune --older-than 168h --dry-run
+agent-team intake prune --older-than 168h --dry-run --commands
 ```
 
 Delivery history records:
@@ -136,14 +139,16 @@ the duplicate-inspection commands from warning rows.
 `agent-team intake summary` reports duplicate request-id group counts and
 replay/prune actions. Use `agent-team intake duplicates` to list duplicate
 groups and copy the generated `intake deliveries --request-id ...` inspection
-command for each group. Add `--commands` to summary, deliveries, duplicates, or
-doctor when scripts should receive only shell commands.
+command for each group. Add `--commands` to summary, deliveries, duplicates,
+doctor, replay dry-runs, or prune dry-runs when scripts should receive only
+shell commands.
 Duplicate request-id doctor warnings include an action that opens the matching
 `intake duplicates --request-id ...` view.
 
 When replaying several recorded deliveries after an outage, use
 `agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers`
-first to skip later duplicate provider deliveries before publishing.
+first to skip later duplicate provider deliveries before publishing. Add
+`--commands` to print the exact apply command once the preview has matched rows.
 
 Successful replays mark failed deliveries recovered.
 

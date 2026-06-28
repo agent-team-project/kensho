@@ -318,6 +318,7 @@ Replay only after inspecting the delivery:
 
 ```sh
 agent-team intake replay <delivery-id> --dry-run --preview-triggers
+agent-team intake replay <delivery-id> --dry-run --preview-triggers --commands
 agent-team intake replay <delivery-id>
 ```
 
@@ -325,6 +326,7 @@ Prune resolved history explicitly:
 
 ```sh
 agent-team intake prune --status ok --older-than 168h --dry-run
+agent-team intake prune --status ok --older-than 168h --dry-run --commands
 agent-team intake prune --status ok --older-than 168h
 ```
 

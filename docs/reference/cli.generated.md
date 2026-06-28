@@ -1630,6 +1630,7 @@ agent-team intake prune [flags]
 Flags:
 
 ```text
+      --commands               With --dry-run, print the apply command, one per line.
       --dry-run                Preview deliveries that would be pruned without rewriting the ledger.
       --format string          Render each prune result with a Go template, e.g. '{{.ID}} {{.Status}} {{.Dropped}}'.
       --json                   Emit prune results as JSON.
@@ -1657,6 +1658,7 @@ Flags:
 
 ```text
       --all                 Replay all matching recorded deliveries.
+      --commands            With --dry-run, print the apply command, one per line.
       --dedupe-request-id   With --all, skip later deliveries with the same provider request id.
       --dry-run             Preview the normalized delivery without publishing it.
       --format string       Render the replay result with a Go template, e.g. '{{.Event.Type}}'.

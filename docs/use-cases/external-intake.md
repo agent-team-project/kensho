@@ -63,6 +63,7 @@ Preview:
 
 ```sh
 agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers
+agent-team intake replay --all --dedupe-request-id --dry-run --preview-triggers --commands
 ```
 
 Apply:
