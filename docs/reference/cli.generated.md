@@ -1112,6 +1112,7 @@ agent-team inbox show <instance> [flags]
 Flags:
 
 ```text
+      --commands        Print an inbox ack command for the latest displayed unread message.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --tail int        Show only the N most recent matching messages (0 = all).

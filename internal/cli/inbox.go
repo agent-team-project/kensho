@@ -93,6 +93,7 @@ func newInboxShowCmd() *cobra.Command {
 		target     string
 		unreadOnly bool
 		tail       int
+		commands   bool
 		jsonOut    bool
 		format     string
 	)
@@ -102,6 +103,14 @@ func newInboxShowCmd() *cobra.Command {
 		Short: "Show messages for one instance inbox.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox show: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox show: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox show: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -122,6 +131,10 @@ func newInboxShowCmd() *cobra.Command {
 			return runInboxShow(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], inboxShowOptions{
 				UnreadOnly: unreadOnly,
 				Tail:       tail,
+				Commands:   commands,
+				RepoFlag:   inboxRepoFlag(cmd),
+				Repo:       inboxRepo(cmd, target),
+				RepoSet:    inboxRepoSet(cmd),
 				JSON:       jsonOut,
 				Format:     tmpl,
 			})
@@ -130,6 +143,7 @@ func newInboxShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only messages after the inbox cursor.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent matching messages (0 = all).")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the latest displayed unread message.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
@@ -223,6 +237,10 @@ type inboxListOptions struct {
 type inboxShowOptions struct {
 	UnreadOnly bool
 	Tail       int
+	Commands   bool
+	RepoFlag   string
+	Repo       string
+	RepoSet    bool
 	JSON       bool
 	Format     *template.Template
 }
@@ -402,6 +420,16 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 	if opts.Tail > 0 && len(rows) > opts.Tail {
 		rows = rows[len(rows)-opts.Tail:]
 	}
+	if opts.Commands {
+		id := latestDisplayedUnreadInboxMessageID(rows)
+		return renderInboxAckApplyCommand(stdout, id != "", inboxAckApplyCommandOptions{
+			Instance: instance,
+			ID:       id,
+			RepoFlag: opts.RepoFlag,
+			Repo:     opts.Repo,
+			RepoSet:  opts.RepoSet,
+		})
+	}
 	if opts.JSON {
 		return json.NewEncoder(stdout).Encode(rows)
 	}
@@ -529,6 +557,15 @@ func renderInboxListCommands(w io.Writer, rows []inboxSummaryRow, opts inboxList
 		}
 	}
 	return nil
+}
+
+func latestDisplayedUnreadInboxMessageID(rows []inboxMessageRow) string {
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].Unread {
+			return rows[i].ID
+		}
+	}
+	return ""
 }
 
 type inboxAckApplyCommandOptions struct {
