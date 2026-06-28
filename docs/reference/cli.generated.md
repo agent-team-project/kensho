@@ -1083,7 +1083,7 @@ Flags:
 
 ```text
       --all             Acknowledge every current message in the inbox.
-      --commands        With --dry-run, print the matching inbox ack apply command when the preview has actionable work.
+      --commands        With --dry-run, print the matching inbox ack apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run         Preview the cursor update without writing it.
       --format string   Render the ack result with a Go template, e.g. '{{.Instance}} {{.Acked}}'.
       --json            Emit machine-readable JSON.
@@ -1107,7 +1107,7 @@ agent-team inbox ls [flags]
 Flags:
 
 ```text
-      --commands        Print inbox show commands for inboxes with unread messages.
+      --commands        Print inbox show commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.
       --format string   Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.
       --json            Emit machine-readable JSON.
       --limit int       Limit inbox summaries after filtering and sorting; 0 means no limit.
@@ -1137,7 +1137,7 @@ Flags:
 
 ```text
       --all                   Prune every current inbox.
-      --commands              With --dry-run, print the matching inbox prune apply command when the preview has actionable work.
+      --commands              With --dry-run, print the matching inbox prune apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview inbox compaction without rewriting mailbox files.
       --format string         Render each prune result with a Go template, e.g. '{{.Instance}} {{.Dropped}}'.
       --json                  Emit machine-readable JSON.
@@ -1164,7 +1164,7 @@ agent-team inbox show <instance> [flags]
 Flags:
 
 ```text
-      --commands        Print an inbox ack command for the latest displayed unread message.
+      --commands        Print an inbox ack command for the latest displayed unread message. agent-team follow-ups preserve the selected repo scope.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --tail int        Show only the N most recent matching messages (0 = all).

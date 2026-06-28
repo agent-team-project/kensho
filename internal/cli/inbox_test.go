@@ -135,7 +135,7 @@ func TestInboxLsSortAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox ls sorted commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-c", "--unread", "--target", tmp}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-c", "--unread", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox ls sorted commands = %q, want %q", got, wantCommand)
 	}
@@ -219,7 +219,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox show unread commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--target", tmp}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox show unread commands = %q, want %q", got, wantCommand)
 	}
@@ -247,7 +247,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox ack dry-run commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand = strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--target", tmp}), " ")
+	wantCommand = strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox ack dry-run commands = %q, want %q", got, wantCommand)
 	}
@@ -449,7 +449,7 @@ func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox prune commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--target", tmp}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox prune commands = %q, want %q", got, wantCommand)
 	}
@@ -549,7 +549,7 @@ func TestInboxPruneLimitBoundsDroppedMessagesPerInbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox prune limit commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--target", tmp, "--limit", "2"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "worker", "--repo", tmp, "--limit", "2"}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox prune limit commands = %q, want %q", got, wantCommand)
 	}
@@ -615,7 +615,7 @@ instances = ["manager", "worker"]
 	if err != nil {
 		t.Fatalf("team prune commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "--target", tmp, "--all", "--team", "delivery"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "prune", "--repo", tmp, "--all", "--team", "delivery"}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("team prune commands = %q, want %q", got, wantCommand)
 	}
@@ -756,8 +756,8 @@ instances = ["manager", "worker"]
 		t.Fatalf("inbox ls --team --commands: %v\nstderr=%s", err, stderr)
 	}
 	wantCommands := strings.Join([]string{
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--target", tmp}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-squ-1", "--unread", "--target", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-squ-1", "--unread", "--repo", tmp}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(stdout); got != wantCommands {
 		t.Fatalf("team inbox commands = %q, want %q", got, wantCommands)

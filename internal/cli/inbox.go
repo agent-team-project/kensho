@@ -98,7 +98,7 @@ func newInboxLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
 	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort inboxes by instance, unread, latest, or total.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit inbox summaries after filtering and sorting; 0 means no limit.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox show commands for inboxes with unread messages.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox show commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.")
 	return cmd
@@ -159,7 +159,7 @@ func newInboxShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only messages after the inbox cursor.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent matching messages (0 = all).")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the latest displayed unread message.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the latest displayed unread message. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
@@ -233,7 +233,7 @@ func newInboxAckCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Acknowledge every current message in the inbox.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the cursor update without writing it.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox ack apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox ack apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the ack result with a Go template, e.g. '{{.Instance}} {{.Acked}}'.")
 	return cmd
@@ -343,7 +343,7 @@ func newInboxPruneCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune acknowledged messages older than this duration.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Prune at most this many acknowledged messages per inbox; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview inbox compaction without rewriting mailbox files.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox prune apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox prune apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each prune result with a Go template, e.g. '{{.Instance}} {{.Dropped}}'.")
 	return cmd
@@ -1021,12 +1021,7 @@ func inboxRepoSet(cmd *cobra.Command) bool {
 }
 
 func inboxRepoFlag(cmd *cobra.Command) string {
-	if cmd != nil {
-		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
-			return rootRepoFlagName
-		}
-	}
-	return "target"
+	return rootRepoFlagName
 }
 
 func inboxRepo(cmd *cobra.Command, target string) string {
