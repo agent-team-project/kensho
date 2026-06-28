@@ -6261,7 +6261,7 @@ Flags:
 
 ```text
       --all-ready-steps               Advance every currently ready independent pipeline step during the repair tick.
-      --commands                      With --dry-run, print the matching repair apply command when the preview has actionable work.
+      --commands                      With --dry-run, print the matching repair apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                       Preview repair actions without mutating state or starting the daemon.
       --fail-on-failed                With --wait, exit 1 if any repaired job resolves to failed.
       --format string                 Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.

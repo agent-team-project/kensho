@@ -251,11 +251,12 @@ func newRepairCmd() *cobra.Command {
 				}
 			}
 			if commands {
+				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				return renderRepairCommands(cmd.OutOrStdout(), result, repairApplyCommandOptions{
 					BaseArgs:              []string{"agent-team", "repair"},
-					ScopeFlag:             "--target",
-					Scope:                 target,
-					ScopeSet:              cmd.Flags().Changed("target"),
+					ScopeFlag:             "--repo",
+					Scope:                 scope.Repo,
+					ScopeSet:              scope.Set,
 					Workspace:             workspace,
 					WorkspaceSet:          cmd.Flags().Changed("workspace"),
 					RuntimeKind:           runtimeKind,
@@ -307,7 +308,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for retried or advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching repair apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching repair apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.")

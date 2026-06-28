@@ -89,9 +89,21 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "repair", "--target", tmp, "--skip-daemon", "--skip-tick"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "repair", "--repo", tmp, "--skip-daemon", "--skip-tick"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("repair dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "repair", "--dry-run", "--skip-daemon", "--skip-tick", "--commands"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("repair root --repo dry-run commands: %v\nstderr=%s", err, rootScopedErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedOut.String()); got != wantCommand {
+		t.Fatalf("repair root --repo dry-run commands = %q, want %q", got, wantCommand)
 	}
 }
 
