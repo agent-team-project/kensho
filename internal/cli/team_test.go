@@ -1111,6 +1111,149 @@ since = "2026-06-18T12:00:00Z"
 	}
 }
 
+func TestTeamJobEvents(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.release_train]
+trigger.event = "release.created"
+
+[[pipelines.release_train.steps]]
+id = "review"
+target = "manager"
+
+[pipelines.platform_ops]
+trigger.event = "platform.created"
+
+[[pipelines.platform_ops.steps]]
+id = "triage"
+target = "ops"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr", "release_train"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{ID: "squ-501", Ticket: "SQU-501", Target: "worker", Instance: "worker-squ-501", Pipeline: "ticket_to_pr", Status: job.StatusRunning, CreatedAt: base, UpdatedAt: base},
+		{ID: "squ-502", Ticket: "SQU-502", Target: "manager", Instance: "manager-squ-502", Pipeline: "release_train", Status: job.StatusDone, CreatedAt: base, UpdatedAt: base},
+		{ID: "ops-501", Ticket: "OPS-501", Target: "ops", Instance: "ops-501", Pipeline: "platform_ops", Status: job.StatusRunning, CreatedAt: base, UpdatedAt: base},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, ev := range []job.Event{
+		{TS: base.Add(time.Minute), JobID: "squ-501", Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created"},
+		{TS: base.Add(2 * time.Minute), JobID: "squ-501", Type: "updated", Status: job.StatusRunning, Instance: "worker-squ-501", Actor: "daemon", Message: "started"},
+		{TS: base.Add(3 * time.Minute), JobID: "squ-502", Type: "closed", Status: job.StatusDone, Instance: "manager-squ-502", Actor: "cli", Message: "closed"},
+		{TS: base.Add(4 * time.Minute), JobID: "ops-501", Type: "updated", Status: job.StatusRunning, Instance: "ops-501", Actor: "daemon", Message: "outside"},
+	} {
+		ev := ev
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append event %s/%s: %v", ev.JobID, ev.Type, err)
+		}
+	}
+
+	filtered := NewRootCmd()
+	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filtered.SetOut(filteredOut)
+	filtered.SetErr(filteredErr)
+	filtered.SetArgs([]string{
+		"team", "job-events", "delivery",
+		"--repo", root,
+		"--status", "running",
+		"--instance", "worker-squ-501",
+		"--json",
+	})
+	if err := filtered.Execute(); err != nil {
+		t.Fatalf("team job-events filtered: %v\nstderr=%s", err, filteredErr.String())
+	}
+	var events []job.Event
+	if err := json.Unmarshal(filteredOut.Bytes(), &events); err != nil {
+		t.Fatalf("decode filtered team events: %v\nbody=%s", err, filteredOut.String())
+	}
+	if len(events) != 1 || events[0].JobID != "squ-501" || events[0].Instance != "worker-squ-501" {
+		t.Fatalf("filtered team events = %+v", events)
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("team job-events summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobEventSummaryJSON
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode team event summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Scope != "team:delivery" || summary.Total != 3 || summary.Jobs["squ-501"] != 2 || summary.Jobs["squ-502"] != 1 || summary.Jobs["ops-501"] != 0 {
+		t.Fatalf("team event summary = %+v", summary)
+	}
+
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--tail", "1", "--format", "{{.JobID}} {{.Type}} {{.Status}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("team job-events format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got := strings.TrimSpace(formattedOut.String()); got != "squ-502 closed done" {
+		t.Fatalf("team job-events format = %q", got)
+	}
+
+	table := NewRootCmd()
+	tableOut, tableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	table.SetOut(tableOut)
+	table.SetErr(tableErr)
+	table.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--tail", "1"})
+	if err := table.Execute(); err != nil {
+		t.Fatalf("team job-events table: %v\nstderr=%s", err, tableErr.String())
+	}
+	if !strings.Contains(tableOut.String(), "JOB") || !strings.Contains(tableOut.String(), "squ-502") {
+		t.Fatalf("team job-events table missing job column:\n%s", tableOut.String())
+	}
+
+	invalidStatus := NewRootCmd()
+	invalidStatusOut, invalidStatusErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidStatus.SetOut(invalidStatusOut)
+	invalidStatus.SetErr(invalidStatusErr)
+	invalidStatus.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--status", "waiting"})
+	if err := invalidStatus.Execute(); err == nil {
+		t.Fatalf("team job-events accepted invalid status: stdout=%s", invalidStatusOut.String())
+	}
+	if !strings.Contains(invalidStatusErr.String(), "unknown --status") {
+		t.Fatalf("team job-events invalid status error = %q", invalidStatusErr.String())
+	}
+
+	missingTeam := NewRootCmd()
+	missingTeamOut, missingTeamErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missingTeam.SetOut(missingTeamOut)
+	missingTeam.SetErr(missingTeamErr)
+	missingTeam.SetArgs([]string{"team", "job-events", "missing", "--repo", root})
+	if err := missingTeam.Execute(); err == nil {
+		t.Fatalf("team job-events accepted missing team: stdout=%s", missingTeamOut.String())
+	}
+	if !strings.Contains(missingTeamErr.String(), `team "missing" not found`) {
+		t.Fatalf("team job-events missing team error = %q", missingTeamErr.String())
+	}
+}
+
 func TestTeamJobWaitPollsNextStepState(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

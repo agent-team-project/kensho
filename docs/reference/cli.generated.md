@@ -7309,6 +7309,7 @@ Subcommands:
 - `agent-team team graph` - Render a declared team graph.
 - `agent-team team health` - Check health for one declared team.
 - `agent-team team hold` - Hold pipeline jobs owned by one team.
+- `agent-team team job-events` - Show durable job events for team-owned jobs.
 - `agent-team team jobs` - List jobs owned by one team.
 - `agent-team team logs` - Show daemon-captured logs for one team.
 - `agent-team team ls` - List declared teams.
@@ -7705,6 +7706,31 @@ Flags:
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --state strings         Next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
       --until string          Hold until this RFC3339 timestamp.
+```
+
+## `agent-team team job-events`
+
+Show durable job events for team-owned jobs.
+
+Show durable job audit events for jobs owned by one declared team.
+
+```text
+agent-team team job-events <team> [flags]
+```
+
+Flags:
+
+```text
+      --actor strings      Only show job events from this actor. Can repeat or comma-separate.
+      --format string      Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
+      --instance strings   Only show job events for this owning instance. Can repeat or comma-separate.
+      --json               Emit matching job events as JSON.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --since string       Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --status strings     Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
+      --summary            Summarize matching job events by job, type, status, actor, and instance.
+      --tail string        Show only the last N matching events after combining team jobs (0 or all = all). (default "0")
+      --type strings       Only show job events with this type. Can repeat or comma-separate.
 ```
 
 ## `agent-team team jobs`

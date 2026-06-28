@@ -44,6 +44,7 @@ func newTeamCmd() *cobra.Command {
 	cmd.AddCommand(newTeamPlanCmd())
 	cmd.AddCommand(newTeamPsCmd())
 	cmd.AddCommand(newTeamJobsCmd())
+	cmd.AddCommand(newTeamJobEventsCmd())
 	cmd.AddCommand(newTeamJobWaitCmd())
 	cmd.AddCommand(newTeamReadyCmd())
 	cmd.AddCommand(newTeamTriageCmd())
@@ -1234,6 +1235,79 @@ func newTeamJobsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate team job counts instead of job rows.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team jobs as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
+	return cmd
+}
+
+func newTeamJobEventsCmd() *cobra.Command {
+	var (
+		repo      string
+		tail      string
+		types     []string
+		actors    []string
+		statuses  []string
+		instances []string
+		since     string
+		summary   bool
+		jsonOut   bool
+		format    string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "job-events <team>",
+		Short: "Show durable job events for team-owned jobs.",
+		Long:  "Show durable job audit events for jobs owned by one declared team.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team job-events: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if format != "" && summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team job-events: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			filters, err := newJobEventFilters(types, actors, statuses, instances, since, time.Now)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
+				return exitErr(2)
+			}
+			tailEvents, err := parseLogTail(tail)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseJobEventFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			jobs, err := collectTeamJobs(teamDir, args[0], "", "id", 0, nil, nil, nil)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
+				return exitErr(1)
+			}
+			events, err := collectJobEventsForJobs(teamDir, jobs, filters, tailEvents)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
+				return exitErr(1)
+			}
+			return renderScopedJobEvents(cmd.OutOrStdout(), "team:"+strings.TrimSpace(args[0]), events, jsonOut, summary, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N matching events after combining team jobs (0 or all = all).")
+	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job events from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only show job events for this owning instance. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&since, "since", "", "Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching job events by job, type, status, actor, and instance.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit matching job events as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.")
 	return cmd
 }
 
