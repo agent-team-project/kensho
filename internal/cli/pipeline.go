@@ -3906,6 +3906,8 @@ func newPipelineEventsCmd() *cobra.Command {
 		statusFilters    []string
 		runtimeFilters   []string
 		phaseFilters     []string
+		jobFilters       []string
+		stepFilter       string
 		staleOnly        bool
 		runtimeStaleOnly bool
 		unhealthyOnly    bool
@@ -3961,6 +3963,11 @@ func newPipelineEventsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline events: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err = pipelineEventJobFilter(teamDir, pipelineName, filters, jobFilters, stepFilter)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline events: %v\n", err)
+				return exitErr(2)
+			}
 			filters, err = pipelineEventRuntimeFilter(teamDir, pipelineName, filters, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline events: %v\n", err)
@@ -4001,6 +4008,8 @@ func newPipelineEventsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show events with this lifecycle status. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show pipeline events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show pipeline events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&jobFilters, "job", nil, "Only show events for this pipeline-owned job id or ticket. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&stepFilter, "step", "", "Only show events for instances recorded on this pipeline step id.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only show pipeline events for instances whose status.toml is currently stale or missing.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show pipeline events for instances whose recorded runtime PID is currently no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show pipeline events for instances that are currently crashed, status-stale, or runtime-stale.")
@@ -8407,6 +8416,17 @@ func pipelineEventFilters(teamDir, pipeline string, actionFilters, statusFilters
 	filters.instances = instances
 	filters.instancePrefixes = nil
 	return filters, nil
+}
+
+func pipelineEventJobFilter(teamDir, pipeline string, filters eventFilters, jobsRaw []string, step string) (eventFilters, error) {
+	if len(jobsRaw) == 0 && strings.TrimSpace(step) == "" {
+		return filters, nil
+	}
+	jobs, err := selectedPipelineJobs(teamDir, pipeline)
+	if err != nil {
+		return filters, err
+	}
+	return applyJobEventInstanceScope(filters, jobs, jobsRaw, step)
 }
 
 func pipelineEventRuntimeFilter(teamDir, pipeline string, filters eventFilters, runtimeFilters []string) (eventFilters, error) {

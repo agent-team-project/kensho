@@ -7126,6 +7126,21 @@ instances = ["other", "build-worker"]
 	}
 	daemonRoot := daemon.DaemonRoot(teamDir)
 	base := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-501",
+		Ticket:    "SQU-501",
+		Target:    "worker",
+		Kickoff:   "delivery worker",
+		Status:    job.StatusRunning,
+		Instance:  "worker-squ-501",
+		CreatedAt: base,
+		UpdatedAt: base,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-501"},
+		},
+	}); err != nil {
+		t.Fatalf("write job squ-501: %v", err)
+	}
 	for _, meta := range []*daemon.Metadata{
 		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: base},
 		{Instance: "worker-squ-501", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusStopped, PID: os.Getpid(), Workspace: root, StartedAt: base.Add(2 * time.Minute), StoppedAt: base.Add(4 * time.Minute)},
@@ -7187,6 +7202,32 @@ instances = ["other", "build-worker"]
 	}
 	if eventSummary.Total != 1 || eventSummary.Actions["stop"] != 1 || eventSummary.Instances["worker-squ-501"] != 1 {
 		t.Fatalf("team events summary = %+v", eventSummary)
+	}
+
+	jobFiltered := NewRootCmd()
+	jobFilteredOut, jobFilteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobFiltered.SetOut(jobFilteredOut)
+	jobFiltered.SetErr(jobFilteredErr)
+	jobFiltered.SetArgs([]string{"team", "events", "delivery", "--repo", root, "--job", "SQU-501", "--json"})
+	if err := jobFiltered.Execute(); err != nil {
+		t.Fatalf("team events job filter: %v\nstderr=%s", err, jobFilteredErr.String())
+	}
+	events = decodeLifecycleEventJSONL(t, jobFilteredOut.String())
+	if got := lifecycleEventInstances(events); strings.Join(got, ",") != "worker-squ-501,worker-squ-501" {
+		t.Fatalf("team events job filter instances = %v\nbody=%s", got, jobFilteredOut.String())
+	}
+
+	stepFiltered := NewRootCmd()
+	stepFilteredOut, stepFilteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepFiltered.SetOut(stepFilteredOut)
+	stepFiltered.SetErr(stepFilteredErr)
+	stepFiltered.SetArgs([]string{"team", "events", "delivery", "--repo", root, "--step", "implement", "--json"})
+	if err := stepFiltered.Execute(); err != nil {
+		t.Fatalf("team events step filter: %v\nstderr=%s", err, stepFilteredErr.String())
+	}
+	events = decodeLifecycleEventJSONL(t, stepFilteredOut.String())
+	if got := lifecycleEventInstances(events); strings.Join(got, ",") != "worker-squ-501,worker-squ-501" {
+		t.Fatalf("team events step filter instances = %v\nbody=%s", got, stepFilteredOut.String())
 	}
 
 	codex := NewRootCmd()

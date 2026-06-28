@@ -6852,6 +6852,10 @@ target = "worker"
 			Instance:  "worker-squ-995",
 			CreatedAt: base,
 			UpdatedAt: base,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone, Instance: "worker-squ-995"},
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-995", After: []string{"implement"}},
+			},
 		},
 		{
 			ID:        "squ-996",
@@ -6863,6 +6867,9 @@ target = "worker"
 			Instance:  "worker-squ-996",
 			CreatedAt: base,
 			UpdatedAt: base,
+			Steps: []job.Step{
+				{ID: "audit", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-996"},
+			},
 		},
 		{
 			ID:        "squ-997",
@@ -6960,6 +6967,32 @@ target = "worker"
 	}
 	if eventSummary.Total != 1 || eventSummary.Actions["stop"] != 1 || eventSummary.Instances["worker-squ-995"] != 1 {
 		t.Fatalf("pipeline events summary = %+v", eventSummary)
+	}
+
+	jobFiltered := NewRootCmd()
+	jobFilteredOut, jobFilteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobFiltered.SetOut(jobFilteredOut)
+	jobFiltered.SetErr(jobFilteredErr)
+	jobFiltered.SetArgs([]string{"pipeline", "events", "ticket_to_pr", "--repo", root, "--job", "SQU-995", "--json"})
+	if err := jobFiltered.Execute(); err != nil {
+		t.Fatalf("pipeline events job filter: %v\nstderr=%s", err, jobFilteredErr.String())
+	}
+	events = decodeLifecycleEventJSONL(t, jobFilteredOut.String())
+	if got := lifecycleEventInstances(events); strings.Join(got, ",") != "manager-squ-995,worker-squ-995,worker-squ-995" {
+		t.Fatalf("pipeline events job filter instances = %v\nbody=%s", got, jobFilteredOut.String())
+	}
+
+	stepFiltered := NewRootCmd()
+	stepFilteredOut, stepFilteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stepFiltered.SetOut(stepFilteredOut)
+	stepFiltered.SetErr(stepFilteredErr)
+	stepFiltered.SetArgs([]string{"pipeline", "events", "ticket_to_pr", "--repo", root, "--step", "implement", "--json"})
+	if err := stepFiltered.Execute(); err != nil {
+		t.Fatalf("pipeline events step filter: %v\nstderr=%s", err, stepFilteredErr.String())
+	}
+	events = decodeLifecycleEventJSONL(t, stepFilteredOut.String())
+	if got := lifecycleEventInstances(events); strings.Join(got, ",") != "worker-squ-995,worker-squ-995" {
+		t.Fatalf("pipeline events step filter instances = %v\nbody=%s", got, stepFilteredOut.String())
 	}
 
 	allSummary := NewRootCmd()

@@ -4503,6 +4503,7 @@ Flags:
       --all               Show events across all pipelines. This is the default when no pipeline is passed.
   -f, --follow            Keep streaming new lifecycle events.
       --format string     Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
+      --job strings       Only show events for this pipeline-owned job id or ticket. Can repeat or comma-separate.
       --json              Emit raw JSONL events.
       --phase strings     Only show pipeline events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string       Repo root containing .agent_team. (default "<repo>")
@@ -4511,6 +4512,7 @@ Flags:
       --since string      Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show pipeline events for instances whose status.toml is currently stale or missing.
       --status strings    Only show events with this lifecycle status. Can repeat or comma-separate.
+      --step string       Only show events for instances recorded on this pipeline step id.
       --summary           Summarize matching pipeline events by action, status, agent, and instance.
       --tail int          Show only the last N matching pipeline events before returning or following (0 = all).
       --unhealthy         Only show pipeline events for instances that are currently crashed, status-stale, or runtime-stale.
@@ -7565,6 +7567,7 @@ Flags:
       --action strings    Only show events with this action. Can repeat or comma-separate.
   -f, --follow            Keep streaming new lifecycle events.
       --format string     Render each event with a Go template, e.g. '{{.Action}} {{.Instance}} {{.Status}}'.
+      --job strings       Only show events for this team-owned job id or ticket. Can repeat or comma-separate.
       --json              Emit raw JSONL events.
       --phase strings     Only show team events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string       Repo root containing .agent_team. (default "<repo>")
@@ -7573,6 +7576,7 @@ Flags:
       --since string      Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show team events for instances whose status.toml is currently stale or missing.
       --status strings    Only show events with this lifecycle status. Can repeat or comma-separate.
+      --step string       Only show events for instances recorded on this pipeline step id.
       --summary           Summarize matching team events by action, status, agent, and instance.
       --tail int          Show only the last N matching team events before returning or following (0 = all).
       --unhealthy         Only show team events for instances that are currently crashed, status-stale, or runtime-stale.

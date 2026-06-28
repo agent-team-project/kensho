@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
@@ -319,6 +320,78 @@ func applyCurrentEventInstanceFilter(teamDir string, filters eventFilters, phase
 	filters.instances = instances
 	filters.instancePrefixes = nil
 	return filters, nil
+}
+
+func applyJobEventInstanceScope(filters eventFilters, jobs []*job.Job, jobsRaw []string, stepRaw string) (eventFilters, error) {
+	jobIDs, err := jobIDSetFilter(jobsRaw, "--job")
+	if err != nil {
+		return filters, err
+	}
+	step := strings.TrimSpace(stepRaw)
+	if len(jobIDs) == 0 && step == "" {
+		return filters, nil
+	}
+	selected := map[string]bool{}
+	for _, j := range jobs {
+		if !jobMatchesIDFilter(j, jobIDs) {
+			continue
+		}
+		addJobEventInstances(selected, j, step)
+	}
+	return restrictEventFilterToInstances(filters, selected), nil
+}
+
+func jobMatchesIDFilter(j *job.Job, ids map[string]bool) bool {
+	if j == nil {
+		return false
+	}
+	if len(ids) == 0 {
+		return true
+	}
+	for _, raw := range []string{j.ID, j.Ticket, j.TicketURL} {
+		if id := job.IDFromInput(raw); id != "" && ids[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func addJobEventInstances(out map[string]bool, j *job.Job, step string) {
+	if j == nil {
+		return
+	}
+	if step == "" {
+		if instance := strings.TrimSpace(j.Instance); instance != "" {
+			out[instance] = true
+		}
+	}
+	for _, s := range j.Steps {
+		if step != "" && strings.TrimSpace(s.ID) != step {
+			continue
+		}
+		if instance := strings.TrimSpace(s.Instance); instance != "" {
+			out[instance] = true
+		}
+	}
+}
+
+func restrictEventFilterToInstances(filters eventFilters, selected map[string]bool) eventFilters {
+	instances := map[string]bool{}
+	for instance := range selected {
+		if strings.TrimSpace(instance) == "" {
+			continue
+		}
+		if eventFiltersHaveInstanceScope(filters) && !eventFilterMatchesInstance(filters, instance) {
+			continue
+		}
+		instances[instance] = true
+	}
+	if len(instances) == 0 {
+		instances[""] = false
+	}
+	filters.instances = instances
+	filters.instancePrefixes = nil
+	return filters
 }
 
 func applyLatestEventInstanceFilter(teamDir string, dc *daemonClient, filters eventFilters, latest bool, limit int) (eventFilters, error) {

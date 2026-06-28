@@ -891,7 +891,7 @@ func jobIDSetFilter(values []string, flagName string) (map[string]bool, error) {
 	}
 	out := make(map[string]bool, len(raw))
 	for value := range raw {
-		id := job.NormalizeID(value)
+		id := job.IDFromInput(value)
 		if id == "" {
 			return nil, fmt.Errorf("%s value %q produced an empty job id", flagName, value)
 		}
