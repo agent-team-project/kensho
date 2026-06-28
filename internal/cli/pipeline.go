@@ -4498,6 +4498,7 @@ func newPipelineTickCmd() *cobra.Command {
 		allReadySteps bool
 		dryRun        bool
 		previewRoutes bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -4516,6 +4517,18 @@ func newPipelineTickCmd() *cobra.Command {
 		Long:  "Run or preview one pipeline's drainable queue items and ready steps.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline tick: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -4594,6 +4607,21 @@ func newPipelineTickCmd() *cobra.Command {
 					return err
 				}
 			}
+			if commands {
+				return renderPipelineTickCommands(cmd.OutOrStdout(), result, pipelineTickApplyCommandOptions{
+					Pipeline:      args[0],
+					Repo:          repo,
+					RepoSet:       cmd.Flags().Changed("repo"),
+					Workspace:     workspace,
+					WorkspaceSet:  cmd.Flags().Changed("workspace"),
+					RuntimeKind:   runtimeKind,
+					RuntimeBin:    runtimeBin,
+					Limit:         limit,
+					SkipDrain:     skipDrain,
+					SkipAdvance:   skipAdvance,
+					AllReadySteps: allReadySteps,
+				})
+			}
 			if err := renderPipelineTickCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
 				return err
 			}
@@ -4613,6 +4641,7 @@ func newPipelineTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in this tick.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pipeline-owned maintenance work without mutating state.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching pipeline tick apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After one pipeline tick, wait for advanced pipeline jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -10577,6 +10606,57 @@ func parsePipelineTickFormat(format string) (*template.Template, error) {
 		return nil, fmt.Errorf("invalid --format template: %w", err)
 	}
 	return tmpl, nil
+}
+
+type pipelineTickApplyCommandOptions struct {
+	Pipeline      string
+	Repo          string
+	RepoSet       bool
+	Workspace     string
+	WorkspaceSet  bool
+	RuntimeKind   string
+	RuntimeBin    string
+	Limit         int
+	SkipDrain     bool
+	SkipAdvance   bool
+	AllReadySteps bool
+}
+
+func renderPipelineTickCommands(w io.Writer, result *pipelineTickResult, opts pipelineTickApplyCommandOptions) error {
+	if result == nil || !result.Tick.DryRun || tickResultIsIdle(&result.Tick) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(pipelineTickApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func pipelineTickApplyCommandArgs(opts pipelineTickApplyCommandOptions) []string {
+	args := []string{"agent-team", "pipeline", "tick", opts.Pipeline}
+	if opts.RepoSet {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.WorkspaceSet {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if opts.Limit > 0 {
+		args = append(args, "--limit", fmt.Sprintf("%d", opts.Limit))
+	}
+	if opts.SkipDrain {
+		args = append(args, "--skip-drain")
+	}
+	if opts.SkipAdvance {
+		args = append(args, "--skip-advance")
+	}
+	if opts.AllReadySteps {
+		args = append(args, "--all-ready-steps")
+	}
+	return args
 }
 
 func renderPipelineTickCommandResult(w io.Writer, result *pipelineTickResult, jsonOut bool, tmpl *template.Template) error {
