@@ -5797,6 +5797,26 @@ func TestJobReopenResetsStatusAndAudits(t *testing.T) {
 		t.Fatalf("dry-run wrote events = %+v", previewEvents)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "retry", "SQU-68", "--repo", tmp, "--message", "retry after fix", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job retry dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "retry", "squ-68", "--repo", tmp, "--message", "retry after fix"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job retry dry-run commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err = job.Read(teamDir, "squ-68")
+	if err != nil {
+		t.Fatalf("read commands dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusFailed || unchanged.LastEvent != "dispatch_failed" {
+		t.Fatalf("commands dry-run mutated job = %+v", unchanged)
+	}
+
 	reopen := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	reopen.SetOut(out)
@@ -5876,6 +5896,58 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	}
 	if len(previewEvents) != 0 {
 		t.Fatalf("dry-run wrote events = %+v", previewEvents)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "retry", "SQU-80", "--repo", target, "--dispatch", "--source", "manager", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job retry --dispatch dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "retry", "squ-80",
+		"--repo", target,
+		"--dispatch",
+		"--source", "manager",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job retry --dispatch dry-run commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err = job.Read(teamDir, "squ-80")
+	if err != nil {
+		t.Fatalf("read commands dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusFailed || unchanged.LastEvent != "dispatch_failed" {
+		t.Fatalf("commands dry-run mutated job = %+v", unchanged)
+	}
+
+	noRouteJob := &job.Job{
+		ID:        "squ-80-no-route",
+		Ticket:    "SQU-80-NO-ROUTE",
+		Target:    "manager",
+		Kickoff:   "retry without a route",
+		Status:    job.StatusFailed,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, noRouteJob); err != nil {
+		t.Fatalf("write no-route job: %v", err)
+	}
+	noRoute := NewRootCmd()
+	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
+	noRoute.SetOut(noRouteOut)
+	noRoute.SetErr(noRouteErr)
+	noRoute.SetArgs([]string{"job", "retry", "squ-80-no-route", "--repo", target, "--dispatch", "--dry-run", "--commands"})
+	if err := noRoute.Execute(); err != nil {
+		t.Fatalf("job retry no-route dry-run commands: %v\nstderr=%s", err, noRouteErr.String())
+	}
+	if got := strings.TrimSpace(noRouteOut.String()); got != "" {
+		t.Fatalf("job retry no-route commands = %q, want empty", got)
 	}
 
 	cmd := NewRootCmd()
@@ -6125,6 +6197,41 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 	}
 	if len(previewEvents) != 0 {
 		t.Fatalf("dry-run wrote events = %+v", previewEvents)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{
+		"job", "retry", "squ-81",
+		"--repo", target,
+		"--dispatch",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--dry-run", "--commands",
+	})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job retry pipeline dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "retry", "squ-81",
+		"--repo", target,
+		"--dispatch",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job retry pipeline dry-run commands = %q, want %q", got, wantCommand)
+	}
+	unchanged, err = job.Read(teamDir, "squ-81")
+	if err != nil {
+		t.Fatalf("read commands dry-run job: %v", err)
+	}
+	if unchanged.Status != job.StatusFailed || unchanged.Steps[1].Status != job.StatusFailed || unchanged.Steps[1].Instance != "manager-old" || unchanged.Steps[1].FinishedAt.IsZero() {
+		t.Fatalf("commands dry-run mutated job = %+v", unchanged)
 	}
 
 	cmd := NewRootCmd()
@@ -11215,6 +11322,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 		{
 			name: "dispatch commands with format",
 			args: []string{"job", "dispatch", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
+			name: "retry commands without dry-run",
+			args: []string{"job", "retry", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "retry commands with json",
+			args: []string{"job", "retry", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "retry commands with format",
+			args: []string{"job", "retry", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
 			want: "--commands cannot be combined with --format",
 		},
 		{

@@ -310,6 +310,7 @@ context, or external decisions that should remain attached to the job. Use
 ## Retrying Jobs
 
 ```sh
+agent-team job retry squ-42 --dry-run --dispatch --commands
 agent-team job retry squ-42 --dry-run --dispatch
 agent-team job retry squ-42 --dispatch
 agent-team job retry squ-42 --dispatch --wait --wait-status running --wait-timeout 30s

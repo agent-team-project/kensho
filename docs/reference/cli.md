@@ -114,7 +114,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log |
 | `agent-team job block <job-id>` | Mark a job blocked and record the reason |
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running |
-| `agent-team job retry <job-id>` | Reopen/retry a failed or closed job; add `--dispatch --wait --wait-next-state`/`--wait-step` for pipeline recovery handoff |
+| `agent-team job retry <job-id>` | Reopen/retry a failed or closed job; add `--dry-run --commands` for the apply command or `--dispatch --wait --wait-next-state`/`--wait-step` for pipeline recovery handoff |
 | `agent-team job update <job-id>` | Update job metadata; add `--dry-run --commands` for the apply command, `--advance --dry-run` to preview unblocked steps, or `--advance --wait --wait-next-state`/`--wait-step` for PR-gate handoff |
 | `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; use `--all` for repo-wide freezes, and add `--for` or `--until` for a deadline |
 | `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds |

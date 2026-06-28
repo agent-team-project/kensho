@@ -4851,6 +4851,7 @@ func newJobReopenCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -4874,6 +4875,18 @@ func newJobReopenCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reopen: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reopen: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reopen: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reopen: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			if waitInterval < 0 {
@@ -4936,12 +4949,34 @@ func newJobReopenCmd() *cobra.Command {
 			}
 			j.UpdatedAt = time.Now().UTC()
 			if dryRun {
+				commandOptions := jobRetryApplyCommandOptions{
+					JobID:          j.ID,
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					Status:         nextStatus,
+					StatusSet:      cmd.Flags().Changed("status"),
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					Force:          force,
+					Dispatch:       dispatchNow,
+					Source:         source,
+					SourceSet:      cmd.Flags().Changed("source"),
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+				}
 				if dispatchNow {
 					if len(j.Steps) > 0 {
 						preview, err := previewJobAdvanceDispatch(teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 						if err != nil {
 							fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 							return exitErr(1)
+						}
+						if commands {
+							return renderJobRetryApplyCommand(cmd.OutOrStdout(), preview.Step != nil, commandOptions)
 						}
 						return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 					}
@@ -4961,7 +4996,13 @@ func newJobReopenCmd() *cobra.Command {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 						return exitErr(1)
 					}
+					if commands {
+						return renderJobRetryApplyCommand(cmd.OutOrStdout(), dispatchPreviewHasRoutes(preview), commandOptions)
+					}
 					return renderJobDispatchPreview(cmd.OutOrStdout(), j, preview, jsonOut, tmpl)
+				}
+				if commands {
+					return renderJobRetryApplyCommand(cmd.OutOrStdout(), true, commandOptions)
 				}
 				return renderJobReopenPreview(cmd.OutOrStdout(), j, jsonOut, tmpl)
 			}
@@ -5078,6 +5119,7 @@ func newJobReopenCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the reopened job and optional dispatch without writing job or daemon state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job retry apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After reopening or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -12399,6 +12441,66 @@ type jobDispatchApplyCommandOptions struct {
 	RuntimeKindSet bool
 	RuntimeBin     string
 	RuntimeBinSet  bool
+}
+
+type jobRetryApplyCommandOptions struct {
+	JobID          string
+	Repo           string
+	RepoSet        bool
+	Status         job.Status
+	StatusSet      bool
+	Message        string
+	MessageSet     bool
+	Force          bool
+	Dispatch       bool
+	Source         string
+	SourceSet      bool
+	Workspace      string
+	WorkspaceSet   bool
+	RuntimeKind    string
+	RuntimeKindSet bool
+	RuntimeBin     string
+	RuntimeBinSet  bool
+}
+
+func renderJobRetryApplyCommand(w io.Writer, hasAction bool, opts jobRetryApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobRetryApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobRetryApplyCommandArgs(opts jobRetryApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "retry", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.StatusSet {
+		args = append(args, "--status", string(opts.Status))
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.Force {
+		args = append(args, "--force")
+	}
+	if opts.Dispatch {
+		args = append(args, "--dispatch")
+	}
+	if opts.SourceSet && strings.TrimSpace(opts.Source) != "" {
+		args = append(args, "--source", opts.Source)
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	return args
 }
 
 func renderJobDispatchApplyCommand(w io.Writer, hasAction bool, opts jobDispatchApplyCommandOptions) error {
