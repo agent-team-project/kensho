@@ -1161,6 +1161,21 @@ func TestPipelineJobEvents(t *testing.T) {
 		t.Fatalf("pipeline job-events table missing job column:\n%s", tableOut.String())
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	follow := NewRootCmd()
+	followOut, followErr := &bytes.Buffer{}, &bytes.Buffer{}
+	follow.SetContext(ctx)
+	follow.SetOut(followOut)
+	follow.SetErr(followErr)
+	follow.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--follow", "--tail", "1", "--interval", "1ms", "--format", "{{.JobID}} {{.Type}} {{.Status}}"})
+	if err := follow.Execute(); err != nil {
+		t.Fatalf("pipeline job-events follow: %v\nstderr=%s", err, followErr.String())
+	}
+	if got := strings.TrimSpace(followOut.String()); got != "squ-403 closed done" {
+		t.Fatalf("pipeline job-events follow = %q", got)
+	}
+
 	invalidAll := NewRootCmd()
 	invalidAllOut, invalidAllErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidAll.SetOut(invalidAllOut)
@@ -1183,6 +1198,30 @@ func TestPipelineJobEvents(t *testing.T) {
 	}
 	if !strings.Contains(invalidStatusErr.String(), "unknown --status") {
 		t.Fatalf("pipeline job-events invalid status error = %q", invalidStatusErr.String())
+	}
+
+	invalidFollow := NewRootCmd()
+	invalidFollowOut, invalidFollowErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidFollow.SetOut(invalidFollowOut)
+	invalidFollow.SetErr(invalidFollowErr)
+	invalidFollow.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--summary", "--follow"})
+	if err := invalidFollow.Execute(); err == nil {
+		t.Fatalf("pipeline job-events accepted summary follow: stdout=%s", invalidFollowOut.String())
+	}
+	if !strings.Contains(invalidFollowErr.String(), "--summary cannot be combined with --follow") {
+		t.Fatalf("pipeline job-events summary follow error = %q", invalidFollowErr.String())
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"pipeline", "job-events", "ticket_to_pr", "--repo", root, "--follow", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("pipeline job-events accepted negative interval: stdout=%s", invalidIntervalOut.String())
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("pipeline job-events interval error = %q", invalidIntervalErr.String())
 	}
 }
 

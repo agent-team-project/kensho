@@ -1241,12 +1241,14 @@ func newTeamJobsCmd() *cobra.Command {
 func newTeamJobEventsCmd() *cobra.Command {
 	var (
 		repo      string
+		follow    bool
 		tail      string
 		types     []string
 		actors    []string
 		statuses  []string
 		instances []string
 		since     string
+		interval  time.Duration
 		summary   bool
 		jsonOut   bool
 		format    string
@@ -1264,6 +1266,14 @@ func newTeamJobEventsCmd() *cobra.Command {
 			}
 			if format != "" && summary {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team job-events: --format cannot be combined with --summary.")
+				return exitErr(2)
+			}
+			if summary && follow {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team job-events: --summary cannot be combined with --follow.")
+				return exitErr(2)
+			}
+			if interval < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team job-events: --interval must be >= 0.")
 				return exitErr(2)
 			}
 			filters, err := newJobEventFilters(types, actors, statuses, instances, since, time.Now)
@@ -1285,7 +1295,16 @@ func newTeamJobEventsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			jobs, err := collectTeamJobs(teamDir, args[0], "", "id", 0, nil, nil, nil)
+			teamName := strings.TrimSpace(args[0])
+			loadJobs := func() ([]*job.Job, error) {
+				return collectTeamJobs(teamDir, teamName, "", "id", 0, nil, nil, nil)
+			}
+			if follow {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+				return runScopedJobEventsFollow(ctx, cmd.OutOrStdout(), teamDir, loadJobs, tailEvents, interval, filters, jsonOut, tmpl)
+			}
+			jobs, err := loadJobs()
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
 				return exitErr(1)
@@ -1295,16 +1314,18 @@ func newTeamJobEventsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team job-events: %v\n", err)
 				return exitErr(1)
 			}
-			return renderScopedJobEvents(cmd.OutOrStdout(), "team:"+strings.TrimSpace(args[0]), events, jsonOut, summary, tmpl)
+			return renderScopedJobEvents(cmd.OutOrStdout(), "team:"+teamName, events, jsonOut, summary, tmpl)
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Poll and print new team job events until interrupted.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N matching events after combining team jobs (0 or all = all).")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job events from this actor. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only show job events for this owning instance. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&since, "since", "", "Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().DurationVar(&interval, "interval", time.Second, "Polling interval for --follow.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching job events by job, type, status, actor, and instance.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit matching job events as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.")

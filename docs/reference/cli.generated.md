@@ -2216,13 +2216,14 @@ Flags:
 Show a job&#39;s durable event history.
 
 ```text
-agent-team job events <job-id> [flags]
+agent-team job events [<job-id>|--all] [flags]
 ```
 
 Flags:
 
 ```text
       --actor strings       Only show job events from this actor. Can repeat or comma-separate.
+      --all                 Show durable events across all jobs.
   -f, --follow              Poll and print new job events until interrupted.
       --format string       Render each event with a Go template, e.g. '{{.TS}} {{.Type}} {{.Message}}'.
       --instance strings    Only show job events for this owning instance. Can repeat or comma-separate.
@@ -4610,17 +4611,19 @@ agent-team pipeline job-events [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --actor strings      Only show job events from this actor. Can repeat or comma-separate.
-      --all                Show job events across all pipelines. This is the default when no pipeline is passed.
-      --format string      Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
-      --instance strings   Only show job events for this owning instance. Can repeat or comma-separate.
-      --json               Emit matching job events as JSON.
-      --repo string        Repo root containing .agent_team. (default "<repo>")
-      --since string       Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --status strings     Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
-      --summary            Summarize matching job events by job, type, status, actor, and instance.
-      --tail string        Show only the last N matching events after combining pipeline jobs (0 or all = all). (default "0")
-      --type strings       Only show job events with this type. Can repeat or comma-separate.
+      --actor strings       Only show job events from this actor. Can repeat or comma-separate.
+      --all                 Show job events across all pipelines. This is the default when no pipeline is passed.
+  -f, --follow              Poll and print new pipeline job events until interrupted.
+      --format string       Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
+      --instance strings    Only show job events for this owning instance. Can repeat or comma-separate.
+      --interval duration   Polling interval for --follow. (default 1s)
+      --json                Emit matching job events as JSON.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --since string        Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --status strings      Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
+      --summary             Summarize matching job events by job, type, status, actor, and instance.
+      --tail string         Show only the last N matching events after combining pipeline jobs (0 or all = all). (default "0")
+      --type strings        Only show job events with this type. Can repeat or comma-separate.
 ```
 
 ## `agent-team pipeline jobs`
@@ -7721,16 +7724,18 @@ agent-team team job-events <team> [flags]
 Flags:
 
 ```text
-      --actor strings      Only show job events from this actor. Can repeat or comma-separate.
-      --format string      Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
-      --instance strings   Only show job events for this owning instance. Can repeat or comma-separate.
-      --json               Emit matching job events as JSON.
-      --repo string        Repo root containing .agent_team. (default "<repo>")
-      --since string       Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --status strings     Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
-      --summary            Summarize matching job events by job, type, status, actor, and instance.
-      --tail string        Show only the last N matching events after combining team jobs (0 or all = all). (default "0")
-      --type strings       Only show job events with this type. Can repeat or comma-separate.
+      --actor strings       Only show job events from this actor. Can repeat or comma-separate.
+  -f, --follow              Poll and print new team job events until interrupted.
+      --format string       Render each job event with a Go template, e.g. '{{.JobID}} {{.Type}} {{.Status}}'.
+      --instance strings    Only show job events for this owning instance. Can repeat or comma-separate.
+      --interval duration   Polling interval for --follow. (default 1s)
+      --json                Emit matching job events as JSON.
+      --repo string         Repo root containing .agent_team. (default "<repo>")
+      --since string        Only show job events since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --status strings      Only show job events with this status: queued, running, blocked, done, or failed. Can repeat or comma-separate.
+      --summary             Summarize matching job events by job, type, status, actor, and instance.
+      --tail string         Show only the last N matching events after combining team jobs (0 or all = all). (default "0")
+      --type strings        Only show job events with this type. Can repeat or comma-separate.
 ```
 
 ## `agent-team team jobs`

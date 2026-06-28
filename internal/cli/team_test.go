@@ -1229,6 +1229,21 @@ pipelines = ["ticket_to_pr", "release_train"]
 		t.Fatalf("team job-events table missing job column:\n%s", tableOut.String())
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	follow := NewRootCmd()
+	followOut, followErr := &bytes.Buffer{}, &bytes.Buffer{}
+	follow.SetContext(ctx)
+	follow.SetOut(followOut)
+	follow.SetErr(followErr)
+	follow.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--follow", "--tail", "1", "--interval", "1ms", "--format", "{{.JobID}} {{.Type}} {{.Status}}"})
+	if err := follow.Execute(); err != nil {
+		t.Fatalf("team job-events follow: %v\nstderr=%s", err, followErr.String())
+	}
+	if got := strings.TrimSpace(followOut.String()); got != "squ-502 closed done" {
+		t.Fatalf("team job-events follow = %q", got)
+	}
+
 	invalidStatus := NewRootCmd()
 	invalidStatusOut, invalidStatusErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidStatus.SetOut(invalidStatusOut)
@@ -1239,6 +1254,30 @@ pipelines = ["ticket_to_pr", "release_train"]
 	}
 	if !strings.Contains(invalidStatusErr.String(), "unknown --status") {
 		t.Fatalf("team job-events invalid status error = %q", invalidStatusErr.String())
+	}
+
+	invalidFollow := NewRootCmd()
+	invalidFollowOut, invalidFollowErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidFollow.SetOut(invalidFollowOut)
+	invalidFollow.SetErr(invalidFollowErr)
+	invalidFollow.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--summary", "--follow"})
+	if err := invalidFollow.Execute(); err == nil {
+		t.Fatalf("team job-events accepted summary follow: stdout=%s", invalidFollowOut.String())
+	}
+	if !strings.Contains(invalidFollowErr.String(), "--summary cannot be combined with --follow") {
+		t.Fatalf("team job-events summary follow error = %q", invalidFollowErr.String())
+	}
+
+	invalidInterval := NewRootCmd()
+	invalidIntervalOut, invalidIntervalErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidInterval.SetOut(invalidIntervalOut)
+	invalidInterval.SetErr(invalidIntervalErr)
+	invalidInterval.SetArgs([]string{"team", "job-events", "delivery", "--repo", root, "--follow", "--interval", "-1s"})
+	if err := invalidInterval.Execute(); err == nil {
+		t.Fatalf("team job-events accepted negative interval: stdout=%s", invalidIntervalOut.String())
+	}
+	if !strings.Contains(invalidIntervalErr.String(), "--interval must be >= 0") {
+		t.Fatalf("team job-events interval error = %q", invalidIntervalErr.String())
 	}
 
 	missingTeam := NewRootCmd()

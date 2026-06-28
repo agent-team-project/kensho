@@ -194,7 +194,8 @@ They record:
 - message
 - structured data
 
-Use `agent-team job events <job-id>` instead of reading raw rows in tooling.
+Use `agent-team job events <job-id>` instead of reading raw rows in tooling, or
+`agent-team job events --all` for one combined durable audit view.
 Use `--type`, `--status`, `--actor`, `--instance`, and `--since` to narrow the
 visible audit rows before rendering or summarizing.
 Use `agent-team job events <job-id> --summary` when tooling only needs counts by
@@ -202,7 +203,8 @@ type, status, actor, or instance.
 Use `agent-team pipeline job-events [<pipeline>]` to read or summarize the same
 audit rows across pipeline-owned jobs without opening each job log separately.
 Use `agent-team team job-events <team>` for the same durable audit view inside
-one declared team boundary.
+one declared team boundary. Add `--follow` to stream newly appended audit rows
+from any matching job.
 
 ## Runtime Metadata
 

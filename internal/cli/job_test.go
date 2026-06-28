@@ -520,6 +520,133 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobEventsAll(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+	for _, j := range []*job.Job{
+		{ID: "squ-701", Ticket: "SQU-701", Target: "worker", Status: job.StatusRunning, CreatedAt: base, UpdatedAt: base},
+		{ID: "squ-702", Ticket: "SQU-702", Target: "manager", Status: job.StatusDone, CreatedAt: base, UpdatedAt: base},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, ev := range []job.Event{
+		{TS: base.Add(time.Minute), JobID: "squ-701", Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created"},
+		{TS: base.Add(2 * time.Minute), JobID: "squ-701", Type: "updated", Status: job.StatusRunning, Instance: "worker-squ-701", Actor: "daemon", Message: "started"},
+		{TS: base.Add(3 * time.Minute), JobID: "squ-702", Type: "closed", Status: job.StatusDone, Instance: "manager-squ-702", Actor: "cli", Message: "closed"},
+	} {
+		ev := ev
+		if err := job.AppendEvent(teamDir, &ev); err != nil {
+			t.Fatalf("append event %s/%s: %v", ev.JobID, ev.Type, err)
+		}
+	}
+
+	filtered := NewRootCmd()
+	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filtered.SetOut(filteredOut)
+	filtered.SetErr(filteredErr)
+	filtered.SetArgs([]string{"job", "events", "--all", "--repo", root, "--status", "running", "--json"})
+	if err := filtered.Execute(); err != nil {
+		t.Fatalf("job events --all filtered: %v\nstderr=%s", err, filteredErr.String())
+	}
+	var events []job.Event
+	if err := json.Unmarshal(filteredOut.Bytes(), &events); err != nil {
+		t.Fatalf("decode job events --all: %v\nbody=%s", err, filteredOut.String())
+	}
+	if len(events) != 1 || events[0].JobID != "squ-701" || events[0].Status != job.StatusRunning {
+		t.Fatalf("job events --all filtered = %+v", events)
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"job", "events", "--all", "--repo", root, "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("job events --all summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary jobEventSummaryJSON
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode job events --all summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Scope != "jobs" || summary.Total != 3 || summary.Jobs["squ-701"] != 2 || summary.Jobs["squ-702"] != 1 {
+		t.Fatalf("job events --all summary = %+v", summary)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	follow := NewRootCmd()
+	followOut, followErr := &bytes.Buffer{}, &bytes.Buffer{}
+	follow.SetContext(ctx)
+	follow.SetOut(followOut)
+	follow.SetErr(followErr)
+	follow.SetArgs([]string{"job", "events", "--all", "--repo", root, "--follow", "--tail", "1", "--interval", "1ms", "--format", "{{.JobID}} {{.Type}} {{.Status}}"})
+	if err := follow.Execute(); err != nil {
+		t.Fatalf("job events --all follow: %v\nstderr=%s", err, followErr.String())
+	}
+	if got := strings.TrimSpace(followOut.String()); got != "squ-702 closed done" {
+		t.Fatalf("job events --all follow = %q", got)
+	}
+
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	indexes := map[string]int{}
+	if initial, err := collectScopedJobEventsSnapshot(teamDir, jobs, jobEventFilters{}, indexes); err != nil {
+		t.Fatalf("collect initial scoped events: %v", err)
+	} else if len(initial) != 3 {
+		t.Fatalf("initial scoped events = %+v", initial)
+	}
+	appended := job.Event{TS: base.Add(4 * time.Minute), JobID: "squ-702", Type: "note", Status: job.StatusDone, Instance: "manager-squ-702", Actor: "cli", Message: "follow-up"}
+	if err := job.AppendEvent(teamDir, &appended); err != nil {
+		t.Fatalf("append follow-up event: %v", err)
+	}
+	next, err := collectNewScopedJobEvents(teamDir, jobs, jobEventFilters{}, indexes)
+	if err != nil {
+		t.Fatalf("collect new scoped events: %v", err)
+	}
+	if len(next) != 1 || next[0].JobID != "squ-702" || next[0].Type != "note" {
+		t.Fatalf("new scoped events = %+v", next)
+	}
+	again, err := collectNewScopedJobEvents(teamDir, jobs, jobEventFilters{}, indexes)
+	if err != nil {
+		t.Fatalf("collect repeated scoped events: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("repeated scoped events = %+v", again)
+	}
+
+	invalidAll := NewRootCmd()
+	invalidAllOut, invalidAllErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidAll.SetOut(invalidAllOut)
+	invalidAll.SetErr(invalidAllErr)
+	invalidAll.SetArgs([]string{"job", "events", "squ-701", "--all", "--repo", root})
+	if err := invalidAll.Execute(); err == nil {
+		t.Fatalf("job events accepted --all with job id: stdout=%s", invalidAllOut.String())
+	}
+	if !strings.Contains(invalidAllErr.String(), "--all cannot be combined with a job id") {
+		t.Fatalf("job events --all error = %q", invalidAllErr.String())
+	}
+
+	missingID := NewRootCmd()
+	missingIDOut, missingIDErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missingID.SetOut(missingIDOut)
+	missingID.SetErr(missingIDErr)
+	missingID.SetArgs([]string{"job", "events", "--repo", root})
+	if err := missingID.Execute(); err == nil {
+		t.Fatalf("job events accepted missing job id: stdout=%s", missingIDOut.String())
+	}
+	if !strings.Contains(missingIDErr.String(), "job id is required") {
+		t.Fatalf("job events missing id error = %q", missingIDErr.String())
+	}
+}
+
 func TestJobShowCommandsRenderValidation(t *testing.T) {
 	cases := []struct {
 		args []string

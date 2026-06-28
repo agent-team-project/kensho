@@ -1058,6 +1058,7 @@ func newJobQueuePruneCmd() *cobra.Command {
 func newJobEventsCmd() *cobra.Command {
 	var (
 		repo      string
+		all       bool
 		follow    bool
 		tail      string
 		types     []string
@@ -1072,10 +1073,22 @@ func newJobEventsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "events <job-id>",
+		Use:   "events [<job-id>|--all]",
 		Short: "Show a job's durable event history.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --all cannot be combined with a job id.")
+				return exitErr(2)
+			}
+			if !all && len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: job id is required.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: pass at most one job id.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job events: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -1107,9 +1120,35 @@ func newJobEventsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
 				return exitErr(2)
 			}
-			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
+			}
+			if all {
+				loadJobs := func() ([]*job.Job, error) {
+					return job.List(teamDir)
+				}
+				if follow {
+					ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+					defer stop()
+					return runScopedJobEventsFollow(ctx, cmd.OutOrStdout(), teamDir, loadJobs, tailEvents, interval, filters, jsonOut, tmpl)
+				}
+				jobs, err := loadJobs()
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
+					return exitErr(1)
+				}
+				events, err := collectJobEventsForJobs(teamDir, jobs, filters, tailEvents)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
+					return exitErr(1)
+				}
+				return renderScopedJobEvents(cmd.OutOrStdout(), "jobs", events, jsonOut, summary, tmpl)
+			}
+			j, err := job.Read(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job events: %v\n", err)
+				return exitErr(1)
 			}
 			if follow {
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -1120,6 +1159,7 @@ func newJobEventsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&all, "all", false, "Show durable events across all jobs.")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Poll and print new job events until interrupted.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N events before returning or following (0 or all = all).")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Only show job events with this type. Can repeat or comma-separate.")
@@ -7476,6 +7516,55 @@ func runJobEventsFollow(ctx context.Context, w io.Writer, teamDir, id string, ta
 	}
 }
 
+type scopedJobEventsLoader func() ([]*job.Job, error)
+
+func runScopedJobEventsFollow(ctx context.Context, w io.Writer, teamDir string, loadJobs scopedJobEventsLoader, tail int, interval time.Duration, filters jobEventFilters, jsonOut bool, tmpl *template.Template) error {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	jobs, err := loadJobs()
+	if err != nil {
+		return err
+	}
+	indexes := map[string]int{}
+	initial, err := collectScopedJobEventsSnapshot(teamDir, jobs, filters, indexes)
+	if err != nil {
+		return err
+	}
+	initial = job.TailEvents(initial, tail)
+	headerWritten := false
+	if len(initial) > 0 {
+		if err := renderScopedJobEventsFollowBatch(w, initial, jsonOut, tmpl, true); err != nil {
+			return err
+		}
+		headerWritten = !jsonOut && tmpl == nil
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if !waitForWatchTick(ctx, ticker.C) {
+			return nil
+		}
+		jobs, err := loadJobs()
+		if err != nil {
+			return err
+		}
+		next, err := collectNewScopedJobEvents(teamDir, jobs, filters, indexes)
+		if err != nil {
+			return err
+		}
+		if len(next) == 0 {
+			continue
+		}
+		if err := renderScopedJobEventsFollowBatch(w, next, jsonOut, tmpl, !headerWritten); err != nil {
+			return err
+		}
+		if !jsonOut && tmpl == nil {
+			headerWritten = true
+		}
+	}
+}
+
 type jobEventFilters struct {
 	types     map[string]bool
 	actors    map[string]bool
@@ -7590,6 +7679,28 @@ func renderJobEventsFollowBatch(w io.Writer, events []job.Event, jsonOut bool, t
 		return nil
 	}
 	renderJobEventTable(w, events, header)
+	return nil
+}
+
+func renderScopedJobEventsFollowBatch(w io.Writer, events []job.Event, jsonOut bool, tmpl *template.Template, header bool) error {
+	if jsonOut {
+		enc := json.NewEncoder(w)
+		for _, ev := range events {
+			if err := enc.Encode(ev); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if tmpl != nil {
+		for _, ev := range events {
+			if err := renderJobEventTemplate(w, ev, tmpl); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	renderJobEventTableWithJobHeader(w, events, header)
 	return nil
 }
 
@@ -7745,6 +7856,46 @@ func collectJobEventsForJobs(teamDir string, jobs []*job.Job, filters jobEventFi
 	return job.TailEvents(events, tail), nil
 }
 
+func collectScopedJobEventsSnapshot(teamDir string, jobs []*job.Job, filters jobEventFilters, indexes map[string]int) ([]job.Event, error) {
+	events := []job.Event{}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		jobEvents, err := job.ListEvents(teamDir, j.ID)
+		if err != nil {
+			return nil, err
+		}
+		indexes[j.ID] = len(jobEvents)
+		events = append(events, filterJobEvents(jobEvents, filters)...)
+	}
+	sortJobEvents(events)
+	return events, nil
+}
+
+func collectNewScopedJobEvents(teamDir string, jobs []*job.Job, filters jobEventFilters, indexes map[string]int) ([]job.Event, error) {
+	events := []job.Event{}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		jobEvents, err := job.ListEvents(teamDir, j.ID)
+		if err != nil {
+			return nil, err
+		}
+		start := indexes[j.ID]
+		if len(jobEvents) < start {
+			start = 0
+		}
+		if len(jobEvents) > start {
+			events = append(events, filterJobEvents(jobEvents[start:], filters)...)
+		}
+		indexes[j.ID] = len(jobEvents)
+	}
+	sortJobEvents(events)
+	return events, nil
+}
+
 func sortJobEvents(events []job.Event) {
 	sort.SliceStable(events, func(i, j int) bool {
 		left := events[i]
@@ -7769,12 +7920,20 @@ func sortJobEvents(events []job.Event) {
 }
 
 func renderJobEventTableWithJob(w io.Writer, events []job.Event) {
+	renderJobEventTableWithJobHeader(w, events, true)
+}
+
+func renderJobEventTableWithJobHeader(w io.Writer, events []job.Event, header bool) {
 	if len(events) == 0 {
-		fmt.Fprintln(w, "(no job events)")
+		if header {
+			fmt.Fprintln(w, "(no job events)")
+		}
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TIME\tJOB\tTYPE\tSTATUS\tINSTANCE\tACTOR\tMESSAGE")
+	if header {
+		fmt.Fprintln(tw, "TIME\tJOB\tTYPE\tSTATUS\tINSTANCE\tACTOR\tMESSAGE")
+	}
 	for _, ev := range events {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			ev.TS.Format(time.RFC3339), emptyDash(ev.JobID), ev.Type, emptyDash(string(ev.Status)), emptyDash(ev.Instance), emptyDash(ev.Actor), emptyDash(ev.Message))
