@@ -196,14 +196,14 @@ agent-team daemon stop [--timeout 5s] [--format '{{.Action}} {{.Changed}}'] [--j
 agent-team daemon restart [--timeout 5s] [--ready-timeout 3s] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
 agent-team daemon adopt <instance> --pid <pid> [--agent manager] [--workspace <path>] [--runtime claude|codex] [--session-id <id>] [--dry-run] [--format '{{.Metadata.Instance}} {{.Metadata.PID}}'] [--json]
 agent-team daemon reconcile [--format '{{.Changed}} {{len .Instances}}'] [--json]
-agent-team daemon status [-q] [--wait [--down] --timeout 30s --interval 200ms] [--format '{{.Ready}} {{.PID}}'] [--json]
+agent-team daemon status [-q] [--wait [--down] --timeout 30s --interval 200ms] [--commands] [--format '{{.Ready}} {{.PID}}'] [--json]
                                   # process and API-readiness check for agent-teamd
 agent-team daemon logs [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
 
 agent-team runtime [--format '{{.Runtime}} {{.Available}}'] [--json] | set <claude|codex> [--runtime-bin <path>] [--dry-run] [--json] | unset [--dry-run] [--json]
                                   # inspect or persist selected LLM runtime profile, binary path, and capability flags
 
-agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
+agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--commands] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
                                   # daemon health + instance snapshot; JSON watch emits one object per refresh
 agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --last N] [--format '{{.Healthy}} {{.Summary.Running}}'] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--strict-topology] [--json]
                                   # scriptable fleet health check; exits 1 when unhealthy in one-shot mode
