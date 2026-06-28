@@ -11213,6 +11213,21 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 			args: []string{"job", "approve", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
 			want: "--commands cannot be combined with --format",
 		},
+		{
+			name: "reject commands without dry-run",
+			args: []string{"job", "reject", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "reject commands with json",
+			args: []string{"job", "reject", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "reject commands with format",
+			args: []string{"job", "reject", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()

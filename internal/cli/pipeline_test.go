@@ -4806,6 +4806,19 @@ gate = "manual"
 		t.Fatalf("dry-run mutated manual gate = %+v", unchanged)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "reject", "squ-903", "manual", "review", "rejected", "--repo", root, "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("reject dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reject", "squ-903", "--repo", root, "--step", "review", "manual", "review", "rejected"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("reject dry-run commands = %q, want %q", got, wantCommand)
+	}
+
 	reject := NewRootCmd()
 	rejectOut, rejectErr := &bytes.Buffer{}, &bytes.Buffer{}
 	reject.SetOut(rejectOut)

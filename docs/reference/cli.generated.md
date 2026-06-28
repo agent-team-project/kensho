@@ -3077,6 +3077,7 @@ agent-team job reject <job-id> [reason...] [flags]
 Flags:
 
 ```text
+      --commands              With --dry-run, print the matching job reject apply command when the preview has actionable work.
       --dry-run               Preview rejection without writing job state.
       --format string         Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --json                  Emit the updated job as JSON.

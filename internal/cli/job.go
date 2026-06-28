@@ -6039,6 +6039,7 @@ func newJobRejectCmd() *cobra.Command {
 		message     string
 		messageFile string
 		dryRun      bool
+		commands    bool
 		jsonOut     bool
 		format      string
 	)
@@ -6052,6 +6053,18 @@ func newJobRejectCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reject: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reject: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reject: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job reject: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobStepFormat(format)
@@ -6082,6 +6095,20 @@ func newJobRejectCmd() *cobra.Command {
 			}
 			j.LastEvent = "manual_gate_rejected"
 			if dryRun {
+				if commands {
+					return renderJobRejectApplyCommand(cmd.OutOrStdout(), true, jobRejectApplyCommandOptions{
+						JobID:             j.ID,
+						Repo:              repo,
+						RepoSet:           cmd.Flags().Changed("repo"),
+						Step:              selectedStep,
+						StepSet:           selectedStep != "",
+						Message:           message,
+						MessageSet:        cmd.Flags().Changed("message"),
+						MessageFile:       messageFile,
+						MessageFileSet:    cmd.Flags().Changed("message-file"),
+						PositionalMessage: args[1:],
+					})
+				}
 				return renderJobStepPreview(cmd.OutOrStdout(), j, selectedStep, jsonOut, tmpl)
 			}
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": selectedStep}); err != nil {
@@ -6102,6 +6129,7 @@ func newJobRejectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&message, "message", "", "Rejection reason recorded on the job.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read rejection reason from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview rejection without writing job state.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reject apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
@@ -12213,6 +12241,47 @@ func jobApproveApplyCommandArgs(opts jobApproveApplyCommandOptions) []string {
 	}
 	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
 		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if opts.StepSet && strings.TrimSpace(opts.Step) != "" {
+		args = append(args, "--step", opts.Step)
+	}
+	if opts.MessageSet {
+		args = append(args, "--message", opts.Message)
+	}
+	if opts.MessageFileSet && strings.TrimSpace(opts.MessageFile) != "" {
+		args = append(args, "--message-file", opts.MessageFile)
+	}
+	if !opts.MessageSet && !opts.MessageFileSet && len(opts.PositionalMessage) > 0 {
+		args = append(args, opts.PositionalMessage...)
+	}
+	return args
+}
+
+type jobRejectApplyCommandOptions struct {
+	JobID             string
+	Repo              string
+	RepoSet           bool
+	Step              string
+	StepSet           bool
+	Message           string
+	MessageSet        bool
+	MessageFile       string
+	MessageFileSet    bool
+	PositionalMessage []string
+}
+
+func renderJobRejectApplyCommand(w io.Writer, hasAction bool, opts jobRejectApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobRejectApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobRejectApplyCommandArgs(opts jobRejectApplyCommandOptions) []string {
+	args := []string{"agent-team", "job", "reject", opts.JobID}
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
 	}
 	if opts.StepSet && strings.TrimSpace(opts.Step) != "" {
 		args = append(args, "--step", opts.Step)
