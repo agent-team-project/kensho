@@ -1194,6 +1194,12 @@ func newJobTimelineCmd() *cobra.Command {
 		source  string
 		sortBy  string
 		since   string
+		jobs    []string
+		kinds   []string
+		status  []string
+		actors  []string
+		agents  []string
+		insts   []string
 		jsonOut bool
 		summary bool
 		format  string
@@ -1246,6 +1252,11 @@ func newJobTimelineCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err := newJobTimelineFilters(jobs, kinds, status, actors, agents, insts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
+				return exitErr(2)
+			}
 			tmpl, err := parseJobTimelineFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
@@ -1261,7 +1272,7 @@ func newJobTimelineCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
 					return exitErr(1)
 				}
-				entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, sinceAt, tailEvents, sortMode)
+				entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, sinceAt, filters, tailEvents, sortMode)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
 					return exitErr(1)
@@ -1273,7 +1284,7 @@ func newJobTimelineCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
 				return exitErr(1)
 			}
-			entries, err := collectJobTimeline(teamDir, j, sourceMode, sinceAt, tailEvents, sortMode)
+			entries, err := collectJobTimeline(teamDir, j, sourceMode, sinceAt, filters, tailEvents, sortMode)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job timeline: %v\n", err)
 				return exitErr(1)
@@ -1287,6 +1298,12 @@ func newJobTimelineCmd() *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "all", "Timeline source to include: all, job, or lifecycle.")
 	cmd.Flags().StringVar(&sortBy, "sort", "oldest", "Sort returned timeline rows by oldest or newest after applying --tail.")
 	cmd.Flags().StringVar(&since, "since", "", "Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Only show timeline rows for this job id. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&kinds, "kind", nil, "Only show timeline rows with this kind/action. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&status, "status", nil, "Only show timeline rows with this status. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job-audit timeline rows from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show lifecycle timeline rows for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&insts, "instance", nil, "Only show timeline rows for this owning instance. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching timeline rows by source, kind, status, actor, instance, and agent.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each timeline row with a Go template, e.g. '{{.TS}} {{.Source}} {{.Kind}} {{.Message}}'.")
@@ -8145,7 +8162,7 @@ func parseJobTimelineSource(raw string) (string, error) {
 	}
 }
 
-func collectJobTimeline(teamDir string, j *job.Job, source string, since *time.Time, tail int, sortMode string) ([]jobTimelineEntry, error) {
+func collectJobTimeline(teamDir string, j *job.Job, source string, since *time.Time, filters jobTimelineFilters, tail int, sortMode string) ([]jobTimelineEntry, error) {
 	if j == nil {
 		return nil, errors.New("job is nil")
 	}
@@ -8172,19 +8189,20 @@ func collectJobTimeline(teamDir string, j *job.Job, source string, since *time.T
 		}
 	}
 	entries = filterJobTimelineEntriesSince(entries, since)
+	entries = filterJobTimelineEntries(entries, filters)
 	sortJobTimelineEntries(entries)
 	entries = tailJobTimelineEntries(entries, tail)
 	sortJobTimelineEntriesForDisplay(entries, sortMode)
 	return entries, nil
 }
 
-func collectJobTimelineForJobs(teamDir string, jobs []*job.Job, source string, since *time.Time, tail int, sortMode string) ([]jobTimelineEntry, error) {
+func collectJobTimelineForJobs(teamDir string, jobs []*job.Job, source string, since *time.Time, filters jobTimelineFilters, tail int, sortMode string) ([]jobTimelineEntry, error) {
 	entries := []jobTimelineEntry{}
 	for _, j := range jobs {
 		if j == nil {
 			continue
 		}
-		jobEntries, err := collectJobTimeline(teamDir, j, source, since, 0, "oldest")
+		jobEntries, err := collectJobTimeline(teamDir, j, source, since, filters, 0, "oldest")
 		if err != nil {
 			return nil, err
 		}
@@ -8194,6 +8212,59 @@ func collectJobTimelineForJobs(teamDir string, jobs []*job.Job, source string, s
 	entries = tailJobTimelineEntries(entries, tail)
 	sortJobTimelineEntriesForDisplay(entries, sortMode)
 	return entries, nil
+}
+
+type jobTimelineFilters struct {
+	jobs      map[string]bool
+	kinds     map[string]bool
+	statuses  map[string]bool
+	actors    map[string]bool
+	agents    map[string]bool
+	instances map[string]bool
+}
+
+func newJobTimelineFilters(jobs, kinds, statuses, actors, agents, instances []string) (jobTimelineFilters, error) {
+	var filters jobTimelineFilters
+	var err error
+	if filters.jobs, err = jobIDFilterSet(jobs); err != nil {
+		return filters, err
+	}
+	if filters.kinds, err = stringSetFilter(kinds, "--kind", "timeline kind"); err != nil {
+		return filters, err
+	}
+	if filters.statuses, err = stringSetFilter(statuses, "--status", "timeline status"); err != nil {
+		return filters, err
+	}
+	if filters.actors, err = stringSetFilter(actors, "--actor", "actor"); err != nil {
+		return filters, err
+	}
+	if filters.agents, err = stringSetFilter(agents, "--agent", "agent"); err != nil {
+		return filters, err
+	}
+	if filters.instances, err = stringSetFilter(instances, "--instance", "instance"); err != nil {
+		return filters, err
+	}
+	return filters, nil
+}
+
+func jobIDFilterSet(filters []string) (map[string]bool, error) {
+	if len(filters) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, raw := range filters {
+		for _, part := range strings.Split(raw, ",") {
+			id := job.IDFromInput(part)
+			if id == "" {
+				continue
+			}
+			out[id] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--job requires at least one non-empty job id")
+	}
+	return out, nil
 }
 
 func parseJobTimelineSince(raw string, now func() time.Time) (*time.Time, error) {
@@ -8220,6 +8291,45 @@ func filterJobTimelineEntriesSince(entries []jobTimelineEntry, since *time.Time)
 		out = append(out, entry)
 	}
 	return out
+}
+
+func filterJobTimelineEntries(entries []jobTimelineEntry, filters jobTimelineFilters) []jobTimelineEntry {
+	if filters.empty() {
+		return entries
+	}
+	out := make([]jobTimelineEntry, 0, len(entries))
+	for _, entry := range entries {
+		if filters.match(entry) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func (f jobTimelineFilters) empty() bool {
+	return len(f.jobs) == 0 && len(f.kinds) == 0 && len(f.statuses) == 0 && len(f.actors) == 0 && len(f.agents) == 0 && len(f.instances) == 0
+}
+
+func (f jobTimelineFilters) match(entry jobTimelineEntry) bool {
+	if len(f.jobs) > 0 && !f.jobs[job.IDFromInput(entry.JobID)] {
+		return false
+	}
+	if len(f.kinds) > 0 && !f.kinds[entry.Kind] {
+		return false
+	}
+	if len(f.statuses) > 0 && !f.statuses[entry.Status] {
+		return false
+	}
+	if len(f.actors) > 0 && !f.actors[entry.Actor] {
+		return false
+	}
+	if len(f.agents) > 0 && !f.agents[entry.Agent] {
+		return false
+	}
+	if len(f.instances) > 0 && !f.instances[entry.Instance] {
+		return false
+	}
+	return true
 }
 
 func jobTimelineEntryFromJobEvent(ev job.Event) jobTimelineEntry {

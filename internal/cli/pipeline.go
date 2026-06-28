@@ -579,6 +579,12 @@ func newPipelineTimelineCmd() *cobra.Command {
 		source  string
 		sortBy  string
 		since   string
+		jobs    []string
+		kinds   []string
+		status  []string
+		actors  []string
+		agents  []string
+		insts   []string
 		jsonOut bool
 		summary bool
 		format  string
@@ -626,6 +632,11 @@ func newPipelineTimelineCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
 				return exitErr(2)
 			}
+			filters, err := newJobTimelineFilters(jobs, kinds, status, actors, agents, insts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
+				return exitErr(2)
+			}
 			tmpl, err := parseJobTimelineFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
@@ -648,7 +659,7 @@ func newPipelineTimelineCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
 				return exitErr(1)
 			}
-			entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, sinceAt, tailEvents, sortMode)
+			entries, err := collectJobTimelineForJobs(teamDir, jobs, sourceMode, sinceAt, filters, tailEvents, sortMode)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline timeline: %v\n", err)
 				return exitErr(1)
@@ -666,6 +677,12 @@ func newPipelineTimelineCmd() *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "all", "Timeline source to include: all, job, or lifecycle.")
 	cmd.Flags().StringVar(&sortBy, "sort", "oldest", "Sort returned timeline rows by oldest or newest after applying --tail.")
 	cmd.Flags().StringVar(&since, "since", "", "Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
+	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Only show timeline rows for this job id. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&kinds, "kind", nil, "Only show timeline rows with this kind/action. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&status, "status", nil, "Only show timeline rows with this status. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actors, "actor", nil, "Only show job-audit timeline rows from this actor. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show lifecycle timeline rows for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&insts, "instance", nil, "Only show timeline rows for this owning instance. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching timeline rows by job, source, kind, status, actor, instance, and agent.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.")

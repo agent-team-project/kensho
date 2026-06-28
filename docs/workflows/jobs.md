@@ -511,6 +511,8 @@ agent-team job events squ-42 --status running --instance worker-squ-42
 agent-team job events squ-42 --summary
 agent-team job events squ-42 --json
 agent-team job timeline --all --summary
+agent-team job timeline --all --job SQU-42 --kind note --sort newest
+agent-team team timeline delivery --agent worker --status running
 ```
 
 Events give an audit trail for:
@@ -533,7 +535,9 @@ matching daemon lifecycle events in one ordered view. Add `--source job` or
 histories, `--tail N --sort newest` for the latest handoff rows, or `--json` /
 `--format` for scripts. Use `agent-team job timeline --all` for one combined
 timeline across every durable job, including ad hoc work that does not belong
-to a pipeline. Use
+to a pipeline. Add `--job`, `--kind`, `--status`, `--actor`, `--agent`, or
+`--instance` to narrow large combined timelines before `--tail`, `--summary`,
+or `--json` runs. Use
 `agent-team pipeline timeline ticket_to_pr` or `agent-team team timeline delivery`
 for the same combined timeline scoped across a workflow or declared team.
 

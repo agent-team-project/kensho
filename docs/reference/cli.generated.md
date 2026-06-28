@@ -3507,15 +3507,21 @@ agent-team job timeline [<job-id>|--all] [flags]
 Flags:
 
 ```text
-      --all             Show timelines across all durable jobs.
-      --format string   Render each timeline row with a Go template, e.g. '{{.TS}} {{.Source}} {{.Kind}} {{.Message}}'.
-      --json            Emit machine-readable JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --since string    Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string     Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
-      --source string   Timeline source to include: all, job, or lifecycle. (default "all")
-      --summary         Summarize matching timeline rows by source, kind, status, actor, instance, and agent.
-      --tail string     Show only the last N combined events before sorting for display (0 or all = all). (default "0")
+      --actor strings      Only show job-audit timeline rows from this actor. Can repeat or comma-separate.
+      --agent strings      Only show lifecycle timeline rows for this agent. Can repeat or comma-separate.
+      --all                Show timelines across all durable jobs.
+      --format string      Render each timeline row with a Go template, e.g. '{{.TS}} {{.Source}} {{.Kind}} {{.Message}}'.
+      --instance strings   Only show timeline rows for this owning instance. Can repeat or comma-separate.
+      --job strings        Only show timeline rows for this job id. Can repeat or comma-separate.
+      --json               Emit machine-readable JSON.
+      --kind strings       Only show timeline rows with this kind/action. Can repeat or comma-separate.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --since string       Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --sort string        Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
+      --source string      Timeline source to include: all, job, or lifecycle. (default "all")
+      --status strings     Only show timeline rows with this status. Can repeat or comma-separate.
+      --summary            Summarize matching timeline rows by source, kind, status, actor, instance, and agent.
+      --tail string        Show only the last N combined events before sorting for display (0 or all = all). (default "0")
 ```
 
 ## `agent-team job timeout`
@@ -5743,15 +5749,21 @@ agent-team pipeline timeline [<pipeline>|--all] [flags]
 Flags:
 
 ```text
-      --all             Show timelines across all pipeline-owned jobs. This is the default when no pipeline is passed.
-      --format string   Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
-      --json            Emit machine-readable JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --since string    Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string     Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
-      --source string   Timeline source to include: all, job, or lifecycle. (default "all")
-      --summary         Summarize matching timeline rows by job, source, kind, status, actor, instance, and agent.
-      --tail string     Show only the last N combined events before sorting for display (0 or all = all). (default "0")
+      --actor strings      Only show job-audit timeline rows from this actor. Can repeat or comma-separate.
+      --agent strings      Only show lifecycle timeline rows for this agent. Can repeat or comma-separate.
+      --all                Show timelines across all pipeline-owned jobs. This is the default when no pipeline is passed.
+      --format string      Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
+      --instance strings   Only show timeline rows for this owning instance. Can repeat or comma-separate.
+      --job strings        Only show timeline rows for this job id. Can repeat or comma-separate.
+      --json               Emit machine-readable JSON.
+      --kind strings       Only show timeline rows with this kind/action. Can repeat or comma-separate.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --since string       Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --sort string        Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
+      --source string      Timeline source to include: all, job, or lifecycle. (default "all")
+      --status strings     Only show timeline rows with this status. Can repeat or comma-separate.
+      --summary            Summarize matching timeline rows by job, source, kind, status, actor, instance, and agent.
+      --tail string        Show only the last N combined events before sorting for display (0 or all = all). (default "0")
 ```
 
 ## `agent-team pipeline timeout`
@@ -9151,14 +9163,20 @@ agent-team team timeline <team> [flags]
 Flags:
 
 ```text
-      --format string   Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
-      --json            Emit machine-readable JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
-      --since string    Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
-      --sort string     Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
-      --source string   Timeline source to include: all, job, or lifecycle. (default "all")
-      --summary         Summarize matching timeline rows by job, source, kind, status, actor, instance, and agent.
-      --tail string     Show only the last N combined events before sorting for display (0 or all = all). (default "0")
+      --actor strings      Only show job-audit timeline rows from this actor. Can repeat or comma-separate.
+      --agent strings      Only show lifecycle timeline rows for this agent. Can repeat or comma-separate.
+      --format string      Render each timeline row with a Go template, e.g. '{{.JobID}} {{.Source}} {{.Kind}}'.
+      --instance strings   Only show timeline rows for this owning instance. Can repeat or comma-separate.
+      --job strings        Only show timeline rows for this job id. Can repeat or comma-separate.
+      --json               Emit machine-readable JSON.
+      --kind strings       Only show timeline rows with this kind/action. Can repeat or comma-separate.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --since string       Only show timeline rows since this duration ago (for example 10m, 24h) or an RFC3339 timestamp.
+      --sort string        Sort returned timeline rows by oldest or newest after applying --tail. (default "oldest")
+      --source string      Timeline source to include: all, job, or lifecycle. (default "all")
+      --status strings     Only show timeline rows with this status. Can repeat or comma-separate.
+      --summary            Summarize matching timeline rows by job, source, kind, status, actor, instance, and agent.
+      --tail string        Show only the last N combined events before sorting for display (0 or all = all). (default "0")
 ```
 
 ## `agent-team team timeout`

@@ -199,7 +199,7 @@ func TestJobTimelineAllIncludesEveryDurableJob(t *testing.T) {
 	}
 	for _, ev := range []job.Event{
 		{TS: now, JobID: pipelineJob.ID, Type: "created", Status: job.StatusQueued, Actor: "cli", Message: "created pipeline job"},
-		{TS: now.Add(time.Minute), JobID: adhocJob.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "adhoc progress"},
+		{TS: now.Add(time.Minute), JobID: adhocJob.ID, Type: "note", Status: job.StatusRunning, Instance: adhocJob.Instance, Actor: "operator", Message: "adhoc progress"},
 		{TS: now.Add(2 * time.Minute), JobID: pipelineJob.ID, Type: "note", Status: job.StatusRunning, Actor: "operator", Message: "pipeline progress"},
 	} {
 		if err := job.AppendEvent(teamDir, &ev); err != nil {
@@ -273,6 +273,38 @@ func TestJobTimelineAllIncludesEveryDurableJob(t *testing.T) {
 		t.Fatalf("all timeline summary counts = %+v", summary)
 	}
 
+	filteredCmd := NewRootCmd()
+	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
+	filteredCmd.SetOut(filteredOut)
+	filteredCmd.SetErr(filteredErr)
+	filteredCmd.SetArgs([]string{"job", "timeline", "--all", "--repo", tmp, "--job", "ADHOC-171", "--kind", "dispatch,note", "--instance", adhocJob.Instance, "--sort", "oldest", "--json"})
+	if err := filteredCmd.Execute(); err != nil {
+		t.Fatalf("job timeline --all filtered: %v\nstderr=%s", err, filteredErr.String())
+	}
+	var filtered []jobTimelineEntry
+	if err := json.Unmarshal(filteredOut.Bytes(), &filtered); err != nil {
+		t.Fatalf("decode filtered all timeline: %v\nbody=%s", err, filteredOut.String())
+	}
+	if len(filtered) != 2 || filtered[0].JobID != adhocJob.ID || filtered[0].Kind != "note" || filtered[1].Source != "lifecycle" || filtered[1].Agent != "manager" {
+		t.Fatalf("filtered all timeline = %+v", filtered)
+	}
+
+	agentSummaryCmd := NewRootCmd()
+	agentSummaryOut, agentSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	agentSummaryCmd.SetOut(agentSummaryOut)
+	agentSummaryCmd.SetErr(agentSummaryErr)
+	agentSummaryCmd.SetArgs([]string{"job", "timeline", "--all", "--repo", tmp, "--agent", "manager", "--status", "running", "--summary", "--json"})
+	if err := agentSummaryCmd.Execute(); err != nil {
+		t.Fatalf("job timeline --all agent summary: %v\nstderr=%s", err, agentSummaryErr.String())
+	}
+	var agentSummary jobTimelineSummaryJSON
+	if err := json.Unmarshal(agentSummaryOut.Bytes(), &agentSummary); err != nil {
+		t.Fatalf("decode agent timeline summary: %v\nbody=%s", err, agentSummaryOut.String())
+	}
+	if agentSummary.Total != 1 || agentSummary.Jobs[adhocJob.ID] != 1 || agentSummary.Agents["manager"] != 1 || agentSummary.Sources["lifecycle"] != 1 {
+		t.Fatalf("agent-filtered timeline summary = %+v", agentSummary)
+	}
+
 	invalidAllWithID := NewRootCmd()
 	invalidAllWithIDOut, invalidAllWithIDErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidAllWithID.SetOut(invalidAllWithIDOut)
@@ -307,6 +339,18 @@ func TestJobTimelineAllIncludesEveryDurableJob(t *testing.T) {
 	}
 	if !strings.Contains(tooManyErr.String(), "pass at most one job id") {
 		t.Fatalf("too many ids stderr = %q", tooManyErr.String())
+	}
+
+	invalidJobFilter := NewRootCmd()
+	invalidJobFilterOut, invalidJobFilterErr := &bytes.Buffer{}, &bytes.Buffer{}
+	invalidJobFilter.SetOut(invalidJobFilterOut)
+	invalidJobFilter.SetErr(invalidJobFilterErr)
+	invalidJobFilter.SetArgs([]string{"job", "timeline", "--all", "--repo", tmp, "--job", ","})
+	if err := invalidJobFilter.Execute(); err == nil {
+		t.Fatalf("job timeline accepted empty job filter: stdout=%s", invalidJobFilterOut.String())
+	}
+	if !strings.Contains(invalidJobFilterErr.String(), "--job requires at least one non-empty job id") {
+		t.Fatalf("empty job filter stderr = %q", invalidJobFilterErr.String())
 	}
 }
 
@@ -413,6 +457,18 @@ func TestScopedTimelineCommands(t *testing.T) {
 		t.Fatalf("pipeline timeline summary counts = %+v", pipelineSummary)
 	}
 
+	pipelineFilterCmd := NewRootCmd()
+	pipelineFilterOut, pipelineFilterErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineFilterCmd.SetOut(pipelineFilterOut)
+	pipelineFilterCmd.SetErr(pipelineFilterErr)
+	pipelineFilterCmd.SetArgs([]string{"pipeline", "timeline", "ticket_to_pr", "--repo", tmp, "--actor", "operator", "--kind", "note", "--format", "{{.JobID}} {{.Kind}} {{.Actor}}"})
+	if err := pipelineFilterCmd.Execute(); err != nil {
+		t.Fatalf("pipeline timeline filtered: %v\nstderr=%s", err, pipelineFilterErr.String())
+	}
+	if got, want := pipelineFilterOut.String(), "squ-181 note operator\n"; got != want {
+		t.Fatalf("pipeline filtered timeline = %q, want %q", got, want)
+	}
+
 	teamCmd := NewRootCmd()
 	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
 	teamCmd.SetOut(teamOut)
@@ -423,6 +479,18 @@ func TestScopedTimelineCommands(t *testing.T) {
 	}
 	if got, want := teamOut.String(), "squ-181 lifecycle dispatch worker-squ-181\n"; got != want {
 		t.Fatalf("team timeline output = %q, want %q", got, want)
+	}
+
+	teamFilterCmd := NewRootCmd()
+	teamFilterOut, teamFilterErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamFilterCmd.SetOut(teamFilterOut)
+	teamFilterCmd.SetErr(teamFilterErr)
+	teamFilterCmd.SetArgs([]string{"team", "timeline", "delivery", "--repo", tmp, "--job", "SQU-181", "--agent", "worker", "--status", "running", "--format", "{{.JobID}} {{.Source}} {{.Agent}}"})
+	if err := teamFilterCmd.Execute(); err != nil {
+		t.Fatalf("team timeline filtered: %v\nstderr=%s", err, teamFilterErr.String())
+	}
+	if got, want := teamFilterOut.String(), "squ-181 lifecycle worker\n"; got != want {
+		t.Fatalf("team filtered timeline = %q, want %q", got, want)
 	}
 
 	teamSummaryCmd := NewRootCmd()

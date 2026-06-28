@@ -202,6 +202,8 @@ Use `agent-team job events <job-id> --summary` when tooling only needs counts by
 type, status, actor, or instance.
 Use `agent-team job timeline --all --summary` when tooling needs one combined
 durable audit and daemon lifecycle count across every job.
+Use timeline filters like `--job`, `--kind`, `--status`, `--actor`, `--agent`,
+and `--instance` before `--tail` when tooling needs a bounded combined view.
 Use `agent-team pipeline job-events [<pipeline>]` to read or summarize the same
 audit rows across pipeline-owned jobs without opening each job log separately.
 Use `agent-team team job-events <team>` for the same durable audit view inside

@@ -192,7 +192,7 @@ func collectPipelineSnapshot(teamDir, repoRoot, pipeline string, opts pipelineSn
 	if timelineSort == "" {
 		timelineSort = "oldest"
 	}
-	if timeline, err := collectJobTimelineForJobs(teamDir, out.Jobs, "all", nil, opts.TimelineTail, timelineSort); err != nil {
+	if timeline, err := collectJobTimelineForJobs(teamDir, out.Jobs, "all", nil, jobTimelineFilters{}, opts.TimelineTail, timelineSort); err != nil {
 		out.addError("timeline", err)
 	} else {
 		out.Timeline = timeline

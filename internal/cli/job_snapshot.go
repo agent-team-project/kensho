@@ -224,7 +224,7 @@ func collectJobSnapshot(teamDir, repoRoot string, j *job.Job, opts jobSnapshotOp
 		} else {
 			out.LifecycleEvents = events
 		}
-		if timeline, err := collectJobTimeline(teamDir, j, "all", nil, opts.EventLimit, opts.EventSort); err != nil {
+		if timeline, err := collectJobTimeline(teamDir, j, "all", nil, jobTimelineFilters{}, opts.EventLimit, opts.EventSort); err != nil {
 			out.addError("timeline", err)
 		} else {
 			if opts.Redact {
