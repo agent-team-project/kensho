@@ -1437,6 +1437,7 @@ func newTeamCleanupCmd() *cobra.Command {
 		forceBranch bool
 		verifyPR    bool
 		dryRun      bool
+		commands    bool
 		jsonOut     bool
 		format      string
 	)
@@ -1449,6 +1450,18 @@ func newTeamCleanupCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cleanup: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cleanup: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cleanup: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team cleanup: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobCleanupFormat(format)
@@ -1476,7 +1489,17 @@ func newTeamCleanupCmd() *cobra.Command {
 			}
 			result := runJobCleanupJobs(teamDir, filepath.Dir(teamDir), teamJobs(top, team, jobs), dryRun, merged, forceBranch, verifyPR)
 			result.Team = team.Name
-			if jsonOut {
+			if commands {
+				if err := renderJobCleanupBatchCommands(cmd.OutOrStdout(), result, jobCleanupCommandOptions{
+					BaseArgs:    []string{"agent-team", "team", "cleanup", args[0]},
+					Repo:        repo,
+					RepoSet:     cmd.Flags().Changed("repo"),
+					ForceBranch: forceBranch,
+					VerifyPR:    verifyPR,
+				}); err != nil {
+					return err
+				}
+			} else if jsonOut {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 					return err
 				}
@@ -1498,6 +1521,7 @@ func newTeamCleanupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete job branches with git branch -D if they are not locally merged.")
 	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Verify recorded GitHub PRs are merged with gh before cleanup.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview done team-owned job cleanup without removing anything.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team cleanup apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the cleanup batch as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup batch with a Go template, e.g. '{{.Team}} {{.Cleaned}} {{.Failed}}'.")
 	return cmd

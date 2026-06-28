@@ -2680,6 +2680,7 @@ func newPipelineCleanupCmd() *cobra.Command {
 		forceBranch bool
 		verifyPR    bool
 		dryRun      bool
+		commands    bool
 		jsonOut     bool
 		format      string
 	)
@@ -2692,6 +2693,18 @@ func newPipelineCleanupCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cleanup: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cleanup: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cleanup: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline cleanup: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			tmpl, err := parseJobCleanupFormat(format)
@@ -2714,7 +2727,17 @@ func newPipelineCleanupCmd() *cobra.Command {
 			}
 			result := runJobCleanupJobs(teamDir, filepath.Dir(teamDir), jobs, dryRun, merged, forceBranch, verifyPR)
 			result.Pipeline = strings.TrimSpace(args[0])
-			if jsonOut {
+			if commands {
+				if err := renderJobCleanupBatchCommands(cmd.OutOrStdout(), result, jobCleanupCommandOptions{
+					BaseArgs:    []string{"agent-team", "pipeline", "cleanup", args[0]},
+					Repo:        repo,
+					RepoSet:     cmd.Flags().Changed("repo"),
+					ForceBranch: forceBranch,
+					VerifyPR:    verifyPR,
+				}); err != nil {
+					return err
+				}
+			} else if jsonOut {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 					return err
 				}
@@ -2733,6 +2756,7 @@ func newPipelineCleanupCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview done pipeline-owned job cleanup without removing worktrees or branches.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching pipeline cleanup apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&merged, "merged", false, "Confirm matching done pipeline jobs' PRs are merged and apply cleanup.")
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "Delete recorded branches even when git does not consider them merged.")
 	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Use gh to verify each recorded PR is merged before cleanup.")

@@ -4397,6 +4397,19 @@ instances = ["platform"]
 		t.Fatalf("team cleanup dry-run format = %q, want %q", got, want)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"team", "cleanup", "delivery", "--repo", root, "--dry-run", "--force-branch", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("team cleanup dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "team", "cleanup", "delivery", "--repo", root, "--merged", "--force-branch"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("team cleanup dry-run commands = %q, want %q", got, wantCommand)
+	}
+
 	apply := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
@@ -4444,6 +4457,21 @@ func TestTeamCleanupRejectsFormatCombinations(t *testing.T) {
 			name: "format with json",
 			args: []string{"team", "cleanup", "delivery", "--dry-run", "--format", "{{.Team}}", "--json"},
 			want: "--format cannot be combined",
+		},
+		{
+			name: "commands without dry run",
+			args: []string{"team", "cleanup", "delivery", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "commands with json",
+			args: []string{"team", "cleanup", "delivery", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands with format",
+			args: []string{"team", "cleanup", "delivery", "--dry-run", "--commands", "--format", "{{.Team}}"},
+			want: "--commands cannot be combined with --format",
 		},
 		{
 			name: "invalid format",

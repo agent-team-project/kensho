@@ -4513,6 +4513,7 @@ func newJobCleanupCmd() *cobra.Command {
 		forceBranch bool
 		verifyPR    bool
 		dryRun      bool
+		commands    bool
 		jsonOut     bool
 		format      string
 	)
@@ -4535,6 +4536,18 @@ func newJobCleanupCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			if !merged && !dryRun {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job cleanup: pass --merged after confirming the job's PR has merged.")
 				return exitErr(2)
@@ -4554,7 +4567,18 @@ func newJobCleanupCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 					return exitErr(1)
 				}
-				if jsonOut {
+				if commands {
+					if err := renderJobCleanupBatchCommands(cmd.OutOrStdout(), result, jobCleanupCommandOptions{
+						BaseArgs:    []string{"agent-team", "job", "cleanup"},
+						Repo:        repo,
+						RepoSet:     cmd.Flags().Changed("repo"),
+						All:         true,
+						ForceBranch: forceBranch,
+						VerifyPR:    verifyPR,
+					}); err != nil {
+						return err
+					}
+				} else if jsonOut {
 					if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 						return err
 					}
@@ -4580,6 +4604,15 @@ func newJobCleanupCmd() *cobra.Command {
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 					return exitErr(1)
+				}
+				if commands {
+					return renderJobCleanupPreviewCommands(cmd.OutOrStdout(), preview, j, jobCleanupCommandOptions{
+						BaseArgs:    []string{"agent-team", "job", "cleanup", args[0]},
+						Repo:        repo,
+						RepoSet:     cmd.Flags().Changed("repo"),
+						ForceBranch: forceBranch,
+						VerifyPR:    verifyPR,
+					})
 				}
 				if jsonOut {
 					return json.NewEncoder(cmd.OutOrStdout()).Encode(preview)
@@ -4623,6 +4656,7 @@ func newJobCleanupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&forceBranch, "force-branch", false, "With --merged, delete the job branch with git branch -D if it is not locally merged.")
 	cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "Verify the recorded GitHub PR is merged with gh before cleanup.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the job-owned worktree and branch cleanup without removing anything.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching cleanup apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup result with a Go template, e.g. '{{.ID}} {{.LastStatus}}' or '{{.Total}} {{.Cleaned}}'.")
 	return cmd
@@ -6314,6 +6348,15 @@ type jobPRMergeVerification struct {
 	State       string `json:"state,omitempty"`
 	MergeCommit string `json:"merge_commit,omitempty"`
 	Source      string `json:"source"`
+}
+
+type jobCleanupCommandOptions struct {
+	BaseArgs    []string
+	Repo        string
+	RepoSet     bool
+	All         bool
+	ForceBranch bool
+	VerifyPR    bool
 }
 
 type jobSummary struct {
@@ -11002,6 +11045,56 @@ func renderJobCleanupBatch(w io.Writer, result jobCleanupBatchResult) {
 		}
 		fmt.Fprintf(w, "Job: %s cleanup complete (%s)\n", item.JobID, item.Summary)
 	}
+}
+
+func renderJobCleanupPreviewCommands(w io.Writer, preview jobCleanupPreview, j *job.Job, opts jobCleanupCommandOptions) error {
+	if !jobCleanupPreviewHasApplyCommand(preview) || j == nil || j.Status != job.StatusDone {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobCleanupApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func renderJobCleanupBatchCommands(w io.Writer, result jobCleanupBatchResult, opts jobCleanupCommandOptions) error {
+	if !jobCleanupBatchHasApplyCommand(result) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(jobCleanupApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func jobCleanupBatchHasApplyCommand(result jobCleanupBatchResult) bool {
+	if !result.DryRun || result.Failed > 0 {
+		return false
+	}
+	for _, item := range result.Items {
+		if item.Preview != nil && jobCleanupPreviewHasApplyCommand(*item.Preview) {
+			return true
+		}
+	}
+	return false
+}
+
+func jobCleanupPreviewHasApplyCommand(preview jobCleanupPreview) bool {
+	return preview.DryRun && (preview.WouldRemoveWorktree || preview.WouldRemoveBranch)
+}
+
+func jobCleanupApplyCommandArgs(opts jobCleanupCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.All {
+		args = append(args, "--all")
+	}
+	args = append(args, "--merged")
+	if opts.ForceBranch {
+		args = append(args, "--force-branch")
+	}
+	if opts.VerifyPR {
+		args = append(args, "--verify-pr")
+	}
+	return args
 }
 
 func cleanupJobOwnedWorktree(repoRoot string, j *job.Job, forceBranch bool, verifyPR bool) (string, error) {

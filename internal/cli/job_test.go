@@ -8629,6 +8629,18 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 		t.Fatalf("job cleanup dry-run format = %q, want %q", got, want)
 	}
 
+	runningCommands := NewRootCmd()
+	runningCommandsOut, runningCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	runningCommands.SetOut(runningCommandsOut)
+	runningCommands.SetErr(runningCommandsErr)
+	runningCommands.SetArgs([]string{"job", "cleanup", "squ-44", "--dry-run", "--repo", target, "--commands"})
+	if err := runningCommands.Execute(); err != nil {
+		t.Fatalf("job cleanup running dry-run commands: %v\nstderr=%s", err, runningCommandsErr.String())
+	}
+	if got := runningCommandsOut.String(); got != "" {
+		t.Fatalf("job cleanup running dry-run commands = %q, want empty", got)
+	}
+
 	stillOwned, err := job.Read(teamDir, "squ-44")
 	if err != nil {
 		t.Fatalf("read dry-run job: %v", err)
@@ -8654,6 +8666,19 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	readyForCleanup.UpdatedAt = time.Now().UTC()
 	if err := job.Write(teamDir, readyForCleanup); err != nil {
 		t.Fatalf("write job before cleanup: %v", err)
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "cleanup", "squ-44", "--dry-run", "--repo", target, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job cleanup dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "cleanup", "squ-44", "--repo", target, "--merged"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job cleanup dry-run commands = %q, want %q", got, wantCommand)
 	}
 
 	cleanupCmd := NewRootCmd()
@@ -9038,6 +9063,19 @@ func TestJobCleanupAllPreviewsAndAppliesDoneOwnership(t *testing.T) {
 		t.Fatalf("job cleanup --all dry-run format = %q, want %q", got, want)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "cleanup", "--all", "--repo", target, "--dry-run", "--force-branch", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job cleanup --all dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "cleanup", "--repo", target, "--all", "--merged", "--force-branch"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("job cleanup --all dry-run commands = %q, want %q", got, wantCommand)
+	}
+
 	apply := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
@@ -9108,6 +9146,21 @@ func TestJobCleanupRejectsFormatCombinations(t *testing.T) {
 			name: "format with json",
 			args: []string{"job", "cleanup", "squ-1", "--dry-run", "--format", "{{.JobID}}", "--json"},
 			want: "--format cannot be combined",
+		},
+		{
+			name: "commands without dry run",
+			args: []string{"job", "cleanup", "squ-1", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "commands with json",
+			args: []string{"job", "cleanup", "squ-1", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands with format",
+			args: []string{"job", "cleanup", "squ-1", "--dry-run", "--commands", "--format", "{{.JobID}}"},
+			want: "--commands cannot be combined with --format",
 		},
 		{
 			name: "invalid format",

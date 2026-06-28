@@ -6716,6 +6716,19 @@ target = "worker"
 		t.Fatalf("pipeline cleanup dry-run format = %q, want %q", got, want)
 	}
 
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"pipeline", "cleanup", "ticket_to_pr", "--repo", root, "--dry-run", "--force-branch", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("pipeline cleanup dry-run commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "pipeline", "cleanup", "ticket_to_pr", "--repo", root, "--merged", "--force-branch"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("pipeline cleanup dry-run commands = %q, want %q", got, wantCommand)
+	}
+
 	apply := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
@@ -6763,6 +6776,21 @@ func TestPipelineCleanupRejectsFormatCombinations(t *testing.T) {
 			name: "format with json",
 			args: []string{"pipeline", "cleanup", "ticket_to_pr", "--dry-run", "--format", "{{.Pipeline}}", "--json"},
 			want: "--format cannot be combined",
+		},
+		{
+			name: "commands without dry run",
+			args: []string{"pipeline", "cleanup", "ticket_to_pr", "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			name: "commands with json",
+			args: []string{"pipeline", "cleanup", "ticket_to_pr", "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands with format",
+			args: []string{"pipeline", "cleanup", "ticket_to_pr", "--dry-run", "--commands", "--format", "{{.Pipeline}}"},
+			want: "--commands cannot be combined with --format",
 		},
 		{
 			name: "invalid format",
