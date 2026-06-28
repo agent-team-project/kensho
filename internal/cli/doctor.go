@@ -189,14 +189,20 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		if strictRuntime {
 			promotePipelineDoctorRuntimeWarnings(pipelineDoctor)
 		}
+		hasPipelineDoctorFindings := false
 		for _, problem := range pipelineDoctor.Problems {
 			problems = append(problems, "pipeline workflow: "+problem.Message)
+			hasPipelineDoctorFindings = true
 		}
 		for _, warning := range pipelineDoctor.Warnings {
 			if warning.Code == "no_pipelines" {
 				continue
 			}
 			warnings = append(warnings, "pipeline workflow: "+warning.Message)
+			hasPipelineDoctorFindings = true
+		}
+		if hasPipelineDoctorFindings {
+			actions = appendDoctorActions(actions, doctorPipelineDetailAction(strictRuntime))
 		}
 	}
 	if teamDoctor, err := collectAllTeamDoctor(teamDir); err != nil {
@@ -205,17 +211,23 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		if strictRuntime {
 			promoteAllTeamDoctorRuntimeWarnings(teamDoctor)
 		}
+		hasTeamDoctorFindings := false
 		for _, problem := range teamDoctor.Problems {
 			if isPipelineWorkflowFindingCode(problem.Code) {
 				continue
 			}
 			problems = append(problems, "team topology: "+problem.Message)
+			hasTeamDoctorFindings = true
 		}
 		for _, warning := range teamDoctor.Warnings {
 			if warning.Code == "no_teams" || isPipelineWorkflowFindingCode(warning.Code) {
 				continue
 			}
 			warnings = append(warnings, "team topology: "+warning.Message)
+			hasTeamDoctorFindings = true
+		}
+		if hasTeamDoctorFindings {
+			actions = appendDoctorActions(actions, doctorTeamDetailAction(strictRuntime))
 		}
 	}
 	if jobDoctor, err := collectJobDoctor(teamDir); err != nil {
@@ -301,6 +313,24 @@ func appendDoctorActions(actions []string, next ...string) []string {
 		actions = append(actions, action)
 	}
 	return actions
+}
+
+func doctorPipelineDetailAction(strictRuntime bool) string {
+	args := []string{"agent-team", "pipeline", "doctor", "--all"}
+	if strictRuntime {
+		args = append(args, "--strict-runtime")
+	}
+	args = append(args, "--json")
+	return strings.Join(shellQuoteArgs(args), " ")
+}
+
+func doctorTeamDetailAction(strictRuntime bool) string {
+	args := []string{"agent-team", "team", "doctor", "--all"}
+	if strictRuntime {
+		args = append(args, "--strict-runtime")
+	}
+	args = append(args, "--json")
+	return strings.Join(shellQuoteArgs(args), " ")
 }
 
 func isPipelineWorkflowFindingCode(code string) bool {

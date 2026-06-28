@@ -538,6 +538,115 @@ func TestDoctorCommandsReportsMissingTeamAction(t *testing.T) {
 	}
 }
 
+func TestDoctorCommandsReportsPipelineActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	instancesPath := filepath.Join(tmp, ".agent_team", "instances.toml")
+	if err := os.WriteFile(instancesPath, []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+after = ["review"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "worker"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--commands"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --commands with invalid pipeline to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		doctorPipelineDetailAction(false),
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("doctor --commands pipeline output = %q, want %q", got, want)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --commands should not write pipeline problems to stderr: %s", errOut.String())
+	}
+}
+
+func TestDoctorCommandsReportsTeamActions(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	instancesPath := filepath.Join(tmp, ".agent_team", "instances.toml")
+	if err := os.WriteFile(instancesPath, []byte(`
+[instances.worker]
+agent = "worker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[instances.other]
+agent = "other"
+
+[[instances.other.triggers]]
+event = "agent.dispatch"
+match.target = "other"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "other"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--commands"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --commands with invalid team topology to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		doctorTeamDetailAction(false),
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("doctor --commands team output = %q, want %q", got, want)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --commands should not write team problems to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctorFormatReportsProblems(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "bad")
 
