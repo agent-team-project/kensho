@@ -104,6 +104,7 @@ func newSyncCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team sync: %v\n", err)
 				return exitErr(2)
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			return runSync(cmd, target, syncOptions{
 				DryRun:       dryRun,
 				Wait:         wait,
@@ -119,9 +120,9 @@ func newSyncCmd() *cobra.Command {
 				Commands:     commands,
 				Command: planCommandOptions{
 					BaseArgs:        []string{"agent-team", "sync"},
-					TargetFlag:      "--target",
-					Target:          target,
-					TargetSet:       cmd.Flags().Changed("target"),
+					TargetFlag:      "--repo",
+					Target:          scope.Repo,
+					TargetSet:       scope.Set,
 					StopExtras:      stopExtras,
 					StatusFilters:   statuses,
 					RuntimeFilters:  runtimes,
@@ -135,7 +136,7 @@ func newSyncCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology convergence without starting the daemon or instances.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after syncing. With no filters, waits for the fleet.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Also stop running daemon-known instances not declared in instances.toml.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")

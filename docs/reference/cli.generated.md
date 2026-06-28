@@ -7181,7 +7181,7 @@ Flags:
 ```text
       --action strings           Only sync plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --agent strings            Only sync plan rows for this agent. Can repeat or comma-separate.
-      --commands                 With --dry-run, print the matching apply command when the preview has actionable work.
+      --commands                 With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                  Preview topology convergence without starting the daemon or instances.
       --format string            Render each sync action with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --instance strings         Only sync plan rows with this name. Can repeat or comma-separate.
@@ -9283,7 +9283,7 @@ Flags:
 
 ```text
       --all-ready-steps           Advance every currently ready independent pipeline step in this tick.
-      --commands                  With --dry-run, print the matching tick apply command when the preview has actionable work.
+      --commands                  With --dry-run, print the matching tick apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                   Preview job status reconciliation, schedule firing, outbox/queue drains, and pipeline advancement without mutating state.
       --fail-on-failed            With --wait, exit 1 if any advanced job resolves to failed.
       --format string             Render the tick result or until-idle aggregate with a Go template, e.g. '{{.Queue.Dispatched}} {{len .Advance}}'.

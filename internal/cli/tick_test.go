@@ -121,9 +121,21 @@ branch = "worker-squ-94"
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("tick dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "tick", "--target", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "tick", "--repo", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("tick dry-run commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScopedCommands := NewRootCmd()
+	rootScopedCommandsOut, rootScopedCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScopedCommands.SetOut(rootScopedCommandsOut)
+	rootScopedCommands.SetErr(rootScopedCommandsErr)
+	rootScopedCommands.SetArgs([]string{"--repo", target, "tick", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2", "--dry-run", "--preview-routes", "--commands"})
+	if err := rootScopedCommands.Execute(); err != nil {
+		t.Fatalf("tick root --repo dry-run commands: %v\nstderr=%s", err, rootScopedCommandsErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedCommandsOut.String()); got != wantCommand {
+		t.Fatalf("tick root --repo dry-run commands = %q, want %q", got, wantCommand)
 	}
 
 	idleCommands := NewRootCmd()

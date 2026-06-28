@@ -308,7 +308,7 @@ func TestSyncDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --commands: %v\nstderr: %s", err, stderr.String())
 	}
-	want := "agent-team sync --target " + tmp + " --stop-extras --runtime codex --action stop"
+	want := "agent-team sync --repo " + tmp + " --stop-extras --runtime codex --action stop"
 	if got := strings.TrimSpace(out.String()); got != want {
 		t.Fatalf("sync --dry-run --commands = %q, want %q", got, want)
 	}
@@ -326,6 +326,18 @@ func TestSyncDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	}
 	if got := strings.TrimSpace(noActionOut.String()); got != "" {
 		t.Fatalf("sync --dry-run --commands with no actionable rows = %q, want empty", got)
+	}
+
+	rootScoped := NewRootCmd()
+	rootScopedOut, rootScopedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScoped.SetOut(rootScopedOut)
+	rootScoped.SetErr(rootScopedErr)
+	rootScoped.SetArgs([]string{"--repo", tmp, "sync", "--dry-run", "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
+	if err := rootScoped.Execute(); err != nil {
+		t.Fatalf("sync root --repo --dry-run --commands: %v\nstderr: %s", err, rootScopedErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedOut.String()); got != want {
+		t.Fatalf("sync root --repo --dry-run --commands = %q, want %q", got, want)
 	}
 }
 

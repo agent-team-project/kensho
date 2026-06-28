@@ -201,10 +201,11 @@ func newTickCmd() *cobra.Command {
 				}
 			}
 			if commands {
+				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				return renderTickCommands(cmd.OutOrStdout(), result, tickApplyCommandOptions{
 					BaseArgs:      []string{"agent-team", "tick"},
-					Target:        target,
-					TargetSet:     cmd.Flags().Changed("target"),
+					Repo:          scope.Repo,
+					RepoSet:       scope.Set,
 					Workspace:     workspace,
 					WorkspaceSet:  cmd.Flags().Changed("workspace"),
 					RuntimeKind:   runtimeKind,
@@ -240,7 +241,7 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for ready pipeline steps.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Run tick repeatedly until interrupted.")
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Run tick cycles until no immediate schedule, outbox, queue, or pipeline work remains.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching tick apply command when the preview has actionable work.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching tick apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After one tick, wait for advanced pipeline jobs to reach a lifecycle status, event, or next-step state.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -428,8 +429,8 @@ type tickUntilIdleResult struct {
 
 type tickApplyCommandOptions struct {
 	BaseArgs      []string
-	Target        string
-	TargetSet     bool
+	Repo          string
+	RepoSet       bool
 	Workspace     string
 	WorkspaceSet  bool
 	RuntimeKind   string
@@ -452,8 +453,8 @@ func renderTickCommands(w fmtWriter, result *tickResult, opts tickApplyCommandOp
 
 func tickApplyCommandArgs(opts tickApplyCommandOptions) []string {
 	args := append([]string{}, opts.BaseArgs...)
-	if opts.TargetSet {
-		args = append(args, "--target", opts.Target)
+	if opts.RepoSet {
+		args = append(args, "--repo", opts.Repo)
 	}
 	if opts.WorkspaceSet {
 		args = append(args, "--workspace", opts.Workspace)
