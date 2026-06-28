@@ -108,18 +108,19 @@ func newAttachCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: instance is required.")
 				return exitErr(2)
 			}
+			scope := operatorCommandScopeFromCommand(cmd, target, "target")
 			return runAttach(cmd, target, args[0], noResume, dryRun, commands, attachCommandOptions{
 				BaseArgs:   []string{"agent-team", "attach"},
-				TargetFlag: "--target",
-				Target:     target,
-				TargetSet:  cmd.Flags().Changed("target"),
+				TargetFlag: "--repo",
+				Target:     scope.Repo,
+				TargetSet:  scope.Set,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the interactive handoff without stopping or resuming the daemon child.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching attach or unmanaged fallback commands.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching attach or unmanaged fallback commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Log compatibility mode: attach to every daemon-known instance, prefixed by instance name.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Log compatibility mode: attach to the most recently started instance.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Log compatibility mode: attach to the N most recently started instances (0 = disabled).")

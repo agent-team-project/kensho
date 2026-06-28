@@ -384,9 +384,21 @@ func TestAttach_DryRunDoesNotStopOrExec(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("attach --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "attach", "--target", env.target, "manager"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "attach", "--repo", env.target, "manager"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("attach --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+
+	rootScopedCommands := NewRootCmd()
+	rootScopedCommandsOut, rootScopedCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScopedCommands.SetOut(rootScopedCommandsOut)
+	rootScopedCommands.SetErr(rootScopedCommandsErr)
+	rootScopedCommands.SetArgs([]string{"--repo", env.target, "attach", "manager", "--dry-run", "--commands"})
+	if err := rootScopedCommands.Execute(); err != nil {
+		t.Fatalf("attach root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedCommandsErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedCommandsOut.String()); got != wantCommand {
+		t.Fatalf("attach root --repo --dry-run --commands = %q, want %q", got, wantCommand)
 	}
 	if cap.called {
 		t.Fatal("execClaudeAttach should not run during commands dry-run")
@@ -489,11 +501,23 @@ func TestAttach_DryRunUnsupportedCodexShowsUnmanagedResume(t *testing.T) {
 	}
 	wantCommands := strings.Join([]string{
 		"codex resume legacy-session",
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--target", env.target, "codex-worker", "--follow"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--target", env.target, "codex-worker", "--last-message"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", env.target, "codex-worker", "--follow"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", env.target, "codex-worker", "--last-message"}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommands {
 		t.Fatalf("attach codex --dry-run --commands = %q, want %q", got, wantCommands)
+	}
+
+	rootScopedCommands := NewRootCmd()
+	rootScopedCommandsOut, rootScopedCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	rootScopedCommands.SetOut(rootScopedCommandsOut)
+	rootScopedCommands.SetErr(rootScopedCommandsErr)
+	rootScopedCommands.SetArgs([]string{"--repo", env.target, "attach", "codex-worker", "--dry-run", "--commands"})
+	if err := rootScopedCommands.Execute(); err != nil {
+		t.Fatalf("attach codex root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedCommandsErr.String())
+	}
+	if got := strings.TrimSpace(rootScopedCommandsOut.String()); got != wantCommands {
+		t.Fatalf("attach codex root --repo --dry-run --commands = %q, want %q", got, wantCommands)
 	}
 	got, err := daemon.ReadMetadata(daemon.DaemonRoot(env.teamDir), "codex-worker")
 	if err != nil {
