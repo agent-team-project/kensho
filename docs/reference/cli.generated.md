@@ -5388,6 +5388,7 @@ agent-team pipeline run <pipeline> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching pipeline run apply command.
       --dispatch                  Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                   Preview the pipeline job that would be created without writing it.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
@@ -8596,6 +8597,7 @@ agent-team team run <team> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
+      --commands                  With --dry-run, print the matching team run apply command.
       --dispatch                  Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                   Preview the pipeline job that would be created without writing it.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.

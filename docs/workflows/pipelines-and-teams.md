@@ -70,6 +70,7 @@ agent-team pipeline graph ticket_to_pr --format mermaid --routes
 agent-team team graph delivery --format mermaid --routes
 agent-team pipeline doctor --all
 agent-team pipeline run ticket_to_pr SQU-42 --dry-run --dispatch
+agent-team pipeline run ticket_to_pr SQU-42 --dry-run --dispatch --commands
 agent-team pipeline run ticket_to_pr SQU-42 --dispatch --wait --wait-status running --wait-timeout 30s
 agent-team pipeline run ticket_to_pr SQU-42 --dispatch --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 agent-team pipeline status
@@ -251,6 +252,7 @@ Team commands provide scoped variants:
 ```sh
 agent-team team overview delivery
 agent-team team jobs delivery
+agent-team team run delivery SQU-42 --dry-run --dispatch --commands
 agent-team team run delivery SQU-42 --dispatch --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 agent-team team wait-jobs delivery --next-state ready --step review --timeout 30s
 agent-team team triage delivery

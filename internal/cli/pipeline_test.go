@@ -9947,6 +9947,33 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 		}
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{
+		"pipeline", "run", "ticket_to_pr", "SQU-309",
+		"review", "runner",
+		"--repo", root,
+		"--id", "SQU 309 Custom",
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-309/review-runner",
+		"--dry-run",
+		"--commands",
+	})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("pipeline run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCreateCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "pipeline", "run", "ticket_to_pr", "SQU-309",
+		"--repo", root,
+		"--id", "SQU 309 Custom",
+		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-309/review-runner",
+		"review", "runner",
+	}), " ") + "\n"
+	if got := commandsOut.String(); got != wantCreateCommand {
+		t.Fatalf("pipeline run --commands = %q, want %q", got, wantCreateCommand)
+	}
+
 	dispatchCmd := NewRootCmd()
 	dispatchOut, dispatchErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dispatchCmd.SetOut(dispatchOut)
@@ -9971,6 +9998,37 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".agent_team", "jobs", "squ-308.toml")); !os.IsNotExist(err) {
 		t.Fatalf("dispatch dry-run wrote pipeline job file, err=%v", err)
+	}
+
+	dispatchCommandsCmd := NewRootCmd()
+	dispatchCommandsOut, dispatchCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatchCommandsCmd.SetOut(dispatchCommandsOut)
+	dispatchCommandsCmd.SetErr(dispatchCommandsErr)
+	dispatchCommandsCmd.SetArgs([]string{
+		"pipeline", "run", "ticket_to_pr", "SQU-310",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--kickoff", "quote 'this' safely",
+		"--dry-run",
+		"--commands",
+	})
+	if err := dispatchCommandsCmd.Execute(); err != nil {
+		t.Fatalf("pipeline run --dispatch --commands: %v\nstderr=%s", err, dispatchCommandsErr.String())
+	}
+	wantDispatchCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "pipeline", "run", "ticket_to_pr", "SQU-310",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--kickoff", "quote 'this' safely",
+	}), " ") + "\n"
+	if got := dispatchCommandsOut.String(); got != wantDispatchCommand {
+		t.Fatalf("pipeline run --dispatch --commands = %q, want %q", got, wantDispatchCommand)
 	}
 }
 
@@ -10143,6 +10201,18 @@ func TestPipelineRunRejectsInvalidWaitFlags(t *testing.T) {
 		{
 			args: []string{"pipeline", "run", "ticket_to_pr", "SQU-318", "--repo", root, "--wait", "--wait-next-state", "missing"},
 			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
+			args: []string{"pipeline", "run", "ticket_to_pr", "SQU-319", "--repo", root, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			args: []string{"pipeline", "run", "ticket_to_pr", "SQU-320", "--repo", root, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			args: []string{"pipeline", "run", "ticket_to_pr", "SQU-321", "--repo", root, "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
 		},
 	}
 	for _, tc := range cases {

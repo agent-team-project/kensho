@@ -217,7 +217,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline show <pipeline>` | Show one declaration; `inspect` is an alias |
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs |
 | `agent-team pipeline doctor --all` | Validate workflows; add `--strict-runtime` to fail on unavailable step runtime defaults |
-| `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--dispatch` accepts workspace/runtime overrides and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
+| `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--commands` scripts dry-run previews, `--dispatch` accepts workspace/runtime overrides, and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one row action command per line |
 | `agent-team pipeline watch [<pipeline>]` | Continuous pipeline status shortcut with queue/outbox and quarantine counts |
 | `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/outbox quarantine and ready-step recovery hints; add `--commands` for scoped attention-row recovery commands |
@@ -276,7 +276,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team monitor <team>` | Scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team watch <team>` | Continuous scoped dashboard with team-owned queue/outbox recovery signals |
 | `agent-team team top <team>` | `agent-team team stats <team>` |
-| `agent-team team run <team> <ticket>` | Create a team-owned job; `--dispatch` accepts workspace/runtime overrides and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
+| `agent-team team run <team> <ticket>` | Create a team-owned job; `--commands` scripts dry-run previews, `--dispatch` accepts workspace/runtime overrides, and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
 | `agent-team team up <team>` | Start or resume a team's declared persistent instances; add `--dry-run --commands` to print the matching team up apply command when the preview has actionable work |
 | `agent-team team down <team>` | Stop a team's persistent instances and active ephemeral children; add `--dry-run --commands` to print the matching team down apply command when the preview has actionable work |
 | `agent-team team restart <team>` | Restart or resume a team's declared persistent instances; add `--dry-run --commands` to print the matching team restart apply command when the preview has actionable work |

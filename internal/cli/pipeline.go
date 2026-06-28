@@ -5053,6 +5053,7 @@ func newPipelineRunCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -5075,14 +5076,35 @@ func newPipelineRunCmd() *cobra.Command {
 				return err
 			}
 			return runPipelineJobCreate(cmd, teamDir, args[0], args[1], args[2:], pipelineRunOptions{
-				ID:             id,
-				TicketURL:      ticketURL,
-				Kickoff:        kickoff,
-				KickoffFile:    kickoffFile,
-				DispatchNow:    dispatchNow,
-				Workspace:      workspace,
-				Runtime:        runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
-				DryRun:         dryRun,
+				ID:          id,
+				TicketURL:   ticketURL,
+				Kickoff:     kickoff,
+				KickoffFile: kickoffFile,
+				DispatchNow: dispatchNow,
+				Workspace:   workspace,
+				Runtime:     runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+				DryRun:      dryRun,
+				Commands:    commands,
+				ApplyCommand: pipelineRunApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "pipeline", "run", args[0], args[1]},
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					ID:             id,
+					IDSet:          cmd.Flags().Changed("id"),
+					TicketURL:      ticketURL,
+					TicketURLSet:   cmd.Flags().Changed("ticket-url"),
+					Dispatch:       dispatchNow,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Kickoff:        kickoff,
+					KickoffSet:     cmd.Flags().Changed("kickoff"),
+					KickoffFile:    kickoffFile,
+					KickoffFileSet: cmd.Flags().Changed("kickoff-file"),
+				},
 				Wait:           wait,
 				WaitStatuses:   waitStatuses,
 				WaitEvents:     waitEvents,
@@ -5107,6 +5129,7 @@ func newPipelineRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the pipeline job that would be created without writing it.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching pipeline run apply command.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After creating or dispatching, wait for the job to reach a lifecycle status or event.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")
@@ -5129,6 +5152,8 @@ type pipelineRunOptions struct {
 	Workspace      string
 	Runtime        runtimeSelection
 	DryRun         bool
+	Commands       bool
+	ApplyCommand   pipelineRunApplyCommandOptions
 	Wait           bool
 	WaitStatuses   []string
 	WaitEvents     []string
@@ -5142,6 +5167,82 @@ type pipelineRunOptions struct {
 	ErrPrefix      string
 }
 
+type pipelineRunApplyCommandOptions struct {
+	BaseArgs        []string
+	Repo            string
+	RepoSet         bool
+	Pipeline        string
+	PipelineSet     bool
+	ID              string
+	IDSet           bool
+	TicketURL       string
+	TicketURLSet    bool
+	Dispatch        bool
+	Workspace       string
+	WorkspaceSet    bool
+	RuntimeKind     string
+	RuntimeKindSet  bool
+	RuntimeBin      string
+	RuntimeBinSet   bool
+	Kickoff         string
+	KickoffSet      bool
+	KickoffFile     string
+	KickoffFileSet  bool
+	ResolvedKickoff string
+	PositionalWords []string
+}
+
+func renderPipelineRunApplyCommand(w io.Writer, hasAction bool, opts pipelineRunApplyCommandOptions) error {
+	if !hasAction {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(pipelineRunApplyCommandArgs(opts)), " "))
+	return err
+}
+
+func pipelineRunApplyCommandArgs(opts pipelineRunApplyCommandOptions) []string {
+	args := append([]string{}, opts.BaseArgs...)
+	kickoffSet := opts.KickoffSet && strings.TrimSpace(opts.Kickoff) != ""
+	kickoffFileSet := opts.KickoffFileSet && strings.TrimSpace(opts.KickoffFile) != "" && strings.TrimSpace(opts.KickoffFile) != "-"
+	if opts.RepoSet && strings.TrimSpace(opts.Repo) != "" {
+		args = append(args, "--repo", opts.Repo)
+	}
+	if opts.PipelineSet && strings.TrimSpace(opts.Pipeline) != "" {
+		args = append(args, "--pipeline", opts.Pipeline)
+	}
+	if opts.IDSet && strings.TrimSpace(opts.ID) != "" {
+		args = append(args, "--id", opts.ID)
+	}
+	if opts.TicketURLSet && strings.TrimSpace(opts.TicketURL) != "" {
+		args = append(args, "--ticket-url", opts.TicketURL)
+	}
+	if opts.Dispatch {
+		args = append(args, "--dispatch")
+	}
+	if opts.WorkspaceSet && strings.TrimSpace(opts.Workspace) != "" {
+		args = append(args, "--workspace", opts.Workspace)
+	}
+	if opts.RuntimeKindSet && strings.TrimSpace(opts.RuntimeKind) != "" {
+		args = append(args, "--runtime", opts.RuntimeKind)
+	}
+	if opts.RuntimeBinSet && strings.TrimSpace(opts.RuntimeBin) != "" {
+		args = append(args, "--runtime-bin", opts.RuntimeBin)
+	}
+	if kickoffSet {
+		args = append(args, "--kickoff", opts.Kickoff)
+	}
+	if kickoffFileSet {
+		args = append(args, "--kickoff-file", opts.KickoffFile)
+	}
+	if opts.KickoffFileSet && strings.TrimSpace(opts.KickoffFile) == "-" && strings.TrimSpace(opts.ResolvedKickoff) != "" {
+		args = append(args, "--kickoff", opts.ResolvedKickoff)
+	}
+	if !kickoffSet && !kickoffFileSet && !opts.KickoffFileSet && len(opts.PositionalWords) > 0 {
+		args = append(args, opts.PositionalWords...)
+	}
+	return args
+}
+
 func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket string, positional []string, opts pipelineRunOptions) error {
 	prefix := strings.TrimSpace(opts.ErrPrefix)
 	if prefix == "" {
@@ -5149,6 +5250,18 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	}
 	if opts.Format != "" && opts.JSON {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", prefix)
+		return exitErr(2)
+	}
+	if opts.Commands && !opts.DryRun {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands requires --dry-run.\n", prefix)
+		return exitErr(2)
+	}
+	if opts.Commands && opts.JSON {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --json.\n", prefix)
+		return exitErr(2)
+	}
+	if opts.Commands && opts.Format != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --commands cannot be combined with --format.\n", prefix)
 		return exitErr(2)
 	}
 	if opts.WaitInterval < 0 {
@@ -5215,13 +5328,22 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 		return exitErr(2)
 	}
 	if opts.DryRun {
+		commandOptions := opts.ApplyCommand
+		commandOptions.ResolvedKickoff = kickoffText
+		commandOptions.PositionalWords = positional
 		if opts.DispatchNow {
 			preview, err := previewJobAdvanceDispatch(teamDir, j, opts.Workspace, opts.Runtime)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 				return exitErr(1)
 			}
+			if opts.Commands {
+				return renderPipelineRunApplyCommand(cmd.OutOrStdout(), true, commandOptions)
+			}
 			return renderJobAdvancePreview(cmd.OutOrStdout(), preview, opts.JSON, tmpl)
+		}
+		if opts.Commands {
+			return renderPipelineRunApplyCommand(cmd.OutOrStdout(), true, commandOptions)
 		}
 		return renderJobCreatePreview(cmd.OutOrStdout(), j, opts.JSON, tmpl)
 	}

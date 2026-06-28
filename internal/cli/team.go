@@ -825,6 +825,7 @@ func newTeamRunCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBin    string
 		dryRun        bool
+		commands      bool
 		wait          bool
 		waitStatuses  []string
 		waitEvents    []string
@@ -859,14 +860,37 @@ func newTeamRunCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			return runPipelineJobCreate(cmd, teamDir, pipelineName, args[1], args[2:], pipelineRunOptions{
-				ID:             id,
-				TicketURL:      ticketURL,
-				Kickoff:        kickoff,
-				KickoffFile:    kickoffFile,
-				DispatchNow:    dispatchNow,
-				Workspace:      workspace,
-				Runtime:        runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
-				DryRun:         dryRun,
+				ID:          id,
+				TicketURL:   ticketURL,
+				Kickoff:     kickoff,
+				KickoffFile: kickoffFile,
+				DispatchNow: dispatchNow,
+				Workspace:   workspace,
+				Runtime:     runtimeSelection{Kind: runtimeKind, Binary: runtimeBin},
+				DryRun:      dryRun,
+				Commands:    commands,
+				ApplyCommand: pipelineRunApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "team", "run", args[0], args[1]},
+					Repo:           repo,
+					RepoSet:        cmd.Flags().Changed("repo"),
+					Pipeline:       pipeline,
+					PipelineSet:    cmd.Flags().Changed("pipeline"),
+					ID:             id,
+					IDSet:          cmd.Flags().Changed("id"),
+					TicketURL:      ticketURL,
+					TicketURLSet:   cmd.Flags().Changed("ticket-url"),
+					Dispatch:       dispatchNow,
+					Workspace:      workspace,
+					WorkspaceSet:   cmd.Flags().Changed("workspace"),
+					RuntimeKind:    runtimeKind,
+					RuntimeKindSet: cmd.Flags().Changed("runtime"),
+					RuntimeBin:     runtimeBin,
+					RuntimeBinSet:  cmd.Flags().Changed("runtime-bin"),
+					Kickoff:        kickoff,
+					KickoffSet:     cmd.Flags().Changed("kickoff"),
+					KickoffFile:    kickoffFile,
+					KickoffFileSet: cmd.Flags().Changed("kickoff-file"),
+				},
 				Wait:           wait,
 				WaitStatuses:   waitStatuses,
 				WaitEvents:     waitEvents,
@@ -892,6 +916,7 @@ func newTeamRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --dispatch (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --dispatch. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the pipeline job that would be created without writing it.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching team run apply command.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After creating or dispatching, wait for the job to reach a lifecycle status or event.")
 	cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&waitEvents, "wait-event", nil, "With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.")

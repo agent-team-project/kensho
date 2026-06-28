@@ -5252,6 +5252,25 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 		t.Fatalf("dry-run wrote team run job file, err=%v", err)
 	}
 
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	sendMessageInput = strings.NewReader("team command from stdin\n")
+	commandsCmd.SetArgs([]string{"team", "run", "delivery", "SQU-813", "--repo", root, "--pipeline", "ticket_to_pr", "--kickoff-file", "-", "--dry-run", "--commands"})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("team run --commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantTeamRunCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "team", "run", "delivery", "SQU-813",
+		"--repo", root,
+		"--pipeline", "ticket_to_pr",
+		"--kickoff", "SQU-813: team command from stdin",
+	}), " ") + "\n"
+	if got := commandsOut.String(); got != wantTeamRunCommand {
+		t.Fatalf("team run --commands = %q, want %q", got, wantTeamRunCommand)
+	}
+
 	dispatchPreviewCmd := NewRootCmd()
 	dispatchPreviewOut, dispatchPreviewErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dispatchPreviewCmd.SetOut(dispatchPreviewOut)
@@ -5273,6 +5292,27 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(teamDir, "jobs", "squ-812.toml")); !os.IsNotExist(err) {
 		t.Fatalf("dispatch dry-run wrote team run job file, err=%v", err)
+	}
+
+	dispatchCommandsCmd := NewRootCmd()
+	dispatchCommandsOut, dispatchCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatchCommandsCmd.SetOut(dispatchCommandsOut)
+	dispatchCommandsCmd.SetErr(dispatchCommandsErr)
+	dispatchCommandsCmd.SetArgs([]string{"team", "run", "delivery", "SQU-814", "--repo", root, "--kickoff", "ship it", "--dispatch", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	if err := dispatchCommandsCmd.Execute(); err != nil {
+		t.Fatalf("team run dispatch --commands: %v\nstderr=%s", err, dispatchCommandsErr.String())
+	}
+	wantTeamDispatchCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "team", "run", "delivery", "SQU-814",
+		"--repo", root,
+		"--dispatch",
+		"--workspace", "repo",
+		"--runtime", "codex",
+		"--runtime-bin", "codex-dev",
+		"--kickoff", "ship it",
+	}), " ") + "\n"
+	if got := dispatchCommandsOut.String(); got != wantTeamDispatchCommand {
+		t.Fatalf("team run dispatch --commands = %q, want %q", got, wantTeamDispatchCommand)
 	}
 
 	createCmd := NewRootCmd()
@@ -5361,6 +5401,18 @@ func TestTeamRunRejectsInvalidWaitFlags(t *testing.T) {
 		{
 			args: []string{"team", "run", "delivery", "SQU-818", "--repo", root, "--wait", "--wait-next-state", "missing"},
 			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
+		},
+		{
+			args: []string{"team", "run", "delivery", "SQU-819", "--repo", root, "--commands"},
+			want: "--commands requires --dry-run",
+		},
+		{
+			args: []string{"team", "run", "delivery", "SQU-820", "--repo", root, "--dry-run", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			args: []string{"team", "run", "delivery", "SQU-821", "--repo", root, "--dry-run", "--commands", "--format", "{{.ID}}"},
+			want: "--commands cannot be combined with --format",
 		},
 	}
 	for _, tc := range cases {
