@@ -5473,7 +5473,7 @@ agent-team pipeline run <pipeline> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
-      --commands                  With --dry-run, print the matching pipeline run apply command.
+      --commands                  With --dry-run, print the matching pipeline run apply command. agent-team follow-ups preserve the selected repo scope.
       --dispatch                  Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                   Preview the pipeline job that would be created without writing it.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
@@ -5486,7 +5486,7 @@ Flags:
       --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string         Canonical ticket URL to store on the job.
-      --wait                      After creating or dispatching, wait for the job to reach a lifecycle status or event.
+      --wait                      After creating or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.
       --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
       --wait-interval duration    Polling interval with --wait. (default 500ms)
       --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
@@ -8739,7 +8739,7 @@ agent-team team run <team> <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
-      --commands                  With --dry-run, print the matching team run apply command.
+      --commands                  With --dry-run, print the matching team run apply command. agent-team follow-ups preserve the selected repo scope.
       --dispatch                  Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                   Preview the pipeline job that would be created without writing it.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
@@ -8753,7 +8753,7 @@ Flags:
       --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string         Canonical ticket URL to store on the job.
-      --wait                      After creating or dispatching, wait for the job to reach a lifecycle status or event.
+      --wait                      After creating or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.
       --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, closed, or pipeline_done. Can repeat or comma-separate.
       --wait-interval duration    Polling interval with --wait. (default 500ms)
       --wait-next-state strings   With --wait, next-step state to wait for: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.

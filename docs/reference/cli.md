@@ -120,8 +120,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job unblock <job-id>` | Send answer and mark blocked job running; add `--dry-run --commands` for the apply command |
 | `agent-team job reopen|retry <job-id>` | Reopen/retry a failed or closed job; add `--dry-run --commands` for the apply command or `--dispatch --wait --wait-next-state`/`--wait-step` for pipeline recovery handoff |
 | `agent-team job update <job-id>` | Update job metadata; add `--dry-run --commands` for the apply command, `--advance --dry-run` to preview unblocked steps, or `--advance --wait --wait-next-state`/`--wait-step` for PR-gate handoff |
-| `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; use `--all` for repo-wide freezes, and add `--for` or `--until` for a deadline |
-| `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds |
+| `agent-team job hold <job-id>` | Pause readiness/advance automation without changing lifecycle status; use `--all` for repo-wide freezes, add `--for` or `--until` for a deadline, or `--dry-run --commands` for the apply command |
+| `agent-team job release <job-id>` | Resume readiness/advance automation for a held job; use `--all --expired` for elapsed time-boxed holds or `--dry-run --commands` for the apply command |
 | `agent-team job close <job-id>` | Mark done or failed; add `--dry-run --commands` for the apply command |
 | `agent-team job cancel <job-id>` | Fail a job as cancelled, optionally stopping its owner; add `--dry-run --commands` for the apply command |
 | `agent-team job timeout <job-id> or --all` | Mark stale running job steps or stale step-less running jobs failed; add `--pipeline` or `--target-agent` with `--all` to scope a sweep |
@@ -230,8 +230,8 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team pipeline wait [<pipeline>]` | Wait for pipeline jobs to reach a lifecycle status, event, or next-step state/stage |
 | `agent-team pipeline jobs [<pipeline>]` | List, summarize, or watch pipeline jobs; filter held state, hold deadlines, mixed-runtime ownership, sort rows, and cap output with `--limit` |
 | `agent-team pipeline ready` | List or watch ready steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one scoped action per line with `--commands` |
-| `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline |
-| `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline; add `--expired` to release only elapsed deadlines |
+| `agent-team pipeline hold <pipeline>` | Hold matching pipeline jobs without changing lifecycle status; add `--for` or `--until` for a deadline, or `--dry-run --commands` for the apply command |
+| `agent-team pipeline release <pipeline>` | Release held jobs in a pipeline; add `--expired` to release only elapsed deadlines or `--dry-run --commands` for the apply command |
 | `agent-team pipeline advance <pipeline>` | Advance ready work; add `--dry-run --commands` for the apply command, use `--workspace`/`--runtime` for dispatched steps, and use `--wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team pipeline approve <pipeline>` | Approve blocked manual gates; add `--dry-run --commands` for the apply command or `--dispatch --wait-next-state`/`--wait-step` for stage-aware approval handoff |
 | `agent-team pipeline reject <pipeline>` | Reject blocked manual gates |
@@ -298,9 +298,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team repair <team>` | Scoped repair loop, including stale-work timeout with `--timeout-jobs`; failed-step retry accepts pipeline/step filters, `--retry-force`, workspace/runtime overrides, `--last-message` health hints, and `--wait-next-state`/`--wait-step` stage-aware bounded handoff |
 | `agent-team team queue <team>` | Scoped queue list; filter queued dispatches with `--runtime`, sort rows with `--sort`, cap output with `--limit`, or print visible row actions with `--commands` |
 | `agent-team team queue show <team> <id>` | Inspect one active queue item owned by a team; add `--commands` to print only follow-up commands that preserve an explicit `--repo` selector |
-| `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
-| `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit` |
-| `agent-team team queue prune <team>` | Age-prune team-owned entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit` |
+| `agent-team team queue retry <team> --all` | Retry matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit`; add `--dry-run --commands` for the scoped apply command |
+| `agent-team team queue drop <team> --all` | Drop matching team-owned entries; filter, sort, and limit batch actions with `--runtime`, `--sort`, and `--limit`; add `--dry-run --commands` for the scoped apply command |
+| `agent-team team queue prune <team>` | Age-prune team-owned entries; filter and limit prune candidates with `--runtime`, `--ready`, and `--limit`; add `--dry-run --commands` for the scoped apply command |
 | `agent-team team queue quarantine <team>` | Scoped quarantine list or summary; sort rows with `--sort`, cap output with `--limit`, or add `--commands` to print visible restore/drop actions that preserve an explicit `--repo` selector |
 | `agent-team team outbox <team>` | Scoped outbox list, summary, or watch view; filter by state, type, source, or job, sort/cap rows, or print visible row actions with `--commands` |
 | `agent-team team outbox show <team> <id>` | Inspect one outbox event owned by a team; add `--commands` to print only follow-up commands that preserve an explicit `--repo` selector |
@@ -320,9 +320,9 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team team triage <team>` | Show team-owned jobs needing operator attention; add `--commands` for team-scoped attention-row recovery commands that preserve an explicit `--repo` selector |
 | `agent-team team ready <team>` | List or watch scoped ready pipeline steps; filter by `--step`, sort by `--sort`, cap rows with `--limit`, or print one team-scoped action per line with `--commands`, preserving an explicit `--repo` selector |
 | `agent-team team schedules <team>` | List team-owned schedules; add `--due`, `--next`, or `--limit` for scoped forecasts, and `--commands` to print the scoped dry-run tick preview command when any selected schedule is due |
-| `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team; add `--for` or `--until` for a deadline |
-| `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines |
-| `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs and `--target-agent` to scope by role |
+| `agent-team team hold <team>` | Hold matching pipeline jobs owned by a team; add `--for` or `--until` for a deadline, or `--dry-run --commands` for the scoped apply command |
+| `agent-team team release <team>` | Release held pipeline jobs owned by a team; add `--expired` to release only elapsed deadlines or `--dry-run --commands` for the scoped apply command |
+| `agent-team team timeout <team>` | Timeout stale team pipeline steps; add `--jobs` for stale step-less team jobs, `--target-agent` to scope by role, or `--dry-run --commands` for the scoped apply command |
 | `agent-team team advance <team>` | Scoped pipeline advance; add `--dry-run --commands` for the apply command, use `--runtime` for dispatched steps, and use `--wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team team approve <team>` | Scoped manual-gate approval; add `--dry-run --commands` for the apply command or `--dispatch --wait-next-state`/`--wait-step` for stage-aware approval handoff |
 | `agent-team team reject <team>` | Scoped manual-gate rejection |
