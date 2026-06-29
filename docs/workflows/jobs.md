@@ -166,7 +166,11 @@ runtimes and the recovery list needs a predictable order, and add `--limit N`
 to cap rows after sorting.
 Use `agent-team job ps <job-id>` when you need the lifecycle table for every
 job-owned runtime before attaching, messaging, or stopping work; add
-`--step <id>` for one pipeline stage. Use `agent-team job stats <job-id>` when
+`--step <id>` for one pipeline stage. Use
+`agent-team job runtime ls <job-id>` when scripts need raw persisted daemon
+metadata, job/worktree/PR ownership, stale runtime PID flags, or summary counts
+without the declared/status-file fields in `job ps`. Use
+`agent-team job stats <job-id>` when
 you need CPU and memory usage; add `--all` to include stopped or crashed
 metadata, or `--summary --json` for scripts.
 
@@ -292,6 +296,8 @@ dry-run when scripts should print only the matching unblock apply command.
 agent-team job send squ-42 "Please continue with the new API constraint" --dry-run --commands
 agent-team job send squ-42 "Please continue with the new API constraint"
 agent-team job send squ-42 --message-file notes.md
+agent-team job runtime ls squ-42 --summary --json
+agent-team job runtime ls squ-42 --step review --runtime codex
 agent-team job ps squ-42 --runtime codex
 agent-team job ps squ-42 --step review --status running
 agent-team job stats squ-42 --runtime codex

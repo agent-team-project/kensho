@@ -8454,25 +8454,7 @@ func collectPipelineRuntimeRows(teamDir, pipeline string, now time.Time, opts te
 	for _, meta := range owned.Metadata {
 		row := teamRuntimeRowFromMetadata(meta, now)
 		if j := owned.JobByInstance[row.Instance]; j != nil {
-			if row.Job == "" {
-				if id := job.NormalizeID(j.ID); id != "" {
-					row.Job = id
-				} else {
-					row.Job = strings.TrimSpace(j.ID)
-				}
-			}
-			if row.Ticket == "" {
-				row.Ticket = strings.TrimSpace(j.Ticket)
-			}
-			if row.Branch == "" {
-				row.Branch = strings.TrimSpace(j.Branch)
-			}
-			if row.PR == "" {
-				row.PR = strings.TrimSpace(j.PR)
-			}
-			if row.Workspace == "" {
-				row.Workspace = filepath.ToSlash(strings.TrimSpace(j.Worktree))
-			}
+			enrichJobRuntimeRow(&row, j)
 		}
 		if row.Job == "" {
 			row.Job = owned.JobForInstance[row.Instance]

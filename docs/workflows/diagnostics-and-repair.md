@@ -347,6 +347,7 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need team-scoped instance counts | `agent-team team ps delivery --summary --json` |
 | Need team-owned runtime metadata | `agent-team team runtime ls delivery --summary --json` |
 | Need pipeline-owned runtime metadata | `agent-team pipeline runtime ls ticket_to_pr --summary --json` |
+| Need one job's runtime metadata | `agent-team job runtime ls squ-42 --summary --json` |
 | Need handoff artifact | `agent-team snapshot --output diagnostics.json` |
 | Need script-friendly global snapshot fields | `agent-team snapshot --format '{{.Repo}} {{len .Jobs}}'` |
 | Need one workflow handoff artifact | `agent-team pipeline snapshot ticket_to_pr --output ticket-to-pr-diagnostics.json` |

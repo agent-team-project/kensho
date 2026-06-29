@@ -417,6 +417,8 @@ Summary views honor the same agent, status, phase, stale, runtime-stale, unhealt
 
 `agent-team pipeline runtime ls [<pipeline>]` applies the same raw metadata view to jobs owned by one workflow, or all workflows by default, while excluding ad hoc jobs.
 
+`agent-team job runtime ls <job-id>` narrows that raw metadata view to one durable work unit and can focus one pipeline stage with `--step`.
+
 `agent-team start|stop|kill|restart --summary` applies the same lifecycle selection as row output but prints aggregate action/status counts; `agent-team plan --summary` summarizes desired-state preview rows, `agent-team sync --summary` does the same for topology convergence, `agent-team rm|prune --summary` summarizes removed state and daemon metadata, and `agent-team wait --summary` summarizes final wait statuses and phases. `--summary --json` returns a `{ "summary": ... }` object for scripts.
 
 `agent-team instance show <name>` prints the parsed status with all fields, plus the existing state-dir file listing.

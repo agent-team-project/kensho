@@ -7802,6 +7802,217 @@ func TestJobPsScopesRowsAndSteps(t *testing.T) {
 	}
 }
 
+func TestJobRuntimeLsScopesFiltersAndSteps(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	worktree := filepath.Join(tmp, ".agent_team", "worktrees", "worker-squ-126")
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-126",
+		Ticket:    "SQU-126",
+		Target:    "manager",
+		Instance:  "manager-squ-126",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Branch:    "worktree-worker-squ-126",
+		Worktree:  worktree,
+		PR:        "https://github.com/acme/repo/pull/126",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-126-implement", StartedAt: now.Add(-30 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, Instance: "reviewer-squ-126-review", StartedAt: now.Add(-20 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-126", Job: "squ-126", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: tmp, StartedAt: now.Add(-40 * time.Minute)},
+		{Instance: "worker-squ-126-implement", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusCrashed, StartedAt: now.Add(-30 * time.Minute), ExitedAt: now.Add(-5 * time.Minute)},
+		{Instance: "reviewer-squ-126-review", Agent: "manager", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusStopped, PID: os.Getpid(), Workspace: tmp, StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute)},
+		{Instance: "sidecar-squ-126", Job: "squ-126", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: tmp, StartedAt: now.Add(-15 * time.Minute)},
+		{Instance: "worker-squ-127", Job: "squ-127", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: tmp, StartedAt: now.Add(-5 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	codex := NewRootCmd()
+	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
+	codex.SetOut(codexOut)
+	codex.SetErr(codexErr)
+	codex.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--runtime", "codex", "--json"})
+	if err := codex.Execute(); err != nil {
+		t.Fatalf("job runtime ls json: %v\nstderr=%s", err, codexErr.String())
+	}
+	var rows []teamRuntimeRow
+	if err := json.Unmarshal(codexOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode job runtime rows: %v\nbody=%s", err, codexOut.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "reviewer-squ-126-review,sidecar-squ-126,worker-squ-126-implement" {
+		t.Fatalf("job runtime rows = %v", got)
+	}
+	var worker *teamRuntimeRow
+	for i := range rows {
+		if rows[i].Instance == "worker-squ-126-implement" {
+			worker = &rows[i]
+			break
+		}
+	}
+	if worker == nil {
+		t.Fatalf("worker runtime row missing: %+v", rows)
+	}
+	if worker.Job != "squ-126" || worker.Ticket != "SQU-126" || worker.Branch != "worktree-worker-squ-126" || worker.PR != "https://github.com/acme/repo/pull/126" || worker.Workspace != filepath.ToSlash(worktree) {
+		t.Fatalf("job runtime row was not enriched from job: %+v", *worker)
+	}
+
+	step := NewRootCmd()
+	stepOut, stepErr := &bytes.Buffer{}, &bytes.Buffer{}
+	step.SetOut(stepOut)
+	step.SetErr(stepErr)
+	step.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--step", "review", "--json"})
+	if err := step.Execute(); err != nil {
+		t.Fatalf("job runtime ls step: %v\nstderr=%s", err, stepErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(stepOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode job runtime step rows: %v\nbody=%s", err, stepOut.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "reviewer-squ-126-review" {
+		t.Fatalf("job runtime step rows = %v", got)
+	}
+
+	summary := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summary.SetOut(summaryOut)
+	summary.SetErr(summaryErr)
+	summary.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--runtime", "codex", "--summary", "--json"})
+	if err := summary.Execute(); err != nil {
+		t.Fatalf("job runtime ls summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var counts teamRuntimeSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
+		t.Fatalf("decode job runtime summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if counts.Total != 3 || counts.Running != 1 || counts.Stopped != 1 || counts.Crashed != 1 || counts.WithJob != 3 || counts.Runtimes["codex"] != 3 {
+		t.Fatalf("job runtime summary = %+v", counts)
+	}
+
+	latest := NewRootCmd()
+	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	latest.SetOut(latestOut)
+	latest.SetErr(latestErr)
+	latest.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--latest", "--json"})
+	if err := latest.Execute(); err != nil {
+		t.Fatalf("job runtime ls latest: %v\nstderr=%s", err, latestErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(latestOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode latest job runtime rows: %v\nbody=%s", err, latestOut.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "sidecar-squ-126" {
+		t.Fatalf("latest job runtime rows = %v", got)
+	}
+
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--last", "2", "--sort", "started", "--format", "{{.Instance}} {{.Job}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("job runtime ls format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got, want := strings.TrimSpace(formattedOut.String()), "sidecar-squ-126 squ-126\nreviewer-squ-126-review squ-126"; got != want {
+		t.Fatalf("job runtime format = %q, want %q", got, want)
+	}
+
+	unhealthy := NewRootCmd()
+	unhealthyOut, unhealthyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unhealthy.SetOut(unhealthyOut)
+	unhealthy.SetErr(unhealthyErr)
+	unhealthy.SetArgs([]string{"job", "runtime", "ls", "SQU-126", "--repo", tmp, "--unhealthy", "--format", "{{.Instance}} {{.Unhealthy}}"})
+	if err := unhealthy.Execute(); err != nil {
+		t.Fatalf("job runtime ls unhealthy: %v\nstderr=%s", err, unhealthyErr.String())
+	}
+	if got, want := strings.TrimSpace(unhealthyOut.String()), "worker-squ-126-implement true"; got != want {
+		t.Fatalf("job runtime unhealthy = %q, want %q", got, want)
+	}
+}
+
+func TestJobRuntimeLsRejectsInvalidModes(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-128",
+		Ticket:    "SQU-128",
+		Target:    "worker",
+		Instance:  "worker-squ-128",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-128"},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format json",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--format", "{{.Instance}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "format summary",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--format", "{{.Instance}}", "--summary"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "negative last",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--last", "-1"},
+			want: "--last must be >= 0",
+		},
+		{
+			name: "latest last",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--latest", "--last", "2"},
+			want: "choose one of --latest or --last",
+		},
+		{
+			name: "bad sort",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--sort", "age"},
+			want: "unknown --sort",
+		},
+		{
+			name: "unknown step",
+			args: []string{"job", "runtime", "ls", "SQU-128", "--repo", tmp, "--step", "review"},
+			want: `step "review" not found`,
+		},
+	} {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("%s succeeded unexpectedly; stdout=%s", tc.name, out.String())
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%s wrote stdout: %q", tc.name, out.String())
+		}
+	}
+}
+
 func TestJobStatsScopesRowsAndSteps(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

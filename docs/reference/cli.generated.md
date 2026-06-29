@@ -1888,6 +1888,7 @@ Subcommands:
 - `agent-team job reopen` - Reopen a durable job for another attempt.
 - `agent-team job resume-plan` - Show runtime resume and fallback commands for one job.
 - `agent-team job rm` - Remove job files and their event logs.
+- `agent-team job runtime` - Inspect job-owned runtime metadata.
 - `agent-team job send` - Send a mailbox message to a job&#39;s owning instance.
 - `agent-team job show` - Show one durable job.
 - `agent-team job snapshot` - Capture a job-scoped diagnostic snapshot.
@@ -3305,6 +3306,57 @@ Flags:
       --format string   Render each result with a Go template, e.g. '{{.ID}} {{.Action}}'.
       --json            Emit removal results as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team job runtime`
+
+Inspect job-owned runtime metadata.
+
+Inspect raw daemon runtime metadata owned by one durable job.
+
+```text
+agent-team job runtime
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team job runtime ls` - List daemon runtime metadata owned by one job.
+
+## `agent-team job runtime ls`
+
+List daemon runtime metadata owned by one job.
+
+List raw daemon runtime metadata owned by one durable job. Pipeline jobs can own several stage instances; pass --step to focus one stage.
+
+```text
+agent-team job runtime ls <job-id> [flags]
+```
+
+Aliases: `list`, `ps`
+
+Flags:
+
+```text
+      --agent strings      Only show job-owned metadata for this agent. Can repeat or comma-separate.
+      --format string      Render each job runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.
+      --instance strings   Only show job-owned metadata with this instance name. Can repeat or comma-separate.
+      --json               Emit job runtime metadata as JSON.
+  -n, --last int           Show only the N most recently started job-owned runtime records after other filters (0 = all).
+  -l, --latest             Show only the most recently started job-owned runtime record after other filters.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --runtime strings    Only show job-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime-stale      Only show job-owned running metadata whose recorded runtime PID is no longer live.
+      --sort string        Sort job runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
+      --status strings     Only show job-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --step string        Only show metadata for this pipeline step's owning instance.
+      --summary            Summarize matching job-owned runtime metadata by status, runtime, and agent.
+      --unhealthy          Only show crashed or runtime-stale job-owned metadata.
 ```
 
 ## `agent-team job send`

@@ -53,6 +53,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobUnblockCmd())
 	cmd.AddCommand(newJobLogsCmd())
 	cmd.AddCommand(newJobResumePlanCmd())
+	cmd.AddCommand(newJobRuntimeCmd())
 	cmd.AddCommand(newJobPsCmd())
 	cmd.AddCommand(newJobStatsCmd())
 	cmd.AddCommand(newJobSnapshotCmd())
@@ -3033,6 +3034,69 @@ func collectJobPsRows(teamDir string, j *job.Job, stepID string, now time.Time, 
 	return filterLimitSortPsRows(scoped, opts), nil
 }
 
+func collectJobRuntimeRows(teamDir string, j *job.Job, stepID string, now time.Time, opts teamRuntimeListOptions) ([]teamRuntimeRow, error) {
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	byInstance := map[string]*daemon.Metadata{}
+	for _, meta := range metas {
+		if meta == nil || strings.TrimSpace(meta.Instance) == "" {
+			continue
+		}
+		byInstance[meta.Instance] = meta
+	}
+	var selected []*daemon.Metadata
+	if stepID = strings.TrimSpace(stepID); stepID != "" {
+		idx := jobStepIndex(j, stepID)
+		if idx < 0 {
+			return nil, fmt.Errorf("step %q not found", stepID)
+		}
+		if instance := strings.TrimSpace(j.Steps[idx].Instance); instance != "" {
+			if meta := byInstance[instance]; meta != nil {
+				selected = append(selected, meta)
+			}
+		}
+	} else {
+		selected = metadataForResumePlanJob(metas, byInstance, j)
+	}
+	rows := make([]teamRuntimeRow, 0, len(selected))
+	for _, meta := range selected {
+		row := teamRuntimeRowFromMetadata(meta, now)
+		enrichJobRuntimeRow(&row, j)
+		if !teamRuntimeRowMatches(row, opts) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return filterLimitSortTeamRuntimeRows(rows, opts), nil
+}
+
+func enrichJobRuntimeRow(row *teamRuntimeRow, j *job.Job) {
+	if row == nil || j == nil {
+		return
+	}
+	if row.Job == "" {
+		if id := job.NormalizeID(j.ID); id != "" {
+			row.Job = id
+		} else {
+			row.Job = strings.TrimSpace(j.ID)
+		}
+	}
+	if row.Ticket == "" {
+		row.Ticket = strings.TrimSpace(j.Ticket)
+	}
+	if row.Branch == "" {
+		row.Branch = strings.TrimSpace(j.Branch)
+	}
+	if row.PR == "" {
+		row.PR = strings.TrimSpace(j.PR)
+	}
+	if row.Workspace == "" {
+		row.Workspace = filepath.ToSlash(strings.TrimSpace(j.Worktree))
+	}
+}
+
 func runJobPs(w io.Writer, teamDir string, j *job.Job, stepID string, now time.Time, opts psOptions) error {
 	rows, err := collectJobPsRows(teamDir, j, stepID, now, opts)
 	if err != nil {
@@ -3243,6 +3307,121 @@ func newJobLogsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
 	cmd.Flags().BoolVar(&last, "last-message", false, "Show the clean final Codex response sidecar for the owning instance.")
 	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise when printing the raw owning instance log.")
+	return cmd
+}
+
+func newJobRuntimeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Inspect job-owned runtime metadata.",
+		Long:  "Inspect raw daemon runtime metadata owned by one durable job.",
+	}
+	cmd.AddCommand(newJobRuntimeLsCmd())
+	return cmd
+}
+
+func newJobRuntimeLsCmd() *cobra.Command {
+	var (
+		repo             string
+		stepID           string
+		statusFilters    []string
+		runtimeFilters   []string
+		agentFilters     []string
+		instanceFilters  []string
+		runtimeStaleOnly bool
+		unhealthyOnly    bool
+		latest           bool
+		last             int
+		sortBy           string
+		summary          bool
+		jsonOut          bool
+		format           string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "ls <job-id>",
+		Aliases: []string{"list", "ps"},
+		Short:   "List daemon runtime metadata owned by one job.",
+		Long: "List raw daemon runtime metadata owned by one durable job. " +
+			"Pipeline jobs can own several stage instances; pass --step to focus one stage.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job runtime ls: --format cannot be combined with --json or --summary.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job runtime ls: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job runtime ls: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTeamRuntimeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts, err := newTeamRuntimeListOptions(statusFilters, runtimeFilters, agentFilters, instanceFilters, runtimeStaleOnly, unhealthyOnly)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			sortMode, err := parseTeamRuntimeSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts.Sort = sortMode
+			opts.SortSet = cmd.Flags().Changed("sort")
+			opts.Limit = last
+			if latest {
+				opts.Limit = 1
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(stepID) != "" && jobStepIndex(j, stepID) < 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job runtime ls: step %q not found\n", strings.TrimSpace(stepID))
+				return exitErr(2)
+			}
+			rows, err := collectJobRuntimeRows(teamDir, j, stepID, time.Now().UTC(), opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job runtime ls: %v\n", err)
+				return exitErr(1)
+			}
+			if summary {
+				out := summarizeTeamRuntimeRows(rows)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				return renderTeamRuntimeSummary(cmd.OutOrStdout(), out)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
+			}
+			if tmpl != nil {
+				return renderTeamRuntimeFormat(cmd.OutOrStdout(), rows, tmpl)
+			}
+			return renderTeamRuntimeRows(cmd.OutOrStdout(), rows)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&stepID, "step", "", "Only show metadata for this pipeline step's owning instance.")
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show job-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show job-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show job-owned metadata for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show job-owned metadata with this instance name. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show job-owned running metadata whose recorded runtime PID is no longer live.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or runtime-stale job-owned metadata.")
+	cmd.Flags().BoolVarP(&latest, "latest", "l", false, "Show only the most recently started job-owned runtime record after other filters.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show only the N most recently started job-owned runtime records after other filters (0 = all).")
+	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort job runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching job-owned runtime metadata by status, runtime, and agent.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit job runtime metadata as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each job runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
 	return cmd
 }
 
