@@ -54,6 +54,7 @@ func newPipelineCmd() *cobra.Command {
 	cmd.AddCommand(newPipelineCancelCmd())
 	cmd.AddCommand(newPipelineAdoptCmd())
 	cmd.AddCommand(newPipelineCleanupCmd())
+	cmd.AddCommand(newPipelineRuntimeCmd())
 	cmd.AddCommand(newPipelineResumePlanCmd())
 	cmd.AddCommand(newPipelineSendCmd())
 	cmd.AddCommand(newPipelinePsCmd())
@@ -3441,6 +3442,133 @@ func newPipelineResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&all, "all", false, "Plan runtime recovery across all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.")
+	return cmd
+}
+
+func newPipelineRuntimeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Inspect pipeline-owned runtime metadata.",
+		Long:  "Inspect daemon runtime metadata owned by jobs in one declared pipeline, or across every pipeline-owned job by default.",
+	}
+	cmd.AddCommand(newPipelineRuntimeLsCmd())
+	return cmd
+}
+
+func newPipelineRuntimeLsCmd() *cobra.Command {
+	var (
+		repo             string
+		allPipelines     bool
+		statusFilters    []string
+		runtimeFilters   []string
+		agentFilters     []string
+		instanceFilters  []string
+		runtimeStaleOnly bool
+		unhealthyOnly    bool
+		latest           bool
+		last             int
+		sortBy           string
+		summary          bool
+		jsonOut          bool
+		format           string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "ls [<pipeline>|--all]",
+		Aliases: []string{"list", "ps"},
+		Short:   "List daemon runtime metadata owned by pipeline jobs.",
+		Long: "List daemon-known runtime metadata owned by jobs in one declared pipeline. " +
+			"Omit the pipeline or pass --all to inspect every pipeline-owned job while excluding ad hoc instances.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: pass at most one pipeline name.")
+				return exitErr(2)
+			}
+			if allPipelines && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: --all cannot be combined with a pipeline argument.")
+				return exitErr(2)
+			}
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: --format cannot be combined with --json or --summary.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			pipelineName := ""
+			if len(args) == 1 {
+				pipelineName = strings.TrimSpace(args[0])
+			}
+			if len(args) == 1 && pipelineName == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: pipeline name is required.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTeamRuntimeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts, err := newTeamRuntimeListOptions(statusFilters, runtimeFilters, agentFilters, instanceFilters, runtimeStaleOnly, unhealthyOnly)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			sortMode, err := parseTeamRuntimeSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts.Sort = sortMode
+			opts.SortSet = cmd.Flags().Changed("sort")
+			opts.Limit = last
+			if latest {
+				opts.Limit = 1
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			rows, err := collectPipelineRuntimeRows(teamDir, pipelineName, time.Now().UTC(), opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline runtime ls: %v\n", err)
+				return exitErr(1)
+			}
+			if summary {
+				out := summarizeTeamRuntimeRows(rows)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				return renderTeamRuntimeSummary(cmd.OutOrStdout(), out)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
+			}
+			if tmpl != nil {
+				return renderTeamRuntimeFormat(cmd.OutOrStdout(), rows, tmpl)
+			}
+			return renderTeamRuntimeRows(cmd.OutOrStdout(), rows)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().BoolVar(&allPipelines, "all", false, "List runtime metadata across all pipelines. This is the default when no pipeline is passed.")
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show pipeline-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show pipeline-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show pipeline-owned metadata for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show pipeline-owned metadata with this instance name. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show pipeline-owned running metadata whose recorded runtime PID is no longer live.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or runtime-stale pipeline-owned metadata.")
+	cmd.Flags().BoolVarP(&latest, "latest", "l", false, "Show only the most recently started pipeline-owned runtime record after other filters.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show only the N most recently started pipeline-owned runtime records after other filters (0 = all).")
+	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort pipeline runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching pipeline-owned runtime metadata by status, runtime, and agent.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit pipeline runtime metadata as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each pipeline runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
 	return cmd
 }
 
@@ -8311,6 +8439,50 @@ func collectPipelineOwnedMetadata(teamDir, pipeline string, metas []*daemon.Meta
 		out = append(out, selected[name])
 	}
 	return pipelineOwnedMetadata{Metadata: out, Jobs: jobs, JobForInstance: jobForInstance, JobByInstance: jobByInstance}, nil
+}
+
+func collectPipelineRuntimeRows(teamDir, pipeline string, now time.Time, opts teamRuntimeListOptions) ([]teamRuntimeRow, error) {
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	owned, err := collectPipelineOwnedMetadata(teamDir, pipeline, metas)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]teamRuntimeRow, 0, len(owned.Metadata))
+	for _, meta := range owned.Metadata {
+		row := teamRuntimeRowFromMetadata(meta, now)
+		if j := owned.JobByInstance[row.Instance]; j != nil {
+			if row.Job == "" {
+				if id := job.NormalizeID(j.ID); id != "" {
+					row.Job = id
+				} else {
+					row.Job = strings.TrimSpace(j.ID)
+				}
+			}
+			if row.Ticket == "" {
+				row.Ticket = strings.TrimSpace(j.Ticket)
+			}
+			if row.Branch == "" {
+				row.Branch = strings.TrimSpace(j.Branch)
+			}
+			if row.PR == "" {
+				row.PR = strings.TrimSpace(j.PR)
+			}
+			if row.Workspace == "" {
+				row.Workspace = filepath.ToSlash(strings.TrimSpace(j.Worktree))
+			}
+		}
+		if row.Job == "" {
+			row.Job = owned.JobForInstance[row.Instance]
+		}
+		if !teamRuntimeRowMatches(row, opts) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return filterLimitSortTeamRuntimeRows(rows, opts), nil
 }
 
 func collectPipelineOwnedInstanceNames(teamDir, pipeline string) (map[string]bool, error) {

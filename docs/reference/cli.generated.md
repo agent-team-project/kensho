@@ -4315,6 +4315,7 @@ Subcommands:
 - `agent-team pipeline resume-plan` - Show runtime resume and fallback commands for pipeline-owned jobs.
 - `agent-team pipeline retry` - Reset failed pipeline steps for another attempt.
 - `agent-team pipeline run` - Create a durable job from a pipeline declaration.
+- `agent-team pipeline runtime` - Inspect pipeline-owned runtime metadata.
 - `agent-team pipeline send` - Send a mailbox message to pipeline-owned instances.
 - `agent-team pipeline show` - Show one declared pipeline.
 - `agent-team pipeline skip` - Mark matching pipeline steps intentionally skipped.
@@ -5547,6 +5548,57 @@ Flags:
       --wait-step string          With --wait, pipeline step id that must be the current next step.
       --wait-timeout duration     Maximum time to wait with --wait (0 = no timeout).
       --workspace string          Workspace mode for --dispatch: auto, worktree, or repo. (default "auto")
+```
+
+## `agent-team pipeline runtime`
+
+Inspect pipeline-owned runtime metadata.
+
+Inspect daemon runtime metadata owned by jobs in one declared pipeline, or across every pipeline-owned job by default.
+
+```text
+agent-team pipeline runtime
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team pipeline runtime ls` - List daemon runtime metadata owned by pipeline jobs.
+
+## `agent-team pipeline runtime ls`
+
+List daemon runtime metadata owned by pipeline jobs.
+
+List daemon-known runtime metadata owned by jobs in one declared pipeline. Omit the pipeline or pass --all to inspect every pipeline-owned job while excluding ad hoc instances.
+
+```text
+agent-team pipeline runtime ls [<pipeline>|--all] [flags]
+```
+
+Aliases: `list`, `ps`
+
+Flags:
+
+```text
+      --agent strings      Only show pipeline-owned metadata for this agent. Can repeat or comma-separate.
+      --all                List runtime metadata across all pipelines. This is the default when no pipeline is passed.
+      --format string      Render each pipeline runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.
+      --instance strings   Only show pipeline-owned metadata with this instance name. Can repeat or comma-separate.
+      --json               Emit pipeline runtime metadata as JSON.
+  -n, --last int           Show only the N most recently started pipeline-owned runtime records after other filters (0 = all).
+  -l, --latest             Show only the most recently started pipeline-owned runtime record after other filters.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --runtime strings    Only show pipeline-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime-stale      Only show pipeline-owned running metadata whose recorded runtime PID is no longer live.
+      --sort string        Sort pipeline runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
+      --status strings     Only show pipeline-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --summary            Summarize matching pipeline-owned runtime metadata by status, runtime, and agent.
+      --unhealthy          Only show crashed or runtime-stale pipeline-owned metadata.
 ```
 
 ## `agent-team pipeline send`

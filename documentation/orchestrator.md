@@ -259,6 +259,8 @@ agent-team team prune <team> [-q] [--dry-run] [--older-than 24h] [--status exite
                                   # scoped cleanup for finished or runtime-stale daemon-known instances owned by one team
 agent-team team ps <team> [-w] [--no-clear] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--agent worker] [--instance worker-squ-42] [--sort status|agent|phase|stale|runtime-stale|unhealthy|started|stopped|exited|name] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s]
                                   # scoped instance rows or lifecycle summary for one team's persistent members and live ephemeral children
+agent-team pipeline runtime ls [<pipeline>|--all] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
+                                  # scoped daemon runtime metadata rows or summary for one or all pipeline-owned workflows
 agent-team team runtime ls <team> [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
                                   # scoped daemon runtime metadata rows or summary for one team's persistent members and live ephemeral children
 agent-team team stats <team> [<instance>...] [-w] [--no-clear] [-a] [--latest | --last N] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--summary] [--sort cpu|mem|rss|status|agent|phase|stale|runtime-stale|unhealthy|name] [--format '{{.Instance}} {{.CPUPercent}} {{.RSS}}'] [--json] [--interval 2s]
@@ -412,6 +414,8 @@ Summary views honor the same agent, status, phase, stale, runtime-stale, unhealt
 `agent-team team ps <team>` applies the same row filters, sort modes, latest/last caps, watch mode, and lifecycle/phase summary rendering to only the instances owned by one declared team. Team ownership includes declared persistent members plus live ephemeral children whose runtime metadata resolves back to a team-owned ephemeral declaration.
 
 `agent-team team runtime ls <team>` shows only persisted daemon metadata, which is useful when the operator cares about process ownership, runtime kind, session IDs, worktree/job metadata, or stale recorded PIDs without declared-but-not-started placeholders.
+
+`agent-team pipeline runtime ls [<pipeline>]` applies the same raw metadata view to jobs owned by one workflow, or all workflows by default, while excluding ad hoc jobs.
 
 `agent-team start|stop|kill|restart --summary` applies the same lifecycle selection as row output but prints aggregate action/status counts; `agent-team plan --summary` summarizes desired-state preview rows, `agent-team sync --summary` does the same for topology convergence, `agent-team rm|prune --summary` summarizes removed state and daemon metadata, and `agent-team wait --summary` summarizes final wait statuses and phases. `--summary --json` returns a `{ "summary": ... }` object for scripts.
 

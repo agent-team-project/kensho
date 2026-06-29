@@ -6272,6 +6272,231 @@ target = "worker"
 	}
 }
 
+func TestPipelineRuntimeLsScopesFiltersAndSummary(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+
+[pipelines.ops_review]
+trigger.event = "ops.created"
+
+[[pipelines.ops_review.steps]]
+id = "audit"
+target = "worker"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	worktree := filepath.Join(root, ".agent_team", "worktrees", "worker-squ-944")
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-944",
+			Ticket:    "SQU-944",
+			Target:    "worker",
+			Kickoff:   "pipeline runtime",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-944",
+			Branch:    "worktree-worker-squ-944",
+			Worktree:  worktree,
+			PR:        "https://github.com/acme/repo/pull/944",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-944", StartedAt: now.Add(time.Minute)},
+				{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-944", StartedAt: now.Add(2 * time.Minute)},
+			},
+		},
+		{
+			ID:        "squ-945",
+			Ticket:    "SQU-945",
+			Target:    "worker",
+			Kickoff:   "foreign pipeline",
+			Pipeline:  "ops_review",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-945",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Steps: []job.Step{
+				{ID: "audit", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-945", StartedAt: now.Add(3 * time.Minute)},
+			},
+		},
+		{
+			ID:        "squ-946",
+			Ticket:    "SQU-946",
+			Target:    "worker",
+			Kickoff:   "ad hoc runtime",
+			Status:    job.StatusRunning,
+			Instance:  "worker-squ-946",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write %s: %v", j.ID, err)
+		}
+	}
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager-squ-944", Job: "squ-944", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(time.Minute)},
+		{Instance: "worker-squ-944", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusCrashed, Workspace: root, StartedAt: now.Add(2 * time.Minute), ExitedAt: now.Add(4 * time.Minute)},
+		{Instance: "worker-squ-945", Job: "squ-945", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(3 * time.Minute)},
+		{Instance: "worker-squ-946", Job: "squ-946", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(4 * time.Minute)},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	one := NewRootCmd()
+	oneOut, oneErr := &bytes.Buffer{}, &bytes.Buffer{}
+	one.SetOut(oneOut)
+	one.SetErr(oneErr)
+	one.SetArgs([]string{"pipeline", "runtime", "ls", "ticket_to_pr", "--repo", root, "--runtime", "codex", "--json"})
+	if err := one.Execute(); err != nil {
+		t.Fatalf("pipeline runtime ls json: %v\nstderr=%s", err, oneErr.String())
+	}
+	var rows []teamRuntimeRow
+	if err := json.Unmarshal(oneOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode pipeline runtime rows: %v\nbody=%s", err, oneOut.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "worker-squ-944" {
+		t.Fatalf("pipeline runtime rows = %v, want worker-squ-944", got)
+	}
+	if rows[0].Job != "squ-944" || rows[0].Ticket != "SQU-944" || rows[0].Branch != "worktree-worker-squ-944" || rows[0].PR != "https://github.com/acme/repo/pull/944" {
+		t.Fatalf("pipeline runtime row was not enriched from job: %+v", rows[0])
+	}
+
+	allSummary := NewRootCmd()
+	allSummaryOut, allSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allSummary.SetOut(allSummaryOut)
+	allSummary.SetErr(allSummaryErr)
+	allSummary.SetArgs([]string{"pipeline", "runtime", "ls", "--all", "--repo", root, "--runtime", "codex", "--summary", "--json"})
+	if err := allSummary.Execute(); err != nil {
+		t.Fatalf("pipeline runtime ls --all summary: %v\nstderr=%s", err, allSummaryErr.String())
+	}
+	var counts teamRuntimeSummary
+	if err := json.Unmarshal(allSummaryOut.Bytes(), &counts); err != nil {
+		t.Fatalf("decode pipeline runtime summary: %v\nbody=%s", err, allSummaryOut.String())
+	}
+	if counts.Total != 2 || counts.Running != 1 || counts.Crashed != 1 || counts.WithJob != 2 || counts.Runtimes["codex"] != 2 || counts.Agents["worker"] != 2 {
+		t.Fatalf("pipeline runtime summary = %+v", counts)
+	}
+
+	latest := NewRootCmd()
+	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	latest.SetOut(latestOut)
+	latest.SetErr(latestErr)
+	latest.SetArgs([]string{"pipeline", "runtime", "ls", "--repo", root, "--latest", "--json"})
+	if err := latest.Execute(); err != nil {
+		t.Fatalf("pipeline runtime ls latest: %v\nstderr=%s", err, latestErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(latestOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode latest pipeline runtime rows: %v\nbody=%s", err, latestOut.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "worker-squ-945" {
+		t.Fatalf("latest pipeline runtime rows = %v, want worker-squ-945", got)
+	}
+
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{"pipeline", "runtime", "ls", "ticket_to_pr", "--repo", root, "--last", "2", "--sort", "started", "--format", "{{.Instance}} {{.Job}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("pipeline runtime ls format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got, want := strings.TrimSpace(formattedOut.String()), "worker-squ-944 squ-944\nmanager-squ-944 squ-944"; got != want {
+		t.Fatalf("pipeline runtime format = %q, want %q", got, want)
+	}
+
+	unhealthy := NewRootCmd()
+	unhealthyOut, unhealthyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unhealthy.SetOut(unhealthyOut)
+	unhealthy.SetErr(unhealthyErr)
+	unhealthy.SetArgs([]string{"pipeline", "runtime", "ls", "ticket_to_pr", "--repo", root, "--unhealthy", "--format", "{{.Instance}} {{.Unhealthy}}"})
+	if err := unhealthy.Execute(); err != nil {
+		t.Fatalf("pipeline runtime ls unhealthy: %v\nstderr=%s", err, unhealthyErr.String())
+	}
+	if got, want := strings.TrimSpace(unhealthyOut.String()), "worker-squ-944 true"; got != want {
+		t.Fatalf("pipeline runtime unhealthy = %q, want %q", got, want)
+	}
+}
+
+func TestPipelineRuntimeLsRejectsInvalidModes(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format json",
+			args: []string{"pipeline", "runtime", "ls", "--repo", root, "--format", "{{.Instance}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "format summary",
+			args: []string{"pipeline", "runtime", "ls", "--repo", root, "--format", "{{.Instance}}", "--summary"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "negative last",
+			args: []string{"pipeline", "runtime", "ls", "--repo", root, "--last", "-1"},
+			want: "--last must be >= 0",
+		},
+		{
+			name: "latest last",
+			args: []string{"pipeline", "runtime", "ls", "--repo", root, "--latest", "--last", "2"},
+			want: "choose one of --latest or --last",
+		},
+		{
+			name: "bad sort",
+			args: []string{"pipeline", "runtime", "ls", "--repo", root, "--sort", "age"},
+			want: "unknown --sort",
+		},
+		{
+			name: "many pipelines",
+			args: []string{"pipeline", "runtime", "ls", "ticket_to_pr", "ops_review", "--repo", root},
+			want: "pass at most one pipeline name",
+		},
+		{
+			name: "all with pipeline",
+			args: []string{"pipeline", "runtime", "ls", "ticket_to_pr", "--all", "--repo", root},
+			want: "--all cannot be combined with a pipeline argument",
+		},
+	} {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(tc.args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("%s succeeded unexpectedly; stdout=%s", tc.name, out.String())
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%s wrote stdout: %q", tc.name, out.String())
+		}
+	}
+}
+
 func TestPipelineSendScopesRecipients(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
