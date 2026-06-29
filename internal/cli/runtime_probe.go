@@ -344,9 +344,8 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 
 	teamDir := filepath.Join(repo, loader.TeamDirName)
 	teamResolved := false
-	if resolved, err := resolveTeamDir(cmd, repo); err == nil {
+	if st, err := os.Stat(teamDir); err == nil && st.IsDir() {
 		teamResolved = true
-		teamDir = resolved
 		status := collectDaemonStatus(teamDir)
 		if opts.StartDaemon && !status.Ready {
 			startResult, err := runtimeProbeStartDaemon(cmd, teamDir, opts.Timeout, opts.DaemonHTTPAddr)
@@ -944,6 +943,21 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 		added[action] = true
 	}
 	add("agent-team runtime --json")
+	teamMissing := runtimeProbeHasIssue(result, "repo", "team_missing")
+	if teamMissing {
+		if strings.TrimSpace(result.Repo) != "" {
+			add(strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", result.Repo}), " "))
+		}
+		if result.Runtime.Runtime == string(runtimebin.KindCodex) && result.Runtime.Available {
+			add("codex doctor --summary")
+		}
+		actions := make([]string, 0, len(added))
+		for action := range added {
+			actions = append(actions, action)
+		}
+		sort.Strings(actions)
+		return actions
+	}
 	if result.Daemon == nil || !result.Daemon.Running {
 		add("agent-team daemon start")
 	} else if !result.Daemon.Ready {
@@ -970,6 +984,18 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 	}
 	sort.Strings(actions)
 	return actions
+}
+
+func runtimeProbeHasIssue(result *runtimeProbeResult, source, id string) bool {
+	if result == nil {
+		return false
+	}
+	for _, issue := range result.Issues {
+		if issue.Source == source && issue.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func appendRuntimeProbeError(current, next string) string {

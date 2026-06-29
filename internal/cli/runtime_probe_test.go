@@ -230,6 +230,52 @@ func TestRuntimeProbeCommands(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeCommandsForMissingTeamOnlySuggestInit(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--runtime", "codex", "--skip-doctor", "--commands"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("runtime probe commands succeeded, want missing-team failure")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	resolvedTmp := tmp
+	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
+		resolvedTmp = eval
+	}
+	want := strings.Join([]string{
+		strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", resolvedTmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "--json"}), " "),
+		"codex doctor --summary",
+		"",
+	}, "\n")
+	if got := out.String(); got != want {
+		t.Fatalf("runtime probe missing-team commands = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("runtime probe missing-team commands should not write stderr: %s", stderr.String())
+	}
+}
+
 func TestRuntimeProbeActionsPreferHTTPCheckWhenAvailable(t *testing.T) {
 	result := &runtimeProbeResult{
 		Runtime: runtimeInfo{Runtime: "codex", Available: true},
@@ -292,6 +338,35 @@ func TestRuntimeProbeActionsSkipCodexExecutionWhenUnavailable(t *testing.T) {
 		for _, action := range actions {
 			if strings.Contains(action, disallowed) {
 				t.Fatalf("actions = %+v, should not include unavailable Codex action containing %q", actions, disallowed)
+			}
+		}
+	}
+}
+
+func TestRuntimeProbeActionsPreferInitWhenTeamMissing(t *testing.T) {
+	repo := "/tmp/runtime probe repo"
+	result := &runtimeProbeResult{
+		Repo:    repo,
+		Runtime: runtimeInfo{Runtime: "codex", Binary: "codex", Available: true},
+		Issues: []runtimeProbeIssue{{
+			Severity: "fail",
+			Source:   "repo",
+			ID:       "team_missing",
+			Summary:  "missing .agent_team",
+		}},
+	}
+
+	actions := runtimeProbeActions(result)
+	wantInit := strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", repo}), " ")
+	for _, want := range []string{wantInit, "agent-team runtime --json", "codex doctor --summary"} {
+		if !containsString(actions, want) {
+			t.Fatalf("actions = %+v, missing %q", actions, want)
+		}
+	}
+	for _, disallowed := range []string{"agent-team daemon start", "agent-team run manager", "agent-team runtime probe --runtime codex --exec"} {
+		for _, action := range actions {
+			if strings.Contains(action, disallowed) {
+				t.Fatalf("actions = %+v, should not include pre-init action containing %q", actions, disallowed)
 			}
 		}
 	}
