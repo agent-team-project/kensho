@@ -709,6 +709,15 @@ func TestEvent_EphemeralDispatchCanCreateWorktreeWorkspace(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(meta.Workspace, "README.md")); err != nil {
 		t.Fatalf("worktree missing README: %v", err)
 	}
+	// The worktree's own git exclude keeps the per-worker scratch dir out of commits.
+	gd, gerr := exec.Command("git", "-C", meta.Workspace, "rev-parse", "--absolute-git-dir").Output()
+	if gerr != nil {
+		t.Fatalf("rev-parse worktree git dir: %v", gerr)
+	}
+	exc, eerr := os.ReadFile(filepath.Join(strings.TrimSpace(string(gd)), "info", "exclude"))
+	if eerr != nil || !strings.Contains(string(exc), ".worker_agent/") {
+		t.Fatalf("worktree exclude missing .worker_agent/: err=%v content=%q", eerr, string(exc))
+	}
 	_, _ = m.Stop("worker-squ-42")
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }

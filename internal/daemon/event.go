@@ -1081,11 +1081,43 @@ func (r *EventResolver) prepareEphemeralWorktree(instance string) (string, strin
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", "", nil, fmt.Errorf("event worktree: git worktree add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
+	// Keep the worker's private scratch dir (.worker_agent/) out of git for this
+	// worktree, so a `git add -A` never sweeps it into the PR. A linked worktree
+	// has its own git dir, so the main repo's .git/info/exclude does not apply
+	// here — seed this worktree's own exclude. Best-effort: never fail the spawn.
+	excludeWorktreeWorkerScratch(worktreePath)
 	cleanup := func() {
 		_ = exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", worktreePath).Run()
 		_ = exec.Command("git", "-C", repoRoot, "branch", "-D", branch).Run()
 	}
 	return worktreePath, branch, cleanup, nil
+}
+
+// excludeWorktreeWorkerScratch appends `.worker_agent/` to the worktree's own
+// git exclude file so the per-worker scratch directory is never staged into a
+// PR. Best-effort and idempotent; failures are intentionally ignored.
+func excludeWorktreeWorkerScratch(worktreePath string) {
+	out, err := exec.Command("git", "-C", worktreePath, "rev-parse", "--absolute-git-dir").Output()
+	if err != nil {
+		return
+	}
+	gitDir := strings.TrimSpace(string(out))
+	if gitDir == "" {
+		return
+	}
+	excludePath := filepath.Join(gitDir, "info", "exclude")
+	if existing, rerr := os.ReadFile(excludePath); rerr == nil && strings.Contains(string(existing), ".worker_agent/") {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(excludePath), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(excludePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString("\n# agent-team: keep per-worker scratch out of commits\n.worker_agent/\n")
 }
 
 func buildAgentsJSON(agents []*loader.Agent) (string, error) {
