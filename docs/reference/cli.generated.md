@@ -6762,6 +6762,7 @@ Subcommands:
 
 - `agent-team runtime adopt` - Adopt a live external runtime process.
 - `agent-team runtime ls` - List supported runtime profiles.
+- `agent-team runtime metadata` - Inspect persisted daemon runtime metadata.
 - `agent-team runtime probe` - Probe runtime, daemon, and Codex environment health.
 - `agent-team runtime profile` - Show the selected runtime profile.
 - `agent-team runtime resume-plan` - Show runtime resume and fallback commands for daemon metadata.
@@ -6827,6 +6828,64 @@ Flags:
       --format string   Render each runtime row with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
       --json            Emit machine-readable JSON.
       --target string   Repo root or any path under a repo. (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team runtime metadata`
+
+Inspect persisted daemon runtime metadata.
+
+Inspect raw daemon runtime metadata persisted under .agent_team/daemon without adding declared-but-not-started placeholders.
+
+```text
+agent-team runtime metadata
+```
+
+Aliases: `meta`
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team runtime metadata ls` - List persisted daemon runtime metadata.
+
+## `agent-team runtime metadata ls`
+
+List persisted daemon runtime metadata.
+
+List raw daemon runtime metadata persisted for this repo without adding declared-but-not-started placeholders.
+
+```text
+agent-team runtime metadata ls [<instance>...] [flags]
+```
+
+Aliases: `list`, `ps`
+
+Flags:
+
+```text
+      --agent strings      Only show metadata for this agent. Can repeat or comma-separate.
+      --format string      Render each runtime metadata row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.
+      --instance strings   Only show metadata with this instance name. Can repeat or comma-separate.
+      --json               Emit runtime metadata as JSON.
+  -n, --last int           Show only the N most recently started runtime metadata records after other filters (0 = all).
+  -l, --latest             Show only the most recently started runtime metadata record after other filters.
+      --runtime strings    Only show metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime-stale      Only show running metadata whose recorded runtime PID is no longer live.
+      --sort string        Sort runtime metadata rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
+      --status strings     Only show metadata with this status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --summary            Summarize matching runtime metadata by status, runtime, and agent.
+      --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --unhealthy          Only show crashed or runtime-stale metadata.
 ```
 
 Inherited Flags:

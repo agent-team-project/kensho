@@ -11,7 +11,10 @@ import (
 	"strings"
 	"text/tabwriter"
 	texttemplate "text/template"
+	"time"
 
+	"github.com/jamesaud/agent-team/internal/daemon"
+	jobpkg "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
@@ -47,6 +50,7 @@ func newRuntimeCmd() *cobra.Command {
 	cmd.AddCommand(newRuntimeUnsetCmd())
 	cmd.AddCommand(newRuntimeProfileCmd())
 	cmd.AddCommand(newRuntimeLsCmd())
+	cmd.AddCommand(newRuntimeMetadataCmd())
 	cmd.AddCommand(newRuntimeProbeCmd())
 	cmd.AddCommand(newRuntimeAdoptCmd())
 	cmd.AddCommand(newRuntimeResumePlanCmd())
@@ -384,6 +388,160 @@ func newRuntimeLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each runtime row with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
 	return cmd
+}
+
+func newRuntimeMetadataCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "metadata",
+		Aliases: []string{"meta"},
+		Short:   "Inspect persisted daemon runtime metadata.",
+		Long:    "Inspect raw daemon runtime metadata persisted under .agent_team/daemon without adding declared-but-not-started placeholders.",
+	}
+	cmd.AddCommand(newRuntimeMetadataLsCmd())
+	return cmd
+}
+
+func newRuntimeMetadataLsCmd() *cobra.Command {
+	var (
+		target           string
+		statusFilters    []string
+		runtimeFilters   []string
+		agentFilters     []string
+		instanceFilters  []string
+		runtimeStaleOnly bool
+		unhealthyOnly    bool
+		latest           bool
+		last             int
+		sortBy           string
+		summary          bool
+		jsonOut          bool
+		format           string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "ls [<instance>...]",
+		Aliases: []string{"list", "ps"},
+		Short:   "List persisted daemon runtime metadata.",
+		Long:    "List raw daemon runtime metadata persisted for this repo without adding declared-but-not-started placeholders.",
+		Args:    cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata ls: --format cannot be combined with --json or --summary.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata ls: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata ls: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			for _, arg := range args {
+				if strings.TrimSpace(arg) == "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata ls: instance names must be non-empty.")
+					return exitErr(2)
+				}
+			}
+			tmpl, err := parseTeamRuntimeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata ls: %v\n", err)
+				return exitErr(2)
+			}
+			effectiveInstances := append([]string(nil), instanceFilters...)
+			effectiveInstances = append(effectiveInstances, args...)
+			opts, err := newTeamRuntimeListOptions(statusFilters, runtimeFilters, agentFilters, effectiveInstances, runtimeStaleOnly, unhealthyOnly)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata ls: %v\n", err)
+				return exitErr(2)
+			}
+			sortMode, err := parseTeamRuntimeSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts.Sort = sortMode
+			opts.SortSet = cmd.Flags().Changed("sort")
+			opts.Limit = last
+			if latest {
+				opts.Limit = 1
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			rows, err := collectRuntimeMetadataRows(teamDir, time.Now().UTC(), opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata ls: %v\n", err)
+				return exitErr(1)
+			}
+			if summary {
+				out := summarizeTeamRuntimeRows(rows)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				return renderTeamRuntimeSummary(cmd.OutOrStdout(), out)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
+			}
+			if tmpl != nil {
+				return renderTeamRuntimeFormat(cmd.OutOrStdout(), rows, tmpl)
+			}
+			return renderTeamRuntimeRows(cmd.OutOrStdout(), rows)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, "Repo root containing .agent_team (legacy; prefer global --repo).")
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show metadata with this status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show metadata for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show metadata with this instance name. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show running metadata whose recorded runtime PID is no longer live.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or runtime-stale metadata.")
+	cmd.Flags().BoolVarP(&latest, "latest", "l", false, "Show only the most recently started runtime metadata record after other filters.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show only the N most recently started runtime metadata records after other filters (0 = all).")
+	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort runtime metadata rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching runtime metadata by status, runtime, and agent.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit runtime metadata as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each runtime metadata row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
+	return cmd
+}
+
+func collectRuntimeMetadataRows(teamDir string, now time.Time, opts teamRuntimeListOptions) ([]teamRuntimeRow, error) {
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	jobsByID := runtimeMetadataJobsByID(teamDir)
+	rows := make([]teamRuntimeRow, 0, len(metas))
+	for _, meta := range metas {
+		row := teamRuntimeRowFromMetadata(meta, now)
+		if j := jobsByID[jobpkg.NormalizeID(row.Job)]; j != nil {
+			enrichJobRuntimeRow(&row, j)
+		}
+		if !teamRuntimeRowMatches(row, opts) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return filterLimitSortTeamRuntimeRows(rows, opts), nil
+}
+
+func runtimeMetadataJobsByID(teamDir string) map[string]*jobpkg.Job {
+	out := map[string]*jobpkg.Job{}
+	jobs, err := jobpkg.List(teamDir)
+	if err != nil {
+		return out
+	}
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		if id := jobpkg.NormalizeID(j.ID); id != "" {
+			out[id] = j
+		}
+	}
+	return out
 }
 
 func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelection) (runtimebin.Runtime, error) {
