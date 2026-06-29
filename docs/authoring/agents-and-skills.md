@@ -41,9 +41,10 @@ Supported frontmatter values are scalar and block-scalar fields needed by agent 
 or wrapper for that runtime. These agent-level defaults apply when dispatch does
 not pass an explicit runtime and `AGENT_TEAM_RUNTIME` is not set. Repo runtime
 config remains the fallback after agent frontmatter. Use
+`agent-team agent doctor --strict-runtime`,
 `agent-team pipeline doctor --strict-runtime` or
-`agent-team team doctor --strict-runtime` to fail fast when a pipeline route
-would rely on an unavailable agent-level runtime binary.
+`agent-team team doctor --strict-runtime` to fail fast when an agent or pipeline
+route would rely on an unavailable agent-level runtime binary.
 
 ## Inspecting Installed Agents
 
@@ -52,9 +53,10 @@ Use the CLI to inspect the definitions installed in a repo before launching one:
 ```sh
 agent-team agent ls
 agent-team agent show worker
+agent-team agent doctor worker
 ```
 
-Both commands accept `--json` for automation and `--format` for shell-friendly output. The plural alias also works:
+These commands accept `--json` for automation and `--format` for shell-friendly output. The doctor command also accepts `--strict-runtime` to promote invalid or unavailable agent runtime defaults to failures. The plural alias also works:
 
 ```sh
 agent-team agents ls --format '{{.Name}} {{.Runtime}} {{.RuntimeBin}} {{len .Skills}}'

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -142,6 +143,144 @@ Run Codex work.
 	}
 	if !strings.Contains(formatOut.String(), "codex-worker:codex:/opt/bin/codex-wrapper") {
 		t.Fatalf("formatted runtime output missing codex-worker:\n%s", formatOut.String())
+	}
+}
+
+func TestAgentDoctorWarnsWhenRuntimeUnavailable(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	agentDir := filepath.Join(root, ".agent_team", "agents", "codex-worker")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.md"), []byte(`---
+description: Codex worker
+runtime: codex
+runtime_bin: missing-codex
+---
+Run Codex work.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "missing-codex" {
+			t.Fatalf("look path bin = %q, want missing-codex", bin)
+		}
+		return "", exec.ErrNotFound
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"agent", "doctor", "codex-worker", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("agent doctor json: %v\nstderr=%s", err, stderr.String())
+	}
+	var result agentDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode agent doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || len(result.Problems) != 0 || len(result.Warnings) != 1 {
+		t.Fatalf("agent doctor result = %+v", result)
+	}
+	got := result.Warnings[0]
+	if got.Code != "agent_runtime_unavailable" || got.Agent != "codex-worker" || got.Runtime != "codex" || got.RuntimeBin != "missing-codex" {
+		t.Fatalf("runtime warning = %+v", got)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"agent", "doctor", "codex-worker", "--repo", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("agent doctor text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), "agent-team agent doctor: OK (codex-worker)") {
+		t.Fatalf("agent doctor text stdout = %q", textOut.String())
+	}
+	if !strings.Contains(textErr.String(), `runtime "codex" with binary "missing-codex"`) {
+		t.Fatalf("agent doctor text stderr = %q", textErr.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"agent", "doctor", "codex-worker", "--repo", root, "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("agent doctor commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommands := strings.Join(scopedOperatorActions([]string{
+		agentDoctorDetailAction("codex-worker", false),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "agent", "show", "codex-worker", "--json"}), " "),
+	}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if got := commandsOut.String(); got != wantCommands {
+		t.Fatalf("agent doctor commands output = %q, want %q", got, wantCommands)
+	}
+	if commandsErr.Len() != 0 {
+		t.Fatalf("agent doctor commands stderr = %q", commandsErr.String())
+	}
+
+	strict := NewRootCmd()
+	strictOut, strictErr := &bytes.Buffer{}, &bytes.Buffer{}
+	strict.SetOut(strictOut)
+	strict.SetErr(strictErr)
+	strict.SetArgs([]string{"agent", "doctor", "codex-worker", "--repo", root, "--strict-runtime", "--json"})
+	err := strict.Execute()
+	if err == nil {
+		t.Fatal("agent doctor strict runtime unexpectedly succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("strict err = %v, want exit 1", err)
+	}
+	var strictResult agentDoctorResult
+	if err := json.Unmarshal(strictOut.Bytes(), &strictResult); err != nil {
+		t.Fatalf("decode strict agent doctor json: %v\nbody=%s", err, strictOut.String())
+	}
+	if strictResult.OK || len(strictResult.Problems) != 1 || len(strictResult.Warnings) != 0 || strictResult.Problems[0].Code != "agent_runtime_unavailable" {
+		t.Fatalf("strict agent doctor result = %+v", strictResult)
+	}
+	if strictErr.Len() != 0 {
+		t.Fatalf("strict stderr = %q", strictErr.String())
+	}
+}
+
+func TestAgentDoctorWarnsWhenRuntimeBinHasNoRuntime(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	agentDir := filepath.Join(root, ".agent_team", "agents", "wrapped-worker")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.md"), []byte(`---
+description: Wrapped worker
+runtime_bin: codex-wrapper
+---
+Run wrapped work.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"agent", "doctor", "wrapped-worker", "--repo", root, "--strict-runtime", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("agent doctor ignored runtime_bin warning should not fail strict mode: %v\nstderr=%s", err, stderr.String())
+	}
+	var result agentDoctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode agent doctor ignored runtime_bin json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || len(result.Problems) != 0 || len(result.Warnings) != 1 || result.Warnings[0].Code != "agent_runtime_bin_ignored" {
+		t.Fatalf("agent doctor ignored runtime_bin result = %+v", result)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("agent doctor json stderr = %q", stderr.String())
 	}
 }
 

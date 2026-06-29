@@ -180,6 +180,23 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 				if _, err := loader.UnionSkills(loaded); err != nil {
 					problems = append(problems, err.Error())
 				}
+				var agentRuntimeWarnings []agentDoctorFinding
+				for _, agent := range loaded {
+					agentRuntimeWarnings = append(agentRuntimeWarnings, agentRuntimeFindings(teamDir, agent)...)
+				}
+				agentRuntimeProblems := []agentDoctorFinding(nil)
+				if strictRuntime {
+					agentRuntimeProblems, agentRuntimeWarnings = promoteAgentRuntimeFindings(agentRuntimeProblems, agentRuntimeWarnings)
+				}
+				for _, problem := range agentRuntimeProblems {
+					problems = append(problems, "agents: "+problem.Message)
+				}
+				for _, warning := range agentRuntimeWarnings {
+					warnings = append(warnings, "agents: "+warning.Message)
+				}
+				if len(agentRuntimeProblems) > 0 || len(agentRuntimeWarnings) > 0 {
+					actions = appendDoctorActions(actions, agentDoctorDetailAction("", strictRuntime))
+				}
 			}
 		}
 	}

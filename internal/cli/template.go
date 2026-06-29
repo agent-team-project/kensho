@@ -305,7 +305,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit smoke results as JSON.")
 	c.Flags().StringVar(&format, "format", "", "Render the smoke result with a Go template, e.g. '{{.OK}} {{len .Steps}}'.")
 	c.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail doctor when the companion agent-teamd binary is not discoverable.")
-	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary or pipeline/team step runtime defaults are not discoverable.")
+	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary or pipeline/team step and agent runtime defaults are not discoverable.")
 	c.Flags().BoolVar(&strictTemplate, "strict-template", false, "Fail doctor when rendered template provenance does not resolve cleanly.")
 	return c
 }

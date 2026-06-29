@@ -34,6 +34,7 @@ func newAgentCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentLsCmd())
 	cmd.AddCommand(newAgentShowCmd())
+	cmd.AddCommand(newAgentDoctorCmd())
 	return cmd
 }
 

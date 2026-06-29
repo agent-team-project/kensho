@@ -139,8 +139,28 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team agent doctor` - Validate installed agent definitions.
 - `agent-team agent ls` - List runnable agent definitions.
 - `agent-team agent show` - Show one runnable agent definition.
+
+## `agent-team agent doctor`
+
+Validate installed agent definitions.
+
+```text
+agent-team agent doctor [agent] [flags]
+```
+
+Flags:
+
+```text
+      --all              Validate all installed agents. This is the default when no agent is passed.
+      --commands         Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.
+      --format string    Render the agent doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
+      --json             Emit agent doctor findings as JSON.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --strict-runtime   Fail when an agent runtime default cannot be resolved or is not discoverable.
+```
 
 ## `agent-team agent ls`
 
@@ -9906,7 +9926,7 @@ Flags:
       --keep              Keep the temporary rendered repo for inspection.
       --set stringArray   Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.
       --strict-daemon     Fail doctor when the companion agent-teamd binary is not discoverable.
-      --strict-runtime    Fail doctor when the selected LLM runtime binary or pipeline/team step runtime defaults are not discoverable.
+      --strict-runtime    Fail doctor when the selected LLM runtime binary or pipeline/team step and agent runtime defaults are not discoverable.
       --strict-template   Fail doctor when rendered template provenance does not resolve cleanly.
 ```
 

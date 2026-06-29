@@ -111,9 +111,10 @@ an explicit runtime and `AGENT_TEAM_RUNTIME` is unset, `runtime` and
 `runtime_bin` in `.agent_team/agents/<agent>/agent.md` take precedence over the
 repo `[runtime]` config. Use `agent-team agent ls` or
 `agent-team agent show <agent>` to inspect those per-agent defaults. Use
+`agent-team agent doctor --strict-runtime`,
 `agent-team pipeline doctor --strict-runtime` or
-`agent-team team doctor --strict-runtime` to validate the agent defaults reached
-by pipeline routes.
+`agent-team team doctor --strict-runtime` to validate those defaults directly
+or through pipeline routes.
 
 Example repo default:
 
