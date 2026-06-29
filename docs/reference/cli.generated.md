@@ -9909,7 +9909,9 @@ agent-team topology graph [flags]
 Flags:
 
 ```text
+      --commands        Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string   Graph output format: text, mermaid, or dot. (default "text")
+      --job string      Overlay durable job step state on its declared pipeline graph.
       --json            Emit graph nodes and edges as JSON.
       --routes          Annotate pipeline steps with matching agent.dispatch routes.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")

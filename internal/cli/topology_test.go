@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
@@ -415,6 +416,157 @@ schedules = ["nightly"]
 	}
 	if !strings.Contains(dotOut.String(), `digraph "topology"`) || !strings.Contains(dotOut.String(), `"topology" -> "team:delivery"`) {
 		t.Fatalf("topology graph dot output:\n%s", dotOut.String())
+	}
+
+	pipelineJob := &job.Job{
+		ID:        "squ-971",
+		Ticket:    "SQU-971",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "review", Target: "manager", Status: job.StatusQueued, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, pipelineJob); err != nil {
+		t.Fatalf("write topology graph job: %v", err)
+	}
+	wantAction := "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes"
+
+	jobJSON := NewRootCmd()
+	jobJSONOut, jobJSONErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobJSON.SetOut(jobJSONOut)
+	jobJSON.SetErr(jobJSONErr)
+	jobJSON.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--json"})
+	if err := jobJSON.Execute(); err != nil {
+		t.Fatalf("topology graph job json: %v\nstderr=%s", err, jobJSONErr.String())
+	}
+	var jobGraph topologyGraph
+	if err := json.Unmarshal(jobJSONOut.Bytes(), &jobGraph); err != nil {
+		t.Fatalf("decode topology graph job: %v\nbody=%s", err, jobJSONOut.String())
+	}
+	if len(jobGraph.Pipelines) != 1 || jobGraph.Pipelines[0].JobID != "squ-971" || jobGraph.Pipelines[0].JobState != "queued" {
+		t.Fatalf("topology graph job overlay = %+v", jobGraph.Pipelines)
+	}
+	jobNodes := map[string]pipelineGraphNode{}
+	for _, node := range jobGraph.Pipelines[0].Nodes {
+		jobNodes[node.ID] = node
+	}
+	if jobNodes["review"].State != "ready" || jobNodes["review"].StepStatus != job.StatusQueued || !containsString(jobNodes["review"].Actions, wantAction) {
+		t.Fatalf("topology graph review overlay = %+v", jobNodes["review"])
+	}
+
+	jobText := NewRootCmd()
+	jobTextOut, jobTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobText.SetOut(jobTextOut)
+	jobText.SetErr(jobTextErr)
+	jobText.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971"})
+	if err := jobText.Execute(); err != nil {
+		t.Fatalf("topology graph job text: %v\nstderr=%s", err, jobTextErr.String())
+	}
+	for _, want := range []string{
+		`ticket_to_pr trigger=ticket.created steps=2 job=squ-971 ticket=SQU-971 status=running state=queued`,
+		`review target=manager after=implement state=ready step_status=queued ready=true message="ready to advance" actions="agent-team pipeline tick ticket_to_pr --dry-run --preview-routes"`,
+	} {
+		if !strings.Contains(jobTextOut.String(), want) {
+			t.Fatalf("topology graph job text missing %q:\n%s", want, jobTextOut.String())
+		}
+	}
+
+	jobMermaid := NewRootCmd()
+	jobMermaidOut, jobMermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobMermaid.SetOut(jobMermaidOut)
+	jobMermaid.SetErr(jobMermaidErr)
+	jobMermaid.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--format", "mermaid"})
+	if err := jobMermaid.Execute(); err != nil {
+		t.Fatalf("topology graph job mermaid: %v\nstderr=%s", err, jobMermaidErr.String())
+	}
+	if !strings.Contains(jobMermaidOut.String(), "state: ready") || !strings.Contains(jobMermaidOut.String(), "actions: "+wantAction) {
+		t.Fatalf("topology graph job mermaid output:\n%s", jobMermaidOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("topology graph commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(scopedOperatorActions([]string{wantAction}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+	if commandsOut.String() != wantCommand {
+		t.Fatalf("topology graph commands = %q, want %q", commandsOut.String(), wantCommand)
+	}
+
+	outsideJob := &job.Job{
+		ID:        "squ-972",
+		Ticket:    "SQU-972",
+		Target:    "worker",
+		Pipeline:  "missing_pipeline",
+		Status:    job.StatusRunning,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := job.Write(teamDir, outsideJob); err != nil {
+		t.Fatalf("write topology graph outside job: %v", err)
+	}
+	mismatch := NewRootCmd()
+	mismatchOut, mismatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	mismatch.SetOut(mismatchOut)
+	mismatch.SetErr(mismatchErr)
+	mismatch.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-972"})
+	err := mismatch.Execute()
+	if err == nil {
+		t.Fatal("topology graph accepted a job from an undeclared pipeline")
+	}
+	var mismatchCode ExitCode
+	if !errors.As(err, &mismatchCode) || int(mismatchCode) != 1 {
+		t.Fatalf("topology graph mismatch err = %v, want exit 1", err)
+	}
+	if !strings.Contains(mismatchErr.String(), `job "squ-972" belongs to pipeline "missing_pipeline", not a declared pipeline`) {
+		t.Fatalf("topology graph mismatch stderr = %q", mismatchErr.String())
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "commands json",
+			args: []string{"topology", "graph", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "commands format",
+			args: []string{"topology", "graph", "--commands", "--format", "text"},
+			want: "--commands cannot be combined with --format",
+		},
+	} {
+		t.Run("topology-graph-validation-"+tc.name, func(t *testing.T) {
+			invalid := NewRootCmd()
+			invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
+			invalid.SetOut(invalidOut)
+			invalid.SetErr(invalidErr)
+			invalid.SetArgs(tc.args)
+			err := invalid.Execute()
+			if err == nil {
+				t.Fatalf("topology graph accepted invalid args %v", tc.args)
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("topology graph invalid args err = %v, want exit 2", err)
+			}
+			if !strings.Contains(invalidErr.String(), tc.want) {
+				t.Fatalf("topology graph invalid args stderr = %q, want %q", invalidErr.String(), tc.want)
+			}
+			if invalidOut.Len() != 0 {
+				t.Fatalf("topology graph invalid args wrote stdout: %q", invalidOut.String())
+			}
+		})
 	}
 }
 

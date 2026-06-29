@@ -192,7 +192,7 @@ agent-team pipeline send ticket_to_pr --dry-run "please checkpoint current statu
 agent-team team cancel delivery --message "superseded" --dry-run
 ```
 
-Use `topology graph --routes` for the full repo map, `pipeline graph` when you only need one workflow's dependency graph, and `team graph --routes` when you want the owned instances, schedules, pipelines, and dispatch routes in one read-only map. Add `pipeline graph <pipeline> --job <job-id>` to overlay the durable job's step status, next-state explanation, active instance, attempts, waiting dependencies, and per-step action hints onto the declared graph in text, Mermaid, DOT, or JSON output. Use `team graph <team> --job <job-id>` for the same overlay when the job belongs to a team-owned pipeline and scripts should stay in the team namespace. Add `--commands` when scripts need only the graph's recommended follow-up commands.
+Use `topology graph --routes` for the full repo map, `pipeline graph` when you only need one workflow's dependency graph, and `team graph --routes` when you want the owned instances, schedules, pipelines, and dispatch routes in one read-only map. Add `pipeline graph <pipeline> --job <job-id>` to overlay the durable job's step status, next-state explanation, active instance, attempts, waiting dependencies, and per-step action hints onto the declared graph in text, Mermaid, DOT, or JSON output. Use `team graph <team> --job <job-id>` for the same overlay when the job belongs to a team-owned pipeline and scripts should stay in the team namespace, or `topology graph --job <job-id>` when you want that work unit highlighted in the full repo map. Add `--commands` when scripts need only the graph's recommended follow-up commands.
 
 ## Step State
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -58,6 +59,8 @@ func newTopologyGraphCmd() *cobra.Command {
 		graphFormat   string
 		includeRoutes bool
 		jsonOut       bool
+		jobID         string
+		commands      bool
 	)
 	cwd, _ := os.Getwd()
 	c := &cobra.Command{
@@ -70,6 +73,14 @@ func newTopologyGraphCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team topology graph: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team topology graph: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && cmd.Flags().Changed("format") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team topology graph: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			format, err := parsePipelineGraphFormat(graphFormat)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team topology graph: %v\n", err)
@@ -79,10 +90,13 @@ func newTopologyGraphCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			graph, err := collectTopologyGraph(teamDir, includeRoutes)
+			graph, err := collectTopologyGraph(teamDir, includeRoutes, jobID)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team topology graph: %v\n", err)
 				return exitErr(1)
+			}
+			if commands {
+				return renderTopologyGraphCommands(cmd.OutOrStdout(), graph, operatorCommandScopeFromCommand(cmd, target, "target"))
 			}
 			return renderTopologyGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
@@ -91,6 +105,8 @@ func newTopologyGraphCmd() *cobra.Command {
 	c.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	c.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate pipeline steps with matching agent.dispatch routes.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
+	c.Flags().StringVar(&jobID, "job", "", "Overlay durable job step state on its declared pipeline graph.")
+	c.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.")
 	return c
 }
 
@@ -238,7 +254,7 @@ type topologyGraph struct {
 
 const topologyGraphRootNode = "topology"
 
-func collectTopologyGraph(teamDir string, includeRoutes bool) (topologyGraph, error) {
+func collectTopologyGraph(teamDir string, includeRoutes bool, jobID string) (topologyGraph, error) {
 	top, err := topology.LoadFromTeamDir(teamDir)
 	if err != nil {
 		return topologyGraph{}, err
@@ -246,6 +262,10 @@ func collectTopologyGraph(teamDir string, includeRoutes bool) (topologyGraph, er
 	graph := topologyGraph{}
 	if top == nil {
 		return graph, nil
+	}
+	overlayJob, err := readTopologyGraphOverlayJob(teamDir, top, jobID)
+	if err != nil {
+		return topologyGraph{}, err
 	}
 	for _, inst := range top.SortedInstances() {
 		if inst == nil {
@@ -263,6 +283,9 @@ func collectTopologyGraph(teamDir string, includeRoutes bool) (topologyGraph, er
 			continue
 		}
 		pg := pipelineGraphFromTopology(top, pipeline, includeRoutes)
+		if overlayJob != nil && strings.TrimSpace(overlayJob.Pipeline) == pipeline.Name {
+			pg = pipelineGraphWithJobState(pg, overlayJob)
+		}
 		graph.Pipelines = append(graph.Pipelines, pg)
 		graph.Edges = append(graph.Edges, teamGraphEdge{From: topologyGraphRootNode, To: "pipeline:" + pipeline.Name, Kind: "declares_pipeline"})
 		graph.Edges = append(graph.Edges, teamGraphEdge{From: "pipeline:" + pipeline.Name, To: "pipeline:" + pipeline.Name + ":trigger", Kind: "has_trigger"})
@@ -339,6 +362,28 @@ func collectTopologyGraph(teamDir string, includeRoutes bool) (topologyGraph, er
 		}
 	}
 	return graph, nil
+}
+
+func readTopologyGraphOverlayJob(teamDir string, top *topology.Topology, id string) (*job.Job, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	if top == nil {
+		return nil, fmt.Errorf("topology is required")
+	}
+	j, err := job.Read(teamDir, id)
+	if err != nil {
+		return nil, err
+	}
+	pipeline := strings.TrimSpace(j.Pipeline)
+	if pipeline == "" {
+		return nil, fmt.Errorf("job %q is not a pipeline job", j.ID)
+	}
+	if top.Pipelines[pipeline] == nil {
+		return nil, fmt.Errorf("job %q belongs to pipeline %q, not a declared pipeline", j.ID, pipeline)
+	}
+	return j, nil
 }
 
 func collectTopologySummary(teamDir string) (*topologySummary, error) {
@@ -432,6 +477,14 @@ func renderTopologyGraph(w io.Writer, graph topologyGraph, format pipelineGraphF
 	return nil
 }
 
+func renderTopologyGraphCommands(w io.Writer, graph topologyGraph, scope operatorCommandScope) error {
+	var actions []string
+	for _, pipeline := range graph.Pipelines {
+		actions = append(actions, pipelineGraphActionCommands(pipeline)...)
+	}
+	return renderActionCommands(w, scopedOperatorActions(actions, scope))
+}
+
 func renderTopologyGraphText(w io.Writer, graph topologyGraph) {
 	fmt.Fprintln(w, "Topology")
 	if len(graph.Instances) == 0 {
@@ -455,7 +508,11 @@ func renderTopologyGraphText(w io.Writer, graph topologyGraph) {
 	} else {
 		fmt.Fprintln(w, "Pipelines:")
 		for _, pipeline := range graph.Pipelines {
-			fmt.Fprintf(w, "  %s trigger=%s steps=%d\n", pipeline.Name, emptyDash(pipeline.Summary), len(pipeline.Nodes))
+			jobInfo := ""
+			if pipeline.JobID != "" {
+				jobInfo = fmt.Sprintf(" job=%s ticket=%s status=%s state=%s message=%q", pipeline.JobID, emptyDash(pipeline.Ticket), pipeline.JobStatus, emptyDash(pipeline.JobState), pipeline.Message)
+			}
+			fmt.Fprintf(w, "  %s trigger=%s steps=%d%s\n", pipeline.Name, emptyDash(pipeline.Summary), len(pipeline.Nodes), jobInfo)
 			for _, node := range pipeline.Nodes {
 				after := "-"
 				if len(node.After) > 0 {
@@ -485,7 +542,7 @@ func renderTopologyGraphText(w io.Writer, graph topologyGraph) {
 				if node.Missing {
 					missing = " missing=true"
 				}
-				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, timeout, maxAttempts, routes, missing)
+				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, timeout, maxAttempts, routes, missing, pipelineGraphNodeStateText(node))
 			}
 		}
 	}
