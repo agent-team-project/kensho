@@ -267,6 +267,7 @@ Use `job quarantine --summary --json` when automation only needs preserved job-f
 ```sh
 agent-team repair --dry-run --jobs
 agent-team repair --dry-run --jobs --last-message
+agent-team repair --dry-run --jobs --fallbacks
 agent-team repair --skip-daemon
 agent-team repair --skip-queue
 agent-team repair --skip-tick
@@ -293,6 +294,7 @@ agent-team drain --wait --wait-status running --wait-timeout 30s
 agent-team pipeline drain ticket_to_pr --wait --wait-status running --wait-timeout 30s
 agent-team team repair delivery --dry-run --jobs
 agent-team team repair delivery --dry-run --jobs --last-message
+agent-team team repair delivery --dry-run --jobs --fallbacks
 agent-team team repair delivery --retry-pipelines --wait --wait-status running --wait-timeout 30s
 agent-team team drain delivery --wait --wait-status running --wait-timeout 30s
 ```
@@ -309,6 +311,8 @@ Repair can:
 
 Add `--last-message` when repair health snapshots should prefer clean Codex
 final-response sidecar commands for stale runtime recovery hints.
+Add `--fallbacks` when repair health snapshots should point at
+`resume-plan --commands --fallbacks` handoffs for every viable recovery command.
 
 `--dry-run` should be the first step.
 `repair` includes a `job_events` phase that applies the same terminal runtime

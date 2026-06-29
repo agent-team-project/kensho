@@ -517,6 +517,42 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("repair last-message commands = %q, want %q", got, wantCommand)
 	}
+
+	fallbacks := NewRootCmd()
+	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fallbacks.SetOut(fallbacksOut)
+	fallbacks.SetErr(fallbacksErr)
+	fallbacks.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--json"})
+	if err := fallbacks.Execute(); err != nil {
+		t.Fatalf("repair fallbacks json: %v\nstderr=%s", err, fallbacksErr.String())
+	}
+	var fallbackResult repairResult
+	if err := json.Unmarshal(fallbacksOut.Bytes(), &fallbackResult); err != nil {
+		t.Fatalf("decode repair fallbacks json: %v\nbody=%s", err, fallbacksOut.String())
+	}
+	wantFallback := "agent-team job resume-plan squ-88 --runtime-stale --commands --fallbacks"
+	var sawFallback bool
+	for _, issue := range fallbackResult.HealthBefore.Issues {
+		if issue.Code == "runtime_stale" && issue.Instance == "runtime-stale" {
+			sawFallback = containsString(issue.Actions, wantFallback)
+		}
+	}
+	if !sawFallback {
+		t.Fatalf("repair health actions missing fallback hint %q: %+v", wantFallback, fallbackResult.HealthBefore.Issues)
+	}
+
+	fallbackCommands := NewRootCmd()
+	fallbackCommandsOut, fallbackCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fallbackCommands.SetOut(fallbackCommandsOut)
+	fallbackCommands.SetErr(fallbackCommandsErr)
+	fallbackCommands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--commands"})
+	if err := fallbackCommands.Execute(); err != nil {
+		t.Fatalf("repair fallbacks commands: %v\nstderr=%s", err, fallbackCommandsErr.String())
+	}
+	wantFallbackCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "repair", "--repo", tmp, "--skip-daemon", "--skip-tick", "--fallbacks"}), " ")
+	if got := strings.TrimSpace(fallbackCommandsOut.String()); got != wantFallbackCommand {
+		t.Fatalf("repair fallbacks commands = %q, want %q", got, wantFallbackCommand)
+	}
 }
 
 func TestRepairDryRunCommandsSilentWithoutAction(t *testing.T) {

@@ -11991,6 +11991,47 @@ instances = ["build-worker"]
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("team repair last-message commands = %q, want %q", got, wantCommand)
 	}
+
+	fallbacks := NewRootCmd()
+	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fallbacks.SetOut(fallbacksOut)
+	fallbacks.SetErr(fallbacksErr)
+	fallbacks.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--json"})
+	if err := fallbacks.Execute(); err != nil {
+		t.Fatalf("team repair fallbacks json: %v\nstderr=%s", err, fallbacksErr.String())
+	}
+	var fallbackPreview teamRepairResult
+	if err := json.Unmarshal(fallbacksOut.Bytes(), &fallbackPreview); err != nil {
+		t.Fatalf("decode team repair fallbacks: %v\nbody=%s", err, fallbacksOut.String())
+	}
+	wantFallback := "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10 --commands --fallbacks"
+	var sawFallback bool
+	for _, issue := range fallbackPreview.HealthBefore.Issues {
+		if issue.Code == "runtime_stale" && containsString(issue.Actions, wantFallback) {
+			sawFallback = true
+		}
+		for _, action := range issue.Actions {
+			if strings.Contains(action, "build-worker-1") || strings.Contains(action, "agent-team resume-plan worker-squ-902 --runtime-stale") {
+				t.Fatalf("team repair fallbacks leaked unscoped action %q in %+v", action, fallbackPreview.HealthBefore.Issues)
+			}
+		}
+	}
+	if !sawFallback {
+		t.Fatalf("team repair fallback action missing %q in %+v", wantFallback, fallbackPreview.HealthBefore.Issues)
+	}
+
+	fallbackCommands := NewRootCmd()
+	fallbackCommandsOut, fallbackCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	fallbackCommands.SetOut(fallbackCommandsOut)
+	fallbackCommands.SetErr(fallbackCommandsErr)
+	fallbackCommands.SetArgs([]string{"team", "repair", "delivery", "--repo", root, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--commands"})
+	if err := fallbackCommands.Execute(); err != nil {
+		t.Fatalf("team repair fallbacks commands: %v\nstderr=%s", err, fallbackCommandsErr.String())
+	}
+	wantFallbackCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "team", "repair", "delivery", "--repo", root, "--skip-daemon", "--skip-tick", "--fallbacks"}), " ")
+	if got := strings.TrimSpace(fallbackCommandsOut.String()); got != wantFallbackCommand {
+		t.Fatalf("team repair fallbacks commands = %q, want %q", got, wantFallbackCommand)
+	}
 }
 
 func TestTeamRepairWaitsForRepairedJobs(t *testing.T) {

@@ -26,6 +26,7 @@ func newRepairCmd() *cobra.Command {
 		dryRun             bool
 		commands           bool
 		lastMessage        bool
+		fallbacks          bool
 		previewRoutes      bool
 		jsonOut            bool
 		format             string
@@ -251,7 +252,7 @@ func newRepairCmd() *cobra.Command {
 					return err
 				}
 			}
-			result = repairResultWithLastMessageActions(result, lastMessage)
+			result = repairResultWithResumePlanActions(result, lastMessage, fallbacks)
 			if commands {
 				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				return renderRepairCommands(cmd.OutOrStdout(), result, repairApplyCommandOptions{
@@ -294,6 +295,7 @@ func newRepairCmd() *cobra.Command {
 					ReadyTimeout:          readyTimeout,
 					ReadyTimeoutSet:       cmd.Flags().Changed("ready-timeout"),
 					LastMessage:           lastMessage,
+					Fallbacks:             fallbacks,
 				})
 			}
 			if err := renderRepairResult(cmd.OutOrStdout(), result, jsonOut, formatTemplate); err != nil {
@@ -313,6 +315,7 @@ func newRepairCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching repair apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When repair health snapshots include runtime recovery actions, prefer clean Codex final-message commands.")
+	cmd.Flags().BoolVar(&fallbacks, "fallbacks", false, "When repair health snapshots include runtime recovery actions, recommend command-mode fallback expansion.")
 	cmd.Flags().BoolVar(&previewRoutes, "preview-routes", false, "With --dry-run, include route and dispatch payload previews for retried or ready pipeline steps.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.")
@@ -483,6 +486,7 @@ type repairApplyCommandOptions struct {
 	ReadyTimeout          time.Duration
 	ReadyTimeoutSet       bool
 	LastMessage           bool
+	Fallbacks             bool
 }
 
 func renderRepairCommands(w fmtWriter, result *repairResult, opts repairApplyCommandOptions) error {
@@ -671,15 +675,22 @@ func repairApplyCommandArgs(opts repairApplyCommandOptions) []string {
 	if opts.LastMessage {
 		args = append(args, "--last-message")
 	}
+	if opts.Fallbacks {
+		args = append(args, "--fallbacks")
+	}
 	return args
 }
 
 func repairResultWithLastMessageActions(result *repairResult, lastMessage bool) *repairResult {
-	if result == nil || !lastMessage {
+	return repairResultWithResumePlanActions(result, lastMessage, false)
+}
+
+func repairResultWithResumePlanActions(result *repairResult, lastMessage, fallbacks bool) *repairResult {
+	if result == nil || (!lastMessage && !fallbacks) {
 		return result
 	}
-	result.HealthBefore = healthResultWithLastMessageActions(result.HealthBefore, true)
-	result.HealthAfter = healthResultWithLastMessageActions(result.HealthAfter, true)
+	result.HealthBefore = healthResultWithResumePlanActions(result.HealthBefore, lastMessage, fallbacks)
+	result.HealthAfter = healthResultWithResumePlanActions(result.HealthAfter, lastMessage, fallbacks)
 	return result
 }
 

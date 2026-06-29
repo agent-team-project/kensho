@@ -6622,6 +6622,7 @@ Flags:
       --commands                      With --dry-run, print the matching repair apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                       Preview repair actions without mutating state or starting the daemon.
       --fail-on-failed                With --wait, exit 1 if any repaired job resolves to failed.
+      --fallbacks                     When repair health snapshots include runtime recovery actions, recommend command-mode fallback expansion.
       --format string                 Render the repair result with a Go template, e.g. '{{.DryRun}} {{.Queue.Action}}'.
       --interval duration             Delay between --until-idle maintenance cycles. (default 2s)
       --jobs                          Include durable job triage and status-file previews in health snapshots.
@@ -9032,6 +9033,7 @@ Flags:
       --commands                      With --dry-run, print the matching team repair apply command when the preview has actionable work.
       --dry-run                       Preview team repair actions without mutating state or starting the daemon.
       --fail-on-failed                With --wait, exit 1 if any team-repaired job resolves to failed.
+      --fallbacks                     When team repair health snapshots include runtime recovery actions, recommend command-mode fallback expansion.
       --format string                 Render the team repair result with a Go template, e.g. '{{.Team.Name}} {{.Queue.Action}}'.
       --interval duration             Delay between --until-idle scoped team tick cycles. (default 2s)
       --jobs                          Include team-owned durable job and pipeline health.
