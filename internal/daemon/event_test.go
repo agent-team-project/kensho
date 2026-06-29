@@ -713,6 +713,51 @@ func TestEvent_EphemeralDispatchCanCreateWorktreeWorkspace(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }
 
+func TestEvent_CodexWorktreeRunsInWorktreeCwd(t *testing.T) {
+	// A worktree-isolated Codex worker must run `codex exec -C <worktree>`, not
+	// `-C <repo root>` — otherwise its edits/branch/commits land on the main
+	// checkout and break isolation.
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-42","workspace":"worktree","kickoff":"go"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	meta, err := ReadMetadata(root, "worker-squ-42")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	call := fake.lastCall()
+	got, ok := argValue(call, "-C")
+	if !ok || got != meta.Workspace {
+		t.Fatalf("codex -C = %q (ok=%v), want the worktree %q: %#v", got, ok, meta.Workspace, call)
+	}
+	if got == repoRoot {
+		t.Fatalf("codex -C must be the worktree, not the repo root %q", repoRoot)
+	}
+	_, _ = m.Stop("worker-squ-42")
+	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+}
+
 func TestEvent_EphemeralDispatchRejectsUnsafeRequestedChildName(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
