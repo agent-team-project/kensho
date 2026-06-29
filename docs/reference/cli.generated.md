@@ -9921,6 +9921,7 @@ agent-team template smoke [ref] [flags]
 Flags:
 
 ```text
+      --commands          Print recommended follow-up commands for smoke findings. Keeps the rendered temp repo so commands remain usable.
       --format string     Render the smoke result with a Go template, e.g. '{{.OK}} {{len .Steps}}'.
       --json              Emit smoke results as JSON.
       --keep              Keep the temporary rendered repo for inspection.

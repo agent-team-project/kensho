@@ -72,7 +72,8 @@ Use `--keep` when you want to inspect the rendered temp repo after the smoke
 run. The smoke command runs `init`, `doctor`, `agent doctor`, `pipeline doctor`,
 and `team doctor`; it exits non-zero if any step fails. Add `--strict-runtime` when CI
 should fail on unavailable selected runtimes, step-declared runtime defaults, or
-agent-level runtime defaults.
+agent-level runtime defaults. Add `--commands` to keep the rendered temp repo and
+print scoped follow-up doctor commands for any findings.
 
 ## Authoring Checklist
 

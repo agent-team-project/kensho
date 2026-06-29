@@ -258,6 +258,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 		setFlags       []string
 		keep           bool
 		jsonOut        bool
+		commands       bool
 		format         string
 		strictDaemon   bool
 		strictRuntime  bool
@@ -273,6 +274,14 @@ func newTemplateSmokeCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template smoke: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template smoke: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team template smoke: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
 			tmpl, err := parseTemplateCLIFormat("template-smoke-format", format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template smoke: %v\n", err)
@@ -283,7 +292,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 				ref = args[0]
 			}
 			result, err := runTemplateSmoke(cmd, ref, setFlags, templateSmokeOptions{
-				Keep:           keep,
+				Keep:           keep || commands,
 				StrictDaemon:   strictDaemon,
 				StrictRuntime:  strictRuntime,
 				StrictTemplate: strictTemplate,
@@ -291,7 +300,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := renderTemplateSmoke(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
+			if err := renderTemplateSmoke(cmd.OutOrStdout(), result, jsonOut, commands, tmpl, strictRuntime); err != nil {
 				return err
 			}
 			if !result.OK {
@@ -303,6 +312,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&setFlags, "set", nil, "Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.")
 	c.Flags().BoolVar(&keep, "keep", false, "Keep the temporary rendered repo for inspection.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit smoke results as JSON.")
+	c.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands for smoke findings. Keeps the rendered temp repo so commands remain usable.")
 	c.Flags().StringVar(&format, "format", "", "Render the smoke result with a Go template, e.g. '{{.OK}} {{len .Steps}}'.")
 	c.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail doctor when the companion agent-teamd binary is not discoverable.")
 	c.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail doctor when the selected LLM runtime binary or pipeline/team step and agent runtime defaults are not discoverable.")
@@ -496,9 +506,12 @@ func firstTeamProblem(result *allTeamDoctorResult) string {
 	return ""
 }
 
-func renderTemplateSmoke(w io.Writer, result templateSmokeResult, jsonOut bool, tmpl *texttemplate.Template) error {
+func renderTemplateSmoke(w io.Writer, result templateSmokeResult, jsonOut, commands bool, tmpl *texttemplate.Template, strictRuntime bool) error {
 	if jsonOut {
 		return json.NewEncoder(w).Encode(result)
+	}
+	if commands {
+		return renderTemplateSmokeCommands(w, result, strictRuntime)
 	}
 	if tmpl != nil {
 		if err := tmpl.Execute(w, result); err != nil {
@@ -529,6 +542,32 @@ func renderTemplateSmoke(w io.Writer, result templateSmokeResult, jsonOut bool, 
 		}
 	}
 	return nil
+}
+
+func renderTemplateSmokeCommands(w io.Writer, result templateSmokeResult, strictRuntime bool) error {
+	actions := templateSmokeActions(result, strictRuntime)
+	scope := operatorCommandScope{
+		Repo: filepath.FromSlash(result.Target),
+		Set:  strings.TrimSpace(result.Target) != "",
+	}
+	return renderOperatorActionCommands(w, actions, scope)
+}
+
+func templateSmokeActions(result templateSmokeResult, strictRuntime bool) []string {
+	var actions []string
+	if result.Doctor != nil {
+		actions = appendDoctorActions(actions, result.Doctor.Actions...)
+	}
+	if result.AgentDoctor != nil {
+		actions = appendDoctorActions(actions, agentDoctorActions(result.AgentDoctor, strictRuntime)...)
+	}
+	if result.PipelineDoctor != nil {
+		actions = appendDoctorActions(actions, pipelineDoctorCommandActions(result.PipelineDoctor, strictRuntime)...)
+	}
+	if result.TeamDoctor != nil {
+		actions = appendDoctorActions(actions, allTeamDoctorActions(result.TeamDoctor, strictRuntime)...)
+	}
+	return actions
 }
 
 type templateShowResult struct {

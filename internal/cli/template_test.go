@@ -293,6 +293,16 @@ func TestTemplateOutputFlagValidation(t *testing.T) {
 			want: "invalid --format template",
 		},
 		{
+			name: "smoke commands json",
+			args: []string{"template", "smoke", "--commands", "--json"},
+			want: "--commands cannot be combined with --json",
+		},
+		{
+			name: "smoke commands format",
+			args: []string{"template", "smoke", "--commands", "--format", "{{.OK}}"},
+			want: "--commands cannot be combined with --format",
+		},
+		{
 			name: "pull commands without dry-run",
 			args: []string{"template", "pull", "sample", "--commands"},
 			want: "--commands requires --dry-run",
@@ -505,6 +515,90 @@ func TestTemplateSmokeKeepPreservesTempRepo(t *testing.T) {
 	if st, err := os.Stat(filepath.Join(target, ".agent_team", "config.toml")); err != nil || st.IsDir() {
 		t.Fatalf("kept target missing config.toml: st=%v err=%v target=%s", st, err, target)
 	}
+}
+
+func TestTemplateSmokeCommandsKeepsRepoAndScopesFollowUps(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		switch bin {
+		case "claude":
+			return "/usr/local/bin/claude", nil
+		case "missing-codex":
+			return "", exec.ErrNotFound
+		default:
+			t.Fatalf("unexpected runtime lookup for %q", bin)
+			return "", exec.ErrNotFound
+		}
+	})
+	oldFind := findAgentTeamd
+	findAgentTeamd = func() (string, error) {
+		return "/usr/local/bin/agent-teamd", nil
+	}
+	defer func() { findAgentTeamd = oldFind }()
+
+	tmplDir := t.TempDir()
+	writeTinyTemplateFiles(t, tmplDir, "runtime-smoke", "0.0.1", map[string]string{
+		"config.toml": `[team]
+pm_tool = "none"
+`,
+		"agents/worker/agent.md": `---
+description: Worker.
+runtime: codex
+runtime_bin: missing-codex
+---
+
+Worker prompt.
+`,
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"template", "smoke", tmplDir, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("template smoke --commands warning-only run: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("template smoke --commands stderr = %q", errOut.String())
+	}
+	lines := nonEmptyLines(out.String())
+	if len(lines) == 0 {
+		t.Fatal("template smoke --commands printed no follow-up commands")
+	}
+	fields := strings.Fields(lines[0])
+	if len(fields) < 4 || fields[0] != "agent-team" || fields[1] != "--repo" {
+		t.Fatalf("first command is not repo-scoped: %q", lines[0])
+	}
+	target := fields[2]
+	defer os.RemoveAll(target)
+	if st, err := os.Stat(filepath.Join(target, ".agent_team", "config.toml")); err != nil || st.IsDir() {
+		t.Fatalf("commands mode should keep rendered repo: st=%v err=%v target=%s", st, err, target)
+	}
+
+	scope := operatorCommandScope{Repo: target, Set: true}
+	want := []string{
+		scopedOperatorAction(agentDoctorDetailAction("", false), scope),
+		scopedOperatorAction(agentDoctorDetailAction("worker", false), scope),
+		scopedOperatorAction(strings.Join(shellQuoteArgs([]string{"agent-team", "agent", "show", "worker", "--json"}), " "), scope),
+	}
+	for _, command := range want {
+		if !containsString(lines, command) {
+			t.Fatalf("template smoke --commands missing %q\ncommands:\n%s", command, out.String())
+		}
+	}
+}
+
+func nonEmptyLines(body string) []string {
+	var lines []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 func TestTemplateSmokeMissingRequiredParameters(t *testing.T) {

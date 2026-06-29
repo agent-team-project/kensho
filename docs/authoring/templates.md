@@ -120,10 +120,13 @@ When authoring a template:
 
 ```sh
 go build -o bin/agent-team ./cmd/agent-team
-bin/agent-team init --target /tmp/team-template-smoke \
+bin/agent-team template smoke ./template \
   --set linear.team_id=00000000-0000-0000-0000-000000000000 \
   --set linear.ticket_prefix=SMK
 ```
+
+Use `--commands` when the smoke reports warnings or failures and you want the
+rendered temp repo plus scoped follow-up doctor commands.
 
 ## Code Areas
 
