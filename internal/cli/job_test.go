@@ -5156,6 +5156,144 @@ branch = "worker-squ-120"
 	}
 }
 
+func TestJobReconcileStatusFiltersByPipelineAndTargetAgent(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-121",
+			Ticket:    "SQU-121",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:        "ops-121",
+			Ticket:    "OPS-121",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:        "squ-122",
+			Ticket:    "SQU-122",
+			Target:    "manager",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-121"), `[status]
+phase = "implementing"
+description = "selected worker status"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-121"
+ticket = "SQU-121"
+pr = "https://github.com/acme/repo/pull/121"
+branch = "worker-squ-121"
+`, now)
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-ops-121"), `[status]
+phase = "implementing"
+description = "other pipeline worker status"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "ops-121"
+ticket = "OPS-121"
+pr = "https://github.com/acme/repo/pull/1121"
+branch = "worker-ops-121"
+`, now)
+	writeStatus(t, filepath.Join(teamDir, "state", "manager-squ-122"), `[status]
+phase = "implementing"
+description = "other target status"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-122"
+ticket = "SQU-122"
+pr = "https://github.com/acme/repo/pull/122"
+branch = "manager-squ-122"
+`, now)
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("job reconcile status scoped dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []jobStatusReconcileResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode scoped status dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-121" || preview[0].After != job.StatusRunning || !preview[0].DryRun {
+		t.Fatalf("scoped status preview = %+v", preview)
+	}
+	if strings.Contains(dryOut.String(), "ops-121") || strings.Contains(dryOut.String(), "squ-122") {
+		t.Fatalf("scoped status dry-run leaked unselected jobs:\n%s", dryOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job reconcile status scoped commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reconcile", "status", "--repo", tmp, "--pipeline", "ticket_to_pr", "--target-agent", "worker"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantCommand {
+		t.Fatalf("scoped status commands = %q, want %q", got, wantCommand)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("job reconcile status scoped apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied []jobStatusReconcileResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode scoped status apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(applied) != 1 || applied[0].JobID != "squ-121" || !applied[0].Changed {
+		t.Fatalf("scoped status apply = %+v", applied)
+	}
+	for _, tc := range []struct {
+		id       string
+		status   job.Status
+		instance string
+	}{
+		{id: "squ-121", status: job.StatusRunning, instance: "worker-squ-121"},
+		{id: "ops-121", status: job.StatusQueued},
+		{id: "squ-122", status: job.StatusQueued},
+	} {
+		j, err := job.Read(teamDir, tc.id)
+		if err != nil {
+			t.Fatalf("read job %s: %v", tc.id, err)
+		}
+		if j.Status != tc.status || strings.TrimSpace(j.Instance) != tc.instance {
+			t.Fatalf("job %s = %+v, want status=%s instance=%q", tc.id, j, tc.status, tc.instance)
+		}
+	}
+}
+
 func TestJobReconcileEventsFromTerminalMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

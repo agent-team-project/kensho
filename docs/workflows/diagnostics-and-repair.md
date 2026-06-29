@@ -315,6 +315,8 @@ filtered to jobs owned by that pipeline or team.
 For direct reconciliation outside a repair pass, use
 `job reconcile events --pipeline <pipeline>` or `--target-agent <agent>` when
 terminal runtime metadata should apply to only one workflow or role.
+Use the same `--pipeline` and `--target-agent` filters with
+`job reconcile status` when status-file previews should stay scoped.
 Use `drain` when a script should keep running global maintenance cycles until
 the daemon has no immediate schedule, outbox, queue, or pipeline work left.
 Add `--wait --wait-status running` when it should then wait for jobs advanced

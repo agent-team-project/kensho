@@ -3161,11 +3161,13 @@ agent-team job reconcile status [flags]
 Flags:
 
 ```text
-      --commands        With --dry-run, print the matching job reconcile status apply command when the preview has actionable work.
-      --dry-run         Preview job updates without writing them.
-      --format string   Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
-      --json            Emit machine-readable JSON.
-      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --commands              With --dry-run, print the matching job reconcile status apply command when the preview has actionable work.
+      --dry-run               Preview job updates without writing them.
+      --format string         Render each result with a Go template, e.g. '{{.JobID}} {{.After}}'.
+      --json                  Emit machine-readable JSON.
+      --pipeline string       Only reconcile jobs owned by this pipeline.
+      --repo string           Repo root containing .agent_team. (default "<repo>")
+      --target-agent string   Only reconcile jobs targeting this agent.
 ```
 
 ## `agent-team job reject`
