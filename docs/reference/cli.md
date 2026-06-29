@@ -113,6 +113,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, event tails ordered with `--events-sort`, combined timeline rows, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, formatted summary fields, or follow-up commands with `--commands` |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage, or `--commands` for repo-scoped nested action commands |
 | `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
+| `agent-team job graph <job-id>` | Render the job's pipeline graph with durable step-state overlay, inferring the pipeline from the job file |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed; add `--dry-run --commands` for the apply command |
 | `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |

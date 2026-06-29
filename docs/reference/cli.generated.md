@@ -1870,6 +1870,7 @@ Subcommands:
 - `agent-team job doctor` - Validate durable job files.
 - `agent-team job events` - Show a job&#39;s durable event history.
 - `agent-team job explain` - Explain pipeline step readiness for one job.
+- `agent-team job graph` - Render one job&#39;s pipeline graph with step state.
 - `agent-team job hold` - Hold a job so pipeline automation will not advance it.
 - `agent-team job kill` - Force-stop a job&#39;s owning instance.
 - `agent-team job logs` - Show a job&#39;s owning instance log.
@@ -2265,6 +2266,25 @@ Flags:
       --state strings       Only render when the job's next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
       --step string         Only include details for this pipeline step id.
   -w, --watch               Refresh the job pipeline explanation until interrupted.
+```
+
+## `agent-team job graph`
+
+Render one job&#39;s pipeline graph with step state.
+
+Render the declared pipeline graph for one durable job, overlaying the job&#39;s current step status, blockers, instance ownership, attempts, and action hints.
+
+```text
+agent-team job graph <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --format string   Graph output format: text, mermaid, or dot. (default "text")
+      --json            Emit graph nodes and edges as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --routes          Annotate step targets with matching agent.dispatch route instances.
 ```
 
 ## `agent-team job hold`

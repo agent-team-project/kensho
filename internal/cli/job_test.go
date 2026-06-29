@@ -12547,6 +12547,133 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 	}
 }
 
+func TestJobGraphInfersPipelineAndOverlaysState(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[[instances.manager.triggers]]
+event        = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-960",
+		Ticket:    "SQU-960",
+		Target:    "worker",
+		Kickoff:   "show job graph",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, FinishedAt: now.Add(-5 * time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-960-review", After: []string{"implement"}, Attempts: 1},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write graph job: %v", err)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"job", "graph", "squ-960", "--repo", root, "--routes"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("job graph text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{
+		"Pipeline: ticket_to_pr",
+		`Job:      squ-960 ticket=SQU-960 status=running state=running message="step review is running"`,
+		`implement target=worker after=- state=done step_status=done message="done" routes=worker`,
+		`review target=manager after=implement state=running step_status=running instance=manager-squ-960-review attempts=1 message="running in manager-squ-960-review" routes=manager`,
+	} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("job graph text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
+	asJSON := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	asJSON.SetOut(jsonOut)
+	asJSON.SetErr(jsonErr)
+	asJSON.SetArgs([]string{"job", "graph", "squ-960", "--repo", root, "--json"})
+	if err := asJSON.Execute(); err != nil {
+		t.Fatalf("job graph json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var graph pipelineGraph
+	if err := json.Unmarshal(jsonOut.Bytes(), &graph); err != nil {
+		t.Fatalf("decode job graph: %v\nbody=%s", err, jsonOut.String())
+	}
+	if graph.Name != "ticket_to_pr" || graph.JobID != "squ-960" || graph.JobState != "running" {
+		t.Fatalf("graph = %+v", graph)
+	}
+	byID := map[string]pipelineGraphNode{}
+	for _, node := range graph.Nodes {
+		byID[node.ID] = node
+	}
+	if byID["review"].State != "running" || byID["review"].Instance != "manager-squ-960-review" || byID["review"].Attempts != 1 {
+		t.Fatalf("review node = %+v", byID["review"])
+	}
+
+	mermaid := NewRootCmd()
+	mermaidOut, mermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	mermaid.SetOut(mermaidOut)
+	mermaid.SetErr(mermaidErr)
+	mermaid.SetArgs([]string{"job", "graph", "squ-960", "--repo", root, "--format", "mermaid"})
+	if err := mermaid.Execute(); err != nil {
+		t.Fatalf("job graph mermaid: %v\nstderr=%s", err, mermaidErr.String())
+	}
+	if !strings.Contains(mermaidOut.String(), "state: running") || !strings.Contains(mermaidOut.String(), "instance: manager-squ-960-review") {
+		t.Fatalf("job graph mermaid missing overlay labels:\n%s", mermaidOut.String())
+	}
+
+	noPipeline := &job.Job{
+		ID:        "squ-961",
+		Ticket:    "SQU-961",
+		Target:    "worker",
+		Status:    job.StatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, noPipeline); err != nil {
+		t.Fatalf("write non-pipeline job: %v", err)
+	}
+	missing := NewRootCmd()
+	missingOut, missingErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missing.SetOut(missingOut)
+	missing.SetErr(missingErr)
+	missing.SetArgs([]string{"job", "graph", "squ-961", "--repo", root})
+	err := missing.Execute()
+	if err == nil {
+		t.Fatal("job graph accepted a non-pipeline job")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("non-pipeline err = %v, want exit 1", err)
+	}
+	if !strings.Contains(missingErr.String(), `job "squ-961" is not a pipeline job`) {
+		t.Fatalf("non-pipeline stderr = %q", missingErr.String())
+	}
+}
+
 func TestJobOptionalFailedStepUnblocksDependents(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

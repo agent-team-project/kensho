@@ -181,7 +181,12 @@ Use `job explain` when the question is what pipeline stage can run next, and
 agent-team job explain squ-42
 agent-team job explain squ-42 --state ready --step review
 agent-team job watch squ-42 --state all
+agent-team job graph squ-42 --format mermaid --routes
 ```
+
+Use `job graph <job-id>` when you want the same per-step state as
+`job explain` overlaid on the declared pipeline graph without looking up the
+pipeline name first. It supports text, Mermaid, DOT, and JSON output.
 
 ## Waiting For Jobs
 

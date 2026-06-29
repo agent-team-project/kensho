@@ -72,6 +72,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobPruneCmd())
 	cmd.AddCommand(newJobNextCmd())
 	cmd.AddCommand(newJobExplainCmd())
+	cmd.AddCommand(newJobGraphCmd())
 	cmd.AddCommand(newJobReadyCmd())
 	cmd.AddCommand(newJobTriageCmd())
 	cmd.AddCommand(newJobStepCmd())
@@ -6404,6 +6405,60 @@ func newJobExplainCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the pipeline explanation with a Go template, e.g. '{{.State}} {{len .Steps}}'.")
 	return cmd
+}
+
+func newJobGraphCmd() *cobra.Command {
+	var (
+		repo          string
+		graphFormat   string
+		includeRoutes bool
+		jsonOut       bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "graph <job-id>",
+		Short: "Render one job's pipeline graph with step state.",
+		Long:  "Render the declared pipeline graph for one durable job, overlaying the job's current step status, blockers, instance ownership, attempts, and action hints.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOut && cmd.Flags().Changed("format") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job graph: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			format, err := parsePipelineGraphFormat(graphFormat)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job graph: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			graph, err := collectJobPipelineGraph(teamDir, args[0], includeRoutes)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job graph: %v\n", err)
+				return exitErr(1)
+			}
+			return renderPipelineGraph(cmd.OutOrStdout(), graph, format, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
+	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate step targets with matching agent.dispatch route instances.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
+	return cmd
+}
+
+func collectJobPipelineGraph(teamDir, jobID string, includeRoutes bool) (pipelineGraph, error) {
+	j, err := job.Read(teamDir, jobID)
+	if err != nil {
+		return pipelineGraph{}, err
+	}
+	pipelineName := strings.TrimSpace(j.Pipeline)
+	if pipelineName == "" {
+		return pipelineGraph{}, fmt.Errorf("job %q is not a pipeline job", j.ID)
+	}
+	return collectPipelineGraph(teamDir, pipelineName, includeRoutes, j.ID)
 }
 
 func newJobReadyCmd() *cobra.Command {
