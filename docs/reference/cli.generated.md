@@ -6857,6 +6857,7 @@ Inherited Flags:
 Subcommands:
 
 - `agent-team runtime metadata ls` - List persisted daemon runtime metadata.
+- `agent-team runtime metadata show` - Show one persisted daemon runtime metadata record.
 
 ## `agent-team runtime metadata ls`
 
@@ -6886,6 +6887,32 @@ Flags:
       --summary            Summarize matching runtime metadata by status, runtime, and agent.
       --target string      Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy          Only show crashed or runtime-stale metadata.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team runtime metadata show`
+
+Show one persisted daemon runtime metadata record.
+
+Show one raw daemon runtime metadata record persisted for this repo, enriching job ownership fields from durable job files when possible.
+
+```text
+agent-team runtime metadata show <instance> [flags]
+```
+
+Aliases: `get`, `inspect`
+
+Flags:
+
+```text
+      --format string   Render the runtime metadata row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.
+      --json            Emit runtime metadata as JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:

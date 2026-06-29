@@ -398,6 +398,7 @@ func newRuntimeMetadataCmd() *cobra.Command {
 		Long:    "Inspect raw daemon runtime metadata persisted under .agent_team/daemon without adding declared-but-not-started placeholders.",
 	}
 	cmd.AddCommand(newRuntimeMetadataLsCmd())
+	cmd.AddCommand(newRuntimeMetadataShowCmd())
 	return cmd
 }
 
@@ -507,6 +508,58 @@ func newRuntimeMetadataLsCmd() *cobra.Command {
 	return cmd
 }
 
+func newRuntimeMetadataShowCmd() *cobra.Command {
+	var (
+		target  string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "show <instance>",
+		Aliases: []string{"inspect", "get"},
+		Short:   "Show one persisted daemon runtime metadata record.",
+		Long:    "Show one raw daemon runtime metadata record persisted for this repo, enriching job ownership fields from durable job files when possible.",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata show: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			instance := strings.TrimSpace(args[0])
+			if instance == "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata show: instance name must be non-empty.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTeamRuntimeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata show: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			row, err := collectRuntimeMetadataRow(teamDir, instance, time.Now().UTC())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime metadata show: %v\n", err)
+				return exitErr(1)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(row)
+			}
+			if tmpl != nil {
+				return renderTeamRuntimeFormat(cmd.OutOrStdout(), []teamRuntimeRow{row}, tmpl)
+			}
+			return renderRuntimeMetadataShow(cmd.OutOrStdout(), row)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, "Repo root containing .agent_team (legacy; prefer global --repo).")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit runtime metadata as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the runtime metadata row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
+	return cmd
+}
+
 func collectRuntimeMetadataRows(teamDir string, now time.Time, opts teamRuntimeListOptions) ([]teamRuntimeRow, error) {
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {
@@ -527,6 +580,25 @@ func collectRuntimeMetadataRows(teamDir string, now time.Time, opts teamRuntimeL
 	return filterLimitSortTeamRuntimeRows(rows, opts), nil
 }
 
+func collectRuntimeMetadataRow(teamDir, instance string, now time.Time) (teamRuntimeRow, error) {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return teamRuntimeRow{}, errors.New("instance name must be non-empty")
+	}
+	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), instance)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return teamRuntimeRow{}, fmt.Errorf("metadata for instance %q not found", instance)
+		}
+		return teamRuntimeRow{}, err
+	}
+	row := teamRuntimeRowFromMetadata(meta, now)
+	if j := runtimeMetadataJobsByID(teamDir)[jobpkg.NormalizeID(row.Job)]; j != nil {
+		enrichJobRuntimeRow(&row, j)
+	}
+	return row, nil
+}
+
 func runtimeMetadataJobsByID(teamDir string) map[string]*jobpkg.Job {
 	out := map[string]*jobpkg.Job{}
 	jobs, err := jobpkg.List(teamDir)
@@ -542,6 +614,45 @@ func runtimeMetadataJobsByID(teamDir string) map[string]*jobpkg.Job {
 		}
 	}
 	return out
+}
+
+func renderRuntimeMetadataShow(w fmtWriter, row teamRuntimeRow) error {
+	fmt.Fprintln(w, "runtime:")
+	renderRuntimeMetadataField(w, "instance", row.Instance)
+	renderRuntimeMetadataField(w, "lifecycle", row.Status)
+	renderRuntimeMetadataField(w, "agent", row.Agent)
+	renderRuntimeMetadataField(w, "runtime", row.Runtime)
+	renderRuntimeMetadataField(w, "binary", row.RuntimeBinary)
+	renderRuntimeMetadataField(w, "job", row.Job)
+	renderRuntimeMetadataField(w, "ticket", row.Ticket)
+	renderRuntimeMetadataField(w, "branch", row.Branch)
+	renderRuntimeMetadataField(w, "pr", row.PR)
+	if row.PID > 0 {
+		renderRuntimeMetadataField(w, "pid", strconv.Itoa(row.PID))
+	}
+	renderRuntimeMetadataField(w, "runtime_stale", yesNo(row.RuntimeStale))
+	renderRuntimeMetadataField(w, "unhealthy", yesNo(row.Unhealthy))
+	renderRuntimeMetadataField(w, "workspace", row.Workspace)
+	renderRuntimeMetadataField(w, "session_id", row.SessionID)
+	if row.Adopted {
+		renderRuntimeMetadataField(w, "adopted", "yes")
+	}
+	renderRuntimeMetadataField(w, "started_at", row.StartedAt)
+	renderRuntimeMetadataField(w, "stopped_at", row.StoppedAt)
+	renderRuntimeMetadataField(w, "exited_at", row.ExitedAt)
+	if row.ExitCode != nil {
+		renderRuntimeMetadataField(w, "exit_code", strconv.Itoa(*row.ExitCode))
+	}
+	renderRuntimeMetadataField(w, "log", row.LogPath)
+	renderRuntimeMetadataField(w, "age", row.Age)
+	return nil
+}
+
+func renderRuntimeMetadataField(w fmtWriter, key, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	fmt.Fprintf(w, "  %-14s %s\n", key+":", value)
 }
 
 func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelection) (runtimebin.Runtime, error) {

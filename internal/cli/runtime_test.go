@@ -801,6 +801,154 @@ func TestRuntimeMetadataLsRejectsInvalidModes(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetadataShowEnrichesAndRenders(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 6, 29, 10, 30, 0, 0, time.UTC)
+	exited := now.Add(20 * time.Minute)
+	exitCode := 17
+	worktree := filepath.Join(tmp, ".agent_team", "worktrees", "worker-squ-131")
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-131",
+		Ticket:    "SQU-131",
+		Target:    "worker",
+		Instance:  "worker-squ-131",
+		Status:    job.StatusFailed,
+		Branch:    "worktree-worker-squ-131",
+		Worktree:  worktree,
+		PR:        "https://github.com/acme/repo/pull/131",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:      "worker-squ-131",
+		Job:           "squ-131",
+		Agent:         "worker",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: "codex-dev",
+		Status:        daemon.StatusCrashed,
+		PID:           12345,
+		SessionID:     "session-131",
+		StartedAt:     now,
+		ExitedAt:      exited,
+		ExitCode:      &exitCode,
+		LogPath:       filepath.Join(teamDir, "daemon", "worker-squ-131", "child.log"),
+		Adopted:       true,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("runtime metadata show text: %v\nstderr=%s", err, textErr.String())
+	}
+	body := textOut.String()
+	for _, want := range []string{
+		"runtime:",
+		"instance:      worker-squ-131",
+		"lifecycle:     crashed",
+		"runtime:       codex",
+		"binary:        codex-dev",
+		"job:           squ-131",
+		"ticket:        SQU-131",
+		"branch:        worktree-worker-squ-131",
+		"pr:            https://github.com/acme/repo/pull/131",
+		"pid:           12345",
+		"runtime_stale: no",
+		"unhealthy:     yes",
+		"workspace:     " + filepath.ToSlash(worktree),
+		"session_id:    session-131",
+		"adopted:       yes",
+		"started_at:    2026-06-29T10:30:00Z",
+		"exited_at:     2026-06-29T10:50:00Z",
+		"exit_code:     17",
+		"log:           " + filepath.ToSlash(filepath.Join(teamDir, "daemon", "worker-squ-131", "child.log")),
+		"age:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("runtime metadata show text missing %q:\n%s", want, body)
+		}
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp, "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("runtime metadata show json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var row teamRuntimeRow
+	if err := json.Unmarshal(jsonOut.Bytes(), &row); err != nil {
+		t.Fatalf("decode runtime metadata show json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if row.Instance != "worker-squ-131" || row.Job != "squ-131" || row.Ticket != "SQU-131" || row.Workspace != filepath.ToSlash(worktree) || !row.Unhealthy || row.ExitCode == nil || *row.ExitCode != 17 {
+		t.Fatalf("runtime metadata show row = %+v", row)
+	}
+
+	formatted := NewRootCmd()
+	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formattedOut)
+	formatted.SetErr(formattedErr)
+	formatted.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp, "--format", "{{.Instance}} {{.Ticket}} {{.Unhealthy}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("runtime metadata show format: %v\nstderr=%s", err, formattedErr.String())
+	}
+	if got, want := strings.TrimSpace(formattedOut.String()), "worker-squ-131 SQU-131 true"; got != want {
+		t.Fatalf("runtime metadata show format = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeMetadataShowRejectsInvalidModesAndMissingRecords(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format json",
+			args: []string{"runtime", "metadata", "show", "worker", "--target", tmp, "--format", "{{.Instance}}", "--json"},
+			want: "--format cannot be combined with --json",
+		},
+		{
+			name: "empty instance",
+			args: []string{"runtime", "metadata", "show", " ", "--target", tmp},
+			want: "instance name must be non-empty",
+		},
+		{
+			name: "missing record",
+			args: []string{"runtime", "metadata", "show", "missing", "--target", tmp},
+			want: `metadata for instance "missing" not found`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("%s succeeded unexpectedly; stdout=%s", tc.name, out.String())
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%s stderr = %q, want %q", tc.name, stderr.String(), tc.want)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("%s wrote stdout: %q", tc.name, out.String())
+			}
+		})
+	}
+}
+
 func appendRuntimeConfigForRuntimeTest(t *testing.T, root, kind, binary string) {
 	t.Helper()
 	cfg := filepath.Join(root, ".agent_team", "config.toml")

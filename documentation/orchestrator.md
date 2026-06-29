@@ -261,6 +261,8 @@ agent-team team ps <team> [-w] [--no-clear] [--summary] [--latest | --last N] [-
                                   # scoped instance rows or lifecycle summary for one team's persistent members and live ephemeral children
 agent-team runtime metadata ls [<instance>...] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
                                   # repo-wide raw persisted daemon runtime metadata rows or summary without declared placeholders
+agent-team runtime metadata show <instance> [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
+                                  # one raw persisted daemon runtime metadata record with durable job ownership enrichment
 agent-team pipeline runtime ls [<pipeline>|--all] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
                                   # scoped daemon runtime metadata rows or summary for one or all pipeline-owned workflows
 agent-team team runtime ls <team> [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
@@ -415,7 +417,7 @@ Summary views honor the same agent, status, phase, stale, runtime-stale, unhealt
 
 `agent-team team ps <team>` applies the same row filters, sort modes, latest/last caps, watch mode, and lifecycle/phase summary rendering to only the instances owned by one declared team. Team ownership includes declared persistent members plus live ephemeral children whose runtime metadata resolves back to a team-owned ephemeral declaration.
 
-`agent-team runtime metadata ls` shows repo-wide persisted daemon metadata without declared-but-not-started placeholders. It is the broad raw runtime view before narrowing by job, pipeline, or team ownership.
+`agent-team runtime metadata ls` shows repo-wide persisted daemon metadata without declared-but-not-started placeholders. It is the broad raw runtime view before narrowing by job, pipeline, or team ownership. `agent-team runtime metadata show <instance>` renders one raw record with the same normalized/enriched fields used by the list command.
 
 `agent-team team runtime ls <team>` shows only persisted daemon metadata, which is useful when the operator cares about process ownership, runtime kind, session IDs, worktree/job metadata, or stale recorded PIDs without declared-but-not-started placeholders.
 
