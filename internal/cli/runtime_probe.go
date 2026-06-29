@@ -339,7 +339,7 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 		Runtime: info,
 	}
 	if !info.Available {
-		result.addIssue("fail", "runtime", "binary_missing", fmt.Sprintf("runtime binary %q for %s was not found in PATH", info.Binary, info.Runtime), "")
+		result.addIssue("fail", "runtime", "binary_missing", fmt.Sprintf("runtime binary %q for %s was not found in PATH", info.Binary, info.Runtime), runtimeProbeMissingBinaryRemediation(info))
 	}
 
 	teamDir := filepath.Join(repo, loader.TeamDirName)
@@ -943,6 +943,9 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 		added[action] = true
 	}
 	add("agent-team runtime --json")
+	if runtimeProbeRuntimeUnavailable(result) || runtimeProbeHasIssue(result, "runtime", "binary_missing") {
+		add("agent-team runtime ls --json")
+	}
 	teamMissing := runtimeProbeHasIssue(result, "repo", "team_missing")
 	if teamMissing {
 		if strings.TrimSpace(result.Repo) != "" {
@@ -984,6 +987,22 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 	}
 	sort.Strings(actions)
 	return actions
+}
+
+func runtimeProbeRuntimeUnavailable(result *runtimeProbeResult) bool {
+	return result != nil && strings.TrimSpace(result.Runtime.Runtime) != "" && !result.Runtime.Available
+}
+
+func runtimeProbeMissingBinaryRemediation(info runtimeInfo) string {
+	runtimeName := strings.TrimSpace(info.Runtime)
+	binaryName := strings.TrimSpace(info.Binary)
+	if runtimeName == "" {
+		runtimeName = "<runtime>"
+	}
+	if binaryName == "" {
+		binaryName = "<binary>"
+	}
+	return fmt.Sprintf("Install %q, pass --runtime-bin <path>, set %s, or run `agent-team runtime set %s --runtime-bin <path>` after choosing the wrapper to use.", binaryName, runtimebin.EnvBinary, runtimeName)
 }
 
 func runtimeProbeHasIssue(result *runtimeProbeResult, source, id string) bool {

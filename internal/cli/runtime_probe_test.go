@@ -329,7 +329,7 @@ func TestRuntimeProbeActionsSkipCodexExecutionWhenUnavailable(t *testing.T) {
 	}
 
 	actions := runtimeProbeActions(result)
-	for _, want := range []string{"agent-team runtime --json", "agent-team daemon start"} {
+	for _, want := range []string{"agent-team runtime --json", "agent-team runtime ls --json", "agent-team daemon start"} {
 		if !containsString(actions, want) {
 			t.Fatalf("actions = %+v, missing %q", actions, want)
 		}
@@ -1270,9 +1270,27 @@ func TestRuntimeProbeMissingBinaryFails(t *testing.T) {
 	if result.OK || !containsRuntimeProbeIssue(result.Issues, "fail", "runtime", "binary_missing") {
 		t.Fatalf("result = %+v, want missing binary failure", result)
 	}
+	missingIssue := runtimeProbeIssueByID(result.Issues, "runtime", "binary_missing")
+	for _, want := range []string{runtimebin.EnvBinary, "agent-team runtime set codex --runtime-bin <path>"} {
+		if missingIssue == nil || !strings.Contains(missingIssue.Remediation, want) {
+			t.Fatalf("missing binary remediation = %q, want %q", missingIssue.Remediation, want)
+		}
+	}
+	if !containsString(result.Actions, "agent-team runtime ls --json") {
+		t.Fatalf("actions = %+v, want runtime ls discovery", result.Actions)
+	}
 	if result.CodexDoctor != nil {
 		t.Fatalf("codex doctor should not run without binary: %+v", result.CodexDoctor)
 	}
+}
+
+func runtimeProbeIssueByID(issues []runtimeProbeIssue, source, id string) *runtimeProbeIssue {
+	for i := range issues {
+		if issues[i].Source == source && issues[i].ID == id {
+			return &issues[i]
+		}
+	}
+	return nil
 }
 
 func containsRuntimeProbeIssue(issues []runtimeProbeIssue, severity, source, id string) bool {
