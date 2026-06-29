@@ -56,6 +56,39 @@ func TestLoadAgent_Basic(t *testing.T) {
 	}
 }
 
+func TestLoadAgent_Runtime(t *testing.T) {
+	teamDir := makeTeam(t)
+	agentDir := filepath.Join(teamDir, "agents", "worker")
+	writeFile(t, filepath.Join(agentDir, "agent.md"),
+		"---\ndescription: worker agent\nruntime: codex\nruntime_bin: /opt/homebrew/bin/codex\n---\nbody\n")
+
+	a, err := LoadAgent(agentDir, teamDir)
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if a.Runtime != "codex" {
+		t.Errorf("runtime=%q, want codex", a.Runtime)
+	}
+	if a.RuntimeBin != "/opt/homebrew/bin/codex" {
+		t.Errorf("runtime_bin=%q", a.RuntimeBin)
+	}
+}
+
+func TestLoadAgent_RuntimeOmittedIsEmpty(t *testing.T) {
+	teamDir := makeTeam(t)
+	agentDir := filepath.Join(teamDir, "agents", "manager")
+	writeFile(t, filepath.Join(agentDir, "agent.md"),
+		"---\ndescription: manager agent\n---\nbody\n")
+
+	a, err := LoadAgent(agentDir, teamDir)
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	if a.Runtime != "" || a.RuntimeBin != "" {
+		t.Errorf("expected empty runtime fields, got runtime=%q bin=%q", a.Runtime, a.RuntimeBin)
+	}
+}
+
 func TestLoadAgent_MissingFile(t *testing.T) {
 	teamDir := makeTeam(t)
 	agentDir := filepath.Join(teamDir, "agents", "ghost")

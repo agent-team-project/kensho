@@ -96,6 +96,26 @@ func loadRuntimeConfig(configPath string) (runtimeConfig, error) {
 	return cfg.Runtime, nil
 }
 
+// FromFields builds a Runtime from explicit kind/binary strings — for example
+// an agent's frontmatter `runtime:`/`runtime_bin:`, a pipeline step, or a
+// dispatch payload. ok is false when kindRaw is blank, letting callers fall
+// through to the next resolution source. A non-nil error means kindRaw was set
+// but not a recognised runtime.
+func FromFields(kindRaw, binRaw string) (Runtime, bool, error) {
+	if strings.TrimSpace(kindRaw) == "" {
+		return Runtime{}, false, nil
+	}
+	kind, err := ParseKind(kindRaw)
+	if err != nil {
+		return Runtime{}, false, err
+	}
+	bin := strings.TrimSpace(binRaw)
+	if bin == "" {
+		bin = defaultBinary(kind)
+	}
+	return Runtime{Kind: kind, Binary: bin}, true, nil
+}
+
 func ParseKind(value string) (Kind, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", string(KindClaude), "claude-compatible":

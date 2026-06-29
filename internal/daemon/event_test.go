@@ -468,6 +468,83 @@ func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-43", 5*time.Second)
 }
 
+func TestEvent_EphemeralDispatchUsesAgentFrontmatterRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	// Declare the worker as a Codex agent in its frontmatter. With no env
+	// override and no repo [runtime] config, only the agent-level default can
+	// make this spawn Codex instead of the built-in Claude default.
+	agentMD := "---\ndescription: fixture worker\nruntime: codex\n---\n\nYou are fixture worker.\n"
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "worker", "agent.md"), []byte(agentMD), 0o644); err != nil {
+		t.Fatalf("write agent.md: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-77","kickoff":"implement SQU-77"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want agent-frontmatter codex exec", call)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-77")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
+		t.Fatalf("metadata = %+v, want agent-frontmatter codex without Claude session", meta)
+	}
+	_, _ = m.Stop("worker-squ-77")
+	_ = m.WaitForReaper("worker-squ-77", 5*time.Second)
+}
+
+func TestDispatchRuntime_AgentFrontmatterPrecedence(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	teamDir := fixtureTeamDir(t)
+	agentMD := "---\ndescription: fixture worker\nruntime: codex\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "worker", "agent.md"), []byte(agentMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewInstanceManager(DaemonRoot(teamDir), nil)
+
+	// The agent's frontmatter runtime is used when nothing overrides it.
+	rt, err := m.dispatchRuntime(DispatchInput{Agent: "worker", Name: "w", Workspace: "ws"})
+	if err != nil {
+		t.Fatalf("dispatchRuntime: %v", err)
+	}
+	if rt.Kind != runtimebin.KindCodex {
+		t.Fatalf("frontmatter runtime = %q, want codex", rt.Kind)
+	}
+
+	// An explicit dispatch runtime outranks the agent default.
+	rt, err = m.dispatchRuntime(DispatchInput{Agent: "worker", Runtime: "claude", Name: "w", Workspace: "ws"})
+	if err != nil {
+		t.Fatalf("dispatchRuntime explicit: %v", err)
+	}
+	if rt.Kind != runtimebin.KindClaude {
+		t.Fatalf("explicit runtime = %q, want claude", rt.Kind)
+	}
+
+	// An AGENT_TEAM_RUNTIME env override also outranks the agent default.
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	rt, err = m.dispatchRuntime(DispatchInput{Agent: "worker", Name: "w", Workspace: "ws"})
+	if err != nil {
+		t.Fatalf("dispatchRuntime env: %v", err)
+	}
+	if rt.Kind != runtimebin.KindClaude {
+		t.Fatalf("env runtime = %q, want claude", rt.Kind)
+	}
+}
+
 func TestEvent_EphemeralDispatchPayloadRuntimeOverridesEnv(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
 	t.Setenv(runtimebin.EnvBinary, "claude-wrapper")

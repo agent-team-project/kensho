@@ -47,6 +47,14 @@ type Agent struct {
 	// not declared. Validation of the channel-name shape happens at
 	// subscribe time (the daemon enforces it).
 	Subscribes []string
+	// Runtime / RuntimeBin are the agent's frontmatter `runtime:` and
+	// `runtime_bin:` — the runtime this agent's instances default to when a
+	// dispatch does not explicitly override it and no AGENT_TEAM_RUNTIME env
+	// override is set. Empty means "inherit the repo/default runtime". This is
+	// what lets one team run, e.g., the manager on Claude while workers run on
+	// Codex, declared on the agent rather than threaded through every dispatch.
+	Runtime    string
+	RuntimeBin string
 }
 
 // LoadAgent reads `<agentDir>/agent.md` (frontmatter + body) and resolves the
@@ -76,6 +84,8 @@ func LoadAgent(agentDir, teamDir string) (*Agent, error) {
 		Prompt:      body,
 		Skills:      skills,
 		Subscribes:  fm.Lists["subscribes"],
+		Runtime:     strings.TrimSpace(fm.Scalars["runtime"]),
+		RuntimeBin:  strings.TrimSpace(fm.Scalars["runtime_bin"]),
 	}, nil
 }
 
