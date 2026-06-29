@@ -949,7 +949,7 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 	} else if !result.Daemon.Ready {
 		add("agent-team daemon status --wait")
 	}
-	if result.Runtime.Runtime == string(runtimebin.KindCodex) {
+	if result.Runtime.Runtime == string(runtimebin.KindCodex) && result.Runtime.Available {
 		add("codex doctor --summary")
 		if result.ExecProbe == nil {
 			add("agent-team runtime probe --runtime codex --exec --timeout 2m")

@@ -232,7 +232,7 @@ func TestRuntimeProbeCommands(t *testing.T) {
 
 func TestRuntimeProbeActionsPreferHTTPCheckWhenAvailable(t *testing.T) {
 	result := &runtimeProbeResult{
-		Runtime: runtimeInfo{Runtime: "codex"},
+		Runtime: runtimeInfo{Runtime: "codex", Available: true},
 		Daemon: &daemonStatusJSON{
 			Running: true,
 			Ready:   true,
@@ -252,7 +252,7 @@ func TestRuntimeProbeActionsPreferHTTPCheckWhenAvailable(t *testing.T) {
 
 func TestRuntimeProbeActionsUseSocketCheckWithoutHTTP(t *testing.T) {
 	result := &runtimeProbeResult{
-		Runtime: runtimeInfo{Runtime: "codex"},
+		Runtime: runtimeInfo{Runtime: "codex", Available: true},
 		Daemon: &daemonStatusJSON{
 			Running: true,
 			Ready:   true,
@@ -266,6 +266,34 @@ func TestRuntimeProbeActionsUseSocketCheckWithoutHTTP(t *testing.T) {
 	}
 	if !containsString(actions, "agent-team runtime probe --runtime codex --start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m") {
 		t.Fatalf("actions = %+v, want HTTP daemon-start probe hint", actions)
+	}
+}
+
+func TestRuntimeProbeActionsSkipCodexExecutionWhenUnavailable(t *testing.T) {
+	result := &runtimeProbeResult{
+		Runtime: runtimeInfo{
+			Runtime:   "codex",
+			Binary:    "missing-codex",
+			Available: false,
+		},
+		Daemon: &daemonStatusJSON{
+			Running: false,
+			Ready:   false,
+		},
+	}
+
+	actions := runtimeProbeActions(result)
+	for _, want := range []string{"agent-team runtime --json", "agent-team daemon start"} {
+		if !containsString(actions, want) {
+			t.Fatalf("actions = %+v, missing %q", actions, want)
+		}
+	}
+	for _, disallowed := range []string{"codex doctor", "agent-team run manager", "agent-team runtime probe --runtime codex --exec"} {
+		for _, action := range actions {
+			if strings.Contains(action, disallowed) {
+				t.Fatalf("actions = %+v, should not include unavailable Codex action containing %q", actions, disallowed)
+			}
+		}
 	}
 }
 
