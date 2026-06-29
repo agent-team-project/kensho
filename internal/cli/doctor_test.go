@@ -539,7 +539,7 @@ func TestDoctorCommandsReportsMissingTeamAction(t *testing.T) {
 	}
 }
 
-func TestDoctorCommandsReportsDaemonStartAction(t *testing.T) {
+func TestDoctorCommandsReportsDaemonStartAndSyncActions(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
@@ -549,13 +549,14 @@ func TestDoctorCommandsReportsDaemonStartAction(t *testing.T) {
 	cmd.SetErr(errOut)
 	cmd.SetArgs([]string{"doctor", "--target", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("doctor --commands daemon start action: %v\nstderr=%s", err, errOut.String())
+		t.Fatalf("doctor --commands daemon start/sync actions: %v\nstderr=%s", err, errOut.String())
 	}
 	want := strings.Join(scopedOperatorActions([]string{
 		"agent-team daemon start",
+		"agent-team sync --dry-run",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
 	if got := out.String(); got != want {
-		t.Fatalf("doctor --commands daemon start output = %q, want %q", got, want)
+		t.Fatalf("doctor --commands daemon start/sync output = %q, want %q", got, want)
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("doctor --commands should not write daemon warning to stderr: %s", errOut.String())
@@ -584,6 +585,7 @@ func TestDoctorCommandsReportsDaemonNotReadyActions(t *testing.T) {
 	want := strings.Join(scopedOperatorActions([]string{
 		"agent-team daemon restart",
 		"agent-team daemon logs --tail 80",
+		"agent-team sync --dry-run",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
 	if got := out.String(); got != want {
 		t.Fatalf("doctor --commands daemon not-ready output = %q, want %q", got, want)

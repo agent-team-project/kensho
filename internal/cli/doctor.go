@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	texttemplate "text/template"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/loader"
@@ -296,6 +297,9 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		daemonStatus := collectDaemonStatus(teamDir)
 		warnings = append(warnings, doctorDaemonStatusWarnings(daemonStatus)...)
 		actions = appendDoctorActions(actions, daemonStatusRemediationActions(daemonStatus)...)
+		healthWarnings, healthActions := doctorHealthIssueFindings(teamDir)
+		warnings = append(warnings, healthWarnings...)
+		actions = appendDoctorActions(actions, healthActions...)
 	}
 
 	return reportDoctor(cmd, problems, warnings, actions, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
@@ -309,6 +313,38 @@ func doctorDaemonStatusWarnings(status daemonStatusJSON) []string {
 		return []string{"daemon running but not ready — run `agent-team daemon restart` or inspect `agent-team daemon logs --tail 80`."}
 	}
 	return nil
+}
+
+func doctorHealthIssueFindings(teamDir string) ([]string, []string) {
+	result, err := collectHealthWithOptions(teamDir, time.Now(), healthOptions{})
+	if err != nil {
+		return []string{fmt.Sprintf("health check unavailable — run `agent-team health` for details: %v", err)}, nil
+	}
+	var warnings []string
+	var actions []string
+	for _, issue := range result.Issues {
+		if doctorHealthIssueHandledElsewhere(issue.Code) {
+			continue
+		}
+		if strings.TrimSpace(issue.Message) != "" {
+			warnings = append(warnings, "health: "+issue.Message)
+		}
+		actions = appendDoctorActions(actions, issue.Actions...)
+	}
+	return warnings, actions
+}
+
+func doctorHealthIssueHandledElsewhere(code string) bool {
+	switch code {
+	case "daemon_not_running",
+		"daemon_not_ready",
+		"job_quarantined",
+		"queue_quarantined",
+		"outbox_quarantined":
+		return true
+	default:
+		return false
+	}
 }
 
 func appendDoctorActions(actions []string, next ...string) []string {
