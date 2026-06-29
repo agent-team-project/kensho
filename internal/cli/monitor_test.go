@@ -274,6 +274,50 @@ ephemeral = true
 	}
 }
 
+func TestMonitorSummaryCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"monitor", "--summary", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("monitor --summary --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join(scopedOperatorActions([]string{
+		"agent-team daemon start",
+		"agent-team sync --dry-run",
+	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("monitor --summary --commands output = %q, want %q", got, want)
+	}
+}
+
+func TestMonitorSummaryCommandsIncludesPlanCommand(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"monitor", "--summary", "--plan", "--action", "start", "--target", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("monitor --summary --plan --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	wantPlanCommand := scopedOperatorAction("agent-team sync --dry-run --action start", operatorCommandScope{Repo: tmp, Set: true})
+	if !strings.Contains(out.String(), wantPlanCommand) {
+		t.Fatalf("monitor --summary --plan --commands output missing %q:\n%s", wantPlanCommand, out.String())
+	}
+	for _, unexpected := range []string{"health:", "plan:", "runtime:"} {
+		if strings.Contains(out.String(), unexpected) {
+			t.Fatalf("monitor --summary --plan --commands included summary text %q:\n%s", unexpected, out.String())
+		}
+	}
+}
+
 func TestTeamMonitorCommandsPrintsScopedSectionActions(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")
@@ -352,7 +396,6 @@ func TestMonitorCommandsRejectsIncompatibleOutputModes(t *testing.T) {
 		want string
 	}{
 		{name: "json", args: []string{"monitor", "--target", tmp, "--commands", "--json"}, want: "--commands cannot be combined with --json"},
-		{name: "summary", args: []string{"monitor", "--target", tmp, "--commands", "--summary"}, want: "--commands cannot be combined with --summary"},
 		{name: "watch", args: []string{"monitor", "--target", tmp, "--commands", "--watch"}, want: "--commands cannot be combined with --watch"},
 		{name: "team watch", args: []string{"team", "watch", "delivery", "--repo", tmp, "--commands"}, want: "--commands cannot be combined with --watch"},
 	} {

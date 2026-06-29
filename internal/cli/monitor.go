@@ -111,10 +111,6 @@ func newMonitorCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
-			if commands && summary {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --commands cannot be combined with --summary.")
-				return exitErr(2)
-			}
 			if commands && watch {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team monitor: --commands cannot be combined with --watch.")
 				return exitErr(2)
@@ -198,6 +194,23 @@ func newMonitorCmd() *cobra.Command {
 				return runMonitorWatch(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, readProcessStats, jsonOut, opts, clear)
 			}
 			if summary {
+				if commands {
+					scope := operatorCommandScopeFromCommand(cmd, target, "target")
+					return runMonitorSummaryCommands(cmd.OutOrStdout(), teamDir, time.Now(), opts, monitorCommandOptions{
+						Scope: scope,
+						Plan: planCommandOptions{
+							BaseArgs:        []string{"agent-team", "sync"},
+							DryRun:          true,
+							StopExtras:      stopExtras,
+							StatusFilters:   statusFilters,
+							RuntimeFilters:  runtimeFilters,
+							AgentFilters:    agentFilters,
+							PhaseFilters:    phaseFilters,
+							InstanceFilters: instanceFilters,
+							ActionFilters:   actionFilters,
+						},
+					})
+				}
 				return runMonitorSummary(cmd.OutOrStdout(), teamDir, time.Now(), jsonOut, opts)
 			}
 			snapshot, err := collectMonitorSnapshot(teamDir, time.Now(), readProcessStats, opts)
@@ -354,6 +367,7 @@ type monitorSummarySnapshot struct {
 	InboxError     string                        `json:"inbox_error,omitempty"`
 	Events         *eventSummaryJSON             `json:"events,omitempty"`
 	EventsError    string                        `json:"events_error,omitempty"`
+	planRows       []planRow
 }
 
 type scheduleForecast struct {
@@ -512,6 +526,22 @@ func runMonitorSummary(w io.Writer, teamDir string, now time.Time, jsonOut bool,
 	return nil
 }
 
+func runMonitorSummaryCommands(w io.Writer, teamDir string, now time.Time, opts monitorOptions, commandOpts monitorCommandOptions) error {
+	snapshot, err := collectMonitorSummarySnapshot(teamDir, now, opts)
+	if err != nil {
+		return err
+	}
+	actions := monitorSummaryCommandActions(snapshot)
+	if opts.IncludePlan {
+		var planCommands strings.Builder
+		if err := renderPlanCommands(&planCommands, snapshot.planRows, commandOpts.Plan); err != nil {
+			return err
+		}
+		actions = append(actions, splitCommandLines(planCommands.String())...)
+	}
+	return renderOperatorActionCommands(w, actions, commandOpts.Scope)
+}
+
 func runMonitorSummaryWatch(ctx context.Context, w io.Writer, teamDir string, interval time.Duration, now func() time.Time, jsonOut bool, opts monitorOptions, clear bool) error {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -606,6 +636,7 @@ func collectMonitorSummarySnapshot(teamDir string, now time.Time, opts monitorOp
 		plan.Instances = filterPlanRowsWithActions(plan.Instances, planOpts, opts.PlanActions)
 		summary := summarizeLifecycleActions(planRowsToLifecycleActionResults(plan.Instances, true), true)
 		snapshot.Plan = &lifecycleActionSummaryResult{Summary: summary}
+		snapshot.planRows = plan.Instances
 	}
 	if opts.IncludeJobs {
 		jobs, err := collectJobTriageWithPolicy(teamDir, now)
@@ -949,6 +980,27 @@ func renderMonitorCommands(w io.Writer, snapshot *monitorSnapshot, opts monitorC
 }
 
 func monitorCommandActions(snapshot *monitorSnapshot) []string {
+	actions := make([]string, 0)
+	if snapshot == nil {
+		return actions
+	}
+	if snapshot.Health != nil {
+		for _, issue := range snapshot.Health.Issues {
+			actions = append(actions, issue.Actions...)
+		}
+	}
+	if snapshot.Jobs != nil {
+		for _, item := range snapshot.Jobs.Attention {
+			actions = append(actions, item.Actions...)
+		}
+		for _, row := range snapshot.Jobs.ReadySteps {
+			actions = append(actions, row.Actions...)
+		}
+	}
+	return actions
+}
+
+func monitorSummaryCommandActions(snapshot *monitorSummarySnapshot) []string {
 	actions := make([]string, 0)
 	if snapshot == nil {
 		return actions
