@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -264,8 +265,545 @@ func newTeamRuntimeCmd() *cobra.Command {
 		Short: "Inspect team-owned runtime metadata.",
 		Long:  "Inspect runtime metadata for daemon-known instances owned by one declared team.",
 	}
+	cmd.AddCommand(newTeamRuntimeLsCmd())
 	cmd.AddCommand(newTeamRuntimeResumePlanCmd())
 	return cmd
+}
+
+func newTeamRuntimeLsCmd() *cobra.Command {
+	var (
+		repo             string
+		statusFilters    []string
+		runtimeFilters   []string
+		agentFilters     []string
+		instanceFilters  []string
+		runtimeStaleOnly bool
+		unhealthyOnly    bool
+		latest           bool
+		last             int
+		sortBy           string
+		summary          bool
+		jsonOut          bool
+		format           string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:     "ls <team>",
+		Aliases: []string{"list", "ps"},
+		Short:   "List daemon runtime metadata owned by one team.",
+		Long:    "List daemon-known runtime metadata owned by one declared team, including persistent members and live ephemeral children.",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime ls: --format cannot be combined with --json or --summary.")
+				return exitErr(2)
+			}
+			if last < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime ls: --last must be >= 0.")
+				return exitErr(2)
+			}
+			if latest && last > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime ls: choose one of --latest or --last.")
+				return exitErr(2)
+			}
+			tmpl, err := parseTeamRuntimeFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts, err := newTeamRuntimeListOptions(statusFilters, runtimeFilters, agentFilters, instanceFilters, runtimeStaleOnly, unhealthyOnly)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			sortMode, err := parseTeamRuntimeSort(sortBy)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime ls: %v\n", err)
+				return exitErr(2)
+			}
+			opts.Sort = sortMode
+			opts.SortSet = cmd.Flags().Changed("sort")
+			opts.Limit = last
+			if latest {
+				opts.Limit = 1
+			}
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			rows, err := collectTeamRuntimeRows(teamDir, args[0], time.Now().UTC(), opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team runtime ls: %v\n", err)
+				return exitErr(1)
+			}
+			if summary {
+				out := summarizeTeamRuntimeRows(rows)
+				if jsonOut {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+				}
+				return renderTeamRuntimeSummary(cmd.OutOrStdout(), out)
+			}
+			if jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
+			}
+			if tmpl != nil {
+				return renderTeamRuntimeFormat(cmd.OutOrStdout(), rows, tmpl)
+			}
+			return renderTeamRuntimeRows(cmd.OutOrStdout(), rows)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show team-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show team-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show team-owned metadata for this agent. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show team-owned metadata with this instance name. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show team-owned running metadata whose recorded runtime PID is no longer live.")
+	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only show crashed or runtime-stale team-owned metadata.")
+	cmd.Flags().BoolVarP(&latest, "latest", "l", false, "Show only the most recently started team-owned runtime record after other filters.")
+	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show only the N most recently started team-owned runtime records after other filters (0 = all).")
+	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort team runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching team-owned runtime metadata by status, runtime, and agent.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit team runtime metadata as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each team runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
+	return cmd
+}
+
+type teamRuntimeRow struct {
+	Instance      string `json:"instance"`
+	Agent         string `json:"agent"`
+	Runtime       string `json:"runtime"`
+	RuntimeBinary string `json:"runtime_binary,omitempty"`
+	Status        string `json:"status"`
+	PID           int    `json:"pid,omitempty"`
+	RuntimeStale  bool   `json:"runtime_stale,omitempty"`
+	Unhealthy     bool   `json:"unhealthy,omitempty"`
+	Job           string `json:"job,omitempty"`
+	Ticket        string `json:"ticket,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	PR            string `json:"pr,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	StoppedAt     string `json:"stopped_at,omitempty"`
+	ExitedAt      string `json:"exited_at,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
+	LogPath       string `json:"log_path,omitempty"`
+	Adopted       bool   `json:"adopted,omitempty"`
+	Age           string `json:"age"`
+
+	startedAt time.Time
+	stoppedAt time.Time
+	exitedAt  time.Time
+}
+
+type teamRuntimeSummary struct {
+	Total        int            `json:"total"`
+	Running      int            `json:"running"`
+	Stopped      int            `json:"stopped"`
+	Exited       int            `json:"exited"`
+	Crashed      int            `json:"crashed"`
+	Unknown      int            `json:"unknown"`
+	RuntimeStale int            `json:"runtime_stale"`
+	Unhealthy    int            `json:"unhealthy"`
+	WithJob      int            `json:"with_job"`
+	Runtimes     map[string]int `json:"runtimes"`
+	Agents       map[string]int `json:"agents"`
+}
+
+type teamRuntimeListOptions struct {
+	Sort         teamRuntimeSortMode
+	SortSet      bool
+	Limit        int
+	statuses     map[string]bool
+	runtimes     map[string]bool
+	agents       map[string]bool
+	instances    map[string]bool
+	runtimeStale bool
+	unhealthy    bool
+}
+
+type teamRuntimeSortMode string
+
+const (
+	teamRuntimeSortInstance     teamRuntimeSortMode = "instance"
+	teamRuntimeSortStatus       teamRuntimeSortMode = "status"
+	teamRuntimeSortRuntime      teamRuntimeSortMode = "runtime"
+	teamRuntimeSortAgent        teamRuntimeSortMode = "agent"
+	teamRuntimeSortRuntimeStale teamRuntimeSortMode = "stale"
+	teamRuntimeSortUnhealthy    teamRuntimeSortMode = "unhealthy"
+	teamRuntimeSortJob          teamRuntimeSortMode = "job"
+	teamRuntimeSortStarted      teamRuntimeSortMode = "started"
+	teamRuntimeSortStopped      teamRuntimeSortMode = "stopped"
+	teamRuntimeSortExited       teamRuntimeSortMode = "exited"
+)
+
+func newTeamRuntimeListOptions(statusFilters, runtimeFilters, agentFilters, instanceFilters []string, runtimeStaleOnly, unhealthyOnly bool) (teamRuntimeListOptions, error) {
+	opts := teamRuntimeListOptions{runtimeStale: runtimeStaleOnly, unhealthy: unhealthyOnly}
+	statuses, err := parseTeamRuntimeStatusFilters(statusFilters)
+	if err != nil {
+		return opts, err
+	}
+	opts.statuses = statuses
+	runtimes, err := lifecycleRuntimeFilterSet(runtimeFilters)
+	if err != nil {
+		return opts, err
+	}
+	opts.runtimes = runtimes
+	agents, err := teamRuntimeStringFilterSet("--agent", "agent", agentFilters)
+	if err != nil {
+		return opts, err
+	}
+	opts.agents = agents
+	instances, err := teamRuntimeStringFilterSet("--instance", "instance", instanceFilters)
+	if err != nil {
+		return opts, err
+	}
+	opts.instances = instances
+	return opts, nil
+}
+
+func parseTeamRuntimeStatusFilters(filters []string) (map[string]bool, error) {
+	if len(filters) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, raw := range splitFilterValues(filters) {
+		status := strings.ToLower(strings.TrimSpace(raw))
+		if status == "" {
+			continue
+		}
+		switch status {
+		case string(daemon.StatusRunning), string(daemon.StatusStopped), string(daemon.StatusExited), string(daemon.StatusCrashed), "unknown":
+			out[status] = true
+		default:
+			return nil, fmt.Errorf("unknown --status %q (want running, stopped, exited, crashed, or unknown)", raw)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--status requires at least one non-empty status")
+	}
+	return out, nil
+}
+
+func teamRuntimeStringFilterSet(flag, noun string, filters []string) (map[string]bool, error) {
+	if len(filters) == 0 {
+		return nil, nil
+	}
+	out := map[string]bool{}
+	for _, raw := range splitFilterValues(filters) {
+		value := strings.TrimSpace(raw)
+		if value != "" {
+			out[value] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s requires at least one non-empty %s", flag, noun)
+	}
+	return out, nil
+}
+
+func parseTeamRuntimeSort(raw string) (teamRuntimeSortMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "instance", "name":
+		return teamRuntimeSortInstance, nil
+	case "status":
+		return teamRuntimeSortStatus, nil
+	case "runtime":
+		return teamRuntimeSortRuntime, nil
+	case "agent":
+		return teamRuntimeSortAgent, nil
+	case "stale", "runtime-stale", "runtime_stale":
+		return teamRuntimeSortRuntimeStale, nil
+	case "unhealthy", "health":
+		return teamRuntimeSortUnhealthy, nil
+	case "job":
+		return teamRuntimeSortJob, nil
+	case "started", "start", "created":
+		return teamRuntimeSortStarted, nil
+	case "stopped", "stop":
+		return teamRuntimeSortStopped, nil
+	case "exited", "exit":
+		return teamRuntimeSortExited, nil
+	default:
+		return "", fmt.Errorf("unknown --sort %q (want instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited)", raw)
+	}
+}
+
+func parseTeamRuntimeFormat(format string) (*template.Template, error) {
+	if strings.TrimSpace(format) == "" {
+		return nil, nil
+	}
+	tmpl, err := template.New("team-runtime-format").Parse(format)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --format template: %w", err)
+	}
+	return tmpl, nil
+}
+
+func collectTeamRuntimeRows(teamDir, name string, now time.Time, opts teamRuntimeListOptions) ([]teamRuntimeRow, error) {
+	top, team, err := loadTopologyTeam(teamDir, name)
+	if err != nil {
+		return nil, err
+	}
+	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return nil, err
+	}
+	selected := teamMetadata(top, team, metas)
+	rows := make([]teamRuntimeRow, 0, len(selected))
+	for _, meta := range selected {
+		row := teamRuntimeRowFromMetadata(meta, now)
+		if !teamRuntimeRowMatches(row, opts) {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return filterLimitSortTeamRuntimeRows(rows, opts), nil
+}
+
+func teamRuntimeRowFromMetadata(meta *daemon.Metadata, now time.Time) teamRuntimeRow {
+	if meta == nil {
+		return teamRuntimeRow{}
+	}
+	runtimeStale := runtimeResumeMetadataIsStale(meta)
+	row := teamRuntimeRow{
+		Instance:      meta.Instance,
+		Agent:         meta.Agent,
+		Runtime:       metadataRuntimeKey(meta),
+		RuntimeBinary: meta.RuntimeBinary,
+		Status:        metadataStatusKey(meta),
+		PID:           meta.PID,
+		RuntimeStale:  runtimeStale,
+		Unhealthy:     metadataStatusKey(meta) == string(daemon.StatusCrashed) || runtimeStale,
+		Job:           meta.Job,
+		Ticket:        meta.Ticket,
+		Branch:        meta.Branch,
+		PR:            meta.PR,
+		Workspace:     filepath.ToSlash(meta.Workspace),
+		SessionID:     meta.SessionID,
+		ExitCode:      meta.ExitCode,
+		LogPath:       filepath.ToSlash(meta.LogPath),
+		Adopted:       meta.Adopted,
+		Age:           startedAge(meta.StartedAt, now),
+		startedAt:     meta.StartedAt,
+		stoppedAt:     meta.StoppedAt,
+		exitedAt:      meta.ExitedAt,
+	}
+	if !meta.StartedAt.IsZero() {
+		row.StartedAt = meta.StartedAt.UTC().Format(time.RFC3339)
+	}
+	if !meta.StoppedAt.IsZero() {
+		row.StoppedAt = meta.StoppedAt.UTC().Format(time.RFC3339)
+	}
+	if !meta.ExitedAt.IsZero() {
+		row.ExitedAt = meta.ExitedAt.UTC().Format(time.RFC3339)
+	}
+	return row
+}
+
+func teamRuntimeRowMatches(row teamRuntimeRow, opts teamRuntimeListOptions) bool {
+	if opts.runtimeStale && !row.RuntimeStale {
+		return false
+	}
+	if opts.unhealthy && !row.Unhealthy {
+		return false
+	}
+	if len(opts.statuses) > 0 && !opts.statuses[row.Status] {
+		return false
+	}
+	if len(opts.runtimes) > 0 && !opts.runtimes[row.Runtime] {
+		return false
+	}
+	if len(opts.agents) > 0 && !opts.agents[row.Agent] {
+		return false
+	}
+	if len(opts.instances) > 0 && !opts.instances[row.Instance] {
+		return false
+	}
+	return true
+}
+
+func filterLimitSortTeamRuntimeRows(rows []teamRuntimeRow, opts teamRuntimeListOptions) []teamRuntimeRow {
+	rows = limitTeamRuntimeRowsByLatestStarted(rows, opts.Limit)
+	sortMode := opts.Sort
+	if opts.Limit > 0 && !opts.SortSet {
+		sortMode = teamRuntimeSortStarted
+	}
+	sortTeamRuntimeRows(rows, sortMode)
+	return rows
+}
+
+func limitTeamRuntimeRowsByLatestStarted(rows []teamRuntimeRow, limit int) []teamRuntimeRow {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	out := append([]teamRuntimeRow(nil), rows...)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if !a.startedAt.Equal(b.startedAt) {
+			return psTimeAfter(a.startedAt, b.startedAt)
+		}
+		return a.Instance < b.Instance
+	})
+	return out[:limit]
+}
+
+func sortTeamRuntimeRows(rows []teamRuntimeRow, mode teamRuntimeSortMode) {
+	if mode == "" {
+		mode = teamRuntimeSortInstance
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		switch mode {
+		case teamRuntimeSortStatus:
+			if a.Status != b.Status {
+				return a.Status < b.Status
+			}
+		case teamRuntimeSortRuntime:
+			if a.Runtime != b.Runtime {
+				return a.Runtime < b.Runtime
+			}
+		case teamRuntimeSortAgent:
+			if a.Agent != b.Agent {
+				return a.Agent < b.Agent
+			}
+		case teamRuntimeSortRuntimeStale:
+			if a.RuntimeStale != b.RuntimeStale {
+				return a.RuntimeStale
+			}
+		case teamRuntimeSortUnhealthy:
+			if a.Unhealthy != b.Unhealthy {
+				return a.Unhealthy
+			}
+		case teamRuntimeSortJob:
+			if a.Job != b.Job {
+				return a.Job < b.Job
+			}
+		case teamRuntimeSortStarted:
+			if !a.startedAt.Equal(b.startedAt) {
+				return psTimeAfter(a.startedAt, b.startedAt)
+			}
+		case teamRuntimeSortStopped:
+			if !a.stoppedAt.Equal(b.stoppedAt) {
+				return psTimeAfter(a.stoppedAt, b.stoppedAt)
+			}
+		case teamRuntimeSortExited:
+			if !a.exitedAt.Equal(b.exitedAt) {
+				return psTimeAfter(a.exitedAt, b.exitedAt)
+			}
+		}
+		return a.Instance < b.Instance
+	})
+}
+
+func summarizeTeamRuntimeRows(rows []teamRuntimeRow) teamRuntimeSummary {
+	out := teamRuntimeSummary{Runtimes: map[string]int{}, Agents: map[string]int{}}
+	out.Total = len(rows)
+	for _, row := range rows {
+		switch row.Status {
+		case string(daemon.StatusRunning):
+			out.Running++
+		case string(daemon.StatusStopped):
+			out.Stopped++
+		case string(daemon.StatusExited):
+			out.Exited++
+		case string(daemon.StatusCrashed):
+			out.Crashed++
+		default:
+			out.Unknown++
+		}
+		if row.RuntimeStale {
+			out.RuntimeStale++
+		}
+		if row.Unhealthy {
+			out.Unhealthy++
+		}
+		if strings.TrimSpace(row.Job) != "" {
+			out.WithJob++
+		}
+		out.Runtimes[emptyUnknown(row.Runtime)]++
+		out.Agents[emptyUnknown(row.Agent)]++
+	}
+	return out
+}
+
+func emptyUnknown(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func renderTeamRuntimeRows(w io.Writer, rows []teamRuntimeRow) error {
+	if len(rows) == 0 {
+		fmt.Fprintln(w, "(no runtime metadata)")
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tRUNTIME\tSTATUS\tPID\tSTALE\tJOB\tAGE")
+	for _, row := range rows {
+		pid := "-"
+		if row.PID > 0 {
+			pid = strconv.Itoa(row.PID)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.Instance,
+			emptyDash(row.Agent),
+			emptyDash(row.Runtime),
+			emptyDash(row.Status),
+			pid,
+			yesNo(row.RuntimeStale),
+			emptyDash(row.Job),
+			row.Age,
+		)
+	}
+	return tw.Flush()
+}
+
+func renderTeamRuntimeSummary(w io.Writer, summary teamRuntimeSummary) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "STATUS\tCOUNT")
+	fmt.Fprintf(tw, "running\t%d\n", summary.Running)
+	fmt.Fprintf(tw, "stopped\t%d\n", summary.Stopped)
+	fmt.Fprintf(tw, "exited\t%d\n", summary.Exited)
+	fmt.Fprintf(tw, "crashed\t%d\n", summary.Crashed)
+	fmt.Fprintf(tw, "unknown\t%d\n", summary.Unknown)
+	fmt.Fprintf(tw, "runtime_stale\t%d\n", summary.RuntimeStale)
+	fmt.Fprintf(tw, "unhealthy\t%d\n", summary.Unhealthy)
+	fmt.Fprintf(tw, "with_job\t%d\n", summary.WithJob)
+	fmt.Fprintf(tw, "total\t%d\n", summary.Total)
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "RUNTIME\tCOUNT")
+	for _, runtime := range sortedCountKeys(summary.Runtimes) {
+		fmt.Fprintf(tw, "%s\t%d\n", runtime, summary.Runtimes[runtime])
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "AGENT\tCOUNT")
+	for _, agent := range sortedCountKeys(summary.Agents) {
+		fmt.Fprintf(tw, "%s\t%d\n", agent, summary.Agents[agent])
+	}
+	return tw.Flush()
+}
+
+func renderTeamRuntimeFormat(w io.Writer, rows []teamRuntimeRow, tmpl *template.Template) error {
+	for _, row := range rows {
+		if err := tmpl.Execute(w, row); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newTeamResumePlanCmd() *cobra.Command {

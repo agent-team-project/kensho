@@ -8903,7 +8903,38 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team team runtime ls` - List daemon runtime metadata owned by one team.
 - `agent-team team runtime resume-plan` - Show runtime resume and fallback commands for one team.
+
+## `agent-team team runtime ls`
+
+List daemon runtime metadata owned by one team.
+
+List daemon-known runtime metadata owned by one declared team, including persistent members and live ephemeral children.
+
+```text
+agent-team team runtime ls <team> [flags]
+```
+
+Aliases: `list`, `ps`
+
+Flags:
+
+```text
+      --agent strings      Only show team-owned metadata for this agent. Can repeat or comma-separate.
+      --format string      Render each team runtime row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.
+      --instance strings   Only show team-owned metadata with this instance name. Can repeat or comma-separate.
+      --json               Emit team runtime metadata as JSON.
+  -n, --last int           Show only the N most recently started team-owned runtime records after other filters (0 = all).
+  -l, --latest             Show only the most recently started team-owned runtime record after other filters.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --runtime strings    Only show team-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime-stale      Only show team-owned running metadata whose recorded runtime PID is no longer live.
+      --sort string        Sort team runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
+      --status strings     Only show team-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
+      --summary            Summarize matching team-owned runtime metadata by status, runtime, and agent.
+      --unhealthy          Only show crashed or runtime-stale team-owned metadata.
+```
 
 ## `agent-team team runtime resume-plan`
 

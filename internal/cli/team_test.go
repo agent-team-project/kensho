@@ -2480,6 +2480,172 @@ instances = ["worker"]
 	}
 }
 
+func TestTeamRuntimeLsScopesFiltersAndSummary(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.platform-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[teams.platform]
+instances = ["platform-worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, meta := range []*daemon.Metadata{
+		{Instance: "manager", Agent: "manager", Runtime: string(runtimebin.KindClaude), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now.Add(-4 * time.Minute)},
+		{Instance: "worker-squ-901", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Job: "squ-901", Ticket: "SQU-901", Workspace: root, StartedAt: now.Add(-3 * time.Minute)},
+		{Instance: "worker-squ-902", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusCrashed, Workspace: root, StartedAt: now.Add(-2 * time.Minute), ExitedAt: now.Add(-time.Minute)},
+		{Instance: "platform-worker-1", Agent: "worker", Runtime: string(runtimebin.KindCodex), Status: daemon.StatusRunning, PID: os.Getpid(), Workspace: root, StartedAt: now},
+	} {
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write metadata %s: %v", meta.Instance, err)
+		}
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "runtime", "ls", "delivery", "--repo", root, "--runtime", "codex", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team runtime ls: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []teamRuntimeRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team runtime rows: %v\nbody=%s", err, out.String())
+	}
+	if got := teamRuntimeRowInstances(rows); strings.Join(got, ",") != "worker-squ-901,worker-squ-902" {
+		t.Fatalf("team runtime rows = %v, want delivery Codex workers only", got)
+	}
+
+	summaryCmd := NewRootCmd()
+	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	summaryCmd.SetOut(summaryOut)
+	summaryCmd.SetErr(summaryErr)
+	summaryCmd.SetArgs([]string{"team", "runtime", "ls", "delivery", "--repo", root, "--runtime", "codex", "--summary", "--json"})
+	if err := summaryCmd.Execute(); err != nil {
+		t.Fatalf("team runtime summary: %v\nstderr=%s", err, summaryErr.String())
+	}
+	var summary teamRuntimeSummary
+	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
+		t.Fatalf("decode team runtime summary: %v\nbody=%s", err, summaryOut.String())
+	}
+	if summary.Total != 2 || summary.Running != 1 || summary.Crashed != 1 || summary.WithJob != 1 || summary.Runtimes["codex"] != 2 || summary.Agents["worker"] != 2 {
+		t.Fatalf("team runtime summary = %+v", summary)
+	}
+
+	latestCmd := NewRootCmd()
+	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
+	latestCmd.SetOut(latestOut)
+	latestCmd.SetErr(latestErr)
+	latestCmd.SetArgs([]string{"team", "runtime", "ls", "delivery", "--repo", root, "--latest", "--json"})
+	if err := latestCmd.Execute(); err != nil {
+		t.Fatalf("team runtime latest: %v\nstderr=%s", err, latestErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(latestOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode team runtime latest: %v\nbody=%s", err, latestOut.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "worker-squ-902" {
+		t.Fatalf("latest runtime rows = %+v, want newest delivery-owned metadata", rows)
+	}
+
+	formatCmd := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatCmd.SetOut(formatOut)
+	formatCmd.SetErr(formatErr)
+	formatCmd.SetArgs([]string{"team", "runtime", "ls", "delivery", "--repo", root, "--last", "2", "--sort", "started", "--format", "{{.Instance}}"})
+	if err := formatCmd.Execute(); err != nil {
+		t.Fatalf("team runtime format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if got := strings.Join(strings.Split(strings.TrimSpace(formatOut.String()), "\n"), ","); got != "worker-squ-902,worker-squ-901" {
+		t.Fatalf("team runtime format output = %q", formatOut.String())
+	}
+
+	unhealthyCmd := NewRootCmd()
+	unhealthyOut, unhealthyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	unhealthyCmd.SetOut(unhealthyOut)
+	unhealthyCmd.SetErr(unhealthyErr)
+	unhealthyCmd.SetArgs([]string{"team", "runtime", "ls", "delivery", "--repo", root, "--unhealthy", "--json"})
+	if err := unhealthyCmd.Execute(); err != nil {
+		t.Fatalf("team runtime unhealthy: %v\nstderr=%s", err, unhealthyErr.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(unhealthyOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode unhealthy runtime rows: %v\nbody=%s", err, unhealthyOut.String())
+	}
+	if len(rows) != 1 || rows[0].Instance != "worker-squ-902" || !rows[0].Unhealthy {
+		t.Fatalf("unhealthy runtime rows = %+v", rows)
+	}
+}
+
+func TestTeamRuntimeLsRejectsInvalidModes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "format with json",
+			args: []string{"team", "runtime", "ls", "delivery", "--format", "{{.Instance}}", "--json"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "format with summary",
+			args: []string{"team", "runtime", "ls", "delivery", "--format", "{{.Instance}}", "--summary"},
+			want: "--format cannot be combined",
+		},
+		{
+			name: "negative last",
+			args: []string{"team", "runtime", "ls", "delivery", "--last", "-1"},
+			want: "--last must be >= 0",
+		},
+		{
+			name: "latest and last",
+			args: []string{"team", "runtime", "ls", "delivery", "--latest", "--last", "1"},
+			want: "choose one of --latest or --last",
+		},
+		{
+			name: "bad sort",
+			args: []string{"team", "runtime", "ls", "delivery", "--sort", "memory"},
+			want: "unknown --sort",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("team runtime invalid mode succeeded: stdout=%s", out.String())
+			}
+			var code ExitCode
+			if !errors.As(err, &code) || int(code) != 2 {
+				t.Fatalf("team runtime err = %v, want exit code 2", err)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestTeamPsFiltersByRuntime(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)
@@ -12237,6 +12403,14 @@ func statsJSONRowNames(rows []statsJSONRow) []string {
 }
 
 func psJSONRowNames(rows []psJSONRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Instance)
+	}
+	return out
+}
+
+func teamRuntimeRowInstances(rows []teamRuntimeRow) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.Instance)
