@@ -738,6 +738,69 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestTemplateSmokeStrictEnablesStrictRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		switch bin {
+		case "claude":
+			return "/usr/local/bin/claude", nil
+		case "missing-codex":
+			return "", exec.ErrNotFound
+		default:
+			t.Fatalf("unexpected runtime lookup for %q", bin)
+			return "", exec.ErrNotFound
+		}
+	})
+	oldFind := findAgentTeamd
+	findAgentTeamd = func() (string, error) {
+		return "/usr/local/bin/agent-teamd", nil
+	}
+	defer func() { findAgentTeamd = oldFind }()
+
+	tmplDir := t.TempDir()
+	writeTinyTemplateFiles(t, tmplDir, "strict-smoke", "0.0.1", map[string]string{
+		"config.toml": `[team]
+pm_tool = "none"
+`,
+		"agents/worker/agent.md": `---
+description: Worker.
+runtime: codex
+runtime_bin: missing-codex
+---
+
+Worker prompt.
+`,
+	})
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"template", "smoke", tmplDir, "--strict", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected template smoke --strict to fail on missing agent runtime")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("template smoke --strict err = %v, want exit 1", err)
+	}
+	var result templateSmokeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode strict smoke json: %v\nbody=%s", err, out.String())
+	}
+	if result.OK || result.AgentDoctor == nil || result.AgentDoctor.OK || !hasAgentDoctorFinding(result.AgentDoctor.Problems, "agent_runtime_unavailable") {
+		t.Fatalf("template smoke --strict result = %+v", result)
+	}
+	if result.Doctor == nil || result.Doctor.OK || !containsDoctorMessage(result.Doctor.Problems, "agents:") {
+		t.Fatalf("template smoke --strict top-level doctor = %+v", result.Doctor)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("template smoke --strict --json stderr = %q", errOut.String())
+	}
+}
+
 func TestParseGitTemplateRef(t *testing.T) {
 	tests := []struct {
 		name     string

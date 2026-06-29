@@ -9926,6 +9926,7 @@ Flags:
       --json              Emit smoke results as JSON.
       --keep              Keep the temporary rendered repo for inspection.
       --set stringArray   Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.
+      --strict            Fail on daemon binary, selected/runtime-default binary, and template provenance warnings.
       --strict-daemon     Fail doctor when the companion agent-teamd binary is not discoverable.
       --strict-runtime    Fail doctor when the selected LLM runtime binary or pipeline/team step and agent runtime defaults are not discoverable.
       --strict-template   Fail doctor when rendered template provenance does not resolve cleanly.

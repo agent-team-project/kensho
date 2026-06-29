@@ -126,7 +126,8 @@ bin/agent-team template smoke ./template \
 ```
 
 Use `--commands` when the smoke reports warnings or failures and you want the
-rendered temp repo plus scoped follow-up doctor commands.
+rendered temp repo plus scoped follow-up doctor commands. Use `--strict` in CI
+when daemon, runtime, and template provenance warnings should fail the smoke.
 
 ## Code Areas
 
