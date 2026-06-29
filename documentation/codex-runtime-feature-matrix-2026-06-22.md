@@ -105,6 +105,13 @@ triage, pipeline status, overview/next hints, and the drain loop.
    running with instance `manager` even though no live manager session existed.
    Health/triage later reported `running_without_instance`.
 
+   Status after follow-up: fixed. Direct `job step --status running` updates now
+   require an owning `--instance` unless `--force` is set, and `--advance`
+   records stopped or stale persistent targets as queued mailbox handoffs
+   instead of running work. Coverage: `TestJobStepRunningRequiresInstance`,
+   `TestJobStepAdvanceQueuesStoppedPersistentNextStep`, and
+   `TestEvent_PipelineQueuesStalePersistentTarget`.
+
 5. **Actual Codex job dispatch leaves weak post-mortem state for ephemeral workers.**
    `job dispatch doc-701 --workspace worktree` created the expected branch and
    worktree, and the daemon recorded dispatch/exit/remove events. After exit,

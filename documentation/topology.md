@@ -172,6 +172,8 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 
 Operators can intentionally bypass a stored step with `agent-team job step <job-id> <step-id> --skip`. The job records `status = "done"` and `skipped = true` on that step, so later `after` dependencies treat it as terminal while `job show` still surfaces the bypass.
 
+When an advance dispatch targets a persistent instance, `agent-team` only records the step as `running` if the daemon can message a live instance. If the persistent target is stopped or reconciles as stale, the daemon appends the dispatch payload to that instance mailbox and returns a queued outcome; the durable job step stays `queued` with the persistent instance name until the instance is started and drains its inbox. Manual edits that mark a step `running` also require `--instance` unless `--force` is supplied, which keeps ownerless running stages out of the normal operator path.
+
 ### Schedule field reference
 
 Schedules live under `[schedules.<name>]`. They publish a `schedule` event with payload `source = "schedule"` and `name = "<name>"`; keys under `[schedules.<name>.payload]` are merged into that payload.

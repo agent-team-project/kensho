@@ -13981,6 +13981,93 @@ func TestJobStepRunningRequiresInstance(t *testing.T) {
 	}
 }
 
+func TestJobStepAdvanceQueuesStoppedPersistentNextStep(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "agent-team-job-step-persistent-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-225",
+		Ticket:    "SQU-225",
+		Target:    "worker",
+		Kickoff:   "SQU-225: implement then review",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-225-implement", StartedAt: now.Add(-time.Minute)},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "step", "squ-225", "implement", "--status", "done", "--advance", "--repo", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job step --advance to stopped persistent target: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobAdvanceResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode advance result: %v\nbody=%s", err, out.String())
+	}
+	if result.Job == nil || result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusQueued || result.Step.Instance != "manager" || result.Job.Status != job.StatusQueued || result.Job.LastEvent != "advance_queued" {
+		t.Fatalf("advance result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-225")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Steps[1].Status != job.StatusQueued || updated.Steps[1].Instance != "manager" {
+		t.Fatalf("updated review step = %+v", updated.Steps[1])
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager mailbox: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"pipeline_step":"review"`) {
+		t.Fatalf("manager messages = %+v", messages)
+	}
+}
+
 func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
