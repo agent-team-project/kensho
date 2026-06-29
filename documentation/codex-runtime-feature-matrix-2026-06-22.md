@@ -252,7 +252,10 @@ triage, pipeline status, overview/next hints, and the drain loop.
     `agent-team runtime probe --runtime codex --exec --timeout 2m --output ...`
     run in this repo still failed because provider/GitHub DNS was unavailable,
     but the exec issue is now reported as `provider_unreachable` with DNS/proxy
-    remediation instead of generic `exec_failed`.
+    remediation instead of generic `exec_failed`. Follow-up action hints now
+    suppress additional Codex exec/socket/run probes when `codex doctor` or the
+    exec probe already identifies provider reachability or authentication as the
+    blocker.
 
 ## Feature Notes
 

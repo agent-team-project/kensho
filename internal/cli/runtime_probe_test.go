@@ -155,6 +155,13 @@ func TestRuntimeProbeCodexDoctorFailureJSON(t *testing.T) {
 	if !containsString(result.Actions, "codex doctor --summary") {
 		t.Fatalf("actions = %+v, want codex doctor hint", result.Actions)
 	}
+	for _, disallowed := range []string{"agent-team runtime probe --runtime codex --exec", "agent-team run manager --runtime codex"} {
+		for _, action := range result.Actions {
+			if strings.Contains(action, disallowed) {
+				t.Fatalf("actions = %+v, should not suggest Codex execution while provider is unreachable", result.Actions)
+			}
+		}
+	}
 }
 
 func TestRuntimeProbeSkipDoctorWarningsDoNotFail(t *testing.T) {
@@ -338,6 +345,30 @@ func TestRuntimeProbeActionsSkipCodexExecutionWhenUnavailable(t *testing.T) {
 		for _, action := range actions {
 			if strings.Contains(action, disallowed) {
 				t.Fatalf("actions = %+v, should not include unavailable Codex action containing %q", actions, disallowed)
+			}
+		}
+	}
+}
+
+func TestRuntimeProbeActionsSuppressCodexExecutionWhenAuthBlocked(t *testing.T) {
+	result := &runtimeProbeResult{
+		Runtime: runtimeInfo{Runtime: "codex", Binary: "codex", Available: true},
+		Issues: []runtimeProbeIssue{{
+			Severity: "fail",
+			Source:   "codex_doctor",
+			ID:       "auth.credentials",
+			Summary:  "Codex login required",
+		}},
+	}
+
+	actions := runtimeProbeActions(result)
+	if !containsString(actions, "codex doctor --summary") {
+		t.Fatalf("actions = %+v, want codex doctor hint", actions)
+	}
+	for _, disallowed := range []string{"agent-team runtime probe --runtime codex --exec", "agent-team run manager --runtime codex"} {
+		for _, action := range actions {
+			if strings.Contains(action, disallowed) {
+				t.Fatalf("actions = %+v, should not include blocked Codex action containing %q", actions, disallowed)
 			}
 		}
 	}
@@ -1142,6 +1173,13 @@ func TestRuntimeProbeCodexExecProbeFailure(t *testing.T) {
 	}
 	if !containsRuntimeProbeIssue(result.Issues, "fail", "exec_probe", "provider_unreachable") {
 		t.Fatalf("issues = %+v, want provider reachability failure", result.Issues)
+	}
+	for _, disallowed := range []string{"agent-team runtime probe --runtime codex --exec", "agent-team run manager --runtime codex"} {
+		for _, action := range result.Actions {
+			if strings.Contains(action, disallowed) {
+				t.Fatalf("actions = %+v, should not suggest more Codex execution after provider failure", result.Actions)
+			}
+		}
 	}
 }
 

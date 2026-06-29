@@ -968,18 +968,20 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 	}
 	if result.Runtime.Runtime == string(runtimebin.KindCodex) && result.Runtime.Available {
 		add("codex doctor --summary")
-		if result.ExecProbe == nil {
-			add("agent-team runtime probe --runtime codex --exec --timeout 2m")
+		if !runtimeProbeCodexExecutionBlocked(result) {
+			if result.ExecProbe == nil {
+				add("agent-team runtime probe --runtime codex --exec --timeout 2m")
+			}
+			if result.Daemon != nil && result.Daemon.Ready && result.Daemon.HTTPURL != "" && (result.ExecProbe == nil || !result.ExecProbe.HTTPCheck) {
+				add("agent-team runtime probe --runtime codex --exec-http-check --timeout 2m")
+			} else if result.Daemon != nil && result.Daemon.Ready && (result.ExecProbe == nil || !result.ExecProbe.SocketCheck) {
+				add("agent-team runtime probe --runtime codex --exec-socket-check --timeout 2m")
+			}
+			if result.Daemon == nil || !result.Daemon.Ready || result.Daemon.HTTPURL == "" {
+				add("agent-team runtime probe --runtime codex --start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m")
+			}
+			add("agent-team run manager --runtime codex --prompt \"probe\" --last-message")
 		}
-		if result.Daemon != nil && result.Daemon.Ready && result.Daemon.HTTPURL != "" && (result.ExecProbe == nil || !result.ExecProbe.HTTPCheck) {
-			add("agent-team runtime probe --runtime codex --exec-http-check --timeout 2m")
-		} else if result.Daemon != nil && result.Daemon.Ready && (result.ExecProbe == nil || !result.ExecProbe.SocketCheck) {
-			add("agent-team runtime probe --runtime codex --exec-socket-check --timeout 2m")
-		}
-		if result.Daemon == nil || !result.Daemon.Ready || result.Daemon.HTTPURL == "" {
-			add("agent-team runtime probe --runtime codex --start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m")
-		}
-		add("agent-team run manager --runtime codex --prompt \"probe\" --last-message")
 	}
 	actions := make([]string, 0, len(added))
 	for action := range added {
@@ -991,6 +993,33 @@ func runtimeProbeActions(result *runtimeProbeResult) []string {
 
 func runtimeProbeRuntimeUnavailable(result *runtimeProbeResult) bool {
 	return result != nil && strings.TrimSpace(result.Runtime.Runtime) != "" && !result.Runtime.Available
+}
+
+func runtimeProbeCodexExecutionBlocked(result *runtimeProbeResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, issue := range result.Issues {
+		source := strings.ToLower(strings.TrimSpace(issue.Source))
+		id := strings.ToLower(strings.TrimSpace(issue.ID))
+		summary := strings.ToLower(strings.TrimSpace(issue.Summary))
+		if source == "exec_probe" && (id == "provider_unreachable" || id == "auth_failed") {
+			return true
+		}
+		if source != "codex_doctor" {
+			continue
+		}
+		if strings.Contains(id, "provider") || strings.Contains(id, "auth") {
+			return true
+		}
+		if strings.Contains(summary, "provider") && (strings.Contains(summary, "unreachable") || strings.Contains(summary, "reachability")) {
+			return true
+		}
+		if strings.Contains(summary, "auth") || strings.Contains(summary, "login") || strings.Contains(summary, "credential") {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeProbeMissingBinaryRemediation(info runtimeInfo) string {

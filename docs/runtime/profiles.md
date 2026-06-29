@@ -66,9 +66,11 @@ specifically verifying that commands inside the Codex sandbox can reach
 `agent-teamd` through `AGENT_TEAM_DAEMON_SOCKET`; it implies `--exec` and
 `--require-daemon`, and combines naturally with `--start-daemon`. Runtime probe
 action hints recommend HTTP checks first when the daemon exposes a URL and fall
-back to socket checks when it does not. Add `--output <file>` to write the full
-structured probe result as pretty JSON while still printing the normal text or
-`--json` response.
+back to socket checks when it does not. When `codex doctor` or an exec probe
+already identifies provider reachability or authentication as the blocker,
+action hints stop recommending additional Codex executions until that blocker is
+fixed. Add `--output <file>` to write the full structured probe result as pretty
+JSON while still printing the normal text or `--json` response.
 Exec probe failures are classified into actionable IDs such as
 `provider_unreachable`, `auth_failed`, `sandbox_blocked`, `socket_check_failed`,
 `http_check_failed`, `exec_timeout`, and last-message sidecar failures.
