@@ -2281,6 +2281,7 @@ agent-team job graph <job-id> [flags]
 Flags:
 
 ```text
+      --commands        Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string   Graph output format: text, mermaid, or dot. (default "text")
       --json            Emit graph nodes and edges as JSON.
       --repo string     Repo root containing .agent_team. (default "<repo>")
@@ -4696,6 +4697,7 @@ agent-team pipeline graph <pipeline> [flags]
 Flags:
 
 ```text
+      --commands        Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.
       --format string   Graph output format: text, mermaid, or dot. (default "text")
       --job string      Overlay durable job step state on the declared pipeline graph.
       --json            Emit graph nodes and edges as JSON.

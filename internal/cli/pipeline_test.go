@@ -687,6 +687,32 @@ after = ["implement"]
 	if !containsString(byID["review"].Actions, wantAction) {
 		t.Fatalf("review actions = %+v, want %q", byID["review"].Actions, wantAction)
 	}
+
+	wantScoped := strings.Join(scopedOperatorActions([]string{wantAction}, operatorCommandScope{Repo: root, Set: true}), "\n") + "\n"
+
+	pipelineCommands := NewRootCmd()
+	pipelineCommandsOut, pipelineCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	pipelineCommands.SetOut(pipelineCommandsOut)
+	pipelineCommands.SetErr(pipelineCommandsErr)
+	pipelineCommands.SetArgs([]string{"pipeline", "graph", "ticket_to_pr", "--repo", root, "--job", "squ-952", "--commands"})
+	if err := pipelineCommands.Execute(); err != nil {
+		t.Fatalf("pipeline graph --commands: %v\nstderr=%s", err, pipelineCommandsErr.String())
+	}
+	if pipelineCommandsOut.String() != wantScoped {
+		t.Fatalf("pipeline graph --commands = %q, want %q", pipelineCommandsOut.String(), wantScoped)
+	}
+
+	jobCommands := NewRootCmd()
+	jobCommandsOut, jobCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jobCommands.SetOut(jobCommandsOut)
+	jobCommands.SetErr(jobCommandsErr)
+	jobCommands.SetArgs([]string{"job", "graph", "squ-952", "--repo", root, "--commands"})
+	if err := jobCommands.Execute(); err != nil {
+		t.Fatalf("job graph --commands: %v\nstderr=%s", err, jobCommandsErr.String())
+	}
+	if jobCommandsOut.String() != wantScoped {
+		t.Fatalf("job graph --commands = %q, want %q", jobCommandsOut.String(), wantScoped)
+	}
 }
 
 func TestPipelineGraphValidation(t *testing.T) {
@@ -696,6 +722,10 @@ func TestPipelineGraphValidation(t *testing.T) {
 	}{
 		{[]string{"pipeline", "graph", "ticket_to_pr", "--format", "svg"}, "--format must be text, mermaid, or dot"},
 		{[]string{"pipeline", "graph", "ticket_to_pr", "--format", "text", "--json"}, "--format cannot be combined with --json"},
+		{[]string{"pipeline", "graph", "ticket_to_pr", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"pipeline", "graph", "ticket_to_pr", "--commands", "--format", "text"}, "--commands cannot be combined with --format"},
+		{[]string{"job", "graph", "squ-1", "--commands", "--json"}, "--commands cannot be combined with --json"},
+		{[]string{"job", "graph", "squ-1", "--commands", "--format", "text"}, "--commands cannot be combined with --format"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()

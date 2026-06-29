@@ -6413,6 +6413,7 @@ func newJobGraphCmd() *cobra.Command {
 		graphFormat   string
 		includeRoutes bool
 		jsonOut       bool
+		commands      bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -6423,6 +6424,14 @@ func newJobGraphCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && cmd.Flags().Changed("format") {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job graph: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job graph: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && cmd.Flags().Changed("format") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job graph: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			format, err := parsePipelineGraphFormat(graphFormat)
@@ -6439,6 +6448,9 @@ func newJobGraphCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job graph: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderPipelineGraphCommands(cmd.OutOrStdout(), graph, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			}
 			return renderPipelineGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
@@ -6446,6 +6458,7 @@ func newJobGraphCmd() *cobra.Command {
 	cmd.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate step targets with matching agent.dispatch route instances.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.")
 	return cmd
 }
 

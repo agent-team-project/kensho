@@ -156,6 +156,7 @@ func newPipelineGraphCmd() *cobra.Command {
 		includeRoutes bool
 		jsonOut       bool
 		jobID         string
+		commands      bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -166,6 +167,14 @@ func newPipelineGraphCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonOut && cmd.Flags().Changed("format") {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline graph: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline graph: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && cmd.Flags().Changed("format") {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline graph: --commands cannot be combined with --format.")
 				return exitErr(2)
 			}
 			format, err := parsePipelineGraphFormat(graphFormat)
@@ -182,6 +191,9 @@ func newPipelineGraphCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline graph: %v\n", err)
 				return exitErr(1)
 			}
+			if commands {
+				return renderPipelineGraphCommands(cmd.OutOrStdout(), graph, operatorCommandScopeFromCommand(cmd, repo, "repo"))
+			}
 			return renderPipelineGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
@@ -190,6 +202,7 @@ func newPipelineGraphCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate step targets with matching agent.dispatch route instances.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
 	cmd.Flags().StringVar(&jobID, "job", "", "Overlay durable job step state on the declared pipeline graph.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.")
 	return cmd
 }
 
@@ -10837,6 +10850,18 @@ func renderPipelineGraph(w io.Writer, graph pipelineGraph, format pipelineGraphF
 		renderPipelineGraphText(w, graph)
 	}
 	return nil
+}
+
+func renderPipelineGraphCommands(w io.Writer, graph pipelineGraph, scope operatorCommandScope) error {
+	return renderActionCommands(w, scopedOperatorActions(pipelineGraphActionCommands(graph), scope))
+}
+
+func pipelineGraphActionCommands(graph pipelineGraph) []string {
+	var actions []string
+	for _, node := range graph.Nodes {
+		actions = append(actions, node.Actions...)
+	}
+	return commandActionsOnly(actions)
 }
 
 func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {

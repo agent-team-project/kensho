@@ -182,11 +182,13 @@ agent-team job explain squ-42
 agent-team job explain squ-42 --state ready --step review
 agent-team job watch squ-42 --state all
 agent-team job graph squ-42 --format mermaid --routes
+agent-team job graph squ-42 --commands
 ```
 
 Use `job graph <job-id>` when you want the same per-step state as
 `job explain` overlaid on the declared pipeline graph without looking up the
-pipeline name first. It supports text, Mermaid, DOT, and JSON output.
+pipeline name first. It supports text, Mermaid, DOT, JSON, and `--commands`
+output for scripts that should run the graph's recommended follow-up actions.
 
 ## Waiting For Jobs
 
