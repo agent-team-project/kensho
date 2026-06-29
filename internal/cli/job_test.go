@@ -5056,6 +5056,168 @@ func TestJobReconcileQueueUpdatesDeadJob(t *testing.T) {
 	}
 }
 
+func TestJobReconcileQueueFiltersByPipelineAndTargetAgent(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-111",
+			Ticket:    "SQU-111",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:        "ops-111",
+			Ticket:    "OPS-111",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:        "squ-112",
+			Ticket:    "SQU-112",
+			Target:    "manager",
+			Pipeline:  "ticket_to_pr",
+			Status:    job.StatusQueued,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	for _, item := range []*daemon.QueueItem{
+		{
+			ID:         "q-selected",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-111",
+			Payload: map[string]any{
+				"job_id": "squ-111",
+				"ticket": "SQU-111",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "selected spawn failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now,
+			DeadLetteredAt: now,
+		},
+		{
+			ID:         "q-other-pipeline",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-ops-111",
+			Payload: map[string]any{
+				"job_id": "ops-111",
+				"ticket": "OPS-111",
+				"target": "worker",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "other pipeline failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now,
+			DeadLetteredAt: now,
+		},
+		{
+			ID:         "q-other-target",
+			State:      daemon.QueueStateDead,
+			EventType:  "agent.dispatch",
+			Instance:   "manager",
+			InstanceID: "manager-squ-112",
+			Payload: map[string]any{
+				"job_id": "squ-112",
+				"ticket": "SQU-112",
+				"target": "manager",
+			},
+			Attempts:       daemon.MaxQueueAttempts,
+			LastError:      "other target failed",
+			QueuedAt:       now.Add(-time.Hour),
+			UpdatedAt:      now,
+			DeadLetteredAt: now,
+		},
+	} {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"job", "reconcile", "queue", "--repo", tmp, "--state", "dead", "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--dry-run", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("job reconcile queue scoped dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview []jobQueueReconcileResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode scoped queue dry-run: %v\nbody=%s", err, dryOut.String())
+	}
+	if len(preview) != 1 || preview[0].JobID != "squ-111" || preview[0].QueueID != "q-selected" || preview[0].After != job.StatusFailed || !preview[0].DryRun {
+		t.Fatalf("scoped queue preview = %+v", preview)
+	}
+	if strings.Contains(dryOut.String(), "ops-111") || strings.Contains(dryOut.String(), "squ-112") {
+		t.Fatalf("scoped queue dry-run leaked unselected jobs:\n%s", dryOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"job", "reconcile", "queue", "--repo", tmp, "--state", "dead", "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--dry-run", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("job reconcile queue scoped commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reconcile", "queue", "--repo", tmp, "--state", "dead", "--pipeline", "ticket_to_pr", "--target-agent", "worker"}), " ") + "\n"
+	if got := commandsOut.String(); got != wantCommand {
+		t.Fatalf("scoped queue commands = %q, want %q", got, wantCommand)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"job", "reconcile", "queue", "--repo", tmp, "--state", "dead", "--pipeline", "ticket_to_pr", "--target-agent", "worker", "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("job reconcile queue scoped apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var applied []jobQueueReconcileResult
+	if err := json.Unmarshal(applyOut.Bytes(), &applied); err != nil {
+		t.Fatalf("decode scoped queue apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if len(applied) != 1 || applied[0].JobID != "squ-111" || !applied[0].Changed {
+		t.Fatalf("scoped queue apply = %+v", applied)
+	}
+	for _, tc := range []struct {
+		id       string
+		status   job.Status
+		instance string
+	}{
+		{id: "squ-111", status: job.StatusFailed, instance: "worker-squ-111"},
+		{id: "ops-111", status: job.StatusQueued},
+		{id: "squ-112", status: job.StatusQueued},
+	} {
+		j, err := job.Read(teamDir, tc.id)
+		if err != nil {
+			t.Fatalf("read job %s: %v", tc.id, err)
+		}
+		if j.Status != tc.status || strings.TrimSpace(j.Instance) != tc.instance {
+			t.Fatalf("job %s = %+v, want status=%s instance=%q", tc.id, j, tc.status, tc.instance)
+		}
+	}
+}
+
 func TestJobReconcileStatusUpdatesOwningJob(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

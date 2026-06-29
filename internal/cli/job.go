@@ -7474,12 +7474,14 @@ func newJobReconcileStatusCmd() *cobra.Command {
 
 func newJobReconcileQueueCmd() *cobra.Command {
 	var (
-		repo     string
-		state    string
-		dryRun   bool
-		commands bool
-		jsonOut  bool
-		format   string
+		repo        string
+		state       string
+		pipeline    string
+		targetAgent string
+		dryRun      bool
+		commands    bool
+		jsonOut     bool
+		format      string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -7517,18 +7519,30 @@ func newJobReconcileQueueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			results, err := reconcileJobsFromQueue(teamDir, stateFilter, dryRun, time.Now().UTC())
+			jobs, err := job.List(teamDir)
+			if err != nil {
+				return err
+			}
+			jobs = filterJobTimeoutCandidates(jobs, jobTimeoutFilters{
+				Pipeline:    pipeline,
+				TargetAgent: targetAgent,
+			})
+			results, err := reconcileSelectedJobsFromQueue(teamDir, jobs, stateFilter, dryRun, time.Now().UTC())
 			if err != nil {
 				return err
 			}
 			if commands {
 				scope := operatorCommandScopeFromCommand(cmd, repo, "repo")
 				return renderJobReconcileApplyCommand(cmd.OutOrStdout(), jobQueueReconcileResultsHaveDryRunAction(results), jobReconcileApplyCommandOptions{
-					BaseArgs: []string{"agent-team", "job", "reconcile", "queue"},
-					Repo:     scope.Repo,
-					RepoSet:  scope.Set,
-					State:    stateFilter,
-					StateSet: cmd.Flags().Changed("state"),
+					BaseArgs:    []string{"agent-team", "job", "reconcile", "queue"},
+					Repo:        scope.Repo,
+					RepoSet:     scope.Set,
+					State:       stateFilter,
+					StateSet:    cmd.Flags().Changed("state"),
+					Pipeline:    pipeline,
+					PipelineSet: cmd.Flags().Changed("pipeline"),
+					TargetAgent: targetAgent,
+					TargetSet:   cmd.Flags().Changed("target-agent"),
 				})
 			}
 			return renderJobQueueReconcileResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
@@ -7536,6 +7550,8 @@ func newJobReconcileQueueCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&state, "state", queuePruneStateAll, "Queue state to reconcile: pending, dead, or all.")
+	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Only reconcile jobs owned by this pipeline.")
+	cmd.Flags().StringVar(&targetAgent, "target-agent", "", "Only reconcile jobs targeting this agent.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job updates without writing them.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching job reconcile queue apply command when the preview has actionable work.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -11677,11 +11693,15 @@ func parseJobQueueReconcileState(raw string) (string, error) {
 }
 
 func reconcileJobsFromQueue(teamDir, state string, dryRun bool, now time.Time) ([]jobQueueReconcileResult, error) {
-	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	jobs, err := job.List(teamDir)
 	if err != nil {
 		return nil, err
 	}
-	jobs, err := job.List(teamDir)
+	return reconcileSelectedJobsFromQueue(teamDir, jobs, state, dryRun, now)
+}
+
+func reconcileSelectedJobsFromQueue(teamDir string, jobs []*job.Job, state string, dryRun bool, now time.Time) ([]jobQueueReconcileResult, error) {
+	items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
 	}
