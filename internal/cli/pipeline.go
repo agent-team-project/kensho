@@ -3297,22 +3297,25 @@ func newPipelineCancelCmd() *cobra.Command {
 
 func newPipelineResumePlanCmd() *cobra.Command {
 	var (
-		repo          string
-		stepID        string
-		statusFilters []string
-		runtimeFilter []string
-		actionFilters []string
-		sortBy        string
-		limit         int
-		staleOnly     bool
-		runtimeStale  bool
-		unhealthyOnly bool
-		summary       bool
-		commandsOnly  bool
-		lastMessage   bool
-		jsonOut       bool
-		all           bool
-		format        string
+		repo           string
+		stepID         string
+		statusFilters  []string
+		runtimeFilter  []string
+		actionFilters  []string
+		sortBy         string
+		limit          int
+		staleOnly      bool
+		runtimeStale   bool
+		unhealthyOnly  bool
+		managedOnly    bool
+		canManagedOnly bool
+		directOnly     bool
+		summary        bool
+		commandsOnly   bool
+		lastMessage    bool
+		jsonOut        bool
+		all            bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -3380,7 +3383,12 @@ func newPipelineResumePlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := collectPipelineRuntimeResumePlans(teamDir, pipelineName, stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly)
+			capabilityFilters := runtimeResumeCapabilityFilters{
+				ManagedOnly:    managedOnly,
+				CanManagedOnly: canManagedOnly,
+				DirectOnly:     directOnly,
+			}
+			plans, err := collectPipelineRuntimeResumePlans(teamDir, pipelineName, stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly, capabilityFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline resume-plan: %v\n", err)
 				return exitErr(1)
@@ -3424,6 +3432,9 @@ func newPipelineResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
+	cmd.Flags().BoolVar(&managedOnly, "managed", false, "Only include runtimes whose adapter supports daemon-managed resume.")
+	cmd.Flags().BoolVar(&canManagedOnly, "can-managed", false, "Only include runtimes with enough session metadata for daemon-managed resume.")
+	cmd.Flags().BoolVar(&directOnly, "direct", false, "Only include runtimes with a direct runtime resume command.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching pipeline resume plans by recommended action, runtime, and status.")
 	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.")
@@ -8493,7 +8504,7 @@ func runPipelinePsFormatWatch(ctx context.Context, w io.Writer, teamDir, pipelin
 	}
 }
 
-func collectPipelineRuntimeResumePlans(teamDir, pipeline string, stepFilter string, statusFilters []string, runtimeFilters []string, actionFilters []string, staleOnly bool, unhealthyOnly bool) ([]runtimeResumePlan, error) {
+func collectPipelineRuntimeResumePlans(teamDir, pipeline string, stepFilter string, statusFilters []string, runtimeFilters []string, actionFilters []string, staleOnly bool, unhealthyOnly bool, capabilityFilters runtimeResumeCapabilityFilters) ([]runtimeResumePlan, error) {
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
@@ -8543,6 +8554,9 @@ func collectPipelineRuntimeResumePlans(teamDir, pipeline string, stepFilter stri
 			continue
 		}
 		if unhealthyOnly && !runtimeResumePlanUnhealthy(plan) {
+			continue
+		}
+		if !capabilityFilters.Matches(plan) {
 			continue
 		}
 		plans = append(plans, plan)

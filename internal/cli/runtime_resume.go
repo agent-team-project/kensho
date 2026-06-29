@@ -62,6 +62,12 @@ type runtimeResumeCommandOptions struct {
 	LastMessage bool
 }
 
+type runtimeResumeCapabilityFilters struct {
+	ManagedOnly    bool
+	CanManagedOnly bool
+	DirectOnly     bool
+}
+
 func newResumePlanCmd() *cobra.Command {
 	return newRuntimeResumePlanCommand(runtimeResumePlanCommandConfig{
 		Use:       "resume-plan [<instance>...]",
@@ -94,22 +100,25 @@ type runtimeResumePlanCommandConfig struct {
 
 func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Command {
 	var (
-		target        string
-		jobID         string
-		stepID        string
-		statusFilters []string
-		runtimeFilter []string
-		actionFilters []string
-		sortBy        string
-		limit         int
-		staleOnly     bool
-		runtimeStale  bool
-		unhealthyOnly bool
-		summary       bool
-		commandsOnly  bool
-		lastMessage   bool
-		jsonOut       bool
-		format        string
+		target         string
+		jobID          string
+		stepID         string
+		statusFilters  []string
+		runtimeFilter  []string
+		actionFilters  []string
+		sortBy         string
+		limit          int
+		staleOnly      bool
+		runtimeStale   bool
+		unhealthyOnly  bool
+		managedOnly    bool
+		canManagedOnly bool
+		directOnly     bool
+		summary        bool
+		commandsOnly   bool
+		lastMessage    bool
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -164,7 +173,12 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 			if err != nil {
 				return err
 			}
-			plans, err := collectRuntimeResumePlans(teamDir, args, jobID, stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly)
+			capabilityFilters := runtimeResumeCapabilityFilters{
+				ManagedOnly:    managedOnly,
+				CanManagedOnly: canManagedOnly,
+				DirectOnly:     directOnly,
+			}
+			plans, err := collectRuntimeResumePlans(teamDir, args, jobID, stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly, capabilityFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", cfg.ErrorName, err)
 				return exitErr(1)
@@ -213,6 +227,9 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
+	cmd.Flags().BoolVar(&managedOnly, "managed", false, "Only include runtimes whose adapter supports daemon-managed resume.")
+	cmd.Flags().BoolVar(&canManagedOnly, "can-managed", false, "Only include runtimes with enough session metadata for daemon-managed resume.")
+	cmd.Flags().BoolVar(&directOnly, "direct", false, "Only include runtimes with a direct runtime resume command.")
 	cmd.Flags().BoolVar(&summary, "summary", false, cfg.SummaryHelp)
 	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.")
@@ -223,21 +240,24 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 
 func newJobResumePlanCmd() *cobra.Command {
 	var (
-		repo          string
-		stepID        string
-		statusFilters []string
-		runtimeFilter []string
-		actionFilters []string
-		sortBy        string
-		limit         int
-		staleOnly     bool
-		runtimeStale  bool
-		unhealthyOnly bool
-		summary       bool
-		commandsOnly  bool
-		lastMessage   bool
-		jsonOut       bool
-		format        string
+		repo           string
+		stepID         string
+		statusFilters  []string
+		runtimeFilter  []string
+		actionFilters  []string
+		sortBy         string
+		limit          int
+		staleOnly      bool
+		runtimeStale   bool
+		unhealthyOnly  bool
+		managedOnly    bool
+		canManagedOnly bool
+		directOnly     bool
+		summary        bool
+		commandsOnly   bool
+		lastMessage    bool
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -289,7 +309,12 @@ func newJobResumePlanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plans, err := collectRuntimeResumePlans(teamDir, nil, args[0], stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly)
+			capabilityFilters := runtimeResumeCapabilityFilters{
+				ManagedOnly:    managedOnly,
+				CanManagedOnly: canManagedOnly,
+				DirectOnly:     directOnly,
+			}
+			plans, err := collectRuntimeResumePlans(teamDir, nil, args[0], stepID, statusFilters, runtimeFilter, actionFilters, staleOnly || runtimeStale, unhealthyOnly, capabilityFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job resume-plan: %v\n", err)
 				return exitErr(1)
@@ -333,6 +358,9 @@ func newJobResumePlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only include running metadata whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only include crashed or stale running metadata.")
+	cmd.Flags().BoolVar(&managedOnly, "managed", false, "Only include runtimes whose adapter supports daemon-managed resume.")
+	cmd.Flags().BoolVar(&canManagedOnly, "can-managed", false, "Only include runtimes with enough session metadata for daemon-managed resume.")
+	cmd.Flags().BoolVar(&directOnly, "direct", false, "Only include runtimes with a direct runtime resume command.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Summarize matching resume plans by recommended action, runtime, and status.")
 	cmd.Flags().BoolVar(&commandsOnly, "commands", false, "Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.")
@@ -341,7 +369,7 @@ func newJobResumePlanCmd() *cobra.Command {
 	return cmd
 }
 
-func collectRuntimeResumePlans(teamDir string, instances []string, jobID string, stepFilter string, statusFilters []string, runtimeFilters []string, actionFilters []string, staleOnly bool, unhealthyOnly bool) ([]runtimeResumePlan, error) {
+func collectRuntimeResumePlans(teamDir string, instances []string, jobID string, stepFilter string, statusFilters []string, runtimeFilters []string, actionFilters []string, staleOnly bool, unhealthyOnly bool, capabilityFilters runtimeResumeCapabilityFilters) ([]runtimeResumePlan, error) {
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 	if err != nil {
 		return nil, err
@@ -427,12 +455,28 @@ func collectRuntimeResumePlans(teamDir string, instances []string, jobID string,
 		if unhealthyOnly && !runtimeResumePlanUnhealthy(plan) {
 			continue
 		}
+		if !capabilityFilters.Matches(plan) {
+			continue
+		}
 		plans = append(plans, plan)
 	}
 	sort.SliceStable(plans, func(i, j int) bool {
 		return plans[i].Instance < plans[j].Instance
 	})
 	return plans, nil
+}
+
+func (filters runtimeResumeCapabilityFilters) Matches(plan runtimeResumePlan) bool {
+	if filters.ManagedOnly && !plan.ManagedResume {
+		return false
+	}
+	if filters.CanManagedOnly && !plan.CanManagedResume {
+		return false
+	}
+	if filters.DirectOnly && !plan.DirectResume {
+		return false
+	}
+	return true
 }
 
 func runtimeResumePlanUnhealthy(plan runtimeResumePlan) bool {

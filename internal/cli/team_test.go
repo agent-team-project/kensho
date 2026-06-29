@@ -6803,6 +6803,45 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team resume-plan summary = %+v", counts)
 	}
 
+	managed := NewRootCmd()
+	managedOut, managedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	managed.SetOut(managedOut)
+	managed.SetErr(managedErr)
+	managed.SetArgs([]string{"team", "runtime", "resume-plan", "delivery", "--repo", root, "--managed", "--format", "{{.Instance}} {{.ManagedResume}} {{.CanManagedResume}} {{.DirectResume}}"})
+	if err := managed.Execute(); err != nil {
+		t.Fatalf("team runtime resume-plan --managed: %v\nstderr=%s", err, managedErr.String())
+	}
+	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
+		"manager true false false",
+		"worker-squ-902 true true true",
+	}, "\n"); got != want {
+		t.Fatalf("team managed resume-plan = %q, want %q", got, want)
+	}
+
+	canManaged := NewRootCmd()
+	canManagedOut, canManagedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	canManaged.SetOut(canManagedOut)
+	canManaged.SetErr(canManagedErr)
+	canManaged.SetArgs([]string{"team", "resume-plan", "delivery", "--repo", root, "--can-managed", "--format", "{{.Instance}} {{.RecommendedAction}}"})
+	if err := canManaged.Execute(); err != nil {
+		t.Fatalf("team resume-plan --can-managed: %v\nstderr=%s", err, canManagedErr.String())
+	}
+	if got, want := strings.TrimSpace(canManagedOut.String()), "worker-squ-902 start"; got != want {
+		t.Fatalf("team can-managed resume-plan = %q, want %q", got, want)
+	}
+
+	direct := NewRootCmd()
+	directOut, directErr := &bytes.Buffer{}, &bytes.Buffer{}
+	direct.SetOut(directOut)
+	direct.SetErr(directErr)
+	direct.SetArgs([]string{"team", "resume-plan", "delivery", "--repo", root, "--direct", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
+	if err := direct.Execute(); err != nil {
+		t.Fatalf("team resume-plan --direct: %v\nstderr=%s", err, directErr.String())
+	}
+	if got, want := strings.TrimSpace(directOut.String()), "worker-squ-902 true start"; got != want {
+		t.Fatalf("team direct resume-plan = %q, want %q", got, want)
+	}
+
 	step := NewRootCmd()
 	stepOut, stepErr := &bytes.Buffer{}, &bytes.Buffer{}
 	step.SetOut(stepOut)

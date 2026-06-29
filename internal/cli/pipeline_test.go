@@ -6098,6 +6098,45 @@ target = "worker"
 		t.Fatalf("pipeline resume-plan summary = %+v", counts)
 	}
 
+	managed := NewRootCmd()
+	managedOut, managedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	managed.SetOut(managedOut)
+	managed.SetErr(managedErr)
+	managed.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--managed", "--format", "{{.Instance}} {{.ManagedResume}} {{.CanManagedResume}} {{.DirectResume}}"})
+	if err := managed.Execute(); err != nil {
+		t.Fatalf("pipeline resume-plan --managed: %v\nstderr=%s", err, managedErr.String())
+	}
+	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
+		"manager-squ-940 true false false",
+		"worker-squ-942 true true true",
+	}, "\n"); got != want {
+		t.Fatalf("pipeline managed resume-plan = %q, want %q", got, want)
+	}
+
+	canManaged := NewRootCmd()
+	canManagedOut, canManagedErr := &bytes.Buffer{}, &bytes.Buffer{}
+	canManaged.SetOut(canManagedOut)
+	canManaged.SetErr(canManagedErr)
+	canManaged.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--can-managed", "--format", "{{.Instance}} {{.RecommendedAction}}"})
+	if err := canManaged.Execute(); err != nil {
+		t.Fatalf("pipeline resume-plan --can-managed: %v\nstderr=%s", err, canManagedErr.String())
+	}
+	if got, want := strings.TrimSpace(canManagedOut.String()), "worker-squ-942 start"; got != want {
+		t.Fatalf("pipeline can-managed resume-plan = %q, want %q", got, want)
+	}
+
+	direct := NewRootCmd()
+	directOut, directErr := &bytes.Buffer{}, &bytes.Buffer{}
+	direct.SetOut(directOut)
+	direct.SetErr(directErr)
+	direct.SetArgs([]string{"pipeline", "resume-plan", "ticket_to_pr", "--repo", root, "--direct", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
+	if err := direct.Execute(); err != nil {
+		t.Fatalf("pipeline resume-plan --direct: %v\nstderr=%s", err, directErr.String())
+	}
+	if got, want := strings.TrimSpace(directOut.String()), "worker-squ-942 true start"; got != want {
+		t.Fatalf("pipeline direct resume-plan = %q, want %q", got, want)
+	}
+
 	stale := NewRootCmd()
 	staleOut, staleErr := &bytes.Buffer{}, &bytes.Buffer{}
 	stale.SetOut(staleOut)

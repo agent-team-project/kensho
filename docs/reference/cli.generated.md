@@ -3265,11 +3265,14 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -5454,11 +5457,14 @@ Flags:
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
       --all               Plan runtime recovery across all pipelines. This is the default when no pipeline is passed.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -6525,12 +6531,15 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -6806,12 +6815,15 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --job string        Select the instance recorded on or associated with this job id.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
@@ -8767,11 +8779,14 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
@@ -8892,11 +8907,14 @@ Flags:
 
 ```text
       --action strings    Only include plans whose recommended action is start, attach, resume, or logs. Can repeat or comma-separate.
+      --can-managed       Only include runtimes with enough session metadata for daemon-managed resume.
       --commands          Print only recommended commands, one per line, after filtering, sorting, and limiting. agent-team follow-ups preserve the selected repo scope.
+      --direct            Only include runtimes with a direct runtime resume command.
       --format string     Render each plan with a Go template, e.g. '{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}'.
       --json              Emit machine-readable JSON.
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
+      --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.

@@ -247,6 +247,9 @@ agent-team resume-plan --status crashed --summary --json
 agent-team resume-plan --runtime-stale --summary
 agent-team resume-plan --unhealthy --sort stale --limit 10
 agent-team resume-plan --unhealthy --sort stale --limit 10 --commands
+agent-team resume-plan --managed
+agent-team resume-plan --can-managed --commands
+agent-team resume-plan --direct --action resume
 agent-team resume-plan --json
 agent-team runtime resume-plan --status crashed
 agent-team team resume-plan delivery --status crashed
@@ -274,8 +277,11 @@ running metadata, add `--sort instance|action|runtime|status|stale|job|pipeline|
 before rendering when a large recovery list needs stable grouping, add
 `--limit N` to cap rows after filtering and sorting, and add `--summary` to
 count matching plans by recommended action, runtime, lifecycle status, stale
-running metadata, and unhealthy metadata. Add `--commands` when scripts need
-only the recommended command lines after filtering, sorting, and limiting; any
+running metadata, and unhealthy metadata. Add `--managed` to inspect runtimes
+whose adapter supports daemon-managed resume, `--can-managed` when the metadata
+also has the session id needed for managed restart, or `--direct` when you only
+want rows with a direct runtime resume command. Add `--commands` when scripts
+need only the recommended command lines after filtering, sorting, and limiting; any
 `agent-team` follow-up preserves the selected `--repo` or `--target` scope, while
 direct runtime commands such as `codex resume <session>` remain unchanged.
 `--limit` cannot be combined with `--summary`.
