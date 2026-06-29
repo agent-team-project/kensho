@@ -6799,7 +6799,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
 		t.Fatalf("decode team runtime resume-plan summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if counts.Total != 2 || counts.Actions["logs"] != 2 || counts.Runtimes["claude"] != 1 || counts.Runtimes["codex"] != 1 || counts.Statuses["crashed"] != 2 || counts.ManagedResume != 1 || counts.CanManagedResume != 0 || counts.DirectResume != 0 {
+	if counts.Total != 2 || counts.Actions["logs"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 1 || counts.Runtimes["codex"] != 1 || counts.Statuses["crashed"] != 2 || counts.ManagedResume != 1 || counts.CanManagedResume != 1 || counts.DirectResume != 1 {
 		t.Fatalf("team resume-plan summary = %+v", counts)
 	}
 
@@ -6812,7 +6812,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team runtime resume-plan --managed: %v\nstderr=%s", err, managedErr.String())
 	}
 	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
-		"manager true false false",
+		"manager true true true",
 		"worker-squ-902 true true true",
 	}, "\n"); got != want {
 		t.Fatalf("team managed resume-plan = %q, want %q", got, want)
@@ -6826,7 +6826,10 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	if err := canManaged.Execute(); err != nil {
 		t.Fatalf("team resume-plan --can-managed: %v\nstderr=%s", err, canManagedErr.String())
 	}
-	if got, want := strings.TrimSpace(canManagedOut.String()), "worker-squ-902 start"; got != want {
+	if got, want := strings.TrimSpace(canManagedOut.String()), strings.Join([]string{
+		"manager start",
+		"worker-squ-902 start",
+	}, "\n"); got != want {
 		t.Fatalf("team can-managed resume-plan = %q, want %q", got, want)
 	}
 
@@ -6838,7 +6841,11 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	if err := direct.Execute(); err != nil {
 		t.Fatalf("team resume-plan --direct: %v\nstderr=%s", err, directErr.String())
 	}
-	if got, want := strings.TrimSpace(directOut.String()), "worker-squ-902 true start"; got != want {
+	if got, want := strings.TrimSpace(directOut.String()), strings.Join([]string{
+		"manager true start",
+		"worker-squ-901 true resume",
+		"worker-squ-902 true start",
+	}, "\n"); got != want {
 		t.Fatalf("team direct resume-plan = %q, want %q", got, want)
 	}
 
@@ -6875,7 +6882,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 		t.Fatalf("team runtime resume-plan unhealthy filter: %v\nstderr=%s", err, unhealthyErr.String())
 	}
 	if got, want := strings.TrimSpace(unhealthyOut.String()), strings.Join([]string{
-		"manager logs false",
+		"manager start false",
 		"worker-squ-900 logs false",
 		"worker-squ-902 start true",
 	}, "\n"); got != want {
@@ -6892,7 +6899,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(sortStaleOut.String()), strings.Join([]string{
 		"worker-squ-902 start true",
-		"manager logs false",
+		"manager start false",
 		"worker-squ-900 logs false",
 	}, "\n"); got != want {
 		t.Fatalf("team stale-sorted resume-plan = %q, want %q", got, want)
@@ -6920,7 +6927,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(commandsOut.String()), strings.Join([]string{
 		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", root, "worker-squ-902"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", root, "manager", "--follow"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", root, "manager"}), " "),
 	}, "\n"); got != want {
 		t.Fatalf("team commands resume-plan = %q, want %q", got, want)
 	}

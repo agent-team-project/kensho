@@ -1005,6 +1005,9 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.Total != 4 || overview.Runtime.Crashed != 3 || overview.Runtime.Exited != 1 {
 		t.Fatalf("runtime summary = %+v", overview.Runtime)
 	}
+	if overview.Runtime.ManagedResume != 2 || overview.Runtime.CanManagedResume != 1 || overview.Runtime.DirectResume != 2 {
+		t.Fatalf("runtime resume capability summary = %+v", overview.Runtime)
+	}
 	if !stringSliceContains(overview.Actions, "agent-team resume-plan --status crashed --sort action --limit 10") {
 		t.Fatalf("actions missing runtime resume plan: %+v", overview.Actions)
 	}
@@ -1043,6 +1046,9 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0") {
 		t.Fatalf("overview runtime text missing summary:\n%s", textOut.String())
 	}
+	if !strings.Contains(textOut.String(), "managed_resume=2 can_managed_resume=1 direct_resume=2") {
+		t.Fatalf("overview runtime text missing resume capability summary:\n%s", textOut.String())
+	}
 
 	team := NewRootCmd()
 	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1058,6 +1064,9 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	}
 	if teamOverview.Runtime.Total != 3 || teamOverview.Runtime.Crashed != 2 || teamOverview.Runtime.Exited != 1 {
 		t.Fatalf("team runtime summary = %+v", teamOverview.Runtime)
+	}
+	if teamOverview.Runtime.ManagedResume != 1 || teamOverview.Runtime.CanManagedResume != 1 || teamOverview.Runtime.DirectResume != 2 {
+		t.Fatalf("team runtime resume capability summary = %+v", teamOverview.Runtime)
 	}
 	if !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") {
 		t.Fatalf("team actions missing scoped runtime resume plan: %+v", teamOverview.Actions)
@@ -2242,9 +2251,9 @@ instances = ["manager", "worker"]
 	}
 	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusCrashed, Runtime: "claude", StartedAt: now.Add(-2 * time.Hour), ExitedAt: now.Add(-time.Hour)},
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusCrashed, Runtime: "claude", SessionID: "manager-session", StartedAt: now.Add(-2 * time.Hour), ExitedAt: now.Add(-time.Hour)},
 		{Instance: "worker-squ-900", Agent: "worker", Status: daemon.StatusCrashed, Runtime: "codex", StartedAt: now.Add(-90 * time.Minute), ExitedAt: now.Add(-30 * time.Minute)},
-		{Instance: "worker-squ-901", Agent: "worker", Status: daemon.StatusExited, Runtime: "codex", StartedAt: now.Add(-80 * time.Minute), ExitedAt: now.Add(-20 * time.Minute)},
+		{Instance: "worker-squ-901", Agent: "worker", Status: daemon.StatusExited, Runtime: "codex", SessionID: "worker-session", StartedAt: now.Add(-80 * time.Minute), ExitedAt: now.Add(-20 * time.Minute)},
 		{Instance: "support", Agent: "support", Status: daemon.StatusCrashed, Runtime: "claude", StartedAt: now.Add(-70 * time.Minute), ExitedAt: now.Add(-10 * time.Minute)},
 	} {
 		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {

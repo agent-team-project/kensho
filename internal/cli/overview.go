@@ -301,6 +301,9 @@ type overviewRuntimeSummary struct {
 	Crashed          int      `json:"crashed"`
 	Unknown          int      `json:"unknown"`
 	StaleRunning     int      `json:"stale_running,omitempty"`
+	ManagedResume    int      `json:"managed_resume,omitempty"`
+	CanManagedResume int      `json:"can_managed_resume,omitempty"`
+	DirectResume     int      `json:"direct_resume,omitempty"`
 	CrashedInstances []string `json:"crashed_instances,omitempty"`
 	StaleInstances   []string `json:"stale_instances,omitempty"`
 	CrashedPipelines []string `json:"crashed_pipelines,omitempty"`
@@ -650,6 +653,17 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata, jobs []*jobstore.Job)
 			continue
 		}
 		out.Total++
+		managedResume := lifecycleMetadataSupportsManagedResume(meta)
+		directResume := strings.TrimSpace(meta.SessionID) != ""
+		if managedResume {
+			out.ManagedResume++
+			if directResume {
+				out.CanManagedResume++
+			}
+		}
+		if directResume {
+			out.DirectResume++
+		}
 		switch meta.Status {
 		case daemon.StatusRunning:
 			out.Running++
@@ -1675,14 +1689,17 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 			result.Topology.PipelineProblems+result.Topology.TeamProblems,
 			result.Topology.PipelineWarnings+result.Topology.TeamWarnings)
 	}
-	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale_running=%d\n",
+	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale_running=%d managed_resume=%d can_managed_resume=%d direct_resume=%d\n",
 		result.Runtime.Total,
 		result.Runtime.Running,
 		result.Runtime.Stopped,
 		result.Runtime.Exited,
 		result.Runtime.Crashed,
 		result.Runtime.Unknown,
-		result.Runtime.StaleRunning)
+		result.Runtime.StaleRunning,
+		result.Runtime.ManagedResume,
+		result.Runtime.CanManagedResume,
+		result.Runtime.DirectResume)
 	fmt.Fprintf(w, "inbox: instances=%d total=%d unread=%d unread_instances=%d\n",
 		result.Inbox.Instances,
 		result.Inbox.Total,
