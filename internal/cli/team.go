@@ -7027,6 +7027,8 @@ func newTeamMonitorCmd() *cobra.Command {
 		plan             bool
 		jobs             bool
 		schedules        bool
+		summary          bool
+		resources        bool
 		stopExtras       bool
 		lastMessage      bool
 		commands         bool
@@ -7085,6 +7087,10 @@ func newTeamMonitorCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --stop-extras requires --plan.")
 				return exitErr(2)
 			}
+			if resources && !summary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --resources requires --summary.")
+				return exitErr(2)
+			}
 			if strings.TrimSpace(eventSince) != "" && eventTail == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --since requires --events.")
 				return exitErr(2)
@@ -7113,8 +7119,8 @@ func newTeamMonitorCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --commands cannot be combined with --watch.")
 				return exitErr(2)
 			}
-			if format != "" && jsonOut {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --format cannot be combined with --json.")
+			if format != "" && (jsonOut || summary) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --format cannot be combined with --json or --summary.")
 				return exitErr(2)
 			}
 			formatTemplate, err := parseMonitorFormat(format)
@@ -7167,6 +7173,7 @@ func newTeamMonitorCmd() *cobra.Command {
 			opts.IncludePlan = plan
 			opts.IncludeJobs = jobs
 			opts.IncludeSchedules = schedules
+			opts.IncludeResources = resources
 			opts.StopExtras = stopExtras
 			opts.PlanActions = planActions
 			opts.EventTail = eventTail
@@ -7184,6 +7191,9 @@ func newTeamMonitorCmd() *cobra.Command {
 					return runTeamMonitorFormatWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, time.Now, readProcessStats, opts, formatTemplate)
 				}
 				clear := !noClear && !jsonOut
+				if summary {
+					return runTeamMonitorSummaryWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, time.Now, readProcessStats, jsonOut, opts, clear)
+				}
 				return runTeamMonitorWatch(ctx, cmd.OutOrStdout(), teamDir, args[0], interval, time.Now, readProcessStats, jsonOut, opts, clear)
 			}
 			snapshot, err := collectTeamMonitorSnapshot(teamDir, args[0], time.Now().UTC(), readProcessStats, opts)
@@ -7192,6 +7202,9 @@ func newTeamMonitorCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if jsonOut {
+				if summary {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(teamMonitorSummaryFromSnapshot(snapshot, opts))
+				}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(snapshot)
 			}
 			if commands {
@@ -7207,6 +7220,10 @@ func newTeamMonitorCmd() *cobra.Command {
 					},
 				})
 			}
+			if summary {
+				renderTeamMonitorSummarySnapshot(cmd.OutOrStdout(), teamMonitorSummaryFromSnapshot(snapshot, opts))
+				return nil
+			}
 			if formatTemplate != nil {
 				return renderMonitorFormat(cmd.OutOrStdout(), snapshot, formatTemplate)
 			}
@@ -7220,6 +7237,8 @@ func newTeamMonitorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&plan, "plan", false, "Include team-scoped desired-state actions from instances.toml and daemon metadata.")
 	cmd.Flags().BoolVar(&jobs, "jobs", false, "Include team-owned durable job summary, attention, ready-step state, and status-file previews.")
 	cmd.Flags().BoolVar(&schedules, "schedules", false, "Include due and upcoming team schedules.")
+	cmd.Flags().BoolVar(&summary, "summary", false, "Show compact team health and optional plan summaries instead of the full team monitor.")
+	cmd.Flags().BoolVar(&resources, "resources", false, "With --summary, include aggregate CPU, memory, and RSS totals for team-owned instances.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "With --plan, preview running team-agent extras as stop actions.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recovery and apply commands from the visible team monitor sections, one per line. agent-team follow-ups preserve the selected repo scope.")

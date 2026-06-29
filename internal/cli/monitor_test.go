@@ -387,6 +387,98 @@ instances = ["build-worker"]
 	}
 }
 
+func setupTeamMonitorSummaryRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	for _, name := range []string{"manager", "worker"} {
+		if err := os.MkdirAll(filepath.Join(teamDir, "agents", name), 0o755); err != nil {
+			t.Fatalf("mkdir agent %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestTeamMonitorSummaryRendersCompactSnapshot(t *testing.T) {
+	root := setupTeamMonitorSummaryRepo(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--summary", "--resources", "--plan"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team monitor --summary: %v\nstderr=%s", err, stderr.String())
+	}
+	body := out.String()
+	for _, want := range []string{"Team: delivery", "health:", "runtime:", "resources:", "plan:"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("team monitor --summary missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "\ninstances:\n") {
+		t.Fatalf("team monitor --summary included full instance table:\n%s", body)
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--summary", "--resources", "--plan", "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("team monitor --summary --json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var snapshot teamMonitorSummarySnapshot
+	if err := json.Unmarshal(jsonOut.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode team monitor summary json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if snapshot.Team == nil || snapshot.Team.Name != "delivery" {
+		t.Fatalf("team summary identity = %+v", snapshot.Team)
+	}
+	if snapshot.Plan == nil || snapshot.Resources == nil || snapshot.Health == nil {
+		t.Fatalf("team summary missing health/plan/resources: %+v", snapshot)
+	}
+}
+
+func TestTeamMonitorSummaryCommands(t *testing.T) {
+	root := setupTeamMonitorSummaryRepo(t)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--summary", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("team monitor --summary --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	scope := operatorCommandScope{Repo: root, Set: true}
+	wantCommands := []string{
+		scopedOperatorAction("agent-team daemon start", scope),
+		scopedOperatorAction("agent-team team sync delivery --dry-run", scope),
+	}
+	for _, want := range wantCommands {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("team monitor --summary --commands missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "Team:") || strings.Contains(out.String(), "health:") {
+		t.Fatalf("team monitor --summary --commands included summary text:\n%s", out.String())
+	}
+}
+
 func TestMonitorCommandsRejectsIncompatibleOutputModes(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -397,6 +489,7 @@ func TestMonitorCommandsRejectsIncompatibleOutputModes(t *testing.T) {
 	}{
 		{name: "json", args: []string{"monitor", "--target", tmp, "--commands", "--json"}, want: "--commands cannot be combined with --json"},
 		{name: "watch", args: []string{"monitor", "--target", tmp, "--commands", "--watch"}, want: "--commands cannot be combined with --watch"},
+		{name: "team resources", args: []string{"team", "monitor", "delivery", "--repo", tmp, "--resources"}, want: "--resources requires --summary"},
 		{name: "team watch", args: []string{"team", "watch", "delivery", "--repo", tmp, "--commands"}, want: "--commands cannot be combined with --watch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -370,6 +370,24 @@ type monitorSummarySnapshot struct {
 	planRows       []planRow
 }
 
+type teamMonitorSummarySnapshot struct {
+	Team           *teamInfo                     `json:"team,omitempty"`
+	Health         *healthResult                 `json:"health"`
+	Resources      *statsSummaryJSON             `json:"resources,omitempty"`
+	ResourcesError string                        `json:"resources_error,omitempty"`
+	Plan           *lifecycleActionSummaryResult `json:"plan,omitempty"`
+	Jobs           *jobTriageSnapshot            `json:"jobs,omitempty"`
+	JobStatus      []jobStatusReconcileResult    `json:"job_status_preview,omitempty"`
+	PipelineStatus []pipelineStatusRow           `json:"pipeline_status,omitempty"`
+	Schedules      *scheduleForecast             `json:"schedules,omitempty"`
+	Runtime        overviewRuntimeSummary        `json:"runtime"`
+	RuntimeError   string                        `json:"runtime_error,omitempty"`
+	Inbox          overviewInboxSummary          `json:"inbox"`
+	InboxError     string                        `json:"inbox_error,omitempty"`
+	Events         *eventSummaryJSON             `json:"events,omitempty"`
+	EventsError    string                        `json:"events_error,omitempty"`
+}
+
 type scheduleForecast struct {
 	Total    int            `json:"total"`
 	Due      int            `json:"due"`
@@ -507,6 +525,37 @@ func runTeamMonitorFormatWatch(ctx context.Context, w io.Writer, teamDir, name s
 		}
 		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
+		}
+	}
+}
+
+func runTeamMonitorSummaryWatch(ctx context.Context, w io.Writer, teamDir, name string, interval time.Duration, now func() time.Time, probe processStatsProbe, jsonOut bool, opts monitorOptions, clear bool) error {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		snapshot, err := collectTeamMonitorSnapshot(teamDir, name, now(), probe, opts)
+		if err != nil {
+			return err
+		}
+		summary := teamMonitorSummaryFromSnapshot(snapshot, opts)
+		if jsonOut {
+			if err := json.NewEncoder(w).Encode(summary); err != nil {
+				return err
+			}
+		} else {
+			if err := writeWatchClear(w, clear); err != nil {
+				return err
+			}
+			renderTeamMonitorSummarySnapshot(w, summary)
+		}
+		if !waitForWatchTick(ctx, ticker.C) {
+			return nil
+		}
+		if !jsonOut && !clear {
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -677,6 +726,43 @@ func collectMonitorSummarySnapshot(teamDir string, now time.Time, opts monitorOp
 	return snapshot, nil
 }
 
+func teamMonitorSummaryFromSnapshot(snapshot *monitorSnapshot, opts monitorOptions) *teamMonitorSummarySnapshot {
+	if snapshot == nil {
+		return &teamMonitorSummarySnapshot{}
+	}
+	summary := &teamMonitorSummarySnapshot{
+		Team:           snapshot.Team,
+		Health:         snapshot.Health,
+		Jobs:           snapshot.Jobs,
+		JobStatus:      snapshot.JobStatus,
+		PipelineStatus: snapshot.PipelineStatus,
+		Schedules:      snapshot.Schedules,
+		Runtime:        snapshot.Runtime,
+		RuntimeError:   snapshot.RuntimeError,
+		Inbox:          snapshot.Inbox,
+		InboxError:     snapshot.InboxError,
+	}
+	if opts.IncludeResources {
+		if snapshot.StatsError != "" {
+			summary.ResourcesError = snapshot.StatsError
+		} else {
+			resources := summarizeStatsRows(snapshot.statsRows)
+			summary.Resources = &resources
+		}
+	}
+	if snapshot.Plan != nil {
+		planSummary := summarizeLifecycleActions(planRowsToLifecycleActionResults(snapshot.Plan.Instances, true), true)
+		summary.Plan = &lifecycleActionSummaryResult{Summary: planSummary}
+	}
+	if snapshot.EventsError != "" {
+		summary.EventsError = snapshot.EventsError
+	} else if opts.EventTail > 0 {
+		events := summarizeMonitorEvents(snapshot.eventRows)
+		summary.Events = &events
+	}
+	return summary
+}
+
 func collectScheduleForecast(teamDir string, now time.Time) (*scheduleForecast, error) {
 	schedules, err := loadScheduleInfos(teamDir)
 	if err != nil {
@@ -842,6 +928,55 @@ func monitorSummaryRuntimeSelectedInstanceSet(teamDir string, now time.Time, opt
 }
 
 func renderMonitorSummarySnapshot(w io.Writer, snapshot *monitorSummarySnapshot) {
+	renderHealth(w, snapshot.Health)
+	fmt.Fprintln(w)
+	renderMonitorInboxSummary(w, snapshot.Inbox, snapshot.InboxError)
+	renderMonitorRuntimeSummary(w, snapshot.Runtime, snapshot.RuntimeError)
+	if snapshot.ResourcesError != "" || snapshot.Resources != nil {
+		fmt.Fprintln(w)
+		if snapshot.ResourcesError != "" {
+			fmt.Fprintf(w, "resources: unavailable: %s\n", snapshot.ResourcesError)
+		} else {
+			fmt.Fprintln(w, "resources:")
+			_ = renderStatsSummary(w, *snapshot.Resources)
+		}
+	}
+	if snapshot.Plan != nil {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "plan:")
+		renderLifecycleActionSummary(w, snapshot.Plan.Summary)
+	}
+	if snapshot.Jobs != nil {
+		fmt.Fprintln(w)
+		renderMonitorJobsSummary(w, snapshot.Jobs)
+		if snapshot.JobStatus != nil {
+			renderMonitorJobStatusSummary(w, snapshot.JobStatus)
+		}
+		if snapshot.PipelineStatus != nil {
+			renderMonitorPipelineStatusSummary(w, snapshot.PipelineStatus)
+		}
+	}
+	if snapshot.Schedules != nil {
+		fmt.Fprintln(w)
+		renderMonitorSchedulesSummary(w, snapshot.Schedules)
+	}
+	if snapshot.EventsError != "" || snapshot.Events != nil {
+		fmt.Fprintln(w)
+		if snapshot.EventsError != "" {
+			fmt.Fprintf(w, "events: unavailable: %s\n", snapshot.EventsError)
+		} else {
+			_ = renderEventSummaryResult(w, *snapshot.Events, false)
+		}
+	}
+}
+
+func renderTeamMonitorSummarySnapshot(w io.Writer, snapshot *teamMonitorSummarySnapshot) {
+	if snapshot.Team != nil {
+		fmt.Fprintf(w, "Team: %s\n", snapshot.Team.Name)
+		if snapshot.Team.Description != "" {
+			fmt.Fprintf(w, "Description: %s\n", snapshot.Team.Description)
+		}
+	}
 	renderHealth(w, snapshot.Health)
 	fmt.Fprintln(w)
 	renderMonitorInboxSummary(w, snapshot.Inbox, snapshot.InboxError)

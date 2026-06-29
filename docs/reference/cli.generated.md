@@ -7959,6 +7959,7 @@ Flags:
       --phase strings          Only show team-owned instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   Include team-scoped desired-state actions from instances.toml and daemon metadata.
       --repo string            Repo root containing .agent_team. (default "<repo>")
+      --resources              With --summary, include aggregate CPU, memory, and RSS totals for team-owned instances.
       --runtime strings        Only show team-owned instances for this runtime in instance, stats, and plan sections: claude or codex. Can repeat or comma-separate.
       --runtime-stale          Only show team-owned running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming team schedules.
@@ -7968,6 +7969,7 @@ Flags:
       --stats-sort string      Sort stats rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --status strings         Only show team-owned lifecycle status in instance, stats, and plan sections: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras            With --plan, preview running team-agent extras as stop actions.
+      --summary                Show compact team health and optional plan summaries instead of the full team monitor.
       --unhealthy              Only show crashed, status-stale, or runtime-stale team-owned instances.
   -w, --watch                  Refresh the team monitor snapshot until interrupted.
 ```
