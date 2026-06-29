@@ -310,6 +310,9 @@ maintenance tick, so `repair --skip-tick` can still close or fail jobs whose
 worker already exited and whose runtime metadata has been reduced to lifecycle
 history. Use `repair --dry-run --skip-tick --json` to preview `job_events`, or
 `--commands` to emit the matching apply command.
+When top-level repair is scoped with `--timeout-pipeline`,
+`--timeout-target-agent`, or `--retry-pipeline`, the `job_events` phase is
+scoped before stale timeout and retry phases run.
 `pipeline repair <pipeline>` and `team repair <team>` include the same phase,
 filtered to jobs owned by that pipeline or team.
 For direct reconciliation outside a repair pass, use

@@ -925,11 +925,47 @@ func runRepairPipelineRetryStep(cmd *cobra.Command, teamDir string, opts repairO
 }
 
 func runRepairJobEventsStep(teamDir string, opts repairOptions) (repairJobEventsStep, error) {
-	results, err := reconcileJobsFromEvents(teamDir, opts.DryRun, time.Now().UTC())
+	jobs, err := repairJobEventCandidateJobs(teamDir, opts)
+	if err != nil {
+		return repairJobEventsStep{Action: "error", Reason: err.Error()}, err
+	}
+	results, err := reconcileSelectedJobsFromEvents(teamDir, jobs, opts.DryRun, time.Now().UTC())
 	if err != nil {
 		return repairJobEventsStep{Action: "error", Reason: err.Error()}, err
 	}
 	return repairJobEventsStepFromResults(results, opts.DryRun), nil
+}
+
+func repairJobEventCandidateJobs(teamDir string, opts repairOptions) ([]*job.Job, error) {
+	jobs, err := job.List(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	pipelines := map[string]bool{}
+	if pipeline := strings.TrimSpace(opts.TimeoutPipeline); pipeline != "" {
+		pipelines[pipeline] = true
+	}
+	if pipeline := strings.TrimSpace(opts.RetryPipeline); pipeline != "" {
+		pipelines[pipeline] = true
+	}
+	target := strings.TrimSpace(opts.TimeoutTarget)
+	if len(pipelines) == 0 && target == "" {
+		return jobs, nil
+	}
+	out := make([]*job.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		if len(pipelines) > 0 && !pipelines[strings.TrimSpace(j.Pipeline)] {
+			continue
+		}
+		if target != "" && !jobTargetsAgent(j, target) {
+			continue
+		}
+		out = append(out, j)
+	}
+	return out, nil
 }
 
 func jobEventReconcileResultsHaveChanges(results []jobEventReconcileResult) bool {

@@ -448,6 +448,162 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 	}
 }
 
+func TestRepairJobEventsRespectScopedTimeoutFilters(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	for _, j := range []*job.Job{
+		{
+			ID:        "squ-221",
+			Ticket:    "SQU-221",
+			Target:    "worker",
+			Pipeline:  "ticket_to_pr",
+			Instance:  "worker-squ-221",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now,
+		},
+		{
+			ID:        "ops-221",
+			Ticket:    "OPS-221",
+			Target:    "worker",
+			Pipeline:  "ops_review",
+			Instance:  "worker-ops-221",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now,
+		},
+		{
+			ID:        "squ-222",
+			Ticket:    "SQU-222",
+			Target:    "manager",
+			Pipeline:  "ticket_to_pr",
+			Instance:  "manager-squ-222",
+			Status:    job.StatusRunning,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now,
+		},
+	} {
+		if err := job.Write(teamDir, j); err != nil {
+			t.Fatalf("write job %s: %v", j.ID, err)
+		}
+	}
+	exitCode := 0
+	for _, ev := range []*daemon.LifecycleEvent{
+		{
+			ID:       "event-worker-squ-221-exit",
+			TS:       now,
+			Action:   "exit",
+			Instance: "worker-squ-221",
+			Agent:    "worker",
+			Job:      "squ-221",
+			Ticket:   "SQU-221",
+			Branch:   "worker-squ-221",
+			PR:       "https://github.com/acme/repo/pull/221",
+			Status:   daemon.StatusExited,
+			ExitCode: &exitCode,
+			Message:  "instance process exited",
+		},
+		{
+			ID:       "event-worker-ops-221-exit",
+			TS:       now,
+			Action:   "exit",
+			Instance: "worker-ops-221",
+			Agent:    "worker",
+			Job:      "ops-221",
+			Ticket:   "OPS-221",
+			Branch:   "worker-ops-221",
+			PR:       "https://github.com/acme/repo/pull/1221",
+			Status:   daemon.StatusExited,
+			ExitCode: &exitCode,
+			Message:  "instance process exited",
+		},
+		{
+			ID:       "event-manager-squ-222-exit",
+			TS:       now,
+			Action:   "exit",
+			Instance: "manager-squ-222",
+			Agent:    "manager",
+			Job:      "squ-222",
+			Ticket:   "SQU-222",
+			Branch:   "manager-squ-222",
+			PR:       "https://github.com/acme/repo/pull/222",
+			Status:   daemon.StatusExited,
+			ExitCode: &exitCode,
+			Message:  "instance process exited",
+		},
+	} {
+		if err := daemon.AppendLifecycleEvent(daemon.DaemonRoot(teamDir), ev); err != nil {
+			t.Fatalf("append lifecycle event %s: %v", ev.ID, err)
+		}
+	}
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("repair scoped job events dry-run: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview repairResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode repair scoped job events: %v\nbody=%s", err, dryOut.String())
+	}
+	if preview.JobEvents.Action != "would_reconcile" || len(preview.JobEvents.Results) != 1 || preview.JobEvents.Results[0].JobID != "squ-221" {
+		t.Fatalf("scoped job events preview = %+v", preview.JobEvents)
+	}
+	if strings.Contains(dryOut.String(), "ops-221") || strings.Contains(dryOut.String(), "squ-222") {
+		t.Fatalf("scoped job events leaked unselected jobs:\n%s", dryOut.String())
+	}
+
+	commands := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commands.SetOut(commandsOut)
+	commands.SetErr(commandsErr)
+	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
+	if err := commands.Execute(); err != nil {
+		t.Fatalf("repair scoped job events commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "repair", "--repo", tmp, "--skip-daemon", "--skip-queue", "--skip-tick", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker"}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("repair scoped job events commands = %q, want %q", got, wantCommand)
+	}
+
+	apply := NewRootCmd()
+	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
+	apply.SetOut(applyOut)
+	apply.SetErr(applyErr)
+	apply.SetArgs([]string{"repair", "--target", tmp, "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	if err := apply.Execute(); err != nil {
+		t.Fatalf("repair scoped job events apply: %v\nstderr=%s", err, applyErr.String())
+	}
+	var result repairResult
+	if err := json.Unmarshal(applyOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode repair scoped job events apply: %v\nbody=%s", err, applyOut.String())
+	}
+	if result.JobEvents.Action != "reconciled" || len(result.JobEvents.Results) != 1 || result.JobEvents.Results[0].JobID != "squ-221" {
+		t.Fatalf("scoped job events apply = %+v", result.JobEvents)
+	}
+	for _, tc := range []struct {
+		id     string
+		status job.Status
+	}{
+		{id: "squ-221", status: job.StatusDone},
+		{id: "ops-221", status: job.StatusRunning},
+		{id: "squ-222", status: job.StatusRunning},
+	} {
+		j, err := job.Read(teamDir, tc.id)
+		if err != nil {
+			t.Fatalf("read job %s: %v", tc.id, err)
+		}
+		if j.Status != tc.status {
+			t.Fatalf("job %s status = %s, want %s; job=%+v", tc.id, j.Status, tc.status, j)
+		}
+	}
+}
+
 func TestRepairJobsIncludesStatusPreview(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
