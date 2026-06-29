@@ -10915,6 +10915,54 @@ func pipelineGraphNodeStateText(node pipelineGraphNode) string {
 	return state + stepStatus + ready + instance + attempts + waitingFor + message + skipped + skipReason + actions
 }
 
+func pipelineGraphNodeTopologyText(node pipelineGraphNode) string {
+	workspace := ""
+	if node.Workspace != "" {
+		workspace = " workspace=" + node.Workspace
+	}
+	runtime := ""
+	if formatted := formatStepRuntime(node.Runtime, node.RuntimeBin); formatted != "" {
+		runtime = " runtime=" + formatted
+	}
+	label := ""
+	if node.Label != "" {
+		label = fmt.Sprintf(" label=%q", node.Label)
+	}
+	description := ""
+	if node.Description != "" {
+		description = fmt.Sprintf(" description=%q", node.Description)
+	}
+	instructions := ""
+	if node.Instructions != "" {
+		instructions = fmt.Sprintf(" instructions=%q", node.Instructions)
+	}
+	gate := ""
+	if node.Gate != "" {
+		gate = " gate=" + node.Gate
+	}
+	optional := ""
+	if node.Optional {
+		optional = " optional=true"
+	}
+	timeout := ""
+	if node.Timeout != "" {
+		timeout = " timeout=" + node.Timeout
+	}
+	maxAttempts := ""
+	if node.MaxAttempts > 0 {
+		maxAttempts = fmt.Sprintf(" max_attempts=%d", node.MaxAttempts)
+	}
+	routes := ""
+	if len(node.Routes) > 0 {
+		routes = " routes=" + strings.Join(node.Routes, ",")
+	}
+	missing := ""
+	if node.Missing {
+		missing = " missing=true"
+	}
+	return workspace + runtime + label + description + instructions + gate + optional + timeout + maxAttempts + routes + missing + pipelineGraphNodeStateText(node)
+}
+
 func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 	fmt.Fprintf(w, "Pipeline: %s\n", graph.Name)
 	fmt.Fprintf(w, "Trigger:  %s\n", graph.Summary)

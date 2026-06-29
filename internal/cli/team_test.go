@@ -38,8 +38,17 @@ target = "worker"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
+label = "Code review"
+description = "Review branch and PR state."
+instructions = "Check tests, summarize risks, and decide whether the PR can proceed."
 target = "manager"
+workspace = "repo"
+runtime = "codex"
+runtime_bin = "codex-dev"
 after = ["implement"]
+optional = true
+timeout = "45m"
+max_attempts = 3
 
 [schedules.nightly]
 every = "24h"
@@ -207,7 +216,15 @@ since = "2026-06-18T12:00:00Z"
 	if err := graphText.Execute(); err != nil {
 		t.Fatalf("team graph text: %v\nstderr=%s", err, graphTextErr.String())
 	}
-	for _, want := range []string{"Team: delivery", "Instances:", "Pipelines:", "implement target=worker after=- routes=worker", "Edges:", "dispatches_to"} {
+	for _, want := range []string{
+		"Team: delivery",
+		"Instances:",
+		"Pipelines:",
+		"implement target=worker after=- routes=worker",
+		`review target=manager after=implement workspace=repo runtime=codex:codex-dev label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3`,
+		"Edges:",
+		"dispatches_to",
+	} {
 		if !strings.Contains(graphTextOut.String(), want) {
 			t.Fatalf("team graph text missing %q:\n%s", want, graphTextOut.String())
 		}
@@ -271,7 +288,7 @@ since = "2026-06-18T12:00:00Z"
 	}
 	for _, want := range []string{
 		`ticket_to_pr trigger=ticket.created steps=2 job=squ-801 ticket=SQU-801 status=running`,
-		`review target=manager after=implement state=ready step_status=blocked ready=true message="ready to advance" actions="agent-team team tick delivery --dry-run --preview-routes"`,
+		`review target=manager after=implement workspace=repo runtime=codex:codex-dev label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3 state=ready step_status=blocked ready=true message="ready to advance" actions="agent-team team tick delivery --dry-run --preview-routes"`,
 	} {
 		if !strings.Contains(graphJobTextOut.String(), want) {
 			t.Fatalf("team graph job text missing %q:\n%s", want, graphJobTextOut.String())

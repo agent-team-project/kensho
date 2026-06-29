@@ -336,8 +336,17 @@ target = "worker"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
+label = "Code review"
+description = "Review branch and PR state."
+instructions = "Check tests, summarize risks, and decide whether the PR can proceed."
 target = "manager"
+workspace = "repo"
+runtime = "codex"
+runtime_bin = "codex-dev"
 after = ["implement"]
+optional = true
+timeout = "45m"
+max_attempts = 3
 
 [schedules.nightly]
 every = "1h"
@@ -388,7 +397,14 @@ schedules = ["nightly"]
 	if err := text.Execute(); err != nil {
 		t.Fatalf("topology graph text: %v\nstderr=%s", err, textErr.String())
 	}
-	for _, want := range []string{"Topology", "Teams:", "delivery instances=2 pipelines=1 schedules=1", "implement target=worker after=- routes=worker", "dispatches_to"} {
+	for _, want := range []string{
+		"Topology",
+		"Teams:",
+		"delivery instances=2 pipelines=1 schedules=1",
+		"implement target=worker after=- routes=worker",
+		`review target=manager after=implement workspace=repo runtime=codex:codex-dev label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3`,
+		"dispatches_to",
+	} {
 		if !strings.Contains(textOut.String(), want) {
 			t.Fatalf("topology graph text missing %q:\n%s", want, textOut.String())
 		}
@@ -469,7 +485,7 @@ schedules = ["nightly"]
 	}
 	for _, want := range []string{
 		`ticket_to_pr trigger=ticket.created steps=2 job=squ-971 ticket=SQU-971 status=running state=queued`,
-		`review target=manager after=implement state=ready step_status=queued ready=true message="ready to advance" actions="agent-team pipeline tick ticket_to_pr --dry-run --preview-routes"`,
+		`review target=manager after=implement workspace=repo runtime=codex:codex-dev label="Code review" description="Review branch and PR state." instructions="Check tests, summarize risks, and decide whether the PR can proceed." optional=true timeout=45m0s max_attempts=3 state=ready step_status=queued ready=true message="ready to advance" actions="agent-team pipeline tick ticket_to_pr --dry-run --preview-routes"`,
 	} {
 		if !strings.Contains(jobTextOut.String(), want) {
 			t.Fatalf("topology graph job text missing %q:\n%s", want, jobTextOut.String())

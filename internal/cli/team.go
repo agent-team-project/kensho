@@ -12273,31 +12273,7 @@ func renderTeamGraphText(w io.Writer, graph teamGraph) {
 				if len(node.After) > 0 {
 					after = strings.Join(node.After, ",")
 				}
-				routes := ""
-				if len(node.Routes) > 0 {
-					routes = " routes=" + strings.Join(node.Routes, ",")
-				}
-				gate := ""
-				if node.Gate != "" {
-					gate = " gate=" + node.Gate
-				}
-				optional := ""
-				if node.Optional {
-					optional = " optional=true"
-				}
-				timeout := ""
-				if node.Timeout != "" {
-					timeout = " timeout=" + node.Timeout
-				}
-				maxAttempts := ""
-				if node.MaxAttempts > 0 {
-					maxAttempts = fmt.Sprintf(" max_attempts=%d", node.MaxAttempts)
-				}
-				missing := ""
-				if node.Missing {
-					missing = " missing=true"
-				}
-				fmt.Fprintf(w, "    %s target=%s after=%s%s%s%s%s%s%s%s\n", node.ID, emptyDash(node.Target), after, gate, optional, timeout, maxAttempts, routes, missing, pipelineGraphNodeStateText(node))
+				fmt.Fprintf(w, "    %s target=%s after=%s%s\n", node.ID, emptyDash(node.Target), after, pipelineGraphNodeTopologyText(node))
 			}
 		}
 	}
