@@ -6387,7 +6387,7 @@ func pipelineGraphWithJobState(graph pipelineGraph, j *job.Job) pipelineGraph {
 	if j == nil {
 		return graph
 	}
-	explained := explainJobPipeline(j)
+	explained := scopePipelineExplainResultActions(graph.Name, explainJobPipeline(j))
 	graph.JobID = explained.JobID
 	graph.Ticket = explained.Ticket
 	graph.JobStatus = explained.JobStatus
@@ -10935,7 +10935,11 @@ func renderPipelineGraphText(w io.Writer, graph pipelineGraph) {
 		if node.Missing {
 			missing = " missing=true"
 		}
-		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, workspace, runtime, label, description, instructions, gate, optional, timeout, maxAttempts, state, stepStatus, ready, instance, attempts, waitingFor, message, skipped, skipReason, routes, missing)
+		actions := ""
+		if len(node.Actions) > 0 {
+			actions = fmt.Sprintf(" actions=%q", strings.Join(node.Actions, "; "))
+		}
+		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n", node.ID, node.Target, after, workspace, runtime, label, description, instructions, gate, optional, timeout, maxAttempts, state, stepStatus, ready, instance, attempts, waitingFor, message, skipped, skipReason, routes, missing, actions)
 	}
 	if len(graph.Edges) == 0 {
 		return
@@ -11046,6 +11050,9 @@ func pipelineGraphNodeLabel(node pipelineGraphNode, sep string) string {
 	}
 	if node.SkipReason != "" {
 		parts = append(parts, "skip reason: "+node.SkipReason)
+	}
+	if len(node.Actions) > 0 {
+		parts = append(parts, "actions: "+strings.Join(node.Actions, "; "))
 	}
 	if node.Missing {
 		parts = append(parts, "missing dependency")

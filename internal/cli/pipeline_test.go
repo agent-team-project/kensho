@@ -590,6 +590,105 @@ after = ["review"]
 	}
 }
 
+func TestPipelineGraphOverlayRendersActions(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "manager"
+after = ["implement"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:         "squ-952",
+		Ticket:     "SQU-952",
+		Target:     "worker",
+		Kickoff:    "ship graph actions",
+		Pipeline:   "ticket_to_pr",
+		Status:     job.StatusRunning,
+		LastEvent:  "step_done",
+		LastStatus: "implement done",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "review", Target: "manager", Status: job.StatusQueued, After: []string{"implement"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wantAction := "agent-team pipeline tick ticket_to_pr --dry-run --preview-routes"
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"pipeline", "graph", "ticket_to_pr", "--repo", root, "--job", "squ-952"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("pipeline graph --job text: %v\nstderr=%s", err, textErr.String())
+	}
+	if !strings.Contains(textOut.String(), fmt.Sprintf("actions=%q", wantAction)) {
+		t.Fatalf("pipeline graph --job text missing action %q:\n%s", wantAction, textOut.String())
+	}
+
+	mermaid := NewRootCmd()
+	mermaidOut, mermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
+	mermaid.SetOut(mermaidOut)
+	mermaid.SetErr(mermaidErr)
+	mermaid.SetArgs([]string{"pipeline", "graph", "ticket_to_pr", "--repo", root, "--job", "squ-952", "--format", "mermaid"})
+	if err := mermaid.Execute(); err != nil {
+		t.Fatalf("pipeline graph --job mermaid: %v\nstderr=%s", err, mermaidErr.String())
+	}
+	if !strings.Contains(mermaidOut.String(), "actions: "+wantAction) {
+		t.Fatalf("pipeline graph --job mermaid missing action %q:\n%s", wantAction, mermaidOut.String())
+	}
+
+	dot := NewRootCmd()
+	dotOut, dotErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dot.SetOut(dotOut)
+	dot.SetErr(dotErr)
+	dot.SetArgs([]string{"pipeline", "graph", "ticket_to_pr", "--repo", root, "--job", "squ-952", "--format", "dot"})
+	if err := dot.Execute(); err != nil {
+		t.Fatalf("pipeline graph --job dot: %v\nstderr=%s", err, dotErr.String())
+	}
+	if !strings.Contains(dotOut.String(), "actions: "+wantAction) {
+		t.Fatalf("pipeline graph --job dot missing action %q:\n%s", wantAction, dotOut.String())
+	}
+
+	asJSON := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	asJSON.SetOut(jsonOut)
+	asJSON.SetErr(jsonErr)
+	asJSON.SetArgs([]string{"pipeline", "graph", "ticket_to_pr", "--repo", root, "--job", "squ-952", "--json"})
+	if err := asJSON.Execute(); err != nil {
+		t.Fatalf("pipeline graph --job json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var graph pipelineGraph
+	if err := json.Unmarshal(jsonOut.Bytes(), &graph); err != nil {
+		t.Fatalf("decode graph json: %v\nbody=%s", err, jsonOut.String())
+	}
+	byID := map[string]pipelineGraphNode{}
+	for _, node := range graph.Nodes {
+		byID[node.ID] = node
+	}
+	if !containsString(byID["review"].Actions, wantAction) {
+		t.Fatalf("review actions = %+v, want %q", byID["review"].Actions, wantAction)
+	}
+}
+
 func TestPipelineGraphValidation(t *testing.T) {
 	cases := []struct {
 		args []string
