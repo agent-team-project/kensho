@@ -5371,8 +5371,9 @@ func newPipelineHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "hold <pipeline>|--all [reason...]",
-		Short: "Hold pipeline jobs so automation will not advance them.",
+		Use:     "hold <pipeline>|--all [reason...]",
+		Aliases: []string{"pause"},
+		Short:   "Hold pipeline jobs so automation will not advance them.",
 		Long: "Hold jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status. " +
 			"Held jobs report next-step state held until released.",
 		Args: cobra.ArbitraryArgs,
@@ -5504,10 +5505,11 @@ func newPipelineReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "release <pipeline>|--all [message...]",
-		Short: "Release held pipeline jobs so automation can advance them.",
-		Long:  "Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.",
-		Args:  cobra.ArbitraryArgs,
+		Use:     "release <pipeline>|--all [message...]",
+		Aliases: []string{"resume", "unpause"},
+		Short:   "Release held pipeline jobs so automation can advance them.",
+		Long:    "Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.",
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: --format cannot be combined with --json.")

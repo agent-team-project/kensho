@@ -2277,6 +2277,8 @@ Hold a durable job without changing its lifecycle status. Held jobs remain visib
 agent-team job hold <job-id>|--all [reason...] [flags]
 ```
 
+Aliases: `pause`
+
 Flags:
 
 ```text
@@ -3204,6 +3206,8 @@ Release a held durable job without changing its lifecycle status. After release,
 ```text
 agent-team job release <job-id>|--all [message...] [flags]
 ```
+
+Aliases: `resume`, `unpause`
 
 Flags:
 
@@ -4688,6 +4692,8 @@ Hold jobs in one pipeline, or all pipelines with --all, without changing their l
 agent-team pipeline hold <pipeline>|--all [reason...] [flags]
 ```
 
+Aliases: `pause`
+
 Flags:
 
 ```text
@@ -5437,6 +5443,8 @@ Release held jobs in one pipeline, or all pipelines with --all, without changing
 ```text
 agent-team pipeline release <pipeline>|--all [message...] [flags]
 ```
+
+Aliases: `resume`, `unpause`
 
 Flags:
 
@@ -7998,6 +8006,8 @@ Hold matching jobs in pipelines declared on one team without changing their life
 agent-team team hold <team> [reason...] [flags]
 ```
 
+Aliases: `pause`
+
 Flags:
 
 ```text
@@ -8876,6 +8886,8 @@ Release held jobs in pipelines declared on one team without changing their lifec
 ```text
 agent-team team release <team> [message...] [flags]
 ```
+
+Aliases: `resume`, `unpause`
 
 Flags:
 

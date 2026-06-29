@@ -5063,8 +5063,9 @@ func newJobHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "hold <job-id>|--all [reason...]",
-		Short: "Hold a job so pipeline automation will not advance it.",
+		Use:     "hold <job-id>|--all [reason...]",
+		Aliases: []string{"pause"},
+		Short:   "Hold a job so pipeline automation will not advance it.",
 		Long: "Hold a durable job without changing its lifecycle status. " +
 			"Held jobs remain visible in status views, but next-step readiness reports held and automatic advance loops skip them until release. Use --all to hold matching jobs in a batch.",
 		Args: cobra.ArbitraryArgs,
@@ -5334,8 +5335,9 @@ func newJobReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "release <job-id>|--all [message...]",
-		Short: "Release a held job so pipeline automation can advance it.",
+		Use:     "release <job-id>|--all [message...]",
+		Aliases: []string{"resume", "unpause"},
+		Short:   "Release a held job so pipeline automation can advance it.",
 		Long: "Release a held durable job without changing its lifecycle status. " +
 			"After release, ready and advance commands evaluate the job's pipeline steps normally. Use --all to release matching held jobs in a batch.",
 		Args: cobra.ArbitraryArgs,

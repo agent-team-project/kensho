@@ -12704,7 +12704,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	holdCommandsOut, holdCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	holdCommands.SetOut(holdCommandsOut)
 	holdCommands.SetErr(holdCommandsErr)
-	holdCommands.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--until", holdUntil.Format(time.RFC3339), "--dry-run", "--commands", "waiting for user"})
+	holdCommands.SetArgs([]string{"job", "pause", "squ-240", "--repo", tmp, "--until", holdUntil.Format(time.RFC3339), "--dry-run", "--commands", "waiting for user"})
 	if err := holdCommands.Execute(); err != nil {
 		t.Fatalf("job hold dry-run commands: %v\nstderr=%s", err, holdCommandsErr.String())
 	}
@@ -12719,7 +12719,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if unheld.Held {
 		t.Fatalf("job hold dry-run mutated job: %+v", unheld)
 	}
-	hold.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--message-file", holdMessageFile, "--until", holdUntil.Format(time.RFC3339), "--json"})
+	hold.SetArgs([]string{"job", "pause", "squ-240", "--repo", tmp, "--message-file", holdMessageFile, "--until", holdUntil.Format(time.RFC3339), "--json"})
 	if err := hold.Execute(); err != nil {
 		t.Fatalf("job hold: %v\nstderr=%s", err, holdErr.String())
 	}
@@ -12937,7 +12937,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	releaseExpiredCommandsOut, releaseExpiredCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	releaseExpiredCommands.SetOut(releaseExpiredCommandsOut)
 	releaseExpiredCommands.SetErr(releaseExpiredCommandsErr)
-	releaseExpiredCommands.SetArgs([]string{"job", "release", "--all", "--expired", "--repo", tmp, "--dry-run", "--commands"})
+	releaseExpiredCommands.SetArgs([]string{"job", "unpause", "--all", "--expired", "--repo", tmp, "--dry-run", "--commands"})
 	if err := releaseExpiredCommands.Execute(); err != nil {
 		t.Fatalf("job release expired dry-run commands: %v\nstderr=%s", err, releaseExpiredCommandsErr.String())
 	}
@@ -12977,7 +12977,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if err := os.WriteFile(releaseMessageFile, []byte("resume from file\n"), 0o644); err != nil {
 		t.Fatalf("write release message: %v", err)
 	}
-	release.SetArgs([]string{"job", "release", "squ-240", "--repo", tmp, "--message-file", releaseMessageFile, "--json"})
+	release.SetArgs([]string{"job", "resume", "squ-240", "--repo", tmp, "--message-file", releaseMessageFile, "--json"})
 	if err := release.Execute(); err != nil {
 		t.Fatalf("job release: %v\nstderr=%s", err, releaseErr.String())
 	}

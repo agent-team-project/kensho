@@ -2523,10 +2523,11 @@ func newTeamHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "hold <team> [reason...]",
-		Short: "Hold pipeline jobs owned by one team.",
-		Long:  "Hold matching jobs in pipelines declared on one team without changing their lifecycle status.",
-		Args:  cobra.MinimumNArgs(1),
+		Use:     "hold <team> [reason...]",
+		Aliases: []string{"pause"},
+		Short:   "Hold pipeline jobs owned by one team.",
+		Long:    "Hold matching jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team hold: --format cannot be combined with --json.")
@@ -2636,10 +2637,11 @@ func newTeamReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "release <team> [message...]",
-		Short: "Release held pipeline jobs owned by one team.",
-		Long:  "Release held jobs in pipelines declared on one team without changing their lifecycle status.",
-		Args:  cobra.MinimumNArgs(1),
+		Use:     "release <team> [message...]",
+		Aliases: []string{"resume", "unpause"},
+		Short:   "Release held pipeline jobs owned by one team.",
+		Long:    "Release held jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team release: --format cannot be combined with --json.")

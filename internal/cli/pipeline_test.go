@@ -2294,7 +2294,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	pipelineHoldCommandsOut, pipelineHoldCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pipelineHoldCommands.SetOut(pipelineHoldCommandsOut)
 	pipelineHoldCommands.SetErr(pipelineHoldCommandsErr)
-	pipelineHoldCommands.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "release freeze", "--repo", root, "--for", "30m", "--dry-run", "--commands"})
+	pipelineHoldCommands.SetArgs([]string{"pipeline", "pause", "ticket_to_pr", "release freeze", "--repo", root, "--for", "30m", "--dry-run", "--commands"})
 	if err := pipelineHoldCommands.Execute(); err != nil {
 		t.Fatalf("pipeline hold dry-run commands: %v\nstderr=%s", err, pipelineHoldCommandsErr.String())
 	}
@@ -2311,7 +2311,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	if err := os.WriteFile(holdMessageFile, []byte("freeze failed work from file\n"), 0o644); err != nil {
 		t.Fatalf("write pipeline hold message: %v", err)
 	}
-	holdFailed.SetArgs([]string{"pipeline", "hold", "ticket_to_pr", "--repo", root, "--state", "failed", "--message-file", holdMessageFile, "--json"})
+	holdFailed.SetArgs([]string{"pipeline", "pause", "ticket_to_pr", "--repo", root, "--state", "failed", "--message-file", holdMessageFile, "--json"})
 	if err := holdFailed.Execute(); err != nil {
 		t.Fatalf("pipeline hold failed: %v\nstderr=%s", err, holdFailedErr.String())
 	}
@@ -2415,7 +2415,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	pipelineReleaseCommandsOut, pipelineReleaseCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pipelineReleaseCommands.SetOut(pipelineReleaseCommandsOut)
 	pipelineReleaseCommands.SetErr(pipelineReleaseCommandsErr)
-	pipelineReleaseCommands.SetArgs([]string{"pipeline", "release", "ticket_to_pr", "--repo", root, "--message", "resume failed work", "--dry-run", "--commands"})
+	pipelineReleaseCommands.SetArgs([]string{"pipeline", "resume", "ticket_to_pr", "--repo", root, "--message", "resume failed work", "--dry-run", "--commands"})
 	if err := pipelineReleaseCommands.Execute(); err != nil {
 		t.Fatalf("pipeline release dry-run commands: %v\nstderr=%s", err, pipelineReleaseCommandsErr.String())
 	}
@@ -2432,7 +2432,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	if err := os.WriteFile(releaseMessageFile, []byte("resume failed work from file\n"), 0o644); err != nil {
 		t.Fatalf("write pipeline release message: %v", err)
 	}
-	release.SetArgs([]string{"pipeline", "release", "ticket_to_pr", "--repo", root, "--message-file", releaseMessageFile, "--json"})
+	release.SetArgs([]string{"pipeline", "unpause", "ticket_to_pr", "--repo", root, "--message-file", releaseMessageFile, "--json"})
 	if err := release.Execute(); err != nil {
 		t.Fatalf("pipeline release: %v\nstderr=%s", err, releaseErr.String())
 	}
@@ -2471,7 +2471,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	teamHoldCommandsOut, teamHoldCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	teamHoldCommands.SetOut(teamHoldCommandsOut)
 	teamHoldCommands.SetErr(teamHoldCommandsErr)
-	teamHoldCommands.SetArgs([]string{"team", "hold", "delivery", "--repo", root, "--state", "ready", "--limit", "1", "--message", "team freeze", "--dry-run", "--commands"})
+	teamHoldCommands.SetArgs([]string{"team", "pause", "delivery", "--repo", root, "--state", "ready", "--limit", "1", "--message", "team freeze", "--dry-run", "--commands"})
 	if err := teamHoldCommands.Execute(); err != nil {
 		t.Fatalf("team hold dry-run commands: %v\nstderr=%s", err, teamHoldCommandsErr.String())
 	}
@@ -2488,7 +2488,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	if err := os.WriteFile(teamHoldMessageFile, []byte("team hold from file\n"), 0o644); err != nil {
 		t.Fatalf("write team hold message: %v", err)
 	}
-	teamHold.SetArgs([]string{"team", "hold", "delivery", "--repo", root, "--state", "ready", "--limit", "1", "--message-file", teamHoldMessageFile, "--json"})
+	teamHold.SetArgs([]string{"team", "pause", "delivery", "--repo", root, "--state", "ready", "--limit", "1", "--message-file", teamHoldMessageFile, "--json"})
 	if err := teamHold.Execute(); err != nil {
 		t.Fatalf("team hold: %v\nstderr=%s", err, teamHoldErr.String())
 	}
@@ -2504,7 +2504,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	teamReleaseCommandsOut, teamReleaseCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	teamReleaseCommands.SetOut(teamReleaseCommandsOut)
 	teamReleaseCommands.SetErr(teamReleaseCommandsErr)
-	teamReleaseCommands.SetArgs([]string{"team", "release", "delivery", "--repo", root, "--message", "team resume", "--dry-run", "--commands"})
+	teamReleaseCommands.SetArgs([]string{"team", "resume", "delivery", "--repo", root, "--message", "team resume", "--dry-run", "--commands"})
 	if err := teamReleaseCommands.Execute(); err != nil {
 		t.Fatalf("team release dry-run commands: %v\nstderr=%s", err, teamReleaseCommandsErr.String())
 	}
@@ -2521,7 +2521,7 @@ pipelines = ["ticket_to_pr", "nightly"]
 	if err := os.WriteFile(teamReleaseMessageFile, []byte("team release from file\n"), 0o644); err != nil {
 		t.Fatalf("write team release message: %v", err)
 	}
-	teamRelease.SetArgs([]string{"team", "release", "delivery", "--repo", root, "--message-file", teamReleaseMessageFile, "--json"})
+	teamRelease.SetArgs([]string{"team", "unpause", "delivery", "--repo", root, "--message-file", teamReleaseMessageFile, "--json"})
 	if err := teamRelease.Execute(); err != nil {
 		t.Fatalf("team release: %v\nstderr=%s", err, teamReleaseErr.String())
 	}
