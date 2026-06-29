@@ -915,10 +915,6 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 }
 
 func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, prompt string, env []string, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
-	rt, err := r.runtimeFromDispatchPayload(payload)
-	if err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
-	}
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: load agents: %w", err)
@@ -932,6 +928,10 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	}
 	if chosen == nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: agent %q not found", agentName)
+	}
+	rt, err := r.runtimeForAgent(chosen, payload)
+	if err != nil {
+		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
 	}
 	skillPaths, err := loader.UnionSkills(agents)
 	if err != nil {
@@ -998,19 +998,26 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	}
 }
 
-func (r *EventResolver) runtimeFromDispatchPayload(payload map[string]any) (runtimebin.Runtime, error) {
+// runtimeForAgent resolves an ephemeral instance's runtime with the same
+// precedence as the dispatch path: explicit payload runtime > AGENT_TEAM_RUNTIME
+// env override > the agent's frontmatter `runtime:`/`runtime_bin:` > repo
+// [runtime] config > default.
+func (r *EventResolver) runtimeForAgent(agent *loader.Agent, payload map[string]any) (runtimebin.Runtime, error) {
 	kindRaw := firstPayloadString(payload, "runtime")
 	binRaw := firstPayloadString(payload, "runtime_binary", "runtime_bin")
-	if strings.TrimSpace(kindRaw) != "" {
-		kind, err := runtimebin.ParseKind(kindRaw)
-		if err != nil {
-			return runtimebin.Runtime{}, fmt.Errorf("runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
+	if rt, ok, err := runtimebin.FromFields(kindRaw, binRaw); err != nil {
+		return runtimebin.Runtime{}, fmt.Errorf("runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
+	} else if ok {
+		return rt, nil
+	}
+	// A deliberate env override outranks a static per-agent default; when no
+	// env override is set, the agent's declared runtime wins over repo config.
+	if agent != nil && strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) == "" {
+		if rt, ok, err := runtimebin.FromFields(agent.Runtime, agent.RuntimeBin); err != nil {
+			return runtimebin.Runtime{}, fmt.Errorf("agent %q runtime: %w", agent.Name, err)
+		} else if ok {
+			return rt, nil
 		}
-		bin := strings.TrimSpace(binRaw)
-		if bin == "" {
-			bin = runtimebin.DefaultBinaryForKind(kind)
-		}
-		return runtimebin.Runtime{Kind: kind, Binary: bin}, nil
 	}
 	rt, err := runtimebin.CurrentFromConfig(filepath.Join(r.teamDir, "config.toml"))
 	if err != nil {

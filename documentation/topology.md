@@ -174,6 +174,40 @@ Operators can intentionally bypass a stored step with `agent-team job step <job-
 
 When an advance dispatch targets a persistent instance, `agent-team` only records the step as `running` if the daemon can message a live instance. If the persistent target is stopped or reconciles as stale, the daemon appends the dispatch payload to that instance mailbox and returns a queued outcome; the durable job step stays `queued` with the persistent instance name until the instance is started and drains its inbox. Manual edits that mark a step `running` also require `--instance` unless `--force` is supplied, which keeps ownerless running stages out of the normal operator path.
 
+### Per-agent runtime default
+
+An agent can declare its own default runtime in `agent.md` frontmatter, so the
+runtime travels with the agent definition instead of being threaded through
+every dispatch:
+
+```yaml
+---
+name: worker
+description: ...
+runtime: codex          # this agent's instances default to the Codex runtime
+runtime_bin: codex      # optional explicit binary / wrapper
+---
+```
+
+This is what lets one team run, e.g., the `manager` on Claude Code while
+`worker` and `ticket-manager` run on Codex — declared once per agent rather than
+remembered on each `assign-worker` dispatch. The daemon resolves a dispatched
+instance's runtime with this precedence (highest first):
+
+```
+1. Explicit dispatch runtime   (CLI --runtime / --runtime-bin, pipeline step runtime, dispatch payload)
+2. AGENT_TEAM_RUNTIME env override
+3. Agent frontmatter            (runtime: / runtime_bin:)   ← NEW
+4. Repo [runtime] config        (.agent_team/config.toml)
+5. Built-in default             (claude)
+```
+
+A static per-agent default is intentionally outranked by both an explicit
+dispatch runtime and a deliberate env override, so operators can still force a
+runtime for a one-off run or an incident without editing agent files. Mixed
+runtimes require the daemon: in no-daemon interactive mode every subagent
+inherits the launching agent's runtime.
+
 ### Schedule field reference
 
 Schedules live under `[schedules.<name>]`. They publish a `schedule` event with payload `source = "schedule"` and `name = "<name>"`; keys under `[schedules.<name>.payload]` are merged into that payload.

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
@@ -205,7 +206,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	}
 	m.mu.Unlock()
 
-	rt, err := dispatchRuntime(in)
+	rt, err := m.dispatchRuntime(in)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
@@ -261,23 +262,46 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	return meta, nil
 }
 
-func dispatchRuntime(in DispatchInput) (runtimebin.Runtime, error) {
-	requested := strings.TrimSpace(in.Runtime)
-	if requested == "" {
+// dispatchRuntime resolves the runtime for a dispatch with this precedence:
+//
+//	explicit in.Runtime  (CLI --runtime, pipeline step, dispatch payload)
+//	  > AGENT_TEAM_RUNTIME env override
+//	  > the target agent's frontmatter `runtime:`/`runtime_bin:`
+//	  > built-in default (claude)
+//
+// The agent-level default is what lets a team declare, e.g., `runtime: codex`
+// on the worker while the manager stays on Claude, without every dispatch
+// having to pass an explicit runtime.
+func (m *InstanceManager) dispatchRuntime(in DispatchInput) (runtimebin.Runtime, error) {
+	if rt, ok, err := runtimebin.FromFields(in.Runtime, in.RuntimeBinary); err != nil || ok {
+		return rt, err
+	}
+	// A deliberate env override outranks a static per-agent default.
+	if strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) != "" {
 		return runtimebin.Current()
 	}
-	kind, err := runtimebin.ParseKind(requested)
+	if agent := m.agentForRuntime(in.Agent); agent != nil {
+		if rt, ok, err := runtimebin.FromFields(agent.Runtime, agent.RuntimeBin); err != nil || ok {
+			return rt, err
+		}
+	}
+	return runtimebin.Current()
+}
+
+// agentForRuntime loads the named agent's definition to read its frontmatter
+// runtime hint. A load failure returns nil — runtime resolution then falls back
+// to the env/default path, and the dispatch surfaces a clearer error downstream
+// if the agent genuinely cannot be loaded.
+func (m *InstanceManager) agentForRuntime(name string) *loader.Agent {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	teamDir := filepath.Dir(m.daemonRoot)
+	a, err := loader.LoadAgent(filepath.Join(teamDir, "agents", name), teamDir)
 	if err != nil {
-		return runtimebin.Runtime{}, err
+		return nil
 	}
-	bin := strings.TrimSpace(in.RuntimeBinary)
-	if bin == "" {
-		bin = strings.TrimSpace(os.Getenv(runtimebin.EnvBinary))
-	}
-	if bin == "" {
-		bin = runtimebin.DefaultBinaryForKind(kind)
-	}
-	return runtimebin.Runtime{Kind: kind, Binary: bin}, nil
+	return a
 }
 
 func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]string, error) {
