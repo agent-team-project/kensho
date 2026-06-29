@@ -397,8 +397,8 @@ agent-team channel rm <name> [-f] [--dry-run] [--commands] [--format '{{.Action}
 agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--agent manager] [--dry-run] [--commands] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
                                                 # remove instance state and daemon metadata, using persisted metadata if the daemon is down
 agent-team prune [-q] [--dry-run] [--commands] [--runtime codex] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished or runtime-stale persisted daemon metadata and state
-agent-team agent ls [--format '{{.Name}} {{len .Skills}}'] [--json] | show <agent> [--format '{{.Name}} {{.Summary}}'] [--json]
-                                                # list or inspect runnable agent definitions before launching them
+agent-team agent ls [--format '{{.Name}} {{.Runtime}} {{len .Skills}}'] [--json] | show <agent> [--format '{{.Name}} {{.Summary}} {{.Runtime}}'] [--json]
+                                                # list or inspect runnable agent definitions, skills, and runtime defaults before launching them
 agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <path>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."|--prompt-file <path|->] [--format '{{.Instance}} {{.PID}}'] [--json]
                                                 # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
 agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--commands] [--format '{{.Differs}}'] [--json]

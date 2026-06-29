@@ -106,6 +106,12 @@ Binary selection is:
 4. `.agent_team/config.toml` `[runtime].binary` or `[runtime].bin`, but only when `AGENT_TEAM_RUNTIME` is not set
 5. built-in default for the selected runtime
 
+Daemon dispatch also considers agent frontmatter. When a dispatch does not pass
+an explicit runtime and `AGENT_TEAM_RUNTIME` is unset, `runtime` and
+`runtime_bin` in `.agent_team/agents/<agent>/agent.md` take precedence over the
+repo `[runtime]` config. Use `agent-team agent ls` or
+`agent-team agent show <agent>` to inspect those per-agent defaults.
+
 Example repo default:
 
 ```sh

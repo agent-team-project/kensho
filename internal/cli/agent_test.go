@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -73,6 +75,73 @@ func TestAgentShowJSONIncludesPromptAndSkills(t *testing.T) {
 	}
 	if len(agent.Skills) == 0 {
 		t.Fatalf("worker skills empty")
+	}
+}
+
+func TestAgentRuntimeFrontmatterVisible(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	agentDir := filepath.Join(root, ".agent_team", "agents", "codex-worker")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.md"), []byte(`---
+description: Codex worker
+runtime: codex
+runtime_bin: /opt/bin/codex-wrapper
+---
+Run Codex work.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	list := NewRootCmd()
+	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
+	list.SetOut(listOut)
+	list.SetErr(listErr)
+	list.SetArgs([]string{"--repo", root, "agent", "ls", "--json"})
+	if err := list.Execute(); err != nil {
+		t.Fatalf("agent ls runtime json: %v\nstderr=%s", err, listErr.String())
+	}
+	var agents []agentInfo
+	if err := json.Unmarshal(listOut.Bytes(), &agents); err != nil {
+		t.Fatalf("decode agent list: %v\nbody=%s", err, listOut.String())
+	}
+	var found *agentInfo
+	for i := range agents {
+		if agents[i].Name == "codex-worker" {
+			found = &agents[i]
+			break
+		}
+	}
+	if found == nil || found.Runtime != "codex" || found.RuntimeBin != "/opt/bin/codex-wrapper" {
+		t.Fatalf("codex-worker runtime info = %+v", found)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"--repo", root, "agent", "show", "codex-worker"})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("agent show runtime text: %v\nstderr=%s", err, textErr.String())
+	}
+	for _, want := range []string{"Runtime:     codex", "Runtime bin: /opt/bin/codex-wrapper"} {
+		if !strings.Contains(textOut.String(), want) {
+			t.Fatalf("agent show text missing %q:\n%s", want, textOut.String())
+		}
+	}
+
+	formatted := NewRootCmd()
+	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
+	formatted.SetOut(formatOut)
+	formatted.SetErr(formatErr)
+	formatted.SetArgs([]string{"--repo", root, "agents", "ls", "--format", "{{.Name}}:{{.Runtime}}:{{.RuntimeBin}}"})
+	if err := formatted.Execute(); err != nil {
+		t.Fatalf("agents ls runtime format: %v\nstderr=%s", err, formatErr.String())
+	}
+	if !strings.Contains(formatOut.String(), "codex-worker:codex:/opt/bin/codex-wrapper") {
+		t.Fatalf("formatted runtime output missing codex-worker:\n%s", formatOut.String())
 	}
 }
 

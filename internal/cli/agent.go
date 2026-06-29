@@ -18,6 +18,8 @@ type agentInfo struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Summary     string   `json:"summary"`
+	Runtime     string   `json:"runtime,omitempty"`
+	RuntimeBin  string   `json:"runtime_bin,omitempty"`
 	Skills      []string `json:"skills,omitempty"`
 	Subscribes  []string `json:"subscribes,omitempty"`
 	Prompt      string   `json:"prompt,omitempty"`
@@ -152,6 +154,8 @@ func agentInfoFromLoaded(agent *loader.Agent, includePrompt bool) agentInfo {
 		Name:        agent.Name,
 		Description: strings.TrimSpace(agent.Description),
 		Summary:     agentSummary(agent.Description),
+		Runtime:     strings.TrimSpace(agent.Runtime),
+		RuntimeBin:  strings.TrimSpace(agent.RuntimeBin),
 		Skills:      skills,
 		Subscribes:  subscribes,
 	}
@@ -178,9 +182,9 @@ func renderAgentList(w io.Writer, agents []agentInfo, jsonOut bool, tmpl *templa
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tDESCRIPTION\tSKILLS")
+	fmt.Fprintln(tw, "AGENT\tDESCRIPTION\tRUNTIME\tSKILLS")
 	for _, agent := range agents {
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", agent.Name, agent.Summary, strings.Join(agent.Skills, ", "))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", agent.Name, agent.Summary, agentRuntimeSummary(agent), strings.Join(agent.Skills, ", "))
 	}
 	_ = tw.Flush()
 	return nil
@@ -195,6 +199,8 @@ func renderAgentDetail(w io.Writer, agent agentInfo, jsonOut bool, tmpl *templat
 	}
 	fmt.Fprintf(w, "Agent:       %s\n", agent.Name)
 	fmt.Fprintf(w, "Description: %s\n", agent.Summary)
+	fmt.Fprintf(w, "Runtime:     %s\n", emptyDash(agent.Runtime))
+	fmt.Fprintf(w, "Runtime bin: %s\n", emptyDash(agent.RuntimeBin))
 	fmt.Fprintf(w, "Skills:      %s\n", summariseStringList(agent.Skills))
 	fmt.Fprintf(w, "Subscribes:  %s\n", summariseStringList(agent.Subscribes))
 	if strings.TrimSpace(agent.Prompt) != "" {
@@ -233,6 +239,18 @@ func agentSummary(description string) string {
 		}
 	}
 	return ""
+}
+
+func agentRuntimeSummary(agent agentInfo) string {
+	runtime := strings.TrimSpace(agent.Runtime)
+	if runtime == "" {
+		return "-"
+	}
+	runtimeBin := strings.TrimSpace(agent.RuntimeBin)
+	if runtimeBin == "" {
+		return runtime
+	}
+	return runtime + " (" + runtimeBin + ")"
 }
 
 func summariseStringList(items []string) string {

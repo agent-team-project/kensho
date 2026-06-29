@@ -20,7 +20,7 @@ as the output directory instead.
 | `agent-team template smoke [ref] [--format <template>] [--json]` | Render a template in a temp repo and validate it; add `--strict-runtime` for CI runtime checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check\|--apply` | Compare current template lock to target or apply clean template changes; add `--apply --dry-run --commands` for the clean apply command |
-| `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`; `agents` is a plural alias |
+| `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults; `agents` is a plural alias |
 | `agent-team doctor [--commands]` | Validate local layout, durable job files, runtime availability, and workflow runtime defaults; print aggregate remediation commands for scripts |
 | `agent-team dispatch <target> <ticket>` | Publish or preview an `agent.dispatch` topology event; add `--dry-run --commands` to print the matching dispatch apply command for matched routes |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |

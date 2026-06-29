@@ -20,6 +20,8 @@ An agent directory looks like:
 ```md
 ---
 description: Implements one assigned engineering task in an isolated worktree.
+runtime: codex
+runtime_bin: /opt/bin/codex-wrapper
 ---
 
 You are the worker agent...
@@ -35,6 +37,11 @@ Supported frontmatter values are scalar and block-scalar fields needed by agent 
 
 `description` becomes the runtime-facing agent description.
 
+`runtime` can be `claude` or `codex`, and `runtime_bin` can point at a binary
+or wrapper for that runtime. These agent-level defaults apply when dispatch does
+not pass an explicit runtime and `AGENT_TEAM_RUNTIME` is not set. Repo runtime
+config remains the fallback after agent frontmatter.
+
 ## Inspecting Installed Agents
 
 Use the CLI to inspect the definitions installed in a repo before launching one:
@@ -47,7 +54,7 @@ agent-team agent show worker
 Both commands accept `--json` for automation and `--format` for shell-friendly output. The plural alias also works:
 
 ```sh
-agent-team agents ls --format '{{.Name}} {{len .Skills}}'
+agent-team agents ls --format '{{.Name}} {{.Runtime}} {{.RuntimeBin}} {{len .Skills}}'
 ```
 
 ## Agent Config
