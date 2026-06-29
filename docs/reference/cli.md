@@ -82,6 +82,7 @@ Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelin
 | Command | Purpose |
 | --- | --- |
 | `agent-team topology show` | Render loaded topology |
+| `agent-team graph [--team <team>|--pipeline <pipeline>]` | Shortcut for full topology, team, or pipeline graph output with the same text, Mermaid, DOT, JSON, job overlay, route, and command-hint flags |
 | `agent-team topology graph` | Render full topology graph |
 | `agent-team topology summary` | Summarize topology health |
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |

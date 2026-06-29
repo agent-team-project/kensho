@@ -40,6 +40,7 @@ Subcommands:
 - `agent-team drain` - Run maintenance cycles until idle.
 - `agent-team event` - Publish manual topology events to the daemon (for testing trigger matching).
 - `agent-team events` - Show daemon lifecycle events.
+- `agent-team graph` - Render the automation graph.
 - `agent-team health` - Check daemon, instance, queue, job, and outbox health.
 - `agent-team help` - Help about any command
 - `agent-team inbox` - Inspect and acknowledge daemon mailbox messages.
@@ -989,6 +990,29 @@ Inherited Flags:
 
 ```text
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team graph`
+
+Render the automation graph.
+
+Render a read-only graph of the repo automation model. By default this shows the full topology; use --team or --pipeline to narrow to one declared workflow owner.
+
+```text
+agent-team graph [flags]
+```
+
+Flags:
+
+```text
+      --commands          Print recommended commands from graph action hints, one per line. agent-team follow-ups preserve the selected repo scope.
+      --format string     Graph output format: text, mermaid, or dot. (default "text")
+      --job string        Overlay durable job step state on declared pipeline graphs.
+      --json              Emit graph nodes and edges as JSON.
+      --pipeline string   Render one declared pipeline graph instead of the full topology graph.
+      --repo string       Repo root containing .agent_team. (default "<repo>")
+      --routes            Annotate pipeline steps with matching agent.dispatch route instances.
+      --team string       Render one declared team graph instead of the full topology graph.
 ```
 
 ## `agent-team health`
