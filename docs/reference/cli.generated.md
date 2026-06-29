@@ -6953,6 +6953,7 @@ Aliases: `check`, `doctor`
 Flags:
 
 ```text
+      --codex-daemon-check         Run the recommended Codex daemon reachability probe: start agent-teamd with loopback HTTP and run --exec-http-check. Implies --runtime codex.
       --commands                   Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.
       --daemon-http-addr string    With --start-daemon, also expose agent-teamd on this loopback HTTP address, e.g. 127.0.0.1:0.
       --daemon-interval duration   Polling interval for --wait-daemon. (default 200ms)

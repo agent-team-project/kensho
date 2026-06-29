@@ -37,6 +37,7 @@ agent-team runtime probe --runtime codex --require-daemon --wait-daemon --timeou
 agent-team runtime probe --runtime codex --start-daemon --require-daemon
 agent-team runtime probe --runtime codex --format '{{.OK}} {{len .Issues}}'
 agent-team runtime probe --runtime codex --exec --timeout 2m
+agent-team runtime probe --codex-daemon-check
 agent-team runtime probe --runtime codex --start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m
 agent-team runtime probe --runtime codex --start-daemon --exec-socket-check --timeout 2m
 agent-team runtime probe --runtime codex --exec --timeout 2m --output runtime-probe.json
@@ -58,9 +59,13 @@ repo daemon if it is not ready; without that flag the probe remains read-only.
 `--exec` is opt-in because it spends a real runtime call: for Codex it runs
 `codex exec -`, sends a short prompt over stdin, and verifies that
 `--output-last-message` produced a sidecar. Prefer
-`--daemon-http-addr 127.0.0.1:0 --exec-http-check` when validating Codex sandbox
-access to the daemon; it exposes an opt-in loopback HTTP URL for the probe
-through `AGENT_TEAM_DAEMON_URL` and avoids Unix socket policy differences. Add
+`--codex-daemon-check` when validating Codex sandbox access to the daemon; it
+expands to the recommended loopback HTTP probe, starts the daemon if needed,
+selects the Codex runtime, and uses a two-minute timeout unless `--timeout` is
+set explicitly. Use the lower-level
+`--daemon-http-addr 127.0.0.1:0 --exec-http-check` flags when a script needs to
+control each piece; they expose an opt-in loopback HTTP URL for the probe
+through `AGENT_TEAM_DAEMON_URL` and avoid Unix socket policy differences. Add
 `--exec-socket-check` when the probe should instead spend a Codex call
 specifically verifying that commands inside the Codex sandbox can reach
 `agent-teamd` through `AGENT_TEAM_DAEMON_SOCKET`; it implies `--exec` and

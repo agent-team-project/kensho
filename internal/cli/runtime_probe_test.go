@@ -224,8 +224,8 @@ func TestRuntimeProbeCommands(t *testing.T) {
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "daemon", "start"}), " "),
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp}), " ") + " run manager --runtime codex --prompt \"probe\" --last-message",
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "--json"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--codex-daemon-check"}), " "),
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--runtime", "codex", "--exec", "--timeout", "2m"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--runtime", "codex", "--start-daemon", "--daemon-http-addr", "127.0.0.1:0", "--exec-http-check", "--timeout", "2m"}), " "),
 		"codex doctor --summary",
 		"",
 	}, "\n")
@@ -317,7 +317,7 @@ func TestRuntimeProbeActionsUseSocketCheckWithoutHTTP(t *testing.T) {
 	if !containsString(actions, "agent-team runtime probe --runtime codex --exec-socket-check --timeout 2m") {
 		t.Fatalf("actions = %+v, want socket exec check fallback", actions)
 	}
-	if !containsString(actions, "agent-team runtime probe --runtime codex --start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m") {
+	if !containsString(actions, "agent-team runtime probe --codex-daemon-check") {
 		t.Fatalf("actions = %+v, want HTTP daemon-start probe hint", actions)
 	}
 }
@@ -656,6 +656,8 @@ func TestRuntimeProbeRejectsInvalidWaitFlags(t *testing.T) {
 		{name: "zero daemon interval", args: []string{"runtime", "probe", "--daemon-interval", "0s"}, want: "--daemon-interval must be > 0"},
 		{name: "exec prompt conflict", args: []string{"runtime", "probe", "--exec-prompt", "hello", "--exec-prompt-file", "prompt.txt"}, want: "provide exec prompt using only one of --exec-prompt or --exec-prompt-file"},
 		{name: "socket check prompt conflict", args: []string{"runtime", "probe", "--exec-socket-check", "--exec-prompt", "hello"}, want: "--exec-socket-check cannot be combined"},
+		{name: "codex daemon check runtime conflict", args: []string{"runtime", "probe", "--codex-daemon-check", "--runtime", "claude"}, want: "--codex-daemon-check requires --runtime codex or no --runtime"},
+		{name: "codex daemon check socket conflict", args: []string{"runtime", "probe", "--codex-daemon-check", "--exec-socket-check"}, want: "choose one of --exec-socket-check or --exec-http-check"},
 		{name: "missing exec prompt file", args: []string{"runtime", "probe", "--exec-prompt-file", filepath.Join(t.TempDir(), "missing.txt")}, want: "--exec-prompt-file:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -970,6 +972,86 @@ func TestRuntimeProbeCodexExecHTTPCheckSuccess(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeCodexDaemonCheckShortcut(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	httpURL := "http://127.0.0.1:49200"
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex" {
+			t.Fatalf("look path bin = %q, want codex", bin)
+		}
+		return "/opt/homebrew/bin/codex", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+	withRuntimeProbeStartDaemon(t, func(cmd *cobra.Command, teamDir string, timeout time.Duration, httpAddr string) (daemonLifecycleJSON, error) {
+		if timeout != 2*time.Minute {
+			t.Fatalf("timeout = %s, want 2m", timeout)
+		}
+		if httpAddr != "127.0.0.1:0" {
+			t.Fatalf("http addr = %q, want 127.0.0.1:0", httpAddr)
+		}
+		return daemonLifecycleJSON{
+			Action: "start",
+			PID:    1234,
+			Status: daemonStatusJSON{
+				Running:  true,
+				Ready:    true,
+				PID:      1234,
+				TeamDir:  filepath.ToSlash(teamDir),
+				Socket:   filepath.Join(tmp, ".agent_team", "daemon.sock"),
+				HTTPAddr: "127.0.0.1:49200",
+				HTTPURL:  httpURL,
+			},
+		}, nil
+	})
+	withRuntimeProbeRunExecCommand(t, func(ctx context.Context, binary string, args []string, env []string, cwd, stdin string) runtimeProbeExecCommandResult {
+		if binary != "codex" {
+			t.Fatalf("exec binary = %q, want codex", binary)
+		}
+		if !containsString(env, "AGENT_TEAM_DAEMON_URL="+httpURL) {
+			t.Fatalf("exec env = %#v, want daemon URL", env)
+		}
+		if !strings.Contains(stdin, runtimeProbeHTTPCheckSuccessReply) {
+			t.Fatalf("HTTP-check stdin missing success reply:\n%s", stdin)
+		}
+		lastMessage := ""
+		for i := range args {
+			if args[i] == "--output-last-message" && i+1 < len(args) {
+				lastMessage = args[i+1]
+				break
+			}
+		}
+		if lastMessage == "" {
+			t.Fatalf("exec args = %#v, missing last-message path", args)
+		}
+		if err := os.WriteFile(lastMessage, []byte(runtimeProbeHTTPCheckSuccessReply+"\n"), 0o644); err != nil {
+			t.Fatalf("write last-message: %v", err)
+		}
+		return runtimeProbeExecCommandResult{}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--codex-daemon-check", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime probe codex daemon check: %v\nstderr=%s", err, stderr.String())
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || result.Runtime.Runtime != "codex" || result.ExecProbe == nil || !result.ExecProbe.HTTPCheck || result.ExecProbe.DaemonURL != httpURL {
+		t.Fatalf("result = %+v, want successful shortcut HTTP exec probe", result)
+	}
+}
+
 func TestRuntimeProbeCodexExecHTTPCheckRequiresHTTPURL(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -1270,7 +1352,7 @@ func TestRuntimeExecProbeClassifiesFailures(t *testing.T) {
 				remediation := runtimeExecProbeRemediation(tc.probe, tc.want)
 				wantFlag := "--exec-socket-check"
 				if tc.probe.HTTPCheck {
-					wantFlag = "--exec-http-check"
+					wantFlag = "--codex-daemon-check"
 				}
 				if !strings.Contains(remediation, wantFlag) {
 					t.Fatalf("remediation = %q, want %s command", remediation, wantFlag)
