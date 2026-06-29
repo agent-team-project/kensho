@@ -9912,7 +9912,7 @@ Inherited Flags:
 
 Render a template into a temp repo and validate it.
 
-Render a template into a temporary repo with init --no-input semantics, then run doctor, pipeline doctor, and team doctor. Pass --set for required parameters.
+Render a template into a temporary repo with init --no-input semantics, then run doctor, agent doctor, pipeline doctor, and team doctor. Pass --set for required parameters.
 
 ```text
 agent-team template smoke [ref] [flags]

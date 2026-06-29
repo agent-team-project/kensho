@@ -69,8 +69,8 @@ bin/agent-team template smoke ./my-template \
 ```
 
 Use `--keep` when you want to inspect the rendered temp repo after the smoke
-run. The smoke command runs `init`, `doctor`, `pipeline doctor`, and `team doctor`;
-it exits non-zero if any step fails. Add `--strict-runtime` when CI
+run. The smoke command runs `init`, `doctor`, `agent doctor`, `pipeline doctor`,
+and `team doctor`; it exits non-zero if any step fails. Add `--strict-runtime` when CI
 should fail on unavailable selected runtimes, step-declared runtime defaults, or
 agent-level runtime defaults.
 

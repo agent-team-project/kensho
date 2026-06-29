@@ -448,11 +448,11 @@ func TestTemplateSmokeBundledJSONCleansTempRepo(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode smoke result: %v\nbody=%s", err, out.String())
 	}
-	if !result.OK || result.Ref != "bundled" || result.Kept || len(result.Steps) != 4 {
+	if !result.OK || result.Ref != "bundled" || result.Kept || len(result.Steps) != 5 {
 		t.Fatalf("smoke result = %+v", result)
 	}
-	if result.Doctor == nil || !result.Doctor.OK || result.PipelineDoctor == nil || !result.PipelineDoctor.OK || result.TeamDoctor == nil || !result.TeamDoctor.OK {
-		t.Fatalf("smoke validation summaries = doctor:%+v pipeline:%+v team:%+v", result.Doctor, result.PipelineDoctor, result.TeamDoctor)
+	if result.Doctor == nil || !result.Doctor.OK || result.AgentDoctor == nil || !result.AgentDoctor.OK || result.PipelineDoctor == nil || !result.PipelineDoctor.OK || result.TeamDoctor == nil || !result.TeamDoctor.OK {
+		t.Fatalf("smoke validation summaries = doctor:%+v agent:%+v pipeline:%+v team:%+v", result.Doctor, result.AgentDoctor, result.PipelineDoctor, result.TeamDoctor)
 	}
 	if _, err := os.Stat(filepath.FromSlash(result.Target)); !os.IsNotExist(err) {
 		t.Fatalf("target should be removed after smoke, stat err=%v target=%s", err, result.Target)
@@ -473,7 +473,7 @@ func TestTemplateSmokeFormat(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("template smoke --format: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
 	}
-	if got, want := strings.TrimSpace(out.String()), "true bundled 4 false"; got != want {
+	if got, want := strings.TrimSpace(out.String()), "true bundled 5 false"; got != want {
 		t.Fatalf("template smoke format = %q, want %q", got, want)
 	}
 }
@@ -557,6 +557,8 @@ pm_tool = "none"
 `,
 		"agents/worker/agent.md": `---
 description: Worker.
+runtime: codex
+runtime_bin: missing-codex
 ---
 
 Worker prompt.
@@ -575,8 +577,6 @@ trigger.event = "ticket.created"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
-runtime = "codex"
-runtime_bin = "missing-codex"
 
 [teams.delivery]
 instances = ["worker"]
@@ -596,12 +596,13 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(nonStrictOut.Bytes(), &nonStrictResult); err != nil {
 		t.Fatalf("decode non-strict smoke json: %v\nbody=%s", err, nonStrictOut.String())
 	}
-	if !nonStrictResult.OK || nonStrictResult.PipelineDoctor == nil || !nonStrictResult.PipelineDoctor.OK || nonStrictResult.TeamDoctor == nil || !nonStrictResult.TeamDoctor.OK {
+	if !nonStrictResult.OK || nonStrictResult.AgentDoctor == nil || !nonStrictResult.AgentDoctor.OK || nonStrictResult.PipelineDoctor == nil || !nonStrictResult.PipelineDoctor.OK || nonStrictResult.TeamDoctor == nil || !nonStrictResult.TeamDoctor.OK {
 		t.Fatalf("non-strict smoke result = %+v", nonStrictResult)
 	}
-	if !hasPipelineDoctorFinding(nonStrictResult.PipelineDoctor.Warnings, "step_runtime_unavailable") ||
-		!hasTeamDoctorFinding(nonStrictResult.TeamDoctor.Warnings, "step_runtime_unavailable") {
-		t.Fatalf("non-strict smoke did not preserve runtime warnings: pipeline=%+v team=%+v", nonStrictResult.PipelineDoctor, nonStrictResult.TeamDoctor)
+	if !hasAgentDoctorFinding(nonStrictResult.AgentDoctor.Warnings, "agent_runtime_unavailable") ||
+		!hasPipelineDoctorFinding(nonStrictResult.PipelineDoctor.Warnings, "agent_runtime_unavailable") ||
+		!hasTeamDoctorFinding(nonStrictResult.TeamDoctor.Warnings, "agent_runtime_unavailable") {
+		t.Fatalf("non-strict smoke did not preserve runtime warnings: agent=%+v pipeline=%+v team=%+v", nonStrictResult.AgentDoctor, nonStrictResult.PipelineDoctor, nonStrictResult.TeamDoctor)
 	}
 	if nonStrictErr.Len() != 0 {
 		t.Fatalf("template smoke --json should not write warnings to stderr: %s", nonStrictErr.String())
@@ -624,16 +625,19 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(strictOut.Bytes(), &strictResult); err != nil {
 		t.Fatalf("decode strict smoke json: %v\nbody=%s", err, strictOut.String())
 	}
-	if strictResult.OK || strictResult.PipelineDoctor == nil || strictResult.PipelineDoctor.OK || strictResult.TeamDoctor == nil || strictResult.TeamDoctor.OK {
+	if strictResult.OK || strictResult.Doctor == nil || strictResult.Doctor.OK || strictResult.AgentDoctor == nil || strictResult.AgentDoctor.OK || strictResult.PipelineDoctor == nil || strictResult.PipelineDoctor.OK || strictResult.TeamDoctor == nil || strictResult.TeamDoctor.OK {
 		t.Fatalf("strict smoke result = %+v", strictResult)
 	}
-	if !hasPipelineDoctorFinding(strictResult.PipelineDoctor.Problems, "step_runtime_unavailable") ||
-		!hasTeamDoctorFinding(strictResult.TeamDoctor.Problems, "step_runtime_unavailable") {
-		t.Fatalf("strict smoke did not promote nested runtime warnings: pipeline=%+v team=%+v", strictResult.PipelineDoctor, strictResult.TeamDoctor)
+	if !containsDoctorMessage(strictResult.Doctor.Problems, "agents:") ||
+		!hasAgentDoctorFinding(strictResult.AgentDoctor.Problems, "agent_runtime_unavailable") ||
+		!hasPipelineDoctorFinding(strictResult.PipelineDoctor.Problems, "agent_runtime_unavailable") ||
+		!hasTeamDoctorFinding(strictResult.TeamDoctor.Problems, "agent_runtime_unavailable") {
+		t.Fatalf("strict smoke did not promote nested runtime warnings: doctor=%+v agent=%+v pipeline=%+v team=%+v", strictResult.Doctor, strictResult.AgentDoctor, strictResult.PipelineDoctor, strictResult.TeamDoctor)
 	}
-	if hasPipelineDoctorFinding(strictResult.PipelineDoctor.Warnings, "step_runtime_unavailable") ||
-		hasTeamDoctorFinding(strictResult.TeamDoctor.Warnings, "step_runtime_unavailable") {
-		t.Fatalf("strict smoke left nested runtime warnings unpromoted: pipeline=%+v team=%+v", strictResult.PipelineDoctor, strictResult.TeamDoctor)
+	if hasAgentDoctorFinding(strictResult.AgentDoctor.Warnings, "agent_runtime_unavailable") ||
+		hasPipelineDoctorFinding(strictResult.PipelineDoctor.Warnings, "agent_runtime_unavailable") ||
+		hasTeamDoctorFinding(strictResult.TeamDoctor.Warnings, "agent_runtime_unavailable") {
+		t.Fatalf("strict smoke left nested runtime warnings unpromoted: agent=%+v pipeline=%+v team=%+v", strictResult.AgentDoctor, strictResult.PipelineDoctor, strictResult.TeamDoctor)
 	}
 	if strictErr.Len() != 0 {
 		t.Fatalf("template smoke --json should not write strict problems to stderr: %s", strictErr.String())

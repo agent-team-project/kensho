@@ -266,7 +266,7 @@ func newTemplateSmokeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "smoke [ref]",
 		Short: "Render a template into a temp repo and validate it.",
-		Long:  "Render a template into a temporary repo with init --no-input semantics, then run doctor, pipeline doctor, and team doctor. Pass --set for required parameters.",
+		Long:  "Render a template into a temporary repo with init --no-input semantics, then run doctor, agent doctor, pipeline doctor, and team doctor. Pass --set for required parameters.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -324,6 +324,7 @@ type templateSmokeResult struct {
 	Kept           bool                  `json:"kept"`
 	Steps          []templateSmokeStep   `json:"steps"`
 	Doctor         *doctorResult         `json:"doctor,omitempty"`
+	AgentDoctor    *agentDoctorResult    `json:"agent_doctor,omitempty"`
 	PipelineDoctor *pipelineDoctorResult `json:"pipeline_doctor,omitempty"`
 	TeamDoctor     *allTeamDoctorResult  `json:"team_doctor,omitempty"`
 }
@@ -366,6 +367,10 @@ func runTemplateSmoke(cmd *cobra.Command, ref string, sets []string, opts templa
 	doctor, doctorStep := runTemplateSmokeDoctor(target, opts)
 	result.Doctor = doctor
 	result.addStep(doctorStep)
+
+	agentDoctor, agentStep := runTemplateSmokeAgentDoctor(teamDir, opts.StrictRuntime)
+	result.AgentDoctor = agentDoctor
+	result.addStep(agentStep)
 
 	pipelineDoctor, pipelineStep := runTemplateSmokePipelineDoctor(teamDir, opts.StrictRuntime)
 	result.PipelineDoctor = pipelineDoctor
@@ -412,6 +417,15 @@ func runTemplateSmokeDoctor(target string, opts templateSmokeOptions) (*doctorRe
 	return &result, templateSmokeStep{Name: "doctor", OK: err == nil && result.OK, Error: smokeStepError(err, firstDoctorProblem(result.Problems, stderr.String()))}
 }
 
+func runTemplateSmokeAgentDoctor(teamDir string, strictRuntime bool) (*agentDoctorResult, templateSmokeStep) {
+	result := collectAgentDoctor(teamDir, "")
+	if strictRuntime {
+		promoteAgentDoctorRuntimeWarnings(result)
+	}
+	ok := result != nil && result.OK
+	return result, templateSmokeStep{Name: "agent doctor", OK: ok, Error: firstAgentProblem(result)}
+}
+
 func runTemplateSmokePipelineDoctor(teamDir string, strictRuntime bool) (*pipelineDoctorResult, templateSmokeStep) {
 	result, err := collectPipelineDoctor(teamDir, "")
 	if strictRuntime {
@@ -450,6 +464,16 @@ func firstDoctorProblem(problems []string, fallback string) string {
 		return problems[0]
 	}
 	return fallback
+}
+
+func firstAgentProblem(result *agentDoctorResult) string {
+	if result == nil {
+		return "agent doctor returned no result"
+	}
+	if len(result.Problems) > 0 {
+		return result.Problems[0].Message
+	}
+	return ""
 }
 
 func firstPipelineProblem(result *pipelineDoctorResult) string {

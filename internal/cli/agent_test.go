@@ -284,6 +284,15 @@ Run wrapped work.
 	}
 }
 
+func hasAgentDoctorFinding(findings []agentDoctorFinding, code string) bool {
+	for _, finding := range findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAgentsAliasSupportsFormattedList(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)

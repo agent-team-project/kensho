@@ -17,7 +17,7 @@ as the output directory instead.
 | `agent-team template show [ref] [--format <template>] [--json]` | Show a template manifest with content hash, agents, skills, and parameters |
 | `agent-team template pull <ref> [--as <cache-ref>] [--dry-run] [--commands] [--format <template>] [--json]` | Cache a template, or preview/print the apply command |
 | `agent-team template rm <ref> [--dry-run] [--commands] [--format <template>] [--json]` | Remove a cached template, or preview/print the apply command |
-| `agent-team template smoke [ref] [--format <template>] [--json]` | Render a template in a temp repo and validate it; add `--strict-runtime` for CI runtime checks |
+| `agent-team template smoke [ref] [--format <template>] [--json]` | Render a template in a temp repo and run doctor, agent, pipeline, and team validation; add `--strict-runtime` for CI runtime checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check\|--apply` | Compare current template lock to target or apply clean template changes; add `--apply --dry-run --commands` for the clean apply command |
 | `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults; `agents` is a plural alias |
