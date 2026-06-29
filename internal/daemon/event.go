@@ -630,7 +630,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	}
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, prompt, env, payload)
+	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, payload)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -914,7 +914,7 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, prompt string, env []string, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: load agents: %w", err)
@@ -984,11 +984,20 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		if err := os.Remove(lastMessagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: remove stale Codex last message: %w", err)
 		}
+		// Run codex IN the dispatch workspace — the per-worker git worktree when
+		// isolation was requested — so its file edits, branch, and commits stay
+		// isolated. Falling back to teamDirParent (the repo root) would make a
+		// worktree-isolated worker operate on the main checkout instead, which
+		// breaks isolation and collides with other workers / the operator.
+		codexCwd := strings.TrimSpace(cwd)
+		if codexCwd == "" {
+			codexCwd = r.teamDirParent()
+		}
 		args := []string{"exec"}
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args,
-			"-C", r.teamDirParent(),
+			"-C", codexCwd,
 			"--add-dir", runtimeDir,
 			"--output-last-message", lastMessagePath,
 			"-",
