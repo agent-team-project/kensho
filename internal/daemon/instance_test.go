@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	crand "crypto/rand"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
+
+type failingRandReader struct{}
+
+func (failingRandReader) Read([]byte) (int, error) {
+	return 0, errors.New("forced rand failure")
+}
 
 // fakeSpawner records args and returns a controllable, real-but-trivial child
 // process so the reaper goroutine has something to Wait() on.
@@ -120,6 +127,36 @@ func TestHelperProcessIgnoreTerm(t *testing.T) {
 	}
 	signal.Ignore(syscall.SIGTERM)
 	select {}
+}
+
+func TestNewSessionIDFallsBackWhenRandFails(t *testing.T) {
+	originalReader := crand.Reader
+	crand.Reader = failingRandReader{}
+	t.Cleanup(func() {
+		crand.Reader = originalReader
+	})
+
+	first := newSessionID()
+	second := newSessionID()
+	for _, id := range []string{first, second} {
+		if len(id) != 36 {
+			t.Fatalf("session id %q length = %d, want 36", id, len(id))
+		}
+		for _, index := range []int{8, 13, 18, 23} {
+			if id[index] != '-' {
+				t.Fatalf("session id %q missing hyphen at index %d", id, index)
+			}
+		}
+		if id[14] != '4' {
+			t.Fatalf("session id %q version nibble = %q, want 4", id, id[14])
+		}
+		if !strings.ContainsRune("89ab", rune(id[19])) {
+			t.Fatalf("session id %q variant nibble = %q, want one of 89ab", id, id[19])
+		}
+	}
+	if first == second {
+		t.Fatalf("fallback session IDs should be unique, both were %q", first)
+	}
 }
 
 func TestSignalProcessGroupStopsChildProcess(t *testing.T) {

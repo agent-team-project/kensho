@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -17,6 +19,11 @@ import (
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
+
+var sessionIDFallbackCounter struct {
+	sync.Mutex
+	value uint32
+}
 
 // Spawner abstracts the child-process call so tests can inject a fake.
 // args is the full argv (including the binary name in args[0] for clarity);
@@ -920,11 +927,28 @@ func (m *InstanceManager) LoadFromDisk() error {
 // to keep deps minimal — claude's --session-id accepts any UUID-shape value.
 func newSessionID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// Crypto/rand failure on a posix system would be catastrophic;
-		// panic'ing matches stdlib idiom.
-		panic(fmt.Sprintf("session-id: rand: %v", err))
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+		return fallbackSessionIDBytes()
 	}
+	return formatSessionIDBytes(b)
+}
+
+func fallbackSessionIDBytes() string {
+	var b [16]byte
+	binary.BigEndian.PutUint64(b[0:8], uint64(time.Now().UTC().UnixNano()))
+	binary.BigEndian.PutUint32(b[8:12], uint32(os.Getpid()))
+	binary.BigEndian.PutUint32(b[12:16], nextSessionIDFallbackCounter())
+	return formatSessionIDBytes(b)
+}
+
+func nextSessionIDFallbackCounter() uint32 {
+	sessionIDFallbackCounter.Lock()
+	defer sessionIDFallbackCounter.Unlock()
+	sessionIDFallbackCounter.value++
+	return sessionIDFallbackCounter.value
+}
+
+func formatSessionIDBytes(b [16]byte) string {
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
 	hexed := hex.EncodeToString(b[:])
