@@ -650,6 +650,17 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		}
 	}
 
+	dryCommandsOut, dryCommandsErr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("outbox doctor quarantine dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
+	}
+	if got, want := dryCommandsOut.String(), scopedOperatorAction("agent-team outbox doctor --quarantine", operatorCommandScope{Repo: target, Set: true})+"\n"; got != want {
+		t.Fatalf("outbox doctor quarantine dry-run commands = %q, want %q", got, want)
+	}
+	if dryCommandsErr.Len() != 0 {
+		t.Fatalf("outbox doctor quarantine dry-run commands stderr = %q", dryCommandsErr.String())
+	}
+
 	quarantineOut, quarantineErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--json")
 	if err != nil {
 		t.Fatalf("outbox doctor quarantine: %v\nstderr=%s", err, quarantineErrOut.String())

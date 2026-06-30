@@ -503,6 +503,7 @@ their filename/id invariants:
 ```sh
 agent-team job doctor --commands
 agent-team job doctor --quarantine --dry-run
+agent-team job doctor --quarantine --dry-run --commands
 agent-team job doctor --quarantine
 agent-team job quarantine --summary --json
 agent-team job quarantine

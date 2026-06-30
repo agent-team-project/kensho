@@ -274,6 +274,21 @@ updated_at = 2026-06-18T12:00:00Z
 		}
 	}
 
+	dryCommands := NewRootCmd()
+	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryCommands.SetOut(dryCommandsOut)
+	dryCommands.SetErr(dryCommandsErr)
+	dryCommands.SetArgs([]string{"job", "doctor", "--repo", tmp, "--quarantine", "--dry-run", "--commands"})
+	if err := dryCommands.Execute(); err != nil {
+		t.Fatalf("job doctor quarantine dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
+	}
+	if got, want := dryCommandsOut.String(), scopedOperatorAction("agent-team job doctor --quarantine", operatorCommandScope{Repo: tmp, Set: true})+"\n"; got != want {
+		t.Fatalf("job doctor quarantine dry-run commands = %q, want %q", got, want)
+	}
+	if dryCommandsErr.Len() != 0 {
+		t.Fatalf("job doctor quarantine dry-run commands stderr = %q", dryCommandsErr.String())
+	}
+
 	apply := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)

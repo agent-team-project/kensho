@@ -146,7 +146,7 @@ func newOutboxDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit outbox doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the outbox doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, or with --quarantine --dry-run print the matching quarantine apply command.")
 	cmd.Flags().BoolVar(&quarantine, "quarantine", false, "Move outbox files with doctor problems out of the active outbox.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "With --quarantine, preview files that would be moved.")
 	return cmd
@@ -404,7 +404,11 @@ func renderOutboxDoctor(stdout, stderr io.Writer, result outboxDoctorResult, jso
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderOperatorActionCommands(stdout, result.Actions, scope)
+		actions := result.Actions
+		if result.Quarantine != nil && result.Quarantine.DryRun {
+			actions = outboxDoctorQuarantineApplyActions(result)
+		}
+		return renderOperatorActionCommands(stdout, actions, scope)
 	}
 	if tmpl != nil {
 		return renderOutboxDoctorFormat(stdout, result, tmpl)
@@ -433,6 +437,13 @@ func renderOutboxDoctor(stdout, stderr io.Writer, result outboxDoctorResult, jso
 	}
 	renderOutboxDoctorQuarantine(stdout, result.Quarantine)
 	return nil
+}
+
+func outboxDoctorQuarantineApplyActions(result outboxDoctorResult) []string {
+	if result.Quarantine == nil || !result.Quarantine.DryRun || result.Quarantine.Candidates == 0 {
+		return nil
+	}
+	return []string{"agent-team outbox doctor --quarantine"}
 }
 
 func parseOutboxDoctorFormat(format string) (*template.Template, error) {

@@ -604,6 +604,21 @@ func TestQueueDoctorQuarantineDryRunAndApply(t *testing.T) {
 		}
 	}
 
+	dryCommands := NewRootCmd()
+	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dryCommands.SetOut(dryCommandsOut)
+	dryCommands.SetErr(dryCommandsErr)
+	dryCommands.SetArgs([]string{"queue", "doctor", "--target", tmp, "--quarantine", "--dry-run", "--commands"})
+	if err := dryCommands.Execute(); err != nil {
+		t.Fatalf("queue doctor quarantine dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
+	}
+	if got, want := dryCommandsOut.String(), scopedOperatorAction("agent-team queue doctor --quarantine", operatorCommandScope{Repo: tmp, Set: true})+"\n"; got != want {
+		t.Fatalf("queue doctor quarantine dry-run commands = %q, want %q", got, want)
+	}
+	if dryCommandsErr.Len() != 0 {
+		t.Fatalf("queue doctor quarantine dry-run commands stderr = %q", dryCommandsErr.String())
+	}
+
 	apply := NewRootCmd()
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)

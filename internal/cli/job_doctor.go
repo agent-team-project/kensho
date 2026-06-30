@@ -138,7 +138,7 @@ func newJobDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit durable job doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Valid}}'.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, or with --quarantine --dry-run print the matching quarantine apply command.")
 	cmd.Flags().BoolVar(&quarantine, "quarantine", false, "Move job files with doctor problems out of the active jobs directory.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "With --quarantine, preview files that would be moved.")
 	return cmd
@@ -267,7 +267,11 @@ func renderJobDoctor(stdout, stderr io.Writer, result jobDoctorResult, jsonOut b
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderOperatorActionCommands(stdout, result.Actions, scope)
+		actions := result.Actions
+		if result.Quarantine != nil && result.Quarantine.DryRun {
+			actions = jobDoctorQuarantineApplyActions(result)
+		}
+		return renderOperatorActionCommands(stdout, actions, scope)
 	}
 	if tmpl != nil {
 		return renderJobDoctorFormat(stdout, result, tmpl)
@@ -300,6 +304,13 @@ func renderJobDoctor(stdout, stderr io.Writer, result jobDoctorResult, jsonOut b
 
 func renderJobDoctorSummary(w io.Writer, summary jobDoctorSummary) {
 	fmt.Fprintf(w, "jobs: files=%d valid=%d invalid=%d ignored=%d\n", summary.Files, summary.Valid, summary.Invalid, summary.Ignored)
+}
+
+func jobDoctorQuarantineApplyActions(result jobDoctorResult) []string {
+	if result.Quarantine == nil || !result.Quarantine.DryRun || result.Quarantine.Candidates == 0 {
+		return nil
+	}
+	return []string{"agent-team job doctor --quarantine"}
 }
 
 func quarantineJobDoctorProblems(root string, result jobDoctorResult, dryRun bool, now time.Time) (*jobDoctorQuarantineResult, error) {

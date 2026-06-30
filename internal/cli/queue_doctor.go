@@ -145,7 +145,7 @@ func newQueueDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit queue doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, or with --quarantine --dry-run print the matching quarantine apply command.")
 	cmd.Flags().BoolVar(&quarantine, "quarantine", false, "Move queue files with doctor problems out of the active queue.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "With --quarantine, preview files that would be moved.")
 	return cmd
@@ -419,7 +419,11 @@ func renderQueueDoctor(stdout, stderr io.Writer, result queueDoctorResult, jsonO
 		return json.NewEncoder(stdout).Encode(result)
 	}
 	if commands {
-		return renderOperatorActionCommands(stdout, result.Actions, scope)
+		actions := result.Actions
+		if result.Quarantine != nil && result.Quarantine.DryRun {
+			actions = queueDoctorQuarantineApplyActions(result)
+		}
+		return renderOperatorActionCommands(stdout, actions, scope)
 	}
 	if tmpl != nil {
 		return renderQueueDoctorFormat(stdout, result, tmpl)
@@ -448,6 +452,13 @@ func renderQueueDoctor(stdout, stderr io.Writer, result queueDoctorResult, jsonO
 	}
 	renderQueueDoctorQuarantine(stdout, result.Quarantine)
 	return nil
+}
+
+func queueDoctorQuarantineApplyActions(result queueDoctorResult) []string {
+	if result.Quarantine == nil || !result.Quarantine.DryRun || result.Quarantine.Candidates == 0 {
+		return nil
+	}
+	return []string{"agent-team queue doctor --quarantine"}
 }
 
 func parseQueueDoctorFormat(format string) (*template.Template, error) {

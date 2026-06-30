@@ -137,6 +137,7 @@ Use `queue doctor` when queue commands cannot parse active queue files.
 agent-team queue doctor --commands
 agent-team queue doctor --json
 agent-team queue doctor --quarantine --dry-run
+agent-team queue doctor --quarantine --dry-run --commands
 agent-team queue doctor --quarantine
 ```
 
@@ -255,6 +256,7 @@ Sandboxed agents write fallback events under `.agent_team/outbox/` when daemon t
 agent-team outbox doctor --commands
 agent-team outbox doctor --json
 agent-team outbox doctor --quarantine --dry-run
+agent-team outbox doctor --quarantine --dry-run --commands
 agent-team outbox doctor --quarantine
 ```
 

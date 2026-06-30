@@ -259,7 +259,7 @@ agent-team team doctor --all
 
 Doctor commands validate structure and data integrity.
 
-Use `job doctor --quarantine --dry-run`, `queue doctor --quarantine --dry-run`, or `outbox doctor --quarantine --dry-run` before moving malformed active files into their quarantine directories.
+Use `job doctor --quarantine --dry-run`, `queue doctor --quarantine --dry-run`, or `outbox doctor --quarantine --dry-run` before moving malformed active files into their quarantine directories. Add `--commands` to those dry-runs when a script should receive only the scoped quarantine apply command.
 Use `doctor --strict` in CI when daemon binary, runtime, and template provenance warnings should fail together, or narrower flags such as `--strict-runtime` when only one warning class should be promoted.
 Add `--commands` to top-level, job, queue, outbox, or intake doctor commands when automation needs only the recommended follow-up commands.
 Top-level doctor command output also points at `pipeline doctor --all --json` or `team doctor --all --json` when workflow topology needs a focused detail report.
