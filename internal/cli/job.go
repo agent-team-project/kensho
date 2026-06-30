@@ -13244,54 +13244,9 @@ func jobStepWaitingFor(j *job.Job, step *job.Step) []string {
 }
 
 func nextReadyJobStep(j *job.Job) *job.Step {
-	if j == nil || j.Held {
-		return nil
-	}
-	done := map[string]bool{}
-	for _, step := range j.Steps {
-		if jobStepSatisfiesDependency(&step) {
-			done[step.ID] = true
-		}
-	}
-	for i := range j.Steps {
-		step := &j.Steps[i]
-		if stepGatePending(j, step) {
-			continue
-		}
-		if step.Status == job.StatusDone || step.Status == job.StatusFailed || step.Status == job.StatusRunning || step.Status == job.StatusQueued {
-			continue
-		}
-		ready := true
-		for _, dep := range step.After {
-			if !done[dep] {
-				ready = false
-				break
-			}
-		}
-		if ready {
-			return step
-		}
-	}
-	for i := range j.Steps {
-		step := &j.Steps[i]
-		if step.Status != job.StatusQueued {
-			continue
-		}
-		if stepGatePending(j, step) {
-			continue
-		}
-		ready := true
-		for _, dep := range step.After {
-			if !done[dep] {
-				ready = false
-				break
-			}
-		}
-		if ready {
-			return step
-		}
-	}
-	return nil
+	// Single source of truth lives in the job package so the daemon's
+	// auto-advance path and this CLI decide "what runs next" identically.
+	return job.NextReadyStep(j)
 }
 
 func advanceableJobSteps(j *job.Job) []*job.Step {
@@ -13332,7 +13287,7 @@ func advanceableJobSteps(j *job.Job) []*job.Step {
 }
 
 func stepManualGatePending(step *job.Step) bool {
-	return step != nil && step.Status == job.StatusBlocked && step.Gate == job.StepGateManual
+	return job.StepManualGatePending(step)
 }
 
 func selectManualGateForApproval(j *job.Job, requested string) (string, error) {
@@ -13375,18 +13330,15 @@ func optionalSendMessageBody(flagValue, fileValue string, positional []string) (
 }
 
 func stepPRGatePending(j *job.Job, step *job.Step) bool {
-	return step != nil && step.Gate == job.StepGatePR && strings.TrimSpace(j.PR) == ""
+	return job.StepPRGatePending(j, step)
 }
 
 func stepGatePending(j *job.Job, step *job.Step) bool {
-	return stepManualGatePending(step) || stepPRGatePending(j, step)
+	return job.StepGatePending(j, step)
 }
 
 func jobStepSatisfiesDependency(step *job.Step) bool {
-	if step == nil {
-		return false
-	}
-	return step.Status == job.StatusDone || (step.Optional && step.Status == job.StatusFailed)
+	return job.StepSatisfiesDependency(step)
 }
 
 func jobHasOptionalFailedStep(j *job.Job) bool {

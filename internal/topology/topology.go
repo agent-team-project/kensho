@@ -90,6 +90,11 @@ type Pipeline struct {
 	Name    string
 	Trigger *Trigger
 	Steps   []*PipelineStep
+	// AutoAdvance, when true, lets the daemon dispatch the next ready step as
+	// soon as the prior step's instance exits successfully (respecting gates),
+	// instead of waiting for an external `agent-team pipeline tick`. Opt-in;
+	// defaults false so existing pipelines keep their manual-advance behavior.
+	AutoAdvance bool
 }
 
 // PipelineStep is one target dispatch in a pipeline.
@@ -373,8 +378,9 @@ type rawInstance struct {
 }
 
 type rawPipeline struct {
-	Trigger map[string]any   `toml:"trigger"`
-	Steps   []map[string]any `toml:"steps"`
+	Trigger     map[string]any   `toml:"trigger"`
+	Steps       []map[string]any `toml:"steps"`
+	AutoAdvance bool             `toml:"auto_advance"`
 }
 
 type rawSchedule struct {
@@ -501,7 +507,7 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pipeline{Name: name, Trigger: trigger, Steps: steps}, nil
+	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, AutoAdvance: rp.AutoAdvance}, nil
 }
 
 func finaliseSchedule(name string, rs *rawSchedule) (*Schedule, error) {

@@ -260,7 +260,20 @@ func (r *EventResolver) dispatchPipelineStep(pipeline *topology.Pipeline, step *
 	dispatchPayload["pipeline"] = pipeline.Name
 	dispatchPayload["pipeline_step"] = step.ID
 	dispatchPayload["ticket"] = j.Ticket
-	dispatchPayload["kickoff"] = jobstore.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions)
+	kickoff := jobstore.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions)
+	// Best-effort context passing: if the caller threaded the prior step's final
+	// output through the payload (auto-advance does), hand it to this step so e.g.
+	// a reviewer sees the worker's "opened PR #N" report. Never required.
+	if prev := strings.TrimSpace(payloadString(payload, "previous_step_output")); prev != "" {
+		heading := "## Output from previous step"
+		if prevID := strings.TrimSpace(payloadString(payload, "previous_step_id")); prevID != "" {
+			heading += " (" + prevID + ")"
+		}
+		kickoff = kickoff + "\n\n" + heading + ":\n" + prev
+		delete(dispatchPayload, "previous_step_output")
+		delete(dispatchPayload, "previous_step_id")
+	}
+	dispatchPayload["kickoff"] = kickoff
 	if payloadString(dispatchPayload, "name") == "" {
 		dispatchPayload["name"] = step.Target + "-" + j.ID
 	}
@@ -1256,6 +1269,119 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
 	}
 	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, eventType, "daemon", message, data)
+
+	// Opt-in: dispatch the next ready step without waiting for a manual
+	// `agent-team pipeline tick`. Safe to call here — onReap has already released
+	// r.mu, and this reuses the normal dispatch path (which does its own locking).
+	r.tryAutoAdvancePipeline(j, meta.Instance, status)
+}
+
+// tryAutoAdvancePipeline dispatches the next ready step of a pipeline job once a
+// step's instance exits, when the pipeline opted in via `auto_advance`. It mirrors
+// `agent-team pipeline tick`, but driven by the reap hook.
+//
+// MUST be called WITHOUT r.mu held: it runs from onReap after the lock is
+// released and reuses dispatchPipelineStep → actuate, which manages its own
+// locking and running-count bookkeeping (so no manual tr.running changes here).
+// Best-effort: any miss (feature off, gate pending, nothing ready, retries
+// exhausted) simply leaves the job for manual advancement.
+func (r *EventResolver) tryAutoAdvancePipeline(j *jobstore.Job, prevInstance string, prevStatus jobstore.Status) {
+	if j == nil || strings.TrimSpace(j.Pipeline) == "" {
+		return
+	}
+	r.mu.Lock()
+	t := r.topo
+	r.mu.Unlock()
+	if t == nil {
+		return
+	}
+	pipeline := t.Pipelines[j.Pipeline]
+	if pipeline == nil || !pipeline.AutoAdvance {
+		return
+	}
+
+	// Locate the step that just exited (for retry + prior-output context).
+	var prevStep *jobstore.Step
+	for i := range j.Steps {
+		if j.Steps[i].Instance == prevInstance {
+			prevStep = &j.Steps[i]
+			break
+		}
+	}
+
+	// On failure: retry the SAME step if attempts remain, else stop and leave the
+	// job failed. MaxAttempts defaults to 0, so the default stays "no auto-retry".
+	if prevStatus == jobstore.StatusFailed {
+		if prevStep == nil || prevStep.MaxAttempts <= 0 || prevStep.Attempts >= prevStep.MaxAttempts {
+			return
+		}
+		topoStep := pipelineTopologyStep(pipeline, prevStep.ID)
+		if topoStep == nil {
+			return
+		}
+		prevStep.Instance = ""
+		prevStep.FinishedAt = time.Time{}
+		r.dispatchAndRecord(pipeline, topoStep, j, nil, "auto-retried step "+topoStep.ID)
+		return
+	}
+
+	// On success: advance to the next ready step. Gates (manual / pr) are honored
+	// by NextReadyStep, so auto-advance naturally parks at a manual approval gate.
+	next := jobstore.NextReadyStep(j)
+	if next == nil {
+		return
+	}
+	topoStep := pipelineTopologyStep(pipeline, next.ID)
+	if topoStep == nil {
+		return
+	}
+	var payload map[string]any
+	if out := r.readInstanceFinalMessage(prevInstance); out != "" {
+		payload = map[string]any{"previous_step_output": out}
+		if prevStep != nil {
+			payload["previous_step_id"] = prevStep.ID
+		}
+	}
+	r.dispatchAndRecord(pipeline, topoStep, j, payload, "auto-advanced to step "+topoStep.ID)
+}
+
+// dispatchAndRecord dispatches one pipeline step, records the outcome on the job,
+// persists it, and appends a snapshot event.
+func (r *EventResolver) dispatchAndRecord(pipeline *topology.Pipeline, step *topology.PipelineStep, j *jobstore.Job, payload map[string]any, message string) {
+	outcomes := r.dispatchPipelineStep(pipeline, step, j, payload)
+	applyPipelineStepOutcome(j, step.ID, outcomes)
+	j.UpdatedAt = time.Now().UTC()
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return
+	}
+	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_advanced", "daemon", message, map[string]string{"step": step.ID})
+}
+
+func pipelineTopologyStep(pipeline *topology.Pipeline, id string) *topology.PipelineStep {
+	if pipeline == nil {
+		return nil
+	}
+	for _, step := range pipeline.Steps {
+		if step.ID == id {
+			return step
+		}
+	}
+	return nil
+}
+
+// readInstanceFinalMessage returns the Codex `last-message.txt` sidecar for an
+// exited instance, if present — the clean final response. Best-effort: empty on
+// any miss (Claude steps have no sidecar; the file may be absent).
+func (r *EventResolver) readInstanceFinalMessage(instance string) string {
+	if strings.TrimSpace(instance) == "" || strings.TrimSpace(r.teamDir) == "" {
+		return ""
+	}
+	path := filepath.Join(r.teamDir, "state", instance, runtimebin.CodexLastMessageFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore.Status, now time.Time) bool {
