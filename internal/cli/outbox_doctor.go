@@ -398,7 +398,7 @@ func outboxDoctorActions(result outboxDoctorResult) []string {
 	if len(result.Problems) == 0 {
 		return nil
 	}
-	return []string{"agent-team outbox doctor --quarantine --dry-run", "agent-team outbox doctor --json", "agent-team snapshot --json"}
+	return []string{"agent-team outbox doctor --quarantine --dry-run --commands", "agent-team outbox doctor --json", "agent-team snapshot --json"}
 }
 
 func renderOutboxDoctor(stdout, stderr io.Writer, result outboxDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {

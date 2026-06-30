@@ -456,7 +456,7 @@ func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 		t.Fatalf("queue doctor --commands err = %v, want exit 1", err)
 	}
 	if got, want := commandsOut.String(), strings.Join(scopedOperatorActions([]string{
-		"agent-team queue doctor --quarantine --dry-run",
+		"agent-team queue doctor --quarantine --dry-run --commands",
 		"agent-team queue doctor --json",
 		"agent-team snapshot --json",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n")+"\n"; got != want {

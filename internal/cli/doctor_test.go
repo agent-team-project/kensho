@@ -636,7 +636,7 @@ status = "queued"
 		t.Fatalf("expected exit 1, got %v", err)
 	}
 	want := strings.Join(scopedOperatorActions([]string{
-		"agent-team job doctor --quarantine --dry-run",
+		"agent-team job doctor --quarantine --dry-run --commands",
 		"agent-team job doctor --json",
 		"agent-team snapshot --json",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n") + "\n"

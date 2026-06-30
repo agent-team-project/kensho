@@ -619,7 +619,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		t.Fatalf("outbox doctor --commands err = %v, want exit 1", err)
 	}
 	if got, want := commandsOut.String(), strings.Join(scopedOperatorActions([]string{
-		"agent-team outbox doctor --quarantine --dry-run",
+		"agent-team outbox doctor --quarantine --dry-run --commands",
 		"agent-team outbox doctor --json",
 		"agent-team snapshot --json",
 	}, operatorCommandScope{Repo: target, Set: true}), "\n")+"\n"; got != want {

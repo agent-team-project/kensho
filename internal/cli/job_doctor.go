@@ -261,7 +261,7 @@ func jobDoctorActions(result jobDoctorResult) []string {
 	if len(result.Problems) == 0 {
 		return nil
 	}
-	return []string{"agent-team job doctor --quarantine --dry-run", "agent-team job doctor --json", "agent-team snapshot --json"}
+	return []string{"agent-team job doctor --quarantine --dry-run --commands", "agent-team job doctor --json", "agent-team snapshot --json"}
 }
 
 func renderJobDoctor(stdout, stderr io.Writer, result jobDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {

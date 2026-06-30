@@ -413,7 +413,7 @@ func queueDoctorActions(result queueDoctorResult) []string {
 	if len(result.Problems) == 0 {
 		return nil
 	}
-	return []string{"agent-team queue doctor --quarantine --dry-run", "agent-team queue doctor --json", "agent-team snapshot --json"}
+	return []string{"agent-team queue doctor --quarantine --dry-run --commands", "agent-team queue doctor --json", "agent-team snapshot --json"}
 }
 
 func renderQueueDoctor(stdout, stderr io.Writer, result queueDoctorResult, jsonOut bool, tmpl *template.Template, commands bool, scope operatorCommandScope) error {

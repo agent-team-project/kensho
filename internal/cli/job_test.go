@@ -163,7 +163,7 @@ updated_at = 2026-06-18T12:00:00Z
 		t.Fatalf("job doctor --commands err = %v, want exit 1", err)
 	}
 	if got, want := commandsOut.String(), strings.Join(scopedOperatorActions([]string{
-		"agent-team job doctor --quarantine --dry-run",
+		"agent-team job doctor --quarantine --dry-run --commands",
 		"agent-team job doctor --json",
 		"agent-team snapshot --json",
 	}, operatorCommandScope{Repo: tmp, Set: true}), "\n")+"\n"; got != want {

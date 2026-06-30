@@ -418,9 +418,9 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Need bounded artifact diff detail rows | `agent-team snapshot diff before.json after.json --limit 20` |
 | Need script-friendly diff counters | `agent-team snapshot diff before.json after.json --format '{{.Summary.TotalChanges}} {{.Summary.Queue.Changed}}'` |
 | Need scripted before/after drift detection | `agent-team snapshot diff before.json after.json --exit-code` |
-| Job parsing fails | `agent-team job doctor --quarantine --dry-run` |
-| Queue parsing fails | `agent-team queue doctor --quarantine --dry-run` |
-| Outbox parsing fails | `agent-team outbox doctor --quarantine --dry-run` |
+| Job parsing fails | `agent-team job doctor --quarantine --dry-run --commands` |
+| Queue parsing fails | `agent-team queue doctor --quarantine --dry-run --commands` |
+| Outbox parsing fails | `agent-team outbox doctor --quarantine --dry-run --commands` |
 | Dead queue entries | `agent-team repair --dry-run --jobs` |
 | Crashed or stale runtime metadata | `agent-team resume-plan --unhealthy` |
 | Stale running jobs | `agent-team repair --timeout-jobs --dry-run` |
