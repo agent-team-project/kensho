@@ -821,7 +821,11 @@ func collectMonitorRuntimeSummary(teamDir string, selectedInstances map[string]b
 	if err != nil {
 		return overviewRuntimeSummary{}, err
 	}
-	return overviewRuntimeFromMetadata(filterMonitorRuntimeMetadata(metas, selectedInstances), jobs), nil
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return overviewRuntimeSummary{}, err
+	}
+	return overviewRuntimeFromMetadataAndQueue(filterMonitorRuntimeMetadata(metas, selectedInstances), jobs, filterMonitorRuntimeQueueItems(queueItems, selectedInstances), time.Now().UTC()), nil
 }
 
 func collectTeamMonitorRuntimeSummary(teamDir string, top *topology.Topology, team *topology.Team, selectedInstances map[string]bool) (overviewRuntimeSummary, error) {
@@ -833,8 +837,13 @@ func collectTeamMonitorRuntimeSummary(teamDir string, top *topology.Topology, te
 	if err != nil {
 		return overviewRuntimeSummary{}, err
 	}
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return overviewRuntimeSummary{}, err
+	}
 	metas = teamMetadata(top, team, metas)
-	return overviewRuntimeFromMetadata(filterMonitorRuntimeMetadata(metas, selectedInstances), jobs), nil
+	queueItems = teamQueueItems(top, team, jobs, queueItems)
+	return overviewRuntimeFromMetadataAndQueue(filterMonitorRuntimeMetadata(metas, selectedInstances), jobs, filterMonitorRuntimeQueueItems(queueItems, selectedInstances), time.Now().UTC()), nil
 }
 
 func filterMonitorRuntimeMetadata(metas []*daemon.Metadata, selectedInstances map[string]bool) []*daemon.Metadata {
@@ -848,6 +857,22 @@ func filterMonitorRuntimeMetadata(metas []*daemon.Metadata, selectedInstances ma
 		}
 		if selectedInstances[meta.Instance] {
 			out = append(out, meta)
+		}
+	}
+	return out
+}
+
+func filterMonitorRuntimeQueueItems(items []*daemon.QueueItem, selectedInstances map[string]bool) []*daemon.QueueItem {
+	if selectedInstances == nil {
+		return items
+	}
+	out := make([]*daemon.QueueItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if selectedInstances[item.Instance] || selectedInstances[item.InstanceID] {
+			out = append(out, item)
 		}
 	}
 	return out
@@ -1028,17 +1053,7 @@ func renderMonitorRuntimeSummary(w io.Writer, runtime overviewRuntimeSummary, ru
 		fmt.Fprintf(w, "runtime: unavailable: %s\n", runtimeErr)
 		return
 	}
-	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale_running=%d managed_resume=%d can_managed_resume=%d direct_resume=%d\n",
-		runtime.Total,
-		runtime.Running,
-		runtime.Stopped,
-		runtime.Exited,
-		runtime.Crashed,
-		runtime.Unknown,
-		runtime.StaleRunning,
-		runtime.ManagedResume,
-		runtime.CanManagedResume,
-		runtime.DirectResume)
+	renderOverviewRuntimeSummary(w, runtime)
 }
 
 func renderMonitorJobsSummary(w io.Writer, snapshot *jobTriageSnapshot) {

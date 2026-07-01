@@ -298,22 +298,26 @@ type overviewJobSummary struct {
 }
 
 type overviewRuntimeSummary struct {
-	Total            int      `json:"total"`
-	Running          int      `json:"running"`
-	Stopped          int      `json:"stopped"`
-	Exited           int      `json:"exited"`
-	Crashed          int      `json:"crashed"`
-	Unknown          int      `json:"unknown"`
-	StaleRunning     int      `json:"stale_running,omitempty"`
-	ManagedResume    int      `json:"managed_resume,omitempty"`
-	CanManagedResume int      `json:"can_managed_resume,omitempty"`
-	DirectResume     int      `json:"direct_resume,omitempty"`
-	CrashedInstances []string `json:"crashed_instances,omitempty"`
-	StaleInstances   []string `json:"stale_instances,omitempty"`
-	CrashedPipelines []string `json:"crashed_pipelines,omitempty"`
-	StalePipelines   []string `json:"stale_pipelines,omitempty"`
-	crashedUnscoped  int
-	staleUnscoped    int
+	Total                      int            `json:"total"`
+	Running                    int            `json:"running"`
+	Stopped                    int            `json:"stopped"`
+	Exited                     int            `json:"exited"`
+	Crashed                    int            `json:"crashed"`
+	Unknown                    int            `json:"unknown"`
+	QueuedOnCapacity           int            `json:"queued_on_capacity"`
+	Stalled                    int            `json:"stalled"`
+	StaleRunning               int            `json:"stale_running,omitempty"`
+	ManagedResume              int            `json:"managed_resume,omitempty"`
+	CanManagedResume           int            `json:"can_managed_resume,omitempty"`
+	DirectResume               int            `json:"direct_resume,omitempty"`
+	CrashedInstances           []string       `json:"crashed_instances,omitempty"`
+	StalledInstances           []string       `json:"stalled_instances,omitempty"`
+	StaleInstances             []string       `json:"stale_instances,omitempty"`
+	CrashedPipelines           []string       `json:"crashed_pipelines,omitempty"`
+	StalePipelines             []string       `json:"stale_pipelines,omitempty"`
+	QueuedOnCapacityByInstance map[string]int `json:"queued_on_capacity_by_instance,omitempty"`
+	crashedUnscoped            int
+	staleUnscoped              int
 }
 
 type overviewInboxSummary struct {
@@ -634,7 +638,11 @@ func collectOverviewRuntime(teamDir string) (overviewRuntimeSummary, error) {
 	if err != nil {
 		return overviewRuntimeSummary{}, err
 	}
-	return overviewRuntimeFromMetadata(metas, jobs), nil
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return overviewRuntimeSummary{}, err
+	}
+	return overviewRuntimeFromMetadataAndQueue(metas, jobs, queueItems, time.Now().UTC()), nil
 }
 
 func collectOverviewRuntimeForTeam(teamDir string, top *topology.Topology, team *topology.Team) (overviewRuntimeSummary, error) {
@@ -646,10 +654,18 @@ func collectOverviewRuntimeForTeam(teamDir string, top *topology.Topology, team 
 	if err != nil {
 		return overviewRuntimeSummary{}, err
 	}
-	return overviewRuntimeFromMetadata(teamMetadata(top, team, metas), jobs), nil
+	queueItems, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		return overviewRuntimeSummary{}, err
+	}
+	return overviewRuntimeFromMetadataAndQueue(teamMetadata(top, team, metas), jobs, teamQueueItems(top, team, jobs, queueItems), time.Now().UTC()), nil
 }
 
 func overviewRuntimeFromMetadata(metas []*daemon.Metadata, jobs []*jobstore.Job) overviewRuntimeSummary {
+	return overviewRuntimeFromMetadataAndQueue(metas, jobs, nil, time.Now().UTC())
+}
+
+func overviewRuntimeFromMetadataAndQueue(metas []*daemon.Metadata, jobs []*jobstore.Job, queueItems []*daemon.QueueItem, now time.Time) overviewRuntimeSummary {
 	out := overviewRuntimeSummary{}
 	jobByInstance := overviewRuntimeJobByInstance(metas, jobs)
 	for _, meta := range metas {
@@ -657,6 +673,7 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata, jobs []*jobstore.Job)
 			continue
 		}
 		out.Total++
+		runtimeStale := runtimeResumeMetadataIsStale(meta)
 		managedResume := lifecycleMetadataSupportsManagedResume(meta)
 		directResume := strings.TrimSpace(meta.SessionID) != ""
 		if managedResume {
@@ -670,7 +687,11 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata, jobs []*jobstore.Job)
 		}
 		switch meta.Status {
 		case daemon.StatusRunning:
-			out.Running++
+			if runtimeStale {
+				out.Stalled++
+			} else {
+				out.Running++
+			}
 		case daemon.StatusStopped:
 			out.Stopped++
 		case daemon.StatusExited:
@@ -684,19 +705,48 @@ func overviewRuntimeFromMetadata(metas []*daemon.Metadata, jobs []*jobstore.Job)
 		default:
 			out.Unknown++
 		}
-		if runtimeResumeMetadataIsStale(meta) {
+		if runtimeStale {
 			out.StaleRunning++
 			if strings.TrimSpace(meta.Instance) != "" {
 				out.StaleInstances = append(out.StaleInstances, meta.Instance)
+				out.StalledInstances = append(out.StalledInstances, meta.Instance)
 			}
 			overviewRuntimeAddOwnership(&out.StalePipelines, &out.staleUnscoped, jobByInstance[meta.Instance])
 		}
 	}
+	overviewRuntimeAddQueuedOnCapacity(&out, queueItems, now)
 	sort.Strings(out.CrashedInstances)
+	sort.Strings(out.StalledInstances)
 	sort.Strings(out.StaleInstances)
 	sort.Strings(out.CrashedPipelines)
 	sort.Strings(out.StalePipelines)
 	return out
+}
+
+func overviewRuntimeAddQueuedOnCapacity(out *overviewRuntimeSummary, items []*daemon.QueueItem, now time.Time) {
+	if out == nil {
+		return
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	for _, item := range items {
+		if item == nil || item.State != daemon.QueueStatePending {
+			continue
+		}
+		if !item.NextRetry.IsZero() && item.NextRetry.After(now) {
+			continue
+		}
+		instance := strings.TrimSpace(item.Instance)
+		if instance == "" {
+			instance = "unknown"
+		}
+		out.QueuedOnCapacity++
+		if out.QueuedOnCapacityByInstance == nil {
+			out.QueuedOnCapacityByInstance = map[string]int{}
+		}
+		out.QueuedOnCapacityByInstance[instance]++
+	}
 }
 
 func overviewRuntimeJobByInstance(metas []*daemon.Metadata, jobs []*jobstore.Job) map[string]*jobstore.Job {
@@ -1725,17 +1775,7 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 			result.Topology.PipelineProblems+result.Topology.TeamProblems,
 			result.Topology.PipelineWarnings+result.Topology.TeamWarnings)
 	}
-	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d stale_running=%d managed_resume=%d can_managed_resume=%d direct_resume=%d\n",
-		result.Runtime.Total,
-		result.Runtime.Running,
-		result.Runtime.Stopped,
-		result.Runtime.Exited,
-		result.Runtime.Crashed,
-		result.Runtime.Unknown,
-		result.Runtime.StaleRunning,
-		result.Runtime.ManagedResume,
-		result.Runtime.CanManagedResume,
-		result.Runtime.DirectResume)
+	renderOverviewRuntimeSummary(w, result.Runtime)
 	fmt.Fprintf(w, "inbox: instances=%d total=%d unread=%d unread_instances=%d\n",
 		result.Inbox.Instances,
 		result.Inbox.Total,
@@ -1805,6 +1845,30 @@ func renderOverview(w io.Writer, result *overviewResult, jsonOut bool, tmpl *tem
 		}
 	}
 	return nil
+}
+
+func renderOverviewRuntimeSummary(w io.Writer, runtime overviewRuntimeSummary) {
+	fmt.Fprintf(w, "runtime: total=%d running=%d stopped=%d exited=%d crashed=%d unknown=%d queued_on_capacity=%d stalled=%d stale_running=%d managed_resume=%d can_managed_resume=%d direct_resume=%d\n",
+		runtime.Total,
+		runtime.Running,
+		runtime.Stopped,
+		runtime.Exited,
+		runtime.Crashed,
+		runtime.Unknown,
+		runtime.QueuedOnCapacity,
+		runtime.Stalled,
+		runtime.StaleRunning,
+		runtime.ManagedResume,
+		runtime.CanManagedResume,
+		runtime.DirectResume)
+	if runtime.QueuedOnCapacity > 0 {
+		fmt.Fprintf(w, "runtime capacity: %d running, %d queued (waiting on reviewer slot)\n", runtime.Running, runtime.QueuedOnCapacity)
+	} else {
+		fmt.Fprintf(w, "runtime capacity: %d running, 0 queued\n", runtime.Running)
+	}
+	if runtime.Stalled > 0 {
+		fmt.Fprintf(w, "runtime stalled: %d (marked running, process gone)\n", runtime.Stalled)
+	}
 }
 
 func renderOverviewCommands(w io.Writer, result *overviewResult, scope operatorCommandScope) error {

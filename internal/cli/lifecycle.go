@@ -1021,9 +1021,11 @@ func newStatusCmd() *cobra.Command {
 }
 
 type statusJSON struct {
-	Daemon    statusDaemonJSON `json:"daemon"`
-	Instances []psJSONRow      `json:"instances"`
-	Actions   []string         `json:"actions,omitempty"`
+	Daemon       statusDaemonJSON       `json:"daemon"`
+	Runtime      overviewRuntimeSummary `json:"runtime"`
+	RuntimeError string                 `json:"runtime_error,omitempty"`
+	Instances    []psJSONRow            `json:"instances"`
+	Actions      []string               `json:"actions,omitempty"`
 }
 
 type statusDaemonJSON struct {
@@ -1044,6 +1046,7 @@ func runStatusJSONWithOptions(w fmtWriter, teamDir string, now time.Time, opts p
 	if err != nil {
 		return err
 	}
+	runtime, runtimeErr := collectMonitorRuntimeSummary(teamDir, monitorRuntimeSelectedInstanceSet(rows, opts))
 	daemonActions := daemonStatusRemediationActions(daemonStatus)
 	actions := append([]string{}, daemonActions...)
 	health, err := collectHealthWithOptions(teamDir, now, healthOptions{filters: opts})
@@ -1061,8 +1064,12 @@ func runStatusJSONWithOptions(w fmtWriter, teamDir string, now time.Time, opts p
 			Error:   daemonStatus.Error,
 			Actions: daemonActions,
 		},
+		Runtime:   runtime,
 		Instances: psJSONRows(rows),
 		Actions:   commandActionsOnly(actions),
+	}
+	if runtimeErr != nil {
+		body.RuntimeError = runtimeErr.Error()
 	}
 	if !daemonStatus.Running {
 		body.Daemon.PID = 0
@@ -1083,6 +1090,15 @@ func runStatusWithOptions(w fmtWriter, teamDir string, now time.Time, opts psOpt
 		}
 	} else {
 		fmt.Fprintln(w, "daemon: not running")
+	}
+	fmt.Fprintln(w)
+	runtimeSelectedInstances, err := monitorSummaryRuntimeSelectedInstanceSet(teamDir, now, opts)
+	if err != nil {
+		renderMonitorRuntimeSummary(w, overviewRuntimeSummary{}, err.Error())
+	} else if runtime, err := collectMonitorRuntimeSummary(teamDir, runtimeSelectedInstances); err != nil {
+		renderMonitorRuntimeSummary(w, overviewRuntimeSummary{}, err.Error())
+	} else {
+		renderMonitorRuntimeSummary(w, runtime, "")
 	}
 	fmt.Fprintln(w)
 	return runPsWithOptions(w, teamDir, now, opts)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1055,6 +1056,9 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.Total != 4 || overview.Runtime.Crashed != 3 || overview.Runtime.Exited != 1 {
 		t.Fatalf("runtime summary = %+v", overview.Runtime)
 	}
+	if overview.Runtime.Running != 0 || overview.Runtime.Stalled != 0 || overview.Runtime.QueuedOnCapacity != 0 {
+		t.Fatalf("runtime live/queued summary = %+v", overview.Runtime)
+	}
 	if overview.Runtime.ManagedResume != 2 || overview.Runtime.CanManagedResume != 1 || overview.Runtime.DirectResume != 2 {
 		t.Fatalf("runtime resume capability summary = %+v", overview.Runtime)
 	}
@@ -1223,6 +1227,9 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.StaleRunning != 2 || !stringSliceContains(overview.Runtime.StaleInstances, "support-stale") || !stringSliceContains(overview.Runtime.StaleInstances, "worker-squ-902") {
 		t.Fatalf("runtime stale summary = %+v", overview.Runtime)
 	}
+	if overview.Runtime.Running != 0 || overview.Runtime.Stalled != 2 || !stringSliceContains(overview.Runtime.StalledInstances, "support-stale") || !stringSliceContains(overview.Runtime.StalledInstances, "worker-squ-902") {
+		t.Fatalf("runtime stalled summary = %+v", overview.Runtime)
+	}
 	if !stringSliceContains(overview.Actions, "agent-team resume-plan --runtime-stale --sort stale --limit 10") {
 		t.Fatalf("actions missing stale runtime resume plan: %+v", overview.Actions)
 	}
@@ -1241,6 +1248,9 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	if !strings.Contains(textOut.String(), "stale_running=2") {
 		t.Fatalf("overview stale runtime text missing count:\n%s", textOut.String())
 	}
+	if !strings.Contains(textOut.String(), "runtime stalled: 2 (marked running, process gone)") {
+		t.Fatalf("overview stale runtime text missing stalled line:\n%s", textOut.String())
+	}
 
 	team := NewRootCmd()
 	teamOut, teamErr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1257,8 +1267,73 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	if teamOverview.Runtime.StaleRunning != 1 || !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10") {
 		t.Fatalf("team stale runtime summary = %+v actions=%+v", teamOverview.Runtime, teamOverview.Actions)
 	}
+	if teamOverview.Runtime.Running != 0 || teamOverview.Runtime.Stalled != 1 {
+		t.Fatalf("team stalled runtime summary = %+v", teamOverview.Runtime)
+	}
 	if detail, ok := findOperatorActionHint(teamOverview.ActionDetails, "agent-team team resume-plan delivery --runtime-stale --sort stale --limit 10"); !ok || detail.Team != "delivery" || detail.Source != "runtime" || detail.Reason != "stale=1" {
 		t.Fatalf("team stale runtime action detail = %+v ok=%v", detail, ok)
+	}
+}
+
+func TestOverviewReportsQueuedOnCapacityRuntime(t *testing.T) {
+	root := writeOverviewQueuedRuntimeFixture(t, 3)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview queued runtime json: %v\nstderr=%s", err, stderr.String())
+	}
+	var overview overviewResult
+	if err := json.Unmarshal(out.Bytes(), &overview); err != nil {
+		t.Fatalf("decode overview queued runtime: %v\nbody=%s", err, out.String())
+	}
+	if overview.Runtime.Total != 0 || overview.Runtime.Running != 0 || overview.Runtime.Stalled != 0 || overview.Runtime.QueuedOnCapacity != 3 {
+		t.Fatalf("queued runtime summary = %+v", overview.Runtime)
+	}
+	if got := overview.Runtime.QueuedOnCapacityByInstance["reviewer"]; got != 3 {
+		t.Fatalf("queued by instance = %+v, want reviewer=3", overview.Runtime.QueuedOnCapacityByInstance)
+	}
+
+	text := NewRootCmd()
+	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
+	text.SetOut(textOut)
+	text.SetErr(textErr)
+	text.SetArgs([]string{"overview", "--target", root})
+	if err := text.Execute(); err != nil {
+		t.Fatalf("overview queued runtime text: %v\nstderr=%s", err, textErr.String())
+	}
+	body := textOut.String()
+	if !strings.Contains(body, "runtime: total=0 running=0 stopped=0 exited=0 crashed=0 unknown=0 queued_on_capacity=3 stalled=0") {
+		t.Fatalf("overview queued runtime text missing machine counts:\n%s", body)
+	}
+	if !strings.Contains(body, "runtime capacity: 0 running, 3 queued (waiting on reviewer slot)") {
+		t.Fatalf("overview queued runtime text missing reviewer-slot line:\n%s", body)
+	}
+	if strings.Contains(body, "runtime stalled:") {
+		t.Fatalf("queued runtime should not render as stalled:\n%s", body)
+	}
+}
+
+func TestOverviewRuntimeIdleZeroQueuedIsDistinct(t *testing.T) {
+	root := writeOverviewQueuedRuntimeFixture(t, 0)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"overview", "--target", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overview idle runtime text: %v\nstderr=%s", err, stderr.String())
+	}
+	body := out.String()
+	if !strings.Contains(body, "runtime capacity: 0 running, 0 queued") {
+		t.Fatalf("overview idle runtime text missing zero-queued line:\n%s", body)
+	}
+	if strings.Contains(body, "waiting on reviewer slot") || strings.Contains(body, "runtime stalled:") {
+		t.Fatalf("idle runtime should be distinct from queued or stalled:\n%s", body)
 	}
 }
 
@@ -2313,6 +2388,60 @@ instances = ["manager", "worker"]
 	} {
 		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
 			t.Fatalf("WriteMetadata %s: %v", meta.Instance, err)
+		}
+	}
+	return root
+}
+
+func writeOverviewQueuedRuntimeFixture(t *testing.T, queued int) string {
+	t.Helper()
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	instances := `
+[instances.reviewer]
+agent = "manager"
+ephemeral = true
+replicas = 1
+
+[teams.delivery]
+instances = ["reviewer"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < queued; i++ {
+		item := &daemon.QueueItem{
+			ID:         fmt.Sprintf("queued-reviewer-%d", i),
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "reviewer",
+			InstanceID: fmt.Sprintf("reviewer-squ-71%d", i),
+			Payload:    map[string]any{"target": "reviewer"},
+			QueuedAt:   now.Add(time.Duration(i) * time.Minute),
+			UpdatedAt:  now.Add(time.Duration(i) * time.Minute),
+		}
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+	if queued > 0 {
+		delayed := &daemon.QueueItem{
+			ID:         "queued-reviewer-delayed",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "reviewer",
+			InstanceID: "reviewer-delayed",
+			Payload:    map[string]any{"target": "reviewer"},
+			NextRetry:  time.Now().UTC().Add(24 * time.Hour),
+			QueuedAt:   now,
+			UpdatedAt:  now,
+		}
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), delayed); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", delayed.ID, err)
 		}
 	}
 	return root
