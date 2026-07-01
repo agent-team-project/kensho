@@ -88,7 +88,7 @@ What to do:
 
 1. **Execute the plan** — make changes following project conventions.
 2. **Commit incrementally** — clear commit messages, logical units of work.
-3. **Push as you go** — `git push -u origin "$(git branch --show-current)"` so work is never lost.
+3. **Push as you go** — run `BRANCH="$(git branch --show-current)"; "${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/agents/worker/scripts/git-push-verify.sh" "$BRANCH"` so work is never lost. Ambiguous push output is not authoritative; the helper treats `git ls-remote` matching local `HEAD` as success and avoids retrying a ref that already landed.
 4. **Update progress** — write to `.worker_agent/progress.md` after each significant step.
 
 ## Validation
@@ -101,7 +101,7 @@ If integration tests are relevant and the needed credentials are available (e.g.
 
 When the work is complete and validated:
 
-1. Ensure all commits are pushed.
+1. Ensure all commits are pushed with `BRANCH="$(git branch --show-current)"; "${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/agents/worker/scripts/git-push-verify.sh" "$BRANCH"` before creating the PR; `git ls-remote` matching local `HEAD` is the authoritative success check when push output is ambiguous.
 2. **Invoke the `pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. Pass the Linear ticket URL so it includes `Closes <url>` (Linear auto-moves the ticket to Done when the PR merges; use `Contributes to <url>` only if follow-ups remain).
 3. Monitor CI for the PR:
    ```bash

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,6 +47,7 @@ func TestInit_DefaultTemplate(t *testing.T) {
 		".agent_team/agents/manager/skills/assign-worker/SKILL.md",
 		".agent_team/agents/worker/agent.md",
 		".agent_team/agents/worker/config.toml",
+		".agent_team/agents/worker/scripts/git-push-verify.sh",
 		".agent_team/skills/linear/SKILL.md",
 		".agent_team/skills/linear/scripts/linear-graphql.sh",
 		".agent_team/skills/pull-request/SKILL.md",
@@ -100,6 +102,140 @@ func TestInit_DefaultTemplate(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q\nfull:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestInit_WorkerPushVerifyHelperRendered(t *testing.T) {
+	tmp := initBundledTemplateForTest(t)
+	helperPath := filepath.Join(tmp, ".agent_team", "agents", "worker", "scripts", "git-push-verify.sh")
+	bodyBytes, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatalf("read helper: %v", err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		"git ls-remote origin",
+		"git rev-parse HEAD",
+		`[ "$remote_sha" = "$local_sha" ]`,
+		"retrying push once",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("helper missing %q:\n%s", want, body)
+		}
+	}
+	st, err := os.Stat(helperPath)
+	if err != nil {
+		t.Fatalf("stat helper: %v", err)
+	}
+	if st.Mode()&0o111 == 0 {
+		t.Fatalf("rendered helper should be executable, got mode %o", st.Mode())
+	}
+
+	agentBytes, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "agents", "worker", "agent.md"))
+	if err != nil {
+		t.Fatalf("read worker agent: %v", err)
+	}
+	agent := string(agentBytes)
+	for _, want := range []string{
+		"git-push-verify.sh",
+		"git ls-remote",
+		"local `HEAD`",
+	} {
+		if !strings.Contains(agent, want) {
+			t.Errorf("worker prompt missing %q:\n%s", want, agent)
+		}
+	}
+}
+
+func TestWorkerPushVerifyHelperUsesRemoteTipAsAuthority(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git unavailable")
+	}
+
+	tmp := initBundledTemplateForTest(t)
+	helperPath := filepath.Join(tmp, ".agent_team", "agents", "worker", "scripts", "git-push-verify.sh")
+	origin := filepath.Join(tmp, "origin.git")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	runGitForInitTest(t, origin, "init", "--bare")
+	runGitForInitTest(t, repo, "init")
+	runGitForInitTest(t, repo, "config", "user.email", "worker@example.com")
+	runGitForInitTest(t, repo, "config", "user.name", "Worker Test")
+	runGitForInitTest(t, repo, "checkout", "-b", "bench-718")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForInitTest(t, repo, "add", "file.txt")
+	runGitForInitTest(t, repo, "commit", "-m", "initial")
+	runGitForInitTest(t, repo, "remote", "add", "origin", origin)
+
+	// Normal push: the helper pushes and then verifies origin/branch == HEAD.
+	if out, err := runPushVerifyHelperForInitTest(t, helperPath, repo, nil, "bench-718"); err != nil {
+		t.Fatalf("normal push helper failed: %v\n%s", err, out)
+	}
+	assertRemoteMatchesHeadForInitTest(t, repo, "bench-718")
+
+	fakeBin := filepath.Join(tmp, "fakebin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGit := filepath.Join(fakeBin, "git")
+	const fakeGitBody = `#!/bin/sh
+if [ "$1" = "push" ]; then
+    printf 'push\n' >> "$GIT_PUSH_VERIFY_FAKE_LOG"
+    echo "simulated ambiguous push failure" >&2
+    exit 124
+fi
+exec "$REAL_GIT" "$@"
+`
+	if err := os.WriteFile(fakeGit, []byte(fakeGitBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pushLog := filepath.Join(tmp, "push.log")
+	fakeEnv := []string{
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"REAL_GIT=" + gitPath,
+		"GIT_PUSH_VERIFY_FAKE_LOG=" + pushLog,
+	}
+
+	// Ambiguous push failure after the ref already landed: one failed push
+	// attempt is enough because ls-remote proves the remote tip is HEAD.
+	if err := os.Remove(pushLog); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if out, err := runPushVerifyHelperForInitTest(t, helperPath, repo, fakeEnv, "bench-718"); err != nil {
+		t.Fatalf("already-landed ambiguous push helper failed: %v\n%s", err, out)
+	}
+	if got := countPushAttemptsForInitTest(t, pushLog); got != 1 {
+		t.Fatalf("ambiguous already-landed push attempts = %d, want 1", got)
+	}
+
+	// Real failure: local HEAD differs and every push attempt fails. The
+	// helper retries once, then surfaces failure instead of reporting success.
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForInitTest(t, repo, "add", "file.txt")
+	runGitForInitTest(t, repo, "commit", "-m", "second")
+	if err := os.Remove(pushLog); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	out, err := runPushVerifyHelperForInitTest(t, helperPath, repo, fakeEnv, "bench-718")
+	if err == nil {
+		t.Fatalf("helper succeeded despite remote tip mismatch:\n%s", out)
+	}
+	if got := countPushAttemptsForInitTest(t, pushLog); got != 2 {
+		t.Fatalf("failed push attempts = %d, want retry once (2 attempts)", got)
+	}
+	if !strings.Contains(out, "push verification failed") {
+		t.Fatalf("failure output missing clear verification error:\n%s", out)
 	}
 }
 
@@ -562,4 +698,70 @@ func TestInit_ForceOverwritesTemplateLock(t *testing.T) {
 	if !strings.Contains(string(got), `ref = "bundled"`) {
 		t.Errorf("rewritten lock missing bundled ref: %s", got)
 	}
+}
+
+func initBundledTemplateForTest(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs(initArgsWithRequired(tmp))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init bundled template: %v", err)
+	}
+	return tmp
+}
+
+func runGitForInitTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, string(out))
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func runPushVerifyHelperForInitTest(t *testing.T, helperPath, repo string, extraEnv []string, branch string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(helperPath, branch)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), err
+	}
+	return string(out), nil
+}
+
+func assertRemoteMatchesHeadForInitTest(t *testing.T, repo, branch string) {
+	t.Helper()
+	local := runGitForInitTest(t, repo, "rev-parse", "HEAD")
+	remote := runGitForInitTest(t, repo, "ls-remote", "origin", "refs/heads/"+branch)
+	fields := strings.Fields(remote)
+	if len(fields) == 0 {
+		t.Fatalf("origin/%s missing after push", branch)
+	}
+	if fields[0] != local {
+		t.Fatalf("origin/%s = %s, local HEAD = %s", branch, fields[0], local)
+	}
+}
+
+func countPushAttemptsForInitTest(t *testing.T, path string) int {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+		if line == "push" {
+			count++
+		}
+	}
+	return count
 }
