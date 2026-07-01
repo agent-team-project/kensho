@@ -3426,7 +3426,7 @@ func TestStatusSummaryReportsRuntimeResumeCapabilities(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("status summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
-	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
+	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
 		t.Fatalf("status summary text missing runtime capabilities:\n%s", textOut.String())
 	}
 
@@ -3774,6 +3774,49 @@ func TestStatusJSONShowsDaemonAndInstances(t *testing.T) {
 	}
 	if len(body.Instances) != 0 {
 		t.Fatalf("instances = %+v, want empty", body.Instances)
+	}
+}
+
+func TestStatusJSONReportsRuntimeQueuedAndStalledCounts(t *testing.T) {
+	root := writeOverviewQueuedRuntimeFixture(t, 2)
+	teamDir := filepath.Join(root, ".agent_team")
+	oldPIDLiveCheck := daemon.PidLiveCheck
+	daemon.PidLiveCheck = func(pid int) bool {
+		return pid != 4242
+	}
+	t.Cleanup(func() {
+		daemon.PidLiveCheck = oldPIDLiveCheck
+	})
+	now := time.Now().UTC()
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:      "reviewer-stalled",
+		Agent:         "manager",
+		Status:        daemon.StatusRunning,
+		Runtime:       "codex",
+		RuntimeBinary: "codex",
+		PID:           4242,
+		StartedAt:     now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"status", "--json", "--target", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --json runtime: %v\nstderr: %s", err, errOut.String())
+	}
+	var body statusJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode status runtime json: %v\nbody=%s", err, out.String())
+	}
+	if body.Runtime.Running != 0 || body.Runtime.Stalled != 1 || body.Runtime.StaleRunning != 1 || body.Runtime.QueuedOnCapacity != 2 {
+		t.Fatalf("status runtime summary = %+v", body.Runtime)
+	}
+	if got := body.Runtime.QueuedOnCapacityByInstance["reviewer"]; got != 2 {
+		t.Fatalf("status queued by instance = %+v, want reviewer=2", body.Runtime.QueuedOnCapacityByInstance)
 	}
 }
 

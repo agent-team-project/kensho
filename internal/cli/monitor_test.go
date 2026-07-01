@@ -873,7 +873,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
-	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
+	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
 		t.Fatalf("summary text missing runtime capabilities:\n%s", textOut.String())
 	}
 
