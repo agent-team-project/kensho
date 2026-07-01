@@ -195,6 +195,57 @@ match.target = "manager"
 	}
 }
 
+func TestEvent_AgentDispatchPipelinePersistentTargetActuatesOnce(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_review]
+trigger.event = "agent.dispatch"
+trigger.match.target = "manager"
+
+[[pipelines.ticket_review.steps]]
+id = "review"
+target = "manager"
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "manager",
+		"name":    "manager-squ-715-review",
+		"ticket":  "SQU-715",
+		"kickoff": "review SQU-715",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Instance != "manager" || result.Outcomes[0].Action != "queued" {
+		t.Fatalf("outcomes = %+v, want one queued manager outcome", result.Outcomes)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"target":"manager"`) {
+		t.Fatalf("messages = %+v, want one manager dispatch message", messages)
+	}
+	j, err := jobstore.Read(teamDir, "squ-715")
+	if err != nil {
+		t.Fatalf("read pipeline job: %v", err)
+	}
+	if j.Status != jobstore.StatusQueued || len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusQueued || j.Steps[0].Instance != "manager" {
+		t.Fatalf("pipeline job = %+v, want queued manager step", j)
+	}
+}
+
 func TestEvent_PersistentAgentDispatchMessagesWhenRunning(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
@@ -268,6 +319,60 @@ func TestEvent_EphemeralDispatchUnderCapacity(t *testing.T) {
 	running, queued := resolver.QueueDepth("worker")
 	if running != 1 || queued != 0 {
 		t.Errorf("counts: running=%d queued=%d", running, queued)
+	}
+}
+
+func TestEvent_AgentDispatchPipelineEphemeralTargetActuatesOnce(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "agent.dispatch"
+trigger.match.target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":    "worker",
+		"name":      "worker-squ-716-implement",
+		"ticket":    "SQU-716",
+		"kickoff":   "implement SQU-716",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-squ-716-implement")
+		_ = m.WaitForReaper("worker-squ-716-implement", 5*time.Second)
+	})
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Instance != "worker" || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-716-implement" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker outcome", result.Outcomes)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls=%d, want 1", fake.callCount())
+	}
+	j, err := jobstore.Read(teamDir, "squ-716")
+	if err != nil {
+		t.Fatalf("read pipeline job: %v", err)
+	}
+	if j.Status != jobstore.StatusRunning || len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-716-implement" {
+		t.Fatalf("pipeline job = %+v, want running worker step", j)
 	}
 }
 

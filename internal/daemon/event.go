@@ -116,6 +116,11 @@ type EventResult struct {
 	Reconcile *jobstore.ReconcileResult `json:"reconcile,omitempty"`
 }
 
+type pipelineStepDispatchResult struct {
+	jobOutcomes   []EventOutcome
+	eventOutcomes []EventOutcome
+}
+
 // Event resolves an inbound event against the topology and actuates each
 // matched instance. Returns one outcome per matched instance; an empty slice
 // means no triggers matched.
@@ -146,11 +151,14 @@ func (r *EventResolver) EventWithResult(eventType string, payload map[string]any
 	}
 	matched := t.Resolve(eventType, payload)
 	out := make([]EventOutcome, 0, len(matched))
+	directOutcomes := make(map[string]EventOutcome, len(matched))
 	for _, inst := range matched {
-		out = append(out, r.actuate(inst, eventType, payload))
+		outcome := r.actuate(inst, eventType, payload)
+		directOutcomes[inst.Name] = outcome
+		out = append(out, outcome)
 	}
 	for _, pipeline := range t.ResolvePipelines(eventType, payload) {
-		out = append(out, r.actuatePipeline(pipeline, eventType, payload)...)
+		out = append(out, r.actuatePipeline(pipeline, eventType, payload, directOutcomes)...)
 	}
 	return &EventResult{Outcomes: out, Reconcile: reconciled}, nil
 }
@@ -179,7 +187,7 @@ func (r *EventResolver) actuate(inst *topology.Instance, eventType string, paylo
 	return annotateOutcomeFromPayload(outcome, payload)
 }
 
-func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType string, payload map[string]any) []EventOutcome {
+func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType string, payload map[string]any, directOutcomes map[string]EventOutcome) []EventOutcome {
 	if pipeline == nil || len(pipeline.Steps) == 0 {
 		return nil
 	}
@@ -237,7 +245,8 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		}
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: "no runnable step", JobID: j.ID, Pipeline: pipeline.Name}}
 	}
-	outcomes := r.dispatchPipelineStep(pipeline, step, j, payload)
+	dispatch := r.dispatchPipelineStepWithDirectOutcomes(pipeline, step, j, payload, directOutcomes)
+	outcomes := dispatch.jobOutcomes
 	if latest, err := jobstore.Read(r.teamDir, j.ID); err == nil {
 		j = latest
 	}
@@ -248,10 +257,14 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 			"step":     step.ID,
 		})
 	}
-	return outcomes
+	return dispatch.eventOutcomes
 }
 
 func (r *EventResolver) dispatchPipelineStep(pipeline *topology.Pipeline, step *topology.PipelineStep, j *jobstore.Job, payload map[string]any) []EventOutcome {
+	return r.dispatchPipelineStepWithDirectOutcomes(pipeline, step, j, payload, nil).jobOutcomes
+}
+
+func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topology.Pipeline, step *topology.PipelineStep, j *jobstore.Job, payload map[string]any, directOutcomes map[string]EventOutcome) pipelineStepDispatchResult {
 	dispatchPayload := copyPayload(payload)
 	dispatchPayload["source"] = "pipeline:" + pipeline.Name
 	dispatchPayload["target"] = step.Target
@@ -291,7 +304,11 @@ func (r *EventResolver) dispatchPipelineStep(pipeline *topology.Pipeline, step *
 	t := r.topo
 	r.mu.Unlock()
 	if t == nil {
-		return []EventOutcome{{Instance: step.Target, Action: "rejected", Reason: "topology not configured"}}
+		outcome := EventOutcome{Instance: step.Target, Action: "rejected", Reason: "topology not configured"}
+		return pipelineStepDispatchResult{
+			jobOutcomes:   []EventOutcome{outcome},
+			eventOutcomes: []EventOutcome{outcome},
+		}
 	}
 	matched := t.Resolve(topology.EventAgentDispatch, dispatchPayload)
 	if len(matched) == 0 {
@@ -300,13 +317,26 @@ func (r *EventResolver) dispatchPipelineStep(pipeline *topology.Pipeline, step *
 		}
 	}
 	if len(matched) == 0 {
-		return []EventOutcome{{Instance: step.Target, Action: "rejected", Reason: "no agent.dispatch trigger matched pipeline step"}}
+		outcome := EventOutcome{Instance: step.Target, Action: "rejected", Reason: "no agent.dispatch trigger matched pipeline step"}
+		return pipelineStepDispatchResult{
+			jobOutcomes:   []EventOutcome{outcome},
+			eventOutcomes: []EventOutcome{outcome},
+		}
 	}
-	out := make([]EventOutcome, 0, len(matched))
+	result := pipelineStepDispatchResult{
+		jobOutcomes:   make([]EventOutcome, 0, len(matched)),
+		eventOutcomes: make([]EventOutcome, 0, len(matched)),
+	}
 	for _, inst := range matched {
-		out = append(out, r.actuate(inst, topology.EventAgentDispatch, dispatchPayload))
+		if prior, ok := directOutcomes[inst.Name]; ok {
+			result.jobOutcomes = append(result.jobOutcomes, annotateOutcomeFromPayload(prior, dispatchPayload))
+			continue
+		}
+		outcome := r.actuate(inst, topology.EventAgentDispatch, dispatchPayload)
+		result.jobOutcomes = append(result.jobOutcomes, outcome)
+		result.eventOutcomes = append(result.eventOutcomes, outcome)
 	}
-	return out
+	return result
 }
 
 func copyPayload(payload map[string]any) map[string]any {

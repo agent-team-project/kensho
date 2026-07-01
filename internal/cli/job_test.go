@@ -903,6 +903,76 @@ func TestJobCloseRecordsMessage(t *testing.T) {
 	}
 }
 
+func TestJobCloseStatusDoneDoesNotDispatch(t *testing.T) {
+	tmp := t.TempDir()
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_review]
+trigger.event = "agent.dispatch"
+trigger.match.target = "manager"
+
+[[pipelines.ticket_review.steps]]
+id = "review"
+target = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-715-close",
+		Ticket:    "SQU-715-CLOSE",
+		Target:    "manager",
+		Kickoff:   "close without dispatch",
+		Pipeline:  "ticket_review",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "review", Target: "manager", Status: job.StatusRunning, Instance: "manager-squ-715-close-review", StartedAt: now.Add(-time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "close", "squ-715-close", "--repo", tmp, "--status", "done", "--message", "complete", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job close --status done: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var closed job.Job
+	if err := json.Unmarshal(out.Bytes(), &closed); err != nil {
+		t.Fatalf("decode close json: %v\nbody=%s", err, out.String())
+	}
+	if closed.Status != job.StatusDone || closed.LastEvent != "closed" || closed.LastStatus != "complete" {
+		t.Fatalf("closed = %+v", closed)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("job close dispatched manager messages = %+v, want none", messages)
+	}
+}
+
 func TestJobCloseDryRunDoesNotMutateJob(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
