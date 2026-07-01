@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,55 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 )
+
+func withDaemonStartDetachedLaunch(t *testing.T, fn func(string, daemonDetachedLaunch, time.Duration) (daemonLifecycleJSON, error)) {
+	t.Helper()
+	old := daemonStartDetachedLaunch
+	daemonStartDetachedLaunch = fn
+	t.Cleanup(func() { daemonStartDetachedLaunch = old })
+}
+
+func withDaemonFindAgentTeamd(t *testing.T, path string) {
+	t.Helper()
+	old := findAgentTeamd
+	findAgentTeamd = func() (string, error) {
+		if strings.TrimSpace(path) == "" {
+			return "", fmt.Errorf("agent-teamd binary not found")
+		}
+		return path, nil
+	}
+	t.Cleanup(func() { findAgentTeamd = old })
+}
+
+func writeRawLaunchEnvForCLITest(t *testing.T, teamDir string, le daemon.LaunchEnv) {
+	t.Helper()
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatalf("mkdir daemon root: %v", err)
+	}
+	body, err := json.MarshalIndent(&le, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal launch env: %v", err)
+	}
+	body = append(body, '\n')
+	if err := os.WriteFile(daemon.LaunchEnvPath(teamDir), body, 0o600); err != nil {
+		t.Fatalf("write raw launch env: %v", err)
+	}
+}
+
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	old, ok := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(key, old)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
+}
 
 func TestDaemonStatus_NotRunning(t *testing.T) {
 	tmp := t.TempDir()
@@ -1427,6 +1477,211 @@ func TestDaemonRestartRejectsNegativeReadyTimeout(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--ready-timeout must be >= 0") {
 		t.Fatalf("stderr = %q, want ready-timeout validation", stderr.String())
+	}
+}
+
+func TestDaemonRestartRelaunchesFromSnapshotEnv(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	markerKey := "BENCH714_SNAPSHOT_MARKER"
+	unsetEnvForTest(t, markerKey)
+	writeRawLaunchEnvForCLITest(t, teamDir, daemon.LaunchEnv{
+		Bin:        "/snapshot/bin/agent-teamd",
+		Args:       []string{"/old/argv0", "--target", tmp, "--http-addr", "127.0.0.1:9999"},
+		Dir:        "/snapshot/workdir",
+		Env:        []string{"PATH=/snapshot/bin", markerKey + "=from-snapshot", "OPENAI_API_KEY=contaminated"},
+		RecordedAt: time.Now().UTC(),
+		PID:        1111,
+		Version:    1,
+	})
+
+	var captured daemonDetachedLaunch
+	withDaemonStartDetachedLaunch(t, func(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
+		captured = launch
+		if readyTimeout != 10*time.Millisecond {
+			t.Fatalf("ready timeout = %s, want 10ms", readyTimeout)
+		}
+		return daemonLifecycleJSON{
+			Action:  "start",
+			Changed: true,
+			PID:     4321,
+			Log:     daemon.LogPath(teamDir),
+			Message: "started",
+			Status:  daemonStatusJSON{Running: true, Ready: true, PID: 4321, TeamDir: teamDir},
+		}, nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "restart", "--json", "--target", tmp, "--ready-timeout", "10ms", "--http-addr", "127.0.0.1:0"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon restart --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var body daemonRestartJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode restart json: %v\nbody=%s", err, out.String())
+	}
+	if body.SnapshotMissing || body.Start.SnapshotMissing {
+		t.Fatalf("restart incorrectly reported missing snapshot: %+v", body)
+	}
+	if captured.Bin != "/snapshot/bin/agent-teamd" || captured.Dir != "/snapshot/workdir" {
+		t.Fatalf("captured launch = %+v, want snapshot bin/dir", captured)
+	}
+	if len(captured.Args) == 0 || captured.Args[0] != "/snapshot/bin/agent-teamd" {
+		t.Fatalf("captured args = %+v, want args[0] reconciled to snapshot bin", captured.Args)
+	}
+	if got, ok := argValue(captured.Args, "--http-addr"); !ok || got != "127.0.0.1:0" {
+		t.Fatalf("captured args = %+v, want explicit http addr", captured.Args)
+	}
+	if strings.Contains(strings.Join(captured.Args, "\n"), "127.0.0.1:9999") {
+		t.Fatalf("captured args still contain old http addr: %+v", captured.Args)
+	}
+	if !containsEnvPrefix(captured.Env, markerKey+"=from-snapshot") {
+		t.Fatalf("snapshot marker env not relaunched: %+v", captured.Env)
+	}
+	if containsEnvPrefix(captured.Env, daemon.DefaultStrippedEnvKeys[0]+"=") {
+		t.Fatalf("denied env key relaunched: %+v", captured.Env)
+	}
+}
+
+func TestDaemonRestartFallbackMarksMissingSnapshot(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	var captured daemonDetachedLaunch
+	withDaemonFindAgentTeamd(t, "/fallback/bin/agent-teamd")
+	withDaemonStartDetachedLaunch(t, func(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
+		captured = launch
+		return daemonLifecycleJSON{
+			Action:  "start",
+			Changed: true,
+			PID:     5678,
+			Log:     daemon.LogPath(teamDir),
+			Message: "started",
+			Status:  daemonStatusJSON{Running: true, Ready: true, PID: 5678, TeamDir: teamDir},
+		}, nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "restart", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon restart fallback --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var body daemonRestartJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode restart json: %v\nbody=%s", err, out.String())
+	}
+	if !body.SnapshotMissing || !body.Start.SnapshotMissing {
+		t.Fatalf("restart json = %+v, want snapshot_missing", body)
+	}
+	wantDir := filepath.Dir(teamDir)
+	if eval, err := filepath.EvalSymlinks(wantDir); err == nil {
+		wantDir = eval
+	}
+	if captured.Bin != "/fallback/bin/agent-teamd" || captured.Dir != wantDir {
+		t.Fatalf("fallback launch = %+v, want current start launch", captured)
+	}
+}
+
+func TestDaemonRestartFallbackPrintsSnapshotWarning(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	withDaemonFindAgentTeamd(t, "/fallback/bin/agent-teamd")
+	withDaemonStartDetachedLaunch(t, func(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
+		return daemonLifecycleJSON{
+			Action:  "start",
+			Changed: true,
+			PID:     6789,
+			Log:     daemon.LogPath(teamDir),
+			Message: "started",
+			Status:  daemonStatusJSON{Running: true, Ready: true, PID: 6789, TeamDir: teamDir},
+		}, nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "restart", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon restart fallback text: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "no launch env recorded") {
+		t.Fatalf("restart output missing snapshot warning:\n%s", out.String())
+	}
+}
+
+func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	recordedAt := time.Now().UTC().Truncate(time.Second)
+	if err := daemon.WriteLaunchEnv(daemon.DaemonRoot(teamDir), &daemon.LaunchEnv{
+		Bin:        "/snapshot/bin/agent-teamd",
+		Args:       []string{"/snapshot/bin/agent-teamd", "--target", tmp},
+		Dir:        "/snapshot/workdir",
+		Env:        []string{"NORMAL=ok", "GH_TOKEN=secret-token", "DB_PASSWORD=secret-password", "API_KEY=secret-key"},
+		RecordedAt: recordedAt,
+		PID:        2468,
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("WriteLaunchEnv: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "env", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon env --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var body daemonEnvJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode daemon env json: %v\nbody=%s", err, out.String())
+	}
+	if !body.Recorded || body.Bin != "/snapshot/bin/agent-teamd" || body.Dir != "/snapshot/workdir" || body.PID != 2468 {
+		t.Fatalf("daemon env json = %+v", body)
+	}
+	for _, forbidden := range []string{"secret-token", "secret-password", "secret-key"} {
+		if strings.Contains(strings.Join(body.Env, "\n"), forbidden) {
+			t.Fatalf("daemon env leaked %q: %+v", forbidden, body.Env)
+		}
+	}
+	for _, want := range []string{"API_KEY=<redacted>", "DB_PASSWORD=<redacted>", "GH_TOKEN=<redacted>", "NORMAL=ok"} {
+		if !containsString(body.Env, want) {
+			t.Fatalf("env = %+v, missing %q", body.Env, want)
+		}
+	}
+	if !containsString(body.Stripped, daemon.DefaultStrippedEnvKeys[0]) {
+		t.Fatalf("stripped = %+v, want default stripped key", body.Stripped)
+	}
+}
+
+func TestDaemonEnvMissingSnapshotExitsOne(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "env", "--target", tmp})
+	err := cmd.Execute()
+	var code ExitCode
+	if err == nil || !errors.As(err, &code) || code != 1 {
+		t.Fatalf("daemon env missing err = %v, want exit 1", err)
+	}
+	if !strings.Contains(out.String(), "no launch env recorded") {
+		t.Fatalf("daemon env missing output = %q", out.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("daemon env missing wrote stderr: %q", stderr.String())
 	}
 }
 

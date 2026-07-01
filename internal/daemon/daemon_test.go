@@ -196,6 +196,62 @@ func TestDaemon_BootsAndServesInstances(t *testing.T) {
 	}
 }
 
+func TestDaemonRecordsLaunchEnvOnBoot(t *testing.T) {
+	teamDir := shortTempDir(t)
+	daemonRoot := DaemonRoot(teamDir)
+	old := &LaunchEnv{
+		Bin:        "/tmp/old-agent-teamd",
+		Args:       []string{"/tmp/old-agent-teamd", "--target", "/old"},
+		Dir:        "/old",
+		Env:        []string{"OLD=1"},
+		RecordedAt: time.Now().UTC(),
+		PID:        111,
+		Version:    1,
+	}
+	if err := WriteLaunchEnv(daemonRoot, old); err != nil {
+		t.Fatalf("seed old launch env: %v", err)
+	}
+
+	d := startDaemon(t, teamDir, newFakeSpawner(30*time.Second).spawn)
+	defer d.Shutdown(context.Background())
+
+	le, err := ReadLaunchEnv(daemonRoot)
+	if err != nil {
+		t.Fatalf("ReadLaunchEnv: %v", err)
+	}
+	wantBin, err := os.Executable()
+	if err != nil {
+		wantBin = os.Args[0]
+	}
+	wantDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if le.Bin != wantBin || le.Dir != wantDir || le.PID != os.Getpid() || le.Version != 1 {
+		t.Fatalf("launch env = %+v, want bin=%q dir=%q pid=%d version=1", le, wantBin, wantDir, os.Getpid())
+	}
+	if len(le.Args) != len(os.Args) || le.Args[0] != os.Args[0] {
+		t.Fatalf("launch env args = %+v, want os.Args starting with %q", le.Args, os.Args[0])
+	}
+	if envHasKey(le.Env, DefaultStrippedEnvKeys[0]) {
+		t.Fatalf("denied env key recorded: %+v", le.Env)
+	}
+	if !containsLaunchEnvString(le.Stripped, DefaultStrippedEnvKeys[0]) {
+		t.Fatalf("stripped keys = %+v, want %s", le.Stripped, DefaultStrippedEnvKeys[0])
+	}
+	prevBody, err := os.ReadFile(PrevLaunchEnvPath(teamDir))
+	if err != nil {
+		t.Fatalf("read previous launch env: %v", err)
+	}
+	var prev LaunchEnv
+	if err := json.Unmarshal(prevBody, &prev); err != nil {
+		t.Fatalf("parse previous launch env: %v", err)
+	}
+	if prev.Bin != old.Bin || prev.PID != old.PID {
+		t.Fatalf("previous launch env = %+v, want old snapshot %+v", prev, old)
+	}
+}
+
 func TestDaemon_DispatchEndToEnd(t *testing.T) {
 	teamDir := shortTempDir(t)
 	fake := newFakeSpawner(30 * time.Second)

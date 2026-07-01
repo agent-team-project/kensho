@@ -210,6 +210,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("daemon: pidfile: %w", err)
 	}
 	defer os.Remove(PidPath(d.cfg.TeamDir))
+	d.recordLaunchEnv()
 
 	socket := SocketPath(d.cfg.TeamDir)
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
@@ -311,6 +312,40 @@ func (d *Daemon) logf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(d.cfg.LogOut, "%s "+format+"\n", append([]any{time.Now().UTC().Format(time.RFC3339)}, args...)...)
+}
+
+func (d *Daemon) recordLaunchEnv() {
+	if err := preservePreviousLaunchEnv(d.cfg.TeamDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		d.logf("launch-env: preserve previous snapshot failed: %v", err)
+	}
+	bin, err := os.Executable()
+	if err != nil {
+		bin = os.Args[0]
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		d.logf("launch-env: get working directory failed: %v", err)
+	}
+	le := &LaunchEnv{
+		Bin:        bin,
+		Args:       append([]string(nil), os.Args...),
+		Dir:        dir,
+		Env:        os.Environ(),
+		RecordedAt: time.Now().UTC(),
+		PID:        os.Getpid(),
+		Version:    1,
+	}
+	if err := WriteLaunchEnv(DaemonRoot(d.cfg.TeamDir), le); err != nil {
+		d.logf("launch-env: write snapshot failed: %v", err)
+	}
+}
+
+func preservePreviousLaunchEnv(teamDir string) error {
+	body, err := os.ReadFile(LaunchEnvPath(teamDir))
+	if err != nil {
+		return err
+	}
+	return writeLaunchEnvFileAtomic(PrevLaunchEnvPath(teamDir), body)
 }
 
 // writePidfile writes pid to path atomically. Caller is responsible for

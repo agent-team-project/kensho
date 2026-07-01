@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -38,6 +40,7 @@ func newDaemonCmd() *cobra.Command {
 	cmd.AddCommand(newDaemonReconcileCmd())
 	cmd.AddCommand(newDaemonStatusCmd())
 	cmd.AddCommand(newDaemonLogsCmd())
+	cmd.AddCommand(newDaemonEnvCmd())
 	return cmd
 }
 
@@ -221,10 +224,11 @@ func newDaemonRestartCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon restart: %v\n", err)
 				return exitErr(2)
 			}
+			httpAddrExplicit := cmd.Flags().Changed("http-addr")
 			if formatTemplate != nil {
-				return runDaemonRestartWithFormat(cmd, target, detach, timeout, readyTimeout, normalizedHTTPAddr, formatTemplate)
+				return runDaemonRestartWithFormat(cmd, target, detach, timeout, readyTimeout, normalizedHTTPAddr, httpAddrExplicit, formatTemplate)
 			}
-			return runDaemonRestartWithJSON(cmd, target, detach, timeout, readyTimeout, normalizedHTTPAddr, jsonOut, quiet)
+			return runDaemonRestartWithJSON(cmd, target, detach, timeout, readyTimeout, normalizedHTTPAddr, httpAddrExplicit, jsonOut, quiet)
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
@@ -385,6 +389,24 @@ func newDaemonLogsCmd() *cobra.Command {
 	return cmd
 }
 
+func newDaemonEnvCmd() *cobra.Command {
+	var (
+		target  string
+		jsonOut bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "env",
+		Short: "Show the daemon launch environment snapshot with secrets redacted.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonEnv(cmd, target, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with secret values redacted.")
+	return cmd
+}
+
 type daemonLifecycleJSON struct {
 	Action              string           `json:"action"`
 	Changed             bool             `json:"changed"`
@@ -395,6 +417,7 @@ type daemonLifecycleJSON struct {
 	Stopped             bool             `json:"stopped,omitempty"`
 	Killed              bool             `json:"killed,omitempty"`
 	StalePidfileRemoved bool             `json:"stale_pidfile_removed,omitempty"`
+	SnapshotMissing     bool             `json:"snapshot_missing,omitempty"`
 	Message             string           `json:"message,omitempty"`
 	Status              daemonStatusJSON `json:"status"`
 }
@@ -402,11 +425,26 @@ type daemonLifecycleJSON struct {
 const defaultDaemonReadyTimeout = 3 * time.Second
 
 type daemonRestartJSON struct {
-	Action  string              `json:"action"`
-	Changed bool                `json:"changed"`
-	Stop    daemonLifecycleJSON `json:"stop"`
-	Start   daemonLifecycleJSON `json:"start"`
-	Status  daemonStatusJSON    `json:"status"`
+	Action          string              `json:"action"`
+	Changed         bool                `json:"changed"`
+	Stop            daemonLifecycleJSON `json:"stop"`
+	Start           daemonLifecycleJSON `json:"start"`
+	Status          daemonStatusJSON    `json:"status"`
+	SnapshotMissing bool                `json:"snapshot_missing,omitempty"`
+}
+
+type daemonEnvJSON struct {
+	Recorded   bool      `json:"recorded"`
+	Path       string    `json:"path"`
+	Bin        string    `json:"bin,omitempty"`
+	Args       []string  `json:"args,omitempty"`
+	Dir        string    `json:"dir,omitempty"`
+	Env        []string  `json:"env,omitempty"`
+	Stripped   []string  `json:"stripped,omitempty"`
+	RecordedAt time.Time `json:"recorded_at,omitempty"`
+	PID        int       `json:"pid,omitempty"`
+	Version    int       `json:"version,omitempty"`
+	Message    string    `json:"message,omitempty"`
 }
 
 func parseDaemonLifecycleFormat(format string) (*template.Template, error) {
@@ -563,7 +601,43 @@ func daemonStartDetachedOperation(cmd *cobra.Command, teamDir string, readyTimeo
 	return daemonStartDetached(teamDir, bin, readyTimeout, httpAddr)
 }
 
+type daemonDetachedLaunch struct {
+	Bin  string
+	Args []string
+	Dir  string
+	Env  []string
+}
+
+var daemonStartDetachedLaunch = startDaemonDetachedLaunch
+
 func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAddr string) (daemonLifecycleJSON, error) {
+	args := []string{bin, "--target", filepath.Dir(teamDir)}
+	if strings.TrimSpace(httpAddr) != "" {
+		args = append(args, "--http-addr", httpAddr)
+	}
+	return daemonStartDetachedLaunch(teamDir, daemonDetachedLaunch{
+		Bin:  bin,
+		Args: args,
+		Dir:  filepath.Dir(teamDir),
+		Env:  os.Environ(),
+	}, readyTimeout)
+}
+
+var errDaemonReadyTimeout = errors.New("daemon readiness timeout")
+
+type daemonReadyTimeoutError struct {
+	message string
+}
+
+func (e daemonReadyTimeoutError) Error() string {
+	return e.message
+}
+
+func (e daemonReadyTimeoutError) Is(target error) bool {
+	return target == errDaemonReadyTimeout
+}
+
+func startDaemonDetachedLaunch(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
 	// Detached: open the daemon log file and start the child with new SID.
 	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
 		return daemonLifecycleJSON{}, fmt.Errorf("mkdir daemon root: %w", err)
@@ -580,13 +654,25 @@ func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAd
 	}
 	defer devnull.Close()
 
-	args := []string{bin, "--target", filepath.Dir(teamDir)}
-	if strings.TrimSpace(httpAddr) != "" {
-		args = append(args, "--http-addr", httpAddr)
+	bin := strings.TrimSpace(launch.Bin)
+	if bin == "" && len(launch.Args) > 0 {
+		bin = launch.Args[0]
 	}
+	if bin == "" {
+		return daemonLifecycleJSON{}, errors.New("spawn agent-teamd: missing binary path")
+	}
+	args := append([]string(nil), launch.Args...)
+	if len(args) == 0 {
+		args = []string{bin}
+	}
+	dir := strings.TrimSpace(launch.Dir)
+	if dir == "" {
+		dir = filepath.Dir(teamDir)
+	}
+	env := append([]string(nil), launch.Env...)
 	proc, err := os.StartProcess(bin, args, &os.ProcAttr{
-		Dir:   filepath.Dir(teamDir),
-		Env:   os.Environ(),
+		Dir:   dir,
+		Env:   env,
 		Files: []*os.File{devnull, logFile, logFile},
 		Sys:   &syscall.SysProcAttr{Setsid: true},
 	})
@@ -620,7 +706,9 @@ func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAd
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return daemonLifecycleJSON{}, fmt.Errorf("agent-teamd did not become ready within %s — check %s", readyTimeout, logPath)
+	return daemonLifecycleJSON{}, daemonReadyTimeoutError{
+		message: fmt.Sprintf("agent-teamd did not become ready within %s — check %s", readyTimeout, logPath),
+	}
 }
 
 func renderDaemonStartResult(w fmtWriter, result daemonLifecycleJSON) {
@@ -629,6 +717,118 @@ func renderDaemonStartResult(w fmtWriter, result daemonLifecycleJSON) {
 		return
 	}
 	fmt.Fprintf(w, "agent-teamd started (pid=%d).\nlog: %s\n", result.PID, result.Log)
+}
+
+func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout time.Duration, httpAddr string, httpAddrExplicit bool) (daemonLifecycleJSON, error) {
+	le, err := daemon.ReadLaunchEnv(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			result, startErr := daemonStartDetachedOperation(cmd, teamDir, readyTimeout, httpAddr)
+			result.SnapshotMissing = true
+			if result.Message == "started" {
+				result.Message = "started with current environment because launch-env snapshot is missing"
+			}
+			return result, startErr
+		}
+		return daemonLifecycleJSON{}, err
+	}
+	launch, err := daemonDetachedLaunchFromSnapshot(teamDir, le, httpAddr, httpAddrExplicit)
+	if err != nil {
+		return daemonLifecycleJSON{}, err
+	}
+	result, err := daemonStartDetachedLaunch(teamDir, launch, readyTimeout)
+	if err != nil {
+		if errors.Is(err, errDaemonReadyTimeout) {
+			return daemonLifecycleJSON{}, fmt.Errorf("old daemon stopped, new daemon not ready — launch-env snapshot preserved at %s: %w", daemon.LaunchEnvPath(teamDir), err)
+		}
+		return daemonLifecycleJSON{}, err
+	}
+	return result, nil
+}
+
+func daemonRelaunchForegroundFromSnapshot(cmd *cobra.Command, teamDir string, httpAddr string, httpAddrExplicit bool) error {
+	le, err := daemon.ReadLaunchEnv(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			renderLaunchEnvSnapshotWarning(cmd.OutOrStdout())
+			return runDaemonStartWithJSON(cmd, filepath.Dir(teamDir), false, defaultDaemonReadyTimeout, httpAddr, false, false)
+		}
+		return err
+	}
+	launch, err := daemonDetachedLaunchFromSnapshot(teamDir, le, httpAddr, httpAddrExplicit)
+	if err != nil {
+		return err
+	}
+	args := append([]string(nil), launch.Args...)
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	c := exec.Command(launch.Bin, args...)
+	c.Dir = launch.Dir
+	c.Env = launch.Env
+	c.Stdin = os.Stdin
+	c.Stdout = cmd.OutOrStdout()
+	c.Stderr = cmd.ErrOrStderr()
+	return c.Run()
+}
+
+func daemonDetachedLaunchFromSnapshot(teamDir string, le *daemon.LaunchEnv, httpAddr string, httpAddrExplicit bool) (daemonDetachedLaunch, error) {
+	if le == nil {
+		return daemonDetachedLaunch{}, errors.New("launch-env: nil snapshot")
+	}
+	bin := strings.TrimSpace(le.Bin)
+	if bin == "" && len(le.Args) > 0 {
+		bin = strings.TrimSpace(le.Args[0])
+	}
+	if bin == "" {
+		return daemonDetachedLaunch{}, errors.New("launch-env: missing daemon binary path")
+	}
+	args := append([]string(nil), le.Args...)
+	if len(args) == 0 {
+		args = []string{bin}
+	} else {
+		args[0] = bin
+	}
+	args = reconcileHTTPAddrArgs(args, httpAddr, httpAddrExplicit)
+	dir := strings.TrimSpace(le.Dir)
+	if dir == "" {
+		dir = filepath.Dir(teamDir)
+	}
+	return daemonDetachedLaunch{
+		Bin:  bin,
+		Args: args,
+		Dir:  dir,
+		Env:  daemon.StripEnv(le.Env, daemon.DefaultStrippedEnvKeys),
+	}, nil
+}
+
+func reconcileHTTPAddrArgs(args []string, httpAddr string, explicit bool) []string {
+	if !explicit {
+		return args
+	}
+	out := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--http-addr":
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		case strings.HasPrefix(arg, "--http-addr="):
+			continue
+		default:
+			out = append(out, arg)
+		}
+	}
+	if strings.TrimSpace(httpAddr) != "" {
+		out = append(out, "--http-addr", httpAddr)
+	}
+	return out
+}
+
+func renderLaunchEnvSnapshotWarning(w fmtWriter) {
+	fmt.Fprintln(w, "warning: no launch env recorded (daemon may predate this feature); restarted with current environment.")
 }
 
 func runDaemonStop(cmd *cobra.Command, target string) error {
@@ -752,10 +952,10 @@ func renderDaemonStopResult(w fmtWriter, result daemonLifecycleJSON) {
 }
 
 func runDaemonRestart(cmd *cobra.Command, target string, detach bool, timeout time.Duration) error {
-	return runDaemonRestartWithJSON(cmd, target, detach, timeout, defaultDaemonReadyTimeout, "", false, false)
+	return runDaemonRestartWithJSON(cmd, target, detach, timeout, defaultDaemonReadyTimeout, "", false, false, false)
 }
 
-func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, httpAddr string, jsonOut bool, quiet bool) error {
+func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, httpAddr string, httpAddrExplicit bool, jsonOut bool, quiet bool) error {
 	if timeout < 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --timeout must be >= 0.")
 		return exitErr(2)
@@ -780,28 +980,42 @@ func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, ti
 	if err != nil {
 		return err
 	}
+	if !detach {
+		if !quiet && !jsonOut {
+			renderDaemonStopResult(cmd.OutOrStdout(), stopResult)
+		}
+		return daemonRelaunchForegroundFromSnapshot(cmd, teamDir, httpAddr, httpAddrExplicit)
+	}
 	if !jsonOut {
-		if quiet {
-			_, err := daemonStartDetachedOperation(cmd, teamDir, readyTimeout, httpAddr)
+		startResult, err := daemonRelaunchFromSnapshot(cmd, teamDir, readyTimeout, httpAddr, httpAddrExplicit)
+		if err != nil {
 			return err
 		}
+		if quiet {
+			return nil
+		}
 		renderDaemonStopResult(cmd.OutOrStdout(), stopResult)
-		return runDaemonStartWithJSON(cmd, target, detach, readyTimeout, httpAddr, false, false)
+		if startResult.SnapshotMissing {
+			renderLaunchEnvSnapshotWarning(cmd.OutOrStdout())
+		}
+		renderDaemonStartResult(cmd.OutOrStdout(), startResult)
+		return nil
 	}
-	startResult, err := daemonStartDetachedOperation(cmd, teamDir, readyTimeout, httpAddr)
+	startResult, err := daemonRelaunchFromSnapshot(cmd, teamDir, readyTimeout, httpAddr, httpAddrExplicit)
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(cmd.OutOrStdout()).Encode(daemonRestartJSON{
-		Action:  "restart",
-		Changed: stopResult.Changed || startResult.Changed,
-		Stop:    stopResult,
-		Start:   startResult,
-		Status:  startResult.Status,
+		Action:          "restart",
+		Changed:         stopResult.Changed || startResult.Changed,
+		Stop:            stopResult,
+		Start:           startResult,
+		Status:          startResult.Status,
+		SnapshotMissing: startResult.SnapshotMissing,
 	})
 }
 
-func runDaemonRestartWithFormat(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, httpAddr string, tmpl *template.Template) error {
+func runDaemonRestartWithFormat(cmd *cobra.Command, target string, detach bool, timeout, readyTimeout time.Duration, httpAddr string, httpAddrExplicit bool, tmpl *template.Template) error {
 	if timeout < 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team daemon restart: --timeout must be >= 0.")
 		return exitErr(2)
@@ -822,16 +1036,17 @@ func runDaemonRestartWithFormat(cmd *cobra.Command, target string, detach bool, 
 	if err != nil {
 		return err
 	}
-	startResult, err := daemonStartDetachedOperation(cmd, teamDir, readyTimeout, httpAddr)
+	startResult, err := daemonRelaunchFromSnapshot(cmd, teamDir, readyTimeout, httpAddr, httpAddrExplicit)
 	if err != nil {
 		return err
 	}
 	return renderDaemonRestartFormat(cmd.OutOrStdout(), daemonRestartJSON{
-		Action:  "restart",
-		Changed: stopResult.Changed || startResult.Changed,
-		Stop:    stopResult,
-		Start:   startResult,
-		Status:  startResult.Status,
+		Action:          "restart",
+		Changed:         stopResult.Changed || startResult.Changed,
+		Stop:            stopResult,
+		Start:           startResult,
+		Status:          startResult.Status,
+		SnapshotMissing: startResult.SnapshotMissing,
 	}, tmpl)
 }
 
@@ -859,6 +1074,118 @@ func runDaemonReconcile(cmd *cobra.Command, target string, jsonOut bool, tmpl *t
 		return renderDaemonReconcileFormat(cmd.OutOrStdout(), resp, tmpl)
 	}
 	return renderDaemonReconcile(cmd.OutOrStdout(), resp)
+}
+
+func runDaemonEnv(cmd *cobra.Command, target string, jsonOut bool) error {
+	teamDir, err := resolveTeamDir(cmd, target)
+	if err != nil {
+		return err
+	}
+	path := daemon.LaunchEnvPath(teamDir)
+	le, err := daemon.ReadLaunchEnv(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			result := daemonEnvJSON{
+				Recorded: false,
+				Path:     path,
+				Message:  "no launch env recorded (daemon may predate this feature)",
+			}
+			if jsonOut {
+				if encErr := json.NewEncoder(cmd.OutOrStdout()).Encode(result); encErr != nil {
+					return encErr
+				}
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), result.Message)
+			}
+			return exitErr(1)
+		}
+		return err
+	}
+	result := redactedDaemonEnv(path, le)
+	if jsonOut {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+	}
+	renderDaemonEnv(cmd.OutOrStdout(), result)
+	return nil
+}
+
+func redactedDaemonEnv(path string, le *daemon.LaunchEnv) daemonEnvJSON {
+	env := append([]string(nil), le.Env...)
+	sort.Slice(env, func(i, j int) bool {
+		return envKey(env[i]) < envKey(env[j])
+	})
+	for i, item := range env {
+		key, value, hasValue := strings.Cut(item, "=")
+		if !hasValue {
+			key = item
+			value = ""
+		}
+		if daemonEnvKeyLooksSecret(key) {
+			env[i] = key + "=<redacted>"
+			continue
+		}
+		if hasValue {
+			env[i] = key + "=" + value
+		} else {
+			env[i] = key
+		}
+	}
+	stripped := append([]string(nil), le.Stripped...)
+	sort.Strings(stripped)
+	return daemonEnvJSON{
+		Recorded:   true,
+		Path:       path,
+		Bin:        le.Bin,
+		Args:       append([]string(nil), le.Args...),
+		Dir:        le.Dir,
+		Env:        env,
+		Stripped:   stripped,
+		RecordedAt: le.RecordedAt,
+		PID:        le.PID,
+		Version:    le.Version,
+	}
+}
+
+func renderDaemonEnv(w fmtWriter, result daemonEnvJSON) {
+	fmt.Fprintf(w, "launch env: %s\n", result.Path)
+	fmt.Fprintf(w, "bin: %s\n", result.Bin)
+	argsJSON, _ := json.Marshal(result.Args)
+	fmt.Fprintf(w, "args: %s\n", string(argsJSON))
+	fmt.Fprintf(w, "dir: %s\n", result.Dir)
+	if !result.RecordedAt.IsZero() {
+		fmt.Fprintf(w, "recorded_at: %s\n", result.RecordedAt.Format(time.RFC3339))
+	}
+	if result.PID != 0 {
+		fmt.Fprintf(w, "pid: %d\n", result.PID)
+	}
+	if result.Version != 0 {
+		fmt.Fprintf(w, "version: %d\n", result.Version)
+	}
+	if len(result.Stripped) > 0 {
+		fmt.Fprintln(w, "stripped:")
+		for _, key := range result.Stripped {
+			fmt.Fprintf(w, "  %s\n", key)
+		}
+	}
+	fmt.Fprintln(w, "env:")
+	for _, item := range result.Env {
+		fmt.Fprintf(w, "  %s\n", item)
+	}
+}
+
+func daemonEnvKeyLooksSecret(key string) bool {
+	key = strings.ToUpper(key)
+	for _, marker := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD", "_PW", "CREDENTIAL"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func envKey(item string) string {
+	key, _, _ := strings.Cut(item, "=")
+	return key
 }
 
 func renderDaemonReconcile(w fmtWriter, resp *daemonReconcileResponse) error {

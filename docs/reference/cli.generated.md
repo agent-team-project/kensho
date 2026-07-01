@@ -572,6 +572,7 @@ Inherited Flags:
 Subcommands:
 
 - `agent-team daemon adopt` - Adopt a live external process into daemon metadata.
+- `agent-team daemon env` - Show the daemon launch environment snapshot with secrets redacted.
 - `agent-team daemon logs` - Show the agent-teamd daemon log.
 - `agent-team daemon reconcile` - Refresh daemon instance metadata against the live process table.
 - `agent-team daemon restart` - Restart agent-teamd, reconciling existing instance metadata on boot.
@@ -612,6 +613,27 @@ Flags:
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --ticket string        Ticket id to record on the adopted metadata.
       --workspace string     Workspace path for the adopted process. Defaults to the repo root.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team daemon env`
+
+Show the daemon launch environment snapshot with secrets redacted.
+
+```text
+agent-team daemon env [flags]
+```
+
+Flags:
+
+```text
+      --json            Emit machine-readable JSON with secret values redacted.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
