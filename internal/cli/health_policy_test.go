@@ -24,13 +24,14 @@ func TestHealthPolicyDefaultsAndConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
 	}
-	if defaults.StatusStaleAfter != defaultStatusStaleAfter || defaults.JobStaleAfter != defaultJobTriageStaleAfter {
+	if defaults.StatusStaleAfter != defaultStatusStaleAfter || defaults.JobStaleAfter != defaultJobTriageStaleAfter || defaults.TerminalRetention != 0 {
 		t.Fatalf("defaults = %+v", defaults)
 	}
 
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`[health]
 status_stale_after = "45m"
 job_stale_after = "72h"
+terminal_retention = "14d"
 `), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -38,7 +39,7 @@ job_stale_after = "72h"
 	if err != nil {
 		t.Fatalf("load configured policy: %v", err)
 	}
-	if got.StatusStaleAfter != 45*time.Minute || got.JobStaleAfter != 72*time.Hour {
+	if got.StatusStaleAfter != 45*time.Minute || got.JobStaleAfter != 72*time.Hour || got.TerminalRetention != 14*24*time.Hour {
 		t.Fatalf("policy = %+v", got)
 	}
 }

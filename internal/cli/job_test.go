@@ -637,6 +637,60 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 }
 
+func TestJobShowFallsBackToArchive(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-15 * 24 * time.Hour)
+	j := &job.Job{
+		ID:         "squ-40",
+		Ticket:     "SQU-40",
+		TicketURL:  "https://linear.app/squirtlesquad/issue/SQU-40/archive",
+		Target:     "worker",
+		Kickoff:    "archive fallback",
+		Instance:   "worker-squ-40",
+		Status:     job.StatusDone,
+		LastEvent:  "closed",
+		LastStatus: "done",
+		CreatedAt:  old.Add(-time.Hour),
+		UpdatedAt:  old,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if err := job.AppendEvent(teamDir, &job.Event{TS: old, JobID: j.ID, Type: "closed", Status: job.StatusDone, Actor: "cli", Message: "done"}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	if results, err := job.CompactTerminal(teamDir, 14*24*time.Hour, now, false); err != nil {
+		t.Fatalf("compact terminal: %v", err)
+	} else if len(results) != 1 {
+		t.Fatalf("compact results = %+v", results)
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"job", "show", "SQU-40", "--repo", tmp, "--events", "all", "--json"})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("job show archived: %v\nstderr=%s", err, showErr.String())
+	}
+	var body struct {
+		Job    job.Job     `json:"job"`
+		Events []job.Event `json:"events"`
+	}
+	if err := json.Unmarshal(showOut.Bytes(), &body); err != nil {
+		t.Fatalf("decode archived job show: %v\nbody=%s", err, showOut.String())
+	}
+	if body.Job.ID != "squ-40" || body.Job.Status != job.StatusDone || body.Job.Kickoff != "archive fallback" {
+		t.Fatalf("archived job show = %+v", body.Job)
+	}
+	if len(body.Events) != 1 || body.Events[0].Type != "closed" {
+		t.Fatalf("archived events = %+v", body.Events)
+	}
+}
+
 func TestJobEventsAll(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

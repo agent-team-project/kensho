@@ -236,6 +236,65 @@ branch = "worker-squ-94"
 	stopAndWaitForTest(t, mgr, updated.Steps[1].Instance)
 }
 
+func TestTickCompactsConfiguredTerminalRetention(t *testing.T) {
+	target, _, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[health]\nterminal_retention = \"14d\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	old := time.Now().UTC().Add(-15 * 24 * time.Hour)
+	j := &job.Job{
+		ID:         "squ-140",
+		Ticket:     "SQU-140",
+		Target:     "worker",
+		Instance:   "worker-squ-140",
+		Status:     job.StatusDone,
+		LastEvent:  "closed",
+		LastStatus: "done",
+		CreatedAt:  old.Add(-time.Hour),
+		UpdatedAt:  old,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-140",
+		Agent:     "worker",
+		Job:       "squ-140",
+		Status:    daemon.StatusExited,
+		StartedAt: old.Add(-time.Hour),
+		ExitedAt:  old,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick compact: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode tick compact: %v\nbody=%s", err, out.String())
+	}
+	if result.Compaction == nil || len(result.Compaction.Jobs) != 1 || len(result.Compaction.Instances) != 1 {
+		t.Fatalf("compaction = %+v", result.Compaction)
+	}
+	if _, err := job.Read(teamDir, "squ-140"); !os.IsNotExist(err) {
+		t.Fatalf("live job err = %v, want not exist", err)
+	}
+	if archived, err := job.ReadLiveOrArchive(teamDir, "squ-140"); err != nil || archived.ID != "squ-140" {
+		t.Fatalf("archived job = %+v err=%v", archived, err)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "worker-squ-140"); !os.IsNotExist(err) {
+		t.Fatalf("live metadata err = %v, want not exist", err)
+	}
+}
+
 func TestTickDrainsAgentOutbox(t *testing.T) {
 	target, mgr, cleanup := setupDispatchCommandRepo(t)
 	defer cleanup()

@@ -21,6 +21,10 @@ status_stale_after = "10m"
 # Queued or running jobs with no update after this duration appear in triage.
 job_stale_after = "24h"
 
+# Terminal jobs and daemon instance records older than this duration are archived
+# during maintenance. Use values like "14d"; "0" disables archival.
+terminal_retention = "0"
+
 [linear]
 # UUID of the Linear team this repo's tickets belong to. Find it via:
 #   query { teams(first: 50) { nodes { id key name } } }

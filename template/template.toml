@@ -52,3 +52,9 @@ key         = "health.job_stale_after"
 type        = "string"
 default     = "24h"
 description = "How old a queued or running job update can be before triage marks it stale. Set to 0 to disable job staleness."
+
+[[parameter]]
+key         = "health.terminal_retention"
+type        = "string"
+default     = "0"
+description = "How long terminal jobs and daemon instance records remain in the live registry before maintenance archives them. Set to 14d to retain two weeks, or 0 to disable archival."
