@@ -16,6 +16,8 @@ import (
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
 
+const helperIgnoreTermEnv = "AGENTTEAM_HELPER_IGNORE_TERM"
+
 type failingRandReader struct{}
 
 func (failingRandReader) Read([]byte) (int, error) {
@@ -105,7 +107,7 @@ func ignoreTermSpawner(t *testing.T) Spawner {
 			return nil, err
 		}
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessIgnoreTerm")
-		cmd.Env = append(append([]string(nil), env...), "AGENT_TEAM_HELPER_IGNORE_TERM=1")
+		cmd.Env = append(append([]string(nil), env...), helperIgnoreTermEnv+"=1")
 		cmd.Dir = workspace
 		cmd.Stdin = stdin
 		cmd.Stdout = stdout
@@ -122,7 +124,7 @@ func ignoreTermSpawner(t *testing.T) Spawner {
 }
 
 func TestHelperProcessIgnoreTerm(t *testing.T) {
-	if os.Getenv("AGENT_TEAM_HELPER_IGNORE_TERM") != "1" {
+	if os.Getenv(helperIgnoreTermEnv) != "1" {
 		return
 	}
 	signal.Ignore(syscall.SIGTERM)

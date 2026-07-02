@@ -64,7 +64,7 @@ def main(argv: list[str]) -> int:
     root = Path(tempfile.mkdtemp(prefix="agent-team-demo-", dir="/tmp"))
     fake_runtime = root / "fake-bin" / args.runtime
     repo = root / "repo"
-    env = os.environ.copy()
+    env = scrub_agent_team_env(os.environ.copy())
     env["PATH"] = f"{fake_runtime.parent}:{env.get('PATH', '')}"
     try:
         fake_runtime.parent.mkdir(parents=True, exist_ok=True)
@@ -246,8 +246,18 @@ def main(argv: list[str]) -> int:
         print(f"demo failed: {exc}", file=sys.stderr)
         return 1
     finally:
-        subprocess.run([str(binary), "stop", "--all", "--target", str(repo), "--timeout", "2s"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run([str(binary), "daemon", "stop", "--target", str(repo), "--timeout", "2s"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            [str(binary), "stop", "--all", "--target", str(repo), "--timeout", "2s"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            [str(binary), "daemon", "stop", "--target", str(repo), "--timeout", "2s"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         if args.keep:
             print(f"Preserved demo root: {root}")
         else:
@@ -265,7 +275,8 @@ def step(message: str) -> None:
 def run(binary: Path, *args: object, env: dict[str, str] | None = None, parse_json: bool = False):
     cmd = [str(binary), *(str(arg) for arg in args)]
     print("+", " ".join(cmd))
-    result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    child_env = scrub_agent_team_env(os.environ.copy() if env is None else env)
+    result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=child_env)
     if result.returncode != 0:
         raise DemoError(f"{' '.join(cmd)} failed with {result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}")
     if parse_json:
@@ -278,6 +289,10 @@ def run(binary: Path, *args: object, env: dict[str, str] | None = None, parse_js
     if result.stderr.strip():
         print(result.stderr.rstrip(), file=sys.stderr)
     return result.stdout
+
+
+def scrub_agent_team_env(env: dict[str, str]) -> dict[str, str]:
+    return {key: value for key, value in env.items() if not key.startswith("AGENT_TEAM_")}
 
 
 def field(data: dict, *names: str) -> object:
