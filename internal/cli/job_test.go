@@ -18,6 +18,8 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/worktreecleanup"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
 func mustNewJob(t *testing.T, ticket, target string) *job.Job {
@@ -11338,6 +11340,202 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	}
 }
 
+func TestJobCloseAutoReapsWorktreeOnClose(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	initGitRepoForJobTest(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	dispatched := createAndDispatchWorktreeJobForTest(t, target, "SQU-138", "auto reap on close")
+	worktreePath := dispatched.Worktree
+	branch := dispatched.Branch
+	stopAndWaitForTest(t, mgr, dispatched.Instance)
+
+	ready, err := job.Read(teamDir, "squ-138")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	ready.ReapWorktree = worktreepolicy.OnClose
+	if err := job.Write(teamDir, ready); err != nil {
+		t.Fatalf("write reap policy: %v", err)
+	}
+
+	closeCmd := NewRootCmd()
+	closeOut, closeErr := &bytes.Buffer{}, &bytes.Buffer{}
+	closeCmd.SetOut(closeOut)
+	closeCmd.SetErr(closeErr)
+	closeCmd.SetArgs([]string{"job", "close", "squ-138", "--repo", target, "--json"})
+	if err := closeCmd.Execute(); err != nil {
+		t.Fatalf("job close: %v\nstderr=%s", err, closeErr.String())
+	}
+	var closed job.Job
+	if err := json.Unmarshal(closeOut.Bytes(), &closed); err != nil {
+		t.Fatalf("decode close json: %v\nbody=%s", err, closeOut.String())
+	}
+	if closed.Status != job.StatusDone || closed.Worktree != "" || closed.Branch != "" || closed.LastEvent != "cleanup" {
+		t.Fatalf("closed job = %+v", closed)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists or stat error: %v", err)
+	}
+	if branchExists(t, target, branch) {
+		t.Fatalf("branch %s still exists after close cleanup", branch)
+	}
+}
+
+func TestJobKeepWorktreeDisablesAutoReap(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	initGitRepoForJobTest(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	dispatched := createAndDispatchWorktreeJobForTest(t, target, "SQU-139", "keep worktree")
+	worktreePath := dispatched.Worktree
+	branch := dispatched.Branch
+	stopAndWaitForTest(t, mgr, dispatched.Instance)
+
+	ready, err := job.Read(teamDir, "squ-139")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	ready.ReapWorktree = worktreepolicy.OnClose
+	if err := job.Write(teamDir, ready); err != nil {
+		t.Fatalf("write reap policy: %v", err)
+	}
+
+	keep := NewRootCmd()
+	keepOut, keepErr := &bytes.Buffer{}, &bytes.Buffer{}
+	keep.SetOut(keepOut)
+	keep.SetErr(keepErr)
+	keep.SetArgs([]string{"job", "keep-worktree", "squ-139", "investigating failure", "--repo", target, "--json"})
+	if err := keep.Execute(); err != nil {
+		t.Fatalf("job keep-worktree: %v\nstderr=%s", err, keepErr.String())
+	}
+	var kept job.Job
+	if err := json.Unmarshal(keepOut.Bytes(), &kept); err != nil {
+		t.Fatalf("decode keep json: %v\nbody=%s", err, keepOut.String())
+	}
+	if kept.ReapWorktree != worktreepolicy.Never || kept.LastEvent != "keep_worktree" {
+		t.Fatalf("kept job = %+v", kept)
+	}
+
+	closeCmd := NewRootCmd()
+	closeOut, closeErr := &bytes.Buffer{}, &bytes.Buffer{}
+	closeCmd.SetOut(closeOut)
+	closeCmd.SetErr(closeErr)
+	closeCmd.SetArgs([]string{"job", "close", "squ-139", "--repo", target, "--json"})
+	if err := closeCmd.Execute(); err != nil {
+		t.Fatalf("job close: %v\nstderr=%s", err, closeErr.String())
+	}
+	var closed job.Job
+	if err := json.Unmarshal(closeOut.Bytes(), &closed); err != nil {
+		t.Fatalf("decode close json: %v\nbody=%s", err, closeOut.String())
+	}
+	if closed.Worktree != worktreePath || closed.Branch != branch || closed.LastEvent != "closed" {
+		t.Fatalf("close should preserve worktree, got %+v", closed)
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Fatalf("worktree missing after keep-worktree close: %v", err)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("branch %s missing after keep-worktree close", branch)
+	}
+}
+
+func TestJobCloseAutoReapSkipsLiveWorktree(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	initGitRepoForJobTest(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	dispatched := createAndDispatchWorktreeJobForTest(t, target, "SQU-140", "live process skip")
+	worktreePath := dispatched.Worktree
+	branch := dispatched.Branch
+	stopAndWaitForTest(t, mgr, dispatched.Instance)
+
+	ready, err := job.Read(teamDir, "squ-140")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	ready.ReapWorktree = worktreepolicy.OnClose
+	if err := job.Write(teamDir, ready); err != nil {
+		t.Fatalf("write reap policy: %v", err)
+	}
+	previousCheck := worktreecleanup.LiveProcessReferenceCheck
+	worktreecleanup.LiveProcessReferenceCheck = func(path string) (bool, error) {
+		return path == worktreePath, nil
+	}
+	defer func() {
+		worktreecleanup.LiveProcessReferenceCheck = previousCheck
+	}()
+
+	closeCmd := NewRootCmd()
+	closeOut, closeErr := &bytes.Buffer{}, &bytes.Buffer{}
+	closeCmd.SetOut(closeOut)
+	closeCmd.SetErr(closeErr)
+	closeCmd.SetArgs([]string{"job", "close", "squ-140", "--repo", target, "--json"})
+	if err := closeCmd.Execute(); err != nil {
+		t.Fatalf("job close: %v\nstderr=%s", err, closeErr.String())
+	}
+	var closed job.Job
+	if err := json.Unmarshal(closeOut.Bytes(), &closed); err != nil {
+		t.Fatalf("decode close json: %v\nbody=%s", err, closeOut.String())
+	}
+	if closed.Worktree != worktreePath || closed.Branch != branch || closed.LastEvent != "closed" {
+		t.Fatalf("close should preserve live worktree, got %+v", closed)
+	}
+	events, err := job.ListEvents(teamDir, "squ-140")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	foundSkipped := false
+	for _, ev := range events {
+		if ev.Type == "cleanup_skipped" && strings.Contains(ev.Message, worktreecleanup.ErrLiveProcessReference.Error()) {
+			foundSkipped = true
+			break
+		}
+	}
+	if !foundSkipped {
+		t.Fatalf("cleanup_skipped event not found in %+v", events)
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Fatalf("worktree missing after live skip: %v", err)
+	}
+	if !branchExists(t, target, branch) {
+		t.Fatalf("branch %s missing after live skip", branch)
+	}
+}
+
+func createAndDispatchWorktreeJobForTest(t *testing.T, target, ticket, kickoff string) *job.Job {
+	t.Helper()
+	create := NewRootCmd()
+	create.SetOut(&bytes.Buffer{})
+	createErr := &bytes.Buffer{}
+	create.SetErr(createErr)
+	create.SetArgs([]string{
+		"job", "create", ticket,
+		"--target", "worker",
+		"--kickoff", kickoff,
+		"--repo", target,
+	})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("job create: %v\nstderr=%s", err, createErr.String())
+	}
+	dispatch := NewRootCmd()
+	dispatchOut, dispatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatch.SetOut(dispatchOut)
+	dispatch.SetErr(dispatchErr)
+	dispatch.SetArgs([]string{"job", "dispatch", job.NormalizeID(ticket), "--workspace", "worktree", "--repo", target, "--json"})
+	if err := dispatch.Execute(); err != nil {
+		t.Fatalf("job dispatch: %v\nstderr=%s", err, dispatchErr.String())
+	}
+	dispatched, err := job.Read(filepath.Join(target, ".agent_team"), job.NormalizeID(ticket))
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if dispatched.Instance == "" || dispatched.Worktree == "" || dispatched.Branch == "" {
+		t.Fatalf("dispatched job missing ownership metadata: %+v", dispatched)
+	}
+	return dispatched
+}
+
 func TestJobCleanupMergedRejectsRunningJob(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
@@ -12069,6 +12267,79 @@ func TestJobReconcileGitHubMergedCleansOwnedWorktree(t *testing.T) {
 	}
 	if branchExists(t, target, dispatched.Branch) {
 		t.Fatalf("branch %s still exists after reconcile cleanup", dispatched.Branch)
+	}
+}
+
+func TestJobReconcileGitHubMergedAutoReapsOnMerge(t *testing.T) {
+	target, mgr, cleanup := setupDispatchCommandRepo(t)
+	defer cleanup()
+	initGitRepoForJobTest(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	dispatched := createAndDispatchWorktreeJobForTest(t, target, "SQU-141", "auto reap on merge")
+	worktreePath := dispatched.Worktree
+	branch := dispatched.Branch
+	stopAndWaitForTest(t, mgr, dispatched.Instance)
+
+	ready, err := job.Read(teamDir, "squ-141")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	ready.PR = "https://github.com/acme/repo/pull/141"
+	ready.ReapWorktree = worktreepolicy.OnMerge
+	if err := job.Write(teamDir, ready); err != nil {
+		t.Fatalf("write job pr: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"action": "closed",
+		"repository": map[string]any{
+			"full_name": "acme/repo",
+		},
+		"pull_request": map[string]any{
+			"number":   141,
+			"merged":   true,
+			"html_url": "https://github.com/acme/repo/pull/141",
+			"head": map[string]any{
+				"ref": branch,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reconcile := NewRootCmd()
+	reconcileOut, reconcileErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reconcile.SetOut(reconcileOut)
+	reconcile.SetErr(reconcileErr)
+	reconcile.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", string(payload),
+		"--repo", target,
+		"--json",
+	})
+	if err := reconcile.Execute(); err != nil {
+		t.Fatalf("job reconcile github: %v\nstderr=%s", err, reconcileErr.String())
+	}
+	var result struct {
+		Result struct {
+			Job job.Job `json:"job"`
+		} `json:"result"`
+		Cleanup string `json:"cleanup"`
+	}
+	if err := json.Unmarshal(reconcileOut.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile json: %v\nbody=%s", err, reconcileOut.String())
+	}
+	if result.Result.Job.Status != job.StatusDone || result.Result.Job.Worktree != "" || result.Result.Job.Branch != "" {
+		t.Fatalf("reconciled job = %+v", result.Result.Job)
+	}
+	if !strings.Contains(result.Cleanup, "removed") {
+		t.Fatalf("cleanup summary = %q", result.Cleanup)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists or stat error: %v", err)
+	}
+	if branchExists(t, target, branch) {
+		t.Fatalf("branch %s still exists after auto merge cleanup", branch)
 	}
 }
 

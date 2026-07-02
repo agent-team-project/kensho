@@ -17,6 +17,8 @@ import (
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/jamesaud/agent-team/internal/worktreecleanup"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
 // fixtureTopo parses a small topology used across the event/topology tests.
@@ -893,6 +895,82 @@ func TestEvent_EphemeralDispatchCanCreateWorktreeWorkspace(t *testing.T) {
 	}
 	_, _ = m.Stop("worker-squ-42")
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+}
+
+func TestEvent_EphemeralJobExitAutoReapsWorktreeOnClose(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+	now := time.Now().UTC()
+	j, err := jobstore.New("SQU-142", "worker", "finish and clean", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.ReapWorktree = worktreepolicy.OnClose
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	previousCheck := worktreecleanup.LiveProcessReferenceCheck
+	worktreecleanup.LiveProcessReferenceCheck = func(string) (bool, error) {
+		return false, nil
+	}
+	defer func() {
+		worktreecleanup.LiveProcessReferenceCheck = previousCheck
+	}()
+
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-142","workspace":"worktree","ticket":"SQU-142","job_id":"squ-142","reap_worktree":"on_close","kickoff":"finish and clean"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	meta, err := ReadMetadata(root, "worker-squ-142")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	worktreePath := meta.Workspace
+	branch := meta.Branch
+	if worktreePath == "" || branch == "" {
+		t.Fatalf("metadata missing worktree ownership: %+v", meta)
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Fatalf("worktree missing before stop: %v", err)
+	}
+
+	if err := m.WaitForReaper("worker-squ-142", 5*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	updated, err := jobstore.Read(teamDir, "squ-142")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != jobstore.StatusDone || updated.Worktree != "" || updated.Branch != "" || updated.LastEvent != "cleanup" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists or stat error: %v", err)
+	}
+	out, err := exec.Command("git", "-C", repoRoot, "branch", "--list", branch, "--format", "%(refname:short)").Output()
+	if err != nil {
+		t.Fatalf("list branch: %v", err)
+	}
+	if strings.TrimSpace(string(out)) == branch {
+		t.Fatalf("branch %s still exists after daemon cleanup", branch)
+	}
 }
 
 func TestEvent_CodexWorktreeRunsInWorktreeCwd(t *testing.T) {

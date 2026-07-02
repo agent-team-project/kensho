@@ -99,6 +99,7 @@ match.project = "Mobile"
 agent     = "worker"
 ephemeral = true        # spawn per dispatch
 replicas  = 3            # max 3 concurrent
+reap_worktree = "never"  # opt-in cleanup: never, on_close, or on_merge
 
 [[instances.worker.triggers]]
 event  = "agent.dispatch"
@@ -106,6 +107,7 @@ match.target = "worker"
 
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
+reap_worktree = "on_merge"
 
 [[pipelines.ticket_to_pr.steps]]
 id     = "implement"
@@ -146,6 +148,7 @@ schedules   = ["nightly"]
 | `description` | no | empty | Human-readable. Shown in `instance ps`. |
 | `config.<dotted.key>` | no | — | Override values for the resolved per-instance config (layers between repo and CLI flags). Same dotted-key syntax as parameter declarations in `template.toml`. |
 | `replicas` | no | `1` | Max concurrent runs. Ephemeral only — for persistent, this is implicitly 1. |
+| `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this instance. Supported values: `"never"`, `"on_close"`, or `"on_merge"`. |
 | `triggers` | no | empty | List of trigger blocks. Empty triggers list → instance only invokable by explicit `agent-team run <name>`. |
 
 ### Pipeline field reference
@@ -156,6 +159,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 |---|---|---|---|
 | `trigger.event` | yes | — | Event type that creates or updates a pipeline job. |
 | `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. |
+| `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this pipeline. Pipeline policy takes precedence over the target instance policy. |
 | `steps[].id` | yes | — | Unique step identifier within the pipeline. |
 | `steps[].label` | no | empty | Human-readable step name for CLI, graph, and job diagnostics. The stable `id` is still used for commands. |
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |
@@ -464,6 +468,7 @@ match.project = "Mobile"
 agent     = "worker"
 ephemeral = true
 replicas  = 3
+reap_worktree = "never"
 
 [[instances.worker.triggers]]
 event        = "agent.dispatch"

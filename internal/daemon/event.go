@@ -17,6 +17,8 @@ import (
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/jamesaud/agent-team/internal/worktreecleanup"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
 // DefaultQueueCap is the maximum number of events queued per declared
@@ -172,6 +174,9 @@ func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any)
 	}
 	result, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
 	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
+		if err == nil && result != nil && result.Job != nil {
+			r.autoReapJob(result.Job.ID, worktreepolicy.OnMerge)
+		}
 		return result
 	}
 	return nil
@@ -199,6 +204,9 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), Pipeline: pipeline.Name}}
 	}
 	j.Pipeline = pipeline.Name
+	if pipeline.ReapWorktree != worktreepolicy.Never {
+		j.ReapWorktree = pipeline.ReapWorktree
+	}
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		j.TicketURL = ticketURL
 	}
@@ -207,6 +215,9 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	if existing, err := jobstore.Read(r.teamDir, j.ID); err == nil {
 		j = existing
 		j.Pipeline = pipeline.Name
+		if pipeline.ReapWorktree != worktreepolicy.Never && strings.TrimSpace(j.ReapWorktree) == "" {
+			j.ReapWorktree = pipeline.ReapWorktree
+		}
 		if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 			j.TicketURL = ticketURL
 		}
@@ -273,6 +284,9 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	dispatchPayload["pipeline"] = pipeline.Name
 	dispatchPayload["pipeline_step"] = step.ID
 	dispatchPayload["ticket"] = j.Ticket
+	if payloadString(dispatchPayload, "reap_worktree") == "" && pipeline.ReapWorktree != worktreepolicy.Never {
+		dispatchPayload["reap_worktree"] = pipeline.ReapWorktree
+	}
 	// Thread the step's runtime budget through so the ephemeral spawn arms a
 	// per-instance watchdog (a hung worker/reviewer otherwise holds a replica
 	// slot forever). A zero step timeout leaves it to the env-level default.
@@ -539,6 +553,7 @@ func (r *EventResolver) actuatePersistent(inst *topology.Instance, eventType str
 }
 
 func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {
+	payload = payloadWithInstanceReapPolicy(inst, payload)
 	childName, requested, err := childNameForEvent(inst.Name, payload)
 	if err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
@@ -656,6 +671,15 @@ func payloadString(payload map[string]any, key string) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+func payloadWithInstanceReapPolicy(inst *topology.Instance, payload map[string]any) map[string]any {
+	if inst == nil || payloadString(payload, "reap_worktree") != "" || inst.ReapWorktree == worktreepolicy.Never {
+		return payload
+	}
+	out := copyPayload(payload)
+	out["reap_worktree"] = inst.ReapWorktree
+	return out
 }
 
 func validateRequestedChildName(declared, name string) error {
@@ -795,6 +819,11 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	}
 	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
 		j.Pipeline = pipeline
+	}
+	if policy := payloadString(payload, "reap_worktree"); policy != "" {
+		if normalized, err := worktreepolicy.Normalize(policy); err == nil {
+			j.ReapWorktree = normalized
+		}
 	}
 	if branch != "" {
 		j.Branch = branch
@@ -1343,6 +1372,72 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	// `agent-team pipeline tick`. Safe to call here — onReap has already released
 	// r.mu, and this reuses the normal dispatch path (which does its own locking).
 	r.tryAutoAdvancePipeline(j, meta.Instance, status)
+	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
+}
+
+func (r *EventResolver) autoReapJob(id, trigger string) {
+	id = strings.TrimSpace(id)
+	if id == "" || strings.TrimSpace(r.teamDir) == "" {
+		return
+	}
+	j, err := jobstore.Read(r.teamDir, id)
+	if err != nil || j == nil {
+		return
+	}
+	if j.Status != jobstore.StatusDone && j.Status != jobstore.StatusFailed {
+		return
+	}
+	policy := r.reapWorktreePolicyForJob(j)
+	if !worktreepolicy.ShouldReap(policy, trigger) {
+		return
+	}
+	if strings.TrimSpace(j.Worktree) == "" && strings.TrimSpace(j.Branch) == "" {
+		return
+	}
+	summary, err := worktreecleanup.CleanupJobOwnedWorktree(r.teamDirParent(), j, worktreecleanup.Options{ForceBranch: true})
+	if err != nil {
+		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "cleanup_skipped", "daemon", err.Error(), map[string]string{
+			"trigger":       trigger,
+			"reap_worktree": policy,
+		})
+		return
+	}
+	j.Worktree = ""
+	j.Branch = ""
+	j.LastEvent = "cleanup"
+	j.LastStatus = summary
+	j.UpdatedAt = time.Now().UTC()
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return
+	}
+	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "cleanup", "daemon", summary, map[string]string{
+		"trigger":       trigger,
+		"reap_worktree": policy,
+	})
+}
+
+func (r *EventResolver) reapWorktreePolicyForJob(j *jobstore.Job) string {
+	if j == nil {
+		return worktreepolicy.Never
+	}
+	if policy := strings.TrimSpace(j.ReapWorktree); policy != "" {
+		if normalized, err := worktreepolicy.Normalize(policy); err == nil {
+			return normalized
+		}
+	}
+	r.mu.Lock()
+	t := r.topo
+	r.mu.Unlock()
+	if t == nil {
+		return worktreepolicy.Never
+	}
+	if pipeline := t.Pipelines[strings.TrimSpace(j.Pipeline)]; pipeline != nil {
+		return pipeline.ReapWorktree
+	}
+	if inst := t.Find(strings.TrimSpace(j.Target)); inst != nil {
+		return inst.ReapWorktree
+	}
+	return worktreepolicy.Never
 }
 
 // tryAutoAdvancePipeline dispatches the next ready step of a pipeline job once a

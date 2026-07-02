@@ -6013,9 +6013,10 @@ func waitForPipelineRunJob(cmd *cobra.Command, teamDir, id string, filters jobWa
 }
 
 type pipelineInfo struct {
-	Name    string             `json:"name"`
-	Trigger map[string]any     `json:"trigger"`
-	Steps   []pipelineStepInfo `json:"steps"`
+	Name         string             `json:"name"`
+	Trigger      map[string]any     `json:"trigger"`
+	Steps        []pipelineStepInfo `json:"steps"`
+	ReapWorktree string             `json:"reap_worktree"`
 }
 
 type pipelineStepInfo struct {
@@ -6943,9 +6944,10 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 		})
 	}
 	return pipelineInfo{
-		Name:    p.Name,
-		Trigger: triggerAsMap(p.Trigger),
-		Steps:   steps,
+		Name:         p.Name,
+		Trigger:      triggerAsMap(p.Trigger),
+		Steps:        steps,
+		ReapWorktree: p.ReapWorktree,
 	}
 }
 
