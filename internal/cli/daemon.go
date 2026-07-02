@@ -16,6 +16,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/spf13/cobra"
 )
@@ -418,6 +419,7 @@ type daemonLifecycleJSON struct {
 	Killed              bool             `json:"killed,omitempty"`
 	StalePidfileRemoved bool             `json:"stale_pidfile_removed,omitempty"`
 	SnapshotMissing     bool             `json:"snapshot_missing,omitempty"`
+	RelaunchedBinary    string           `json:"relaunched_binary,omitempty"`
 	Message             string           `json:"message,omitempty"`
 	Status              daemonStatusJSON `json:"status"`
 }
@@ -425,26 +427,28 @@ type daemonLifecycleJSON struct {
 const defaultDaemonReadyTimeout = 3 * time.Second
 
 type daemonRestartJSON struct {
-	Action          string              `json:"action"`
-	Changed         bool                `json:"changed"`
-	Stop            daemonLifecycleJSON `json:"stop"`
-	Start           daemonLifecycleJSON `json:"start"`
-	Status          daemonStatusJSON    `json:"status"`
-	SnapshotMissing bool                `json:"snapshot_missing,omitempty"`
+	Action           string              `json:"action"`
+	Changed          bool                `json:"changed"`
+	Stop             daemonLifecycleJSON `json:"stop"`
+	Start            daemonLifecycleJSON `json:"start"`
+	Status           daemonStatusJSON    `json:"status"`
+	SnapshotMissing  bool                `json:"snapshot_missing,omitempty"`
+	RelaunchedBinary string              `json:"relaunched_binary,omitempty"`
 }
 
 type daemonEnvJSON struct {
-	Recorded   bool      `json:"recorded"`
-	Path       string    `json:"path"`
-	Bin        string    `json:"bin,omitempty"`
-	Args       []string  `json:"args,omitempty"`
-	Dir        string    `json:"dir,omitempty"`
-	Env        []string  `json:"env,omitempty"`
-	Stripped   []string  `json:"stripped,omitempty"`
-	RecordedAt time.Time `json:"recorded_at,omitempty"`
-	PID        int       `json:"pid,omitempty"`
-	Version    int       `json:"version,omitempty"`
-	Message    string    `json:"message,omitempty"`
+	Recorded   bool           `json:"recorded"`
+	Path       string         `json:"path"`
+	Bin        string         `json:"bin,omitempty"`
+	Args       []string       `json:"args,omitempty"`
+	Dir        string         `json:"dir,omitempty"`
+	Env        []string       `json:"env,omitempty"`
+	Stripped   []string       `json:"stripped,omitempty"`
+	RecordedAt time.Time      `json:"recorded_at,omitempty"`
+	PID        int            `json:"pid,omitempty"`
+	Version    int            `json:"version,omitempty"`
+	Build      buildinfo.Info `json:"build,omitempty"`
+	Message    string         `json:"message,omitempty"`
 }
 
 func parseDaemonLifecycleFormat(format string) (*template.Template, error) {
@@ -717,6 +721,9 @@ func renderDaemonStartResult(w fmtWriter, result daemonLifecycleJSON) {
 		return
 	}
 	fmt.Fprintf(w, "agent-teamd started (pid=%d).\nlog: %s\n", result.PID, result.Log)
+	if result.RelaunchedBinary != "" {
+		fmt.Fprintf(w, "binary: %s\n", result.RelaunchedBinary)
+	}
 }
 
 func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout time.Duration, httpAddr string, httpAddrExplicit bool) (daemonLifecycleJSON, error) {
@@ -743,6 +750,7 @@ func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout
 		}
 		return daemonLifecycleJSON{}, err
 	}
+	result.RelaunchedBinary = launch.Bin
 	return result, nil
 }
 
@@ -759,6 +767,7 @@ func daemonRelaunchForegroundFromSnapshot(cmd *cobra.Command, teamDir string, ht
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(cmd.OutOrStdout(), "relaunching agent-teamd from snapshot binary: %s\n", launch.Bin)
 	args := append([]string(nil), launch.Args...)
 	if len(args) > 0 {
 		args = args[1:]
@@ -1006,12 +1015,13 @@ func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, ti
 		return err
 	}
 	return json.NewEncoder(cmd.OutOrStdout()).Encode(daemonRestartJSON{
-		Action:          "restart",
-		Changed:         stopResult.Changed || startResult.Changed,
-		Stop:            stopResult,
-		Start:           startResult,
-		Status:          startResult.Status,
-		SnapshotMissing: startResult.SnapshotMissing,
+		Action:           "restart",
+		Changed:          stopResult.Changed || startResult.Changed,
+		Stop:             stopResult,
+		Start:            startResult,
+		Status:           startResult.Status,
+		SnapshotMissing:  startResult.SnapshotMissing,
+		RelaunchedBinary: startResult.RelaunchedBinary,
 	})
 }
 
@@ -1041,12 +1051,13 @@ func runDaemonRestartWithFormat(cmd *cobra.Command, target string, detach bool, 
 		return err
 	}
 	return renderDaemonRestartFormat(cmd.OutOrStdout(), daemonRestartJSON{
-		Action:          "restart",
-		Changed:         stopResult.Changed || startResult.Changed,
-		Stop:            stopResult,
-		Start:           startResult,
-		Status:          startResult.Status,
-		SnapshotMissing: startResult.SnapshotMissing,
+		Action:           "restart",
+		Changed:          stopResult.Changed || startResult.Changed,
+		Stop:             stopResult,
+		Start:            startResult,
+		Status:           startResult.Status,
+		SnapshotMissing:  startResult.SnapshotMissing,
+		RelaunchedBinary: startResult.RelaunchedBinary,
 	}, tmpl)
 }
 
@@ -1143,6 +1154,7 @@ func redactedDaemonEnv(path string, le *daemon.LaunchEnv) daemonEnvJSON {
 		RecordedAt: le.RecordedAt,
 		PID:        le.PID,
 		Version:    le.Version,
+		Build:      le.Build,
 	}
 }
 
@@ -1160,6 +1172,9 @@ func renderDaemonEnv(w fmtWriter, result daemonEnvJSON) {
 	}
 	if result.Version != 0 {
 		fmt.Fprintf(w, "version: %d\n", result.Version)
+	}
+	if !result.Build.Empty() {
+		fmt.Fprintf(w, "build: %s\n", result.Build.Display())
 	}
 	if len(result.Stripped) > 0 {
 		fmt.Fprintln(w, "stripped:")
@@ -1219,22 +1234,25 @@ func renderDaemonReconcile(w fmtWriter, resp *daemonReconcileResponse) error {
 }
 
 type daemonStatusJSON struct {
-	Running        bool     `json:"running"`
-	Ready          bool     `json:"ready"`
-	PID            int      `json:"pid,omitempty"`
-	Instances      int      `json:"instances"`
-	TeamDir        string   `json:"team_dir"`
-	Socket         string   `json:"socket"`
-	SocketExists   bool     `json:"socket_exists"`
-	HTTPAddr       string   `json:"http_addr,omitempty"`
-	HTTPURL        string   `json:"http_url,omitempty"`
-	HTTPAddrFile   string   `json:"http_addr_file,omitempty"`
-	HTTPAddrExists bool     `json:"http_addr_exists,omitempty"`
-	Pidfile        string   `json:"pidfile"`
-	StalePidfile   bool     `json:"stale_pidfile,omitempty"`
-	Log            string   `json:"log"`
-	Error          string   `json:"error,omitempty"`
-	Actions        []string `json:"actions,omitempty"`
+	Running        bool           `json:"running"`
+	Ready          bool           `json:"ready"`
+	PID            int            `json:"pid,omitempty"`
+	Instances      int            `json:"instances"`
+	TeamDir        string         `json:"team_dir"`
+	StartedAt      time.Time      `json:"started_at,omitempty"`
+	Build          buildinfo.Info `json:"build,omitempty"`
+	Socket         string         `json:"socket"`
+	SocketExists   bool           `json:"socket_exists"`
+	HTTPAddr       string         `json:"http_addr,omitempty"`
+	HTTPURL        string         `json:"http_url,omitempty"`
+	HTTPAddrFile   string         `json:"http_addr_file,omitempty"`
+	HTTPAddrExists bool           `json:"http_addr_exists,omitempty"`
+	Pidfile        string         `json:"pidfile"`
+	StalePidfile   bool           `json:"stale_pidfile,omitempty"`
+	Log            string         `json:"log"`
+	Error          string         `json:"error,omitempty"`
+	Warnings       []string       `json:"warnings,omitempty"`
+	Actions        []string       `json:"actions,omitempty"`
 }
 
 type daemonStatusOptions struct {
@@ -1265,6 +1283,7 @@ func runDaemonStatus(cmd *cobra.Command, target string, jsonOut, quiet, commands
 		}
 	}
 	status = daemonStatusWithActions(status)
+	status.Warnings = daemonStatusWarnings(status)
 	if jsonOut {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(status); err != nil {
 			return err
@@ -1327,6 +1346,9 @@ func daemonStatusCommandActions(status daemonStatusJSON) []string {
 			"agent-team daemon restart",
 			"agent-team daemon logs --tail 80",
 		}
+	}
+	if len(daemonBuildMismatchWarnings(status)) > 0 {
+		return []string{"agent-team daemon restart"}
 	}
 	return []string{
 		"agent-team ps",
@@ -1408,12 +1430,18 @@ func renderDaemonStatus(w fmtWriter, status daemonStatusJSON) {
 		if status.Error != "" {
 			fmt.Fprintf(w, "error: %s\n", status.Error)
 		}
+		for _, warning := range status.Warnings {
+			fmt.Fprintf(w, "warning: %s\n", warning)
+		}
 		return
 	}
 	fmt.Fprintf(w, "agent-teamd: running (pid=%d)\n", status.PID)
 	fmt.Fprintf(w, "ready: %s\n", yesNo(status.Ready))
 	if status.Ready {
 		fmt.Fprintf(w, "instances: %d\n", status.Instances)
+		if !status.Build.Empty() {
+			fmt.Fprintf(w, "build: %s\n", status.Build.Display())
+		}
 	}
 	fmt.Fprintf(w, "socket: %s\n", status.Socket)
 	if status.HTTPURL != "" {
@@ -1421,6 +1449,9 @@ func renderDaemonStatus(w fmtWriter, status daemonStatusJSON) {
 	}
 	if status.Error != "" {
 		fmt.Fprintf(w, "error: %s\n", status.Error)
+	}
+	for _, warning := range status.Warnings {
+		fmt.Fprintf(w, "warning: %s\n", warning)
 	}
 }
 
@@ -1471,14 +1502,45 @@ func collectDaemonStatus(teamDir string) daemonStatusJSON {
 		status.Error = err.Error()
 		return status
 	}
-	instances, err := client.Instances()
-	if err != nil {
+	apiStatus, err := client.Status()
+	if err == nil {
+		status.Ready = apiStatus.Ready
+		if apiStatus.PID != 0 {
+			status.PID = apiStatus.PID
+		}
+		status.Instances = apiStatus.Instances
+		status.StartedAt = apiStatus.StartedAt
+		status.Build = apiStatus.Build
+		return status
+	}
+	instances, instancesErr := client.Instances()
+	if instancesErr != nil {
 		status.Error = err.Error()
 		return status
 	}
 	status.Ready = true
 	status.Instances = len(instances)
 	return status
+}
+
+func daemonStatusWarnings(status daemonStatusJSON) []string {
+	return daemonBuildMismatchWarnings(status)
+}
+
+func daemonBuildMismatchWarnings(status daemonStatusJSON) []string {
+	if !status.Running || !status.Ready {
+		return nil
+	}
+	cliBuild := BuildInfo()
+	if buildinfo.Equivalent(status.Build, cliBuild) {
+		return nil
+	}
+	started := "unknown start time"
+	if !status.StartedAt.IsZero() {
+		started = status.StartedAt.Format(time.RFC3339)
+	}
+	return []string{fmt.Sprintf("daemon runs %s (started %s), CLI is %s — restart the daemon to pick up the new binary",
+		status.Build.Display(), started, cliBuild.Display())}
 }
 
 func yesNo(v bool) string {

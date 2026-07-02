@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 )
@@ -67,6 +68,55 @@ func TestDoctor_PassesWithFilledLinearKeys(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "agent-team doctor: OK") {
 		t.Errorf("expected OK output, got: %s", out.String())
+	}
+}
+
+func TestDoctorWarnsOnDaemonBuildMismatch(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "claude" {
+			t.Fatalf("look path bin = %q, want claude", bin)
+		}
+		return "/usr/local/bin/claude", nil
+	})
+	withDaemonFindAgentTeamd(t, "/test/bin/agent-teamd")
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	target := tmp
+	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
+		target = eval
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemonWithBuild(t, teamDir, mgr, buildinfo.Info{
+		Version:  "daemon-dev",
+		Revision: "deadbeefcafebabefeedface1234567890abcdef",
+		Time:     "2026-07-02T12:34:56Z",
+	})
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor --json with build mismatch should warn, not fail: %v\nstderr=%s", err, errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || !containsDoctorMessage(result.Warnings, "daemon runs daemon-dev rev deadbeefcafe") {
+		t.Fatalf("doctor result = %+v, want daemon build mismatch warning", result)
+	}
+	if !containsDoctorMessage(result.Actions, "agent-team daemon restart") {
+		t.Fatalf("doctor actions = %+v, want daemon restart", result.Actions)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json should not write warnings to stderr: %s", errOut.String())
 	}
 }
 

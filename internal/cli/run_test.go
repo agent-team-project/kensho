@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -117,9 +118,27 @@ func captureRuntime(t *testing.T, rc error) (*runtimeCapture, func()) {
 }
 
 func startRunTestDaemon(t *testing.T, teamDir string, mgr *daemon.InstanceManager) func() {
+	return startRunTestDaemonWithBuild(t, teamDir, mgr, buildinfo.Info{})
+}
+
+func startRunTestDaemonWithBuild(t *testing.T, teamDir string, mgr *daemon.InstanceManager, build buildinfo.Info) func() {
 	t.Helper()
 	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
 		t.Fatalf("mkdir daemon root: %v", err)
+	}
+	if build.Empty() {
+		build = BuildInfo()
+	}
+	if err := daemon.WriteLaunchEnv(daemon.DaemonRoot(teamDir), &daemon.LaunchEnv{
+		Bin:        "/test/bin/agent-teamd",
+		Args:       []string{"/test/bin/agent-teamd", "--target", filepath.Dir(teamDir)},
+		Dir:        filepath.Dir(teamDir),
+		RecordedAt: time.Now().UTC().Truncate(time.Second),
+		PID:        os.Getpid(),
+		Version:    1,
+		Build:      build,
+	}); err != nil {
+		t.Fatalf("write launch env: %v", err)
 	}
 	socket := daemon.SocketPath(teamDir)
 	_ = os.Remove(socket)
@@ -131,7 +150,7 @@ func startRunTestDaemon(t *testing.T, teamDir string, mgr *daemon.InstanceManage
 	if topo, err := topology.LoadFromTeamDir(teamDir); err == nil {
 		resolver = daemon.NewEventResolver(mgr, teamDir, topo)
 	}
-	srv := &http.Server{Handler: daemon.Handler(mgr, nil, resolver, teamDir)}
+	srv := &http.Server{Handler: daemon.Handler(mgr, nil, resolver, teamDir, build)}
 	go func() {
 		_ = srv.Serve(ln)
 	}()

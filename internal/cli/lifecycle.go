@@ -1127,6 +1127,9 @@ func daemonStatusRemediationActions(status daemonStatusJSON) []string {
 			"agent-team daemon logs --tail 80",
 		}
 	}
+	if len(daemonBuildMismatchWarnings(status)) > 0 {
+		return []string{"agent-team daemon restart"}
+	}
 	return nil
 }
 

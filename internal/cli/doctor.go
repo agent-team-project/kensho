@@ -377,7 +377,7 @@ func doctorDaemonStatusWarnings(status daemonStatusJSON) []string {
 	if !status.Ready {
 		return []string{"daemon running but not ready — run `agent-team daemon restart` or inspect `agent-team daemon logs --tail 80`."}
 	}
-	return nil
+	return daemonBuildMismatchWarnings(status)
 }
 
 func doctorHealthIssueFindings(teamDir string) ([]string, []string) {

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 )
 
 func TestHTTP_Dispatch_StopList(t *testing.T) {
@@ -256,6 +258,52 @@ func TestHTTP_InstancesEmptyArray(t *testing.T) {
 	body := readBody(t, resp)
 	if !strings.HasPrefix(strings.TrimSpace(body), "[") {
 		t.Errorf("expected JSON array, got %q", body)
+	}
+}
+
+func TestHTTP_StatusIncludesBuildIdentity(t *testing.T) {
+	root := t.TempDir()
+	teamDir := t.TempDir()
+	build := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "deadbeefcafebabefeedface1234567890abcdef",
+		Time:     "2026-07-02T12:34:56Z",
+	}
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+	if _, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "manager", Workspace: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = m.Stop("manager")
+		waitForStatusNot(t, m, "manager", StatusRunning)
+	}()
+	srv := httptest.NewServer(Handler(m, nil, nil, teamDir, build))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/status")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Ready     bool           `json:"ready"`
+		PID       int            `json:"pid"`
+		Instances int            `json:"instances"`
+		TeamDir   string         `json:"team_dir"`
+		Build     buildinfo.Info `json:"build"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !body.Ready || body.PID == 0 || body.Instances != 1 || body.TeamDir != teamDir {
+		t.Fatalf("status body = %+v", body)
+	}
+	if body.Build.Revision != build.Revision || body.Build.Time != build.Time || body.Build.Version != build.Version {
+		t.Fatalf("status build = %+v, want %+v", body.Build, build)
+	}
+
+	resp = mustPost(t, srv.URL+"/v1/status", `{}`)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status POST: got %d body=%s", resp.StatusCode, readBody(t, resp))
 	}
 }
 

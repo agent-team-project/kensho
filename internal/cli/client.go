@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
@@ -103,6 +104,15 @@ type daemonReconcileResponse struct {
 	Changes    []daemonReconcileChange `json:"changes"`
 }
 
+type daemonAPIStatus struct {
+	Ready     bool           `json:"ready"`
+	PID       int            `json:"pid,omitempty"`
+	Instances int            `json:"instances"`
+	TeamDir   string         `json:"team_dir,omitempty"`
+	StartedAt time.Time      `json:"started_at,omitempty"`
+	Build     buildinfo.Info `json:"build,omitempty"`
+}
+
 type daemonReconcileChange struct {
 	Instance string        `json:"instance"`
 	Agent    string        `json:"agent,omitempty"`
@@ -132,6 +142,22 @@ func (c *daemonClient) Dispatch(in dispatchPayload) (*dispatchResponse, error) {
 	var out dispatchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("daemon: dispatch decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) Status() (*daemonAPIStatus, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/status")
+	if err != nil {
+		return nil, fmt.Errorf("daemon: status: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: status: %s", readErrorBody(resp))
+	}
+	var out daemonAPIStatus
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: status decode: %w", err)
 	}
 	return &out, nil
 }

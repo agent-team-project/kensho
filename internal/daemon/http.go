@@ -7,11 +7,13 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
@@ -31,9 +33,13 @@ import (
 //
 // teamDir is the consumer's `.agent_team/` path, used by `/v1/topology/reload`
 // to re-read `instances.toml` from disk.
-func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string) http.Handler {
+func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string, builds ...buildinfo.Info) http.Handler {
 	if channels == nil {
 		channels = NewChannelStore(m.daemonRoot)
+	}
+	build := buildinfo.Current("0.1.0")
+	if len(builds) > 0 && !builds[0].Empty() {
+		build = builds[0]
 	}
 	mux := http.NewServeMux()
 
@@ -224,6 +230,25 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			list = []*Metadata{}
 		}
 		writeJSON(w, http.StatusOK, list)
+	})
+
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		list := m.List()
+		if list == nil {
+			list = []*Metadata{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":      true,
+			"pid":        os.Getpid(),
+			"instances":  len(list),
+			"team_dir":   teamDir,
+			"started_at": daemonStartedAt(teamDir),
+			"build":      build,
+		})
 	})
 
 	mux.HandleFunc("/v1/reconcile", func(w http.ResponseWriter, r *http.Request) {
@@ -677,6 +702,17 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 	})
 
 	return mux
+}
+
+func daemonStartedAt(teamDir string) time.Time {
+	if strings.TrimSpace(teamDir) == "" {
+		return time.Time{}
+	}
+	le, err := ReadLaunchEnv(DaemonRoot(teamDir))
+	if err != nil {
+		return time.Time{}
+	}
+	return le.RecordedAt
 }
 
 func eventResponseMap(outcomes []EventOutcome) map[string]any {
