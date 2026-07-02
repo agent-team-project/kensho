@@ -994,6 +994,7 @@ Inherited Flags:
 Subcommands:
 
 - `agent-team event publish` - Publish an event of the given type. The daemon resolves it against declared triggers.
+- `agent-team event trace` - Dry-run an event against local topology and explain trigger decisions.
 
 ## `agent-team event publish`
 
@@ -1012,6 +1013,29 @@ Flags:
       --json                  Emit the daemon event outcome as JSON.
       --payload string        JSON object passed as the event payload (e.g. '{"target":"worker"}').
       --payload-file string   Read event payload JSON from a file, or '-' for stdin.
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --trace                 Include per-trigger match and rejection trace output.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team event trace`
+
+Dry-run an event against local topology and explain trigger decisions.
+
+```text
+agent-team event trace <type> [flags]
+```
+
+Flags:
+
+```text
+      --json                  Emit the event trace as JSON.
+      --payload stringArray   Payload predicate value as key=value; may be repeated.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
