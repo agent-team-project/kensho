@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
+const helperWedgedEnv = "AGENTTEAM_HELPER_WEDGED"
+
 // TestHelperProcessWedged simulates a genuinely hung child — the real codex/
 // Claude failure shape. It ignores SIGTERM (so graceful termination is futile)
 // and parks on a long timer rather than a bare select{} so the Go runtime's
 // deadlock detector does not exit it for us. Only SIGKILL can reap it.
 func TestHelperProcessWedged(t *testing.T) {
-	if os.Getenv("AGENT_TEAM_HELPER_WEDGED") != "1" {
+	if os.Getenv(helperWedgedEnv) != "1" {
 		return
 	}
 	signal.Ignore(syscall.SIGTERM, syscall.SIGINT)
@@ -43,7 +45,7 @@ func wedgedSpawner(t *testing.T) Spawner {
 			return nil, err
 		}
 		cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessWedged")
-		cmd.Env = append(append([]string(nil), env...), "AGENT_TEAM_HELPER_WEDGED=1")
+		cmd.Env = append(append([]string(nil), env...), helperWedgedEnv+"=1")
 		cmd.Dir = workspace
 		cmd.Stdin = stdin
 		cmd.Stdout = stdout
