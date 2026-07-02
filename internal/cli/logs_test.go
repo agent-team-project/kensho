@@ -1605,6 +1605,12 @@ func TestLogsListFormatPrintsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmp)
+	// Resolve symlinks (macOS /tmp -> /private/tmp) so the metadata log path
+	// and the team dir share one base and the display path is always
+	// repo-relative, matching Linux.
+	if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = resolved
+	}
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
@@ -1634,8 +1640,8 @@ func TestLogsListFormatPrintsRows(t *testing.T) {
 		t.Fatalf("logs --list --format: %v\nstderr: %s", err, stderr.String())
 	}
 	got := out.String()
-	if !strings.HasPrefix(got, "manager:manager:running:6B:") || !strings.HasSuffix(got, "/.agent_team/daemon/manager/child.log\n") {
-		t.Fatalf("formatted logs = %q, want manager row with log path", got)
+	if want := "manager:manager:running:6B:.agent_team/daemon/manager/child.log\n"; got != want {
+		t.Fatalf("formatted logs = %q, want %q", got, want)
 	}
 }
 
