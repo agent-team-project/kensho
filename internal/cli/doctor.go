@@ -143,7 +143,9 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 	lockPath := filepath.Join(teamDir, template.LockFileName)
 	if st, err := os.Stat(lockPath); err != nil {
 		if os.IsNotExist(err) {
-			warnings = append(warnings, fmt.Sprintf("%s missing — re-run `agent-team init` with the original template ref and parameters to record provenance for future upgrades.", lockPath))
+			if !doctorTeamUsesLocalTemplateSource(abs, teamDir) {
+				warnings = append(warnings, fmt.Sprintf("%s missing — re-run `agent-team init` with the original template ref and parameters to record provenance for future upgrades.", lockPath))
+			}
 		} else {
 			problems = append(problems, fmt.Sprintf("%s cannot be read: %v", lockPath, err))
 		}
@@ -449,6 +451,31 @@ func checkDoctorTemplateLock(lock *template.Lock) error {
 		return fmt.Errorf("template lock drift: ref %q recorded %s but resolves to %s; run `agent-team upgrade --check --strict` to inspect the drift", lock.Template.Ref, lock.Template.ContentHash, currentHash)
 	}
 	return nil
+}
+
+func doctorTeamUsesLocalTemplateSource(repoRoot, teamDir string) bool {
+	for _, name := range []string{"agents", "skills"} {
+		if doctorSymlinkResolvesInside(filepath.Join(teamDir, name), repoRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+func doctorSymlinkResolvesInside(path, root string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 type doctorResult struct {

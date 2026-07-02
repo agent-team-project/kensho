@@ -1286,6 +1286,49 @@ func TestDoctor_WarnsWhenTemplateLockMissing(t *testing.T) {
 	}
 }
 
+func TestDoctor_SkipsMissingTemplateLockWarningForLocalTemplateSymlinks(t *testing.T) {
+	for _, linkName := range []string{"agents", "skills"} {
+		t.Run(linkName, func(t *testing.T) {
+			tmp := t.TempDir()
+			initInto(t, tmp)
+			if err := os.Remove(filepath.Join(tmp, ".agent_team", ".template.lock")); err != nil {
+				t.Fatal(err)
+			}
+			templateDir := filepath.Join(tmp, "template")
+			if err := os.MkdirAll(templateDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			teamPath := filepath.Join(tmp, ".agent_team", linkName)
+			sourcePath := filepath.Join(templateDir, linkName)
+			if err := os.Rename(teamPath, sourcePath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join("..", "template", linkName), teamPath); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := NewRootCmd()
+			out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+			cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("doctor failed unexpectedly: %v\nstderr: %s", err, errOut.String())
+			}
+			var result doctorResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
+			}
+			if !result.OK {
+				t.Fatalf("doctor result = %+v, want ok", result)
+			}
+			if containsDoctorMessage(result.Warnings, ".template.lock missing") {
+				t.Fatalf("self-dogfood symlink should skip missing lock warning: %+v", result.Warnings)
+			}
+		})
+	}
+}
+
 func TestDoctor_FailsOnInvalidTemplateLock(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
