@@ -261,7 +261,12 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if err := Reconcile(m.daemonRoot, m); err != nil {
+		if events != nil {
+			err = ReconcileWithTopology(teamDir, m, events.Topology())
+		} else {
+			err = Reconcile(m.daemonRoot, m)
+		}
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

@@ -150,7 +150,7 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only sync plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only sync plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only sync plan rows with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actions, "action", nil, "Only sync plan rows with this action: start, resume, restart, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	return cmd
 }
 
@@ -301,7 +301,7 @@ func syncTargetNamesFromCurrentPlan(teamDir string, filters psOptions, actions m
 	names := make([]string, 0, len(result.Instances))
 	for _, row := range result.Instances {
 		switch row.Action {
-		case "start", "resume", "keep", lifecycleActionUnsupported:
+		case "start", "resume", "restart", "keep", lifecycleActionUnsupported:
 			if row.Kind == "persistent" {
 				names = append(names, row.Instance)
 			}

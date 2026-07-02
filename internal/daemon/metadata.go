@@ -43,6 +43,9 @@ type Metadata struct {
 	LogPath       string    `json:"log_path,omitempty"`
 	ExitCode      *int      `json:"exit_code,omitempty"`
 	Adopted       bool      `json:"adopted,omitempty"`
+	// RestartBackoffUntil suppresses policy-driven relaunch attempts until the
+	// timestamp, preventing tight crash loops across daemon restarts.
+	RestartBackoffUntil time.Time `json:"restart_backoff_until,omitempty"`
 }
 
 // instanceDir returns the per-instance metadata dir under daemonRoot.

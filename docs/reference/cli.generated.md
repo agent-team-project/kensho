@@ -6181,7 +6181,7 @@ agent-team plan [flags]
 Flags:
 
 ```text
-      --action strings     Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
+      --action strings     Only show plan rows with this action: start, resume, restart, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --agent strings      Only show plan rows for this agent. Can repeat or comma-separate.
       --commands           Print the matching dry-run sync command when the plan has actionable work. agent-team follow-ups preserve the selected repo scope.
       --format string      Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.
@@ -7760,7 +7760,7 @@ agent-team sync [flags]
 Flags:
 
 ```text
-      --action strings           Only sync plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
+      --action strings           Only sync plan rows with this action: start, resume, restart, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.
       --agent strings            Only sync plan rows for this agent. Can repeat or comma-separate.
       --commands                 With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                  Preview topology convergence without starting the daemon or instances.

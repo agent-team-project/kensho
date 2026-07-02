@@ -25,6 +25,13 @@ const FileName = "instances.toml"
 // the field is omitted. Persistent instances ignore replicas.
 const DefaultReplicas = 1
 
+// Restart policy for declared persistent instances.
+const (
+	RestartNever     = "never"
+	RestartOnFailure = "on-failure"
+	RestartAlways    = "always"
+)
+
 // Event types recognised by the daemon's resolver. Webhook aliases
 // (`ticket_webhook`, `pr_webhook`) remain supported for older topology files;
 // normalized intake events (`ticket.created`, `pr.merged`, etc.) match those
@@ -62,6 +69,9 @@ type Instance struct {
 	// ReapWorktree controls opt-in cleanup of job-owned worker worktrees.
 	// Defaults to "never".
 	ReapWorktree string
+	// Restart controls daemon reconcile relaunch behavior for declared
+	// persistent instances. Defaults to "never".
+	Restart string
 	// Config holds per-instance overrides for the resolved config tree —
 	// dotted-path keys flattened from `[instances.<name>.config]` in TOML.
 	// Empty when no overrides are declared.
@@ -372,6 +382,7 @@ type rawInstance struct {
 	Description  string           `toml:"description"`
 	Replicas     *int             `toml:"replicas"`
 	ReapWorktree string           `toml:"reap_worktree"`
+	Restart      string           `toml:"restart"`
 	Config       map[string]any   `toml:"config"`
 	Triggers     []map[string]any `toml:"triggers"`
 }
@@ -480,6 +491,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
 	}
+	restart, err := normalizeRestartPolicy(ri.Restart)
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
 	cfg := template.Tree{}
 	if len(ri.Config) > 0 {
 		// `config` arrives as a free-form map[string]any from BurntSushi/toml.
@@ -498,9 +513,23 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		Description:  ri.Description,
 		Replicas:     replicas,
 		ReapWorktree: reapWorktree,
+		Restart:      restart,
 		Config:       cfg,
 		Triggers:     triggers,
 	}, nil
+}
+
+func normalizeRestartPolicy(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return RestartNever, nil
+	}
+	switch value {
+	case RestartNever, RestartOnFailure, RestartAlways:
+		return value, nil
+	default:
+		return "", fmt.Errorf("restart must be never, on-failure, or always")
+	}
 }
 
 func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {

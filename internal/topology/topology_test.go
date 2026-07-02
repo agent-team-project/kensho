@@ -96,6 +96,51 @@ func TestParse_Sample(t *testing.T) {
 	if worker.ReapWorktree != "never" {
 		t.Errorf("worker reap_worktree = %q, want never", worker.ReapWorktree)
 	}
+	if worker.Restart != RestartNever {
+		t.Errorf("worker restart = %q, want never", worker.Restart)
+	}
+}
+
+func TestParse_RestartPolicy(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.manager]
+agent = "manager"
+restart = "on-failure"
+
+[instances.reviewer]
+agent = "manager"
+restart = "always"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := top.Instances["manager"].Restart; got != RestartOnFailure {
+		t.Fatalf("manager restart = %q, want on-failure", got)
+	}
+	if got := top.Instances["reviewer"].Restart; got != RestartAlways {
+		t.Fatalf("reviewer restart = %q, want always", got)
+	}
+	if got := top.Instances["worker"].Restart; got != RestartNever {
+		t.Fatalf("worker restart = %q, want default never", got)
+	}
+}
+
+func TestParse_RejectsInvalidRestartPolicy(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.manager]
+agent = "manager"
+restart = "unless-stopped"
+`))
+	if err == nil {
+		t.Fatal("expected invalid restart policy error")
+	}
+	if !strings.Contains(err.Error(), "restart must be never, on-failure, or always") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestParse_ExampleTopologies(t *testing.T) {

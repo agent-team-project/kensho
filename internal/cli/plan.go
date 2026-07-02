@@ -129,7 +129,7 @@ func newPlanCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show plan rows with this name. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&actionFilters, "action", nil, "Only show plan rows with this action: start, resume, restart, keep, unsupported, on-demand, stop, or extra. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print the matching dry-run sync command when the plan has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	return cmd
@@ -150,6 +150,7 @@ type planSummary struct {
 	Total       int `json:"total"`
 	Start       int `json:"start"`
 	Resume      int `json:"resume"`
+	Restart     int `json:"restart,omitempty"`
 	Keep        int `json:"keep"`
 	Unsupported int `json:"unsupported,omitempty"`
 	OnDemand    int `json:"on_demand"`
@@ -271,6 +272,10 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 	if meta == nil {
 		row.Action = "start"
 		row.Detail = "declared persistent instance has no daemon metadata"
+		if inst.Restart != topology.RestartNever {
+			row.Action = "restart"
+			row.Detail = fmt.Sprintf("restart policy %q would start missing persistent instance", inst.Restart)
+		}
 		return row
 	}
 	if meta.Status == daemon.StatusRunning {
@@ -285,6 +290,16 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 				row.Detail = lifecycleStaleUnsupportedResumeDetailForInstance(meta, inst.Name)
 			}
 		}
+		return row
+	}
+	if meta.RestartBackoffUntil.After(time.Now().UTC()) {
+		row.Action = "keep"
+		row.Detail = fmt.Sprintf("restart policy %q is backing off until %s", inst.Restart, meta.RestartBackoffUntil.Format(time.RFC3339))
+		return row
+	}
+	if planRestartPolicyWantsLaunch(inst.Restart, meta) {
+		row.Action = "restart"
+		row.Detail = fmt.Sprintf("restart policy %q would relaunch %s instance", inst.Restart, meta.Status)
 		return row
 	}
 	if !lifecycleMetadataSupportsManagedResume(meta) {
@@ -364,7 +379,7 @@ func planActionFilterSet(actionFilters []string) (map[string]bool, error) {
 		}
 		action, ok := normalizePlanAction(raw)
 		if !ok {
-			return nil, fmt.Errorf("unknown --action %q (want start, resume, keep, unsupported, on-demand, stop, or extra)", raw)
+			return nil, fmt.Errorf("unknown --action %q (want start, resume, restart, keep, unsupported, on-demand, stop, or extra)", raw)
 		}
 		actions[action] = true
 	}
@@ -379,7 +394,7 @@ func normalizePlanAction(raw string) (string, bool) {
 	switch action {
 	case "":
 		return "", false
-	case "start", "resume", "keep", lifecycleActionUnsupported, "stop", "extra":
+	case "start", "resume", "restart", "keep", lifecycleActionUnsupported, "stop", "extra":
 		return action, true
 	case "on-demand", "on_demand", "ondemand":
 		return "on-demand", true
@@ -397,6 +412,8 @@ func summarizePlanRows(rows []planRow) planSummary {
 			summary.Start++
 		case "resume":
 			summary.Resume++
+		case "restart":
+			summary.Restart++
 		case "keep":
 			summary.Keep++
 		case lifecycleActionUnsupported:
@@ -433,10 +450,15 @@ func renderPlanTable(w fmtWriter, result *planResult) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.Instance, row.Agent, row.Kind, row.Status, row.Phase, row.Action, row.Detail)
 	}
 	_ = tw.Flush()
-	fmt.Fprintf(w, "\nsummary: total=%d start=%d resume=%d keep=%d on-demand=%d",
+	fmt.Fprintf(w, "\nsummary: total=%d start=%d resume=%d",
 		result.Summary.Total,
 		result.Summary.Start,
 		result.Summary.Resume,
+	)
+	if result.Summary.Restart > 0 {
+		fmt.Fprintf(w, " restart=%d", result.Summary.Restart)
+	}
+	fmt.Fprintf(w, " keep=%d on-demand=%d",
 		result.Summary.Keep,
 		result.Summary.OnDemand,
 	)
@@ -514,11 +536,34 @@ func renderPlanCommands(w fmtWriter, rows []planRow, opts planCommandOptions) er
 func planHasActionableSyncRows(rows []planRow) bool {
 	for _, row := range rows {
 		switch row.Action {
-		case "start", "resume", "stop":
+		case "start", "resume", "restart", "stop":
 			return true
 		}
 	}
 	return false
+}
+
+func planRestartPolicyWantsLaunch(policy string, meta *daemon.Metadata) bool {
+	switch policy {
+	case topology.RestartAlways:
+		if meta == nil {
+			return true
+		}
+		return meta.Status == daemon.StatusExited || meta.Status == daemon.StatusCrashed
+	case topology.RestartOnFailure:
+		if meta == nil {
+			return true
+		}
+		if meta.Status == daemon.StatusCrashed {
+			return true
+		}
+		if meta.Status != daemon.StatusExited {
+			return false
+		}
+		return meta.ExitCode == nil || *meta.ExitCode != 0
+	default:
+		return false
+	}
 }
 
 func appendPlanCommandFilterArgs(args []string, flag string, values []string) []string {

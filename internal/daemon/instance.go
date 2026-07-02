@@ -649,34 +649,65 @@ func (m *InstanceManager) Remove(instance string, force bool, timeout time.Durat
 // caller is expected not to ask. (We don't track ephemeral-vs-persistent here
 // — the agent's frontmatter gates that, and SQU-29 wires it in.)
 func (m *InstanceManager) Start(instance string) (*Metadata, error) {
+	return m.start(instance, nil)
+}
+
+func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata, error) {
+	if instance == "" {
+		return nil, errors.New("start: instance is required")
+	}
+	if err := m.ensureTracked(instance, expected); err != nil {
+		return nil, err
+	}
+
 	m.mu.Lock()
-	t, ok := m.instances[instance]
-	if !ok {
+	t := m.instances[instance]
+	if t == nil || t.meta == nil {
 		m.mu.Unlock()
-		// Try loading from disk in case daemon was restarted between stop+start.
-		mdisk, err := ReadMetadata(m.daemonRoot, instance)
+		return nil, fmt.Errorf("start: unknown instance %q", instance)
+	}
+	if expected != nil && !sameTrackedIncarnation(t, expected) {
+		if t.meta.Status == StatusRunning && PidLiveCheck(t.meta.PID) {
+			out := *t.meta
+			m.mu.Unlock()
+			return &out, nil
+		}
+		m.mu.Unlock()
+		return nil, fmt.Errorf("start: instance %q changed concurrently", instance)
+	}
+	if revived, out, err := m.reviveLiveIncarnationLocked(t, expected); revived || err != nil {
+		m.mu.Unlock()
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil, fmt.Errorf("start: unknown instance %q", instance)
-			}
 			return nil, err
 		}
-		t = &tracked{meta: mdisk}
-	} else {
-		m.mu.Unlock()
+		return out, nil
 	}
+	if t.meta.Status == StatusRunning {
+		if PidLiveCheck(t.meta.PID) {
+			out := *t.meta
+			m.mu.Unlock()
+			return &out, nil
+		}
+		t.meta.Status = StatusExited
+		t.meta.ExitedAt = time.Now().UTC()
+		if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("start: reconcile stale pid: %w", err)
+		}
+	}
+
 	base := *t.meta
-	if base.Status == StatusRunning {
-		return &base, nil
-	}
 	baseRuntime := metadataRuntimeKind(&base)
 	if baseRuntime != runtimebin.KindClaude {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("start: runtime %q does not support managed resume; create a new run instead", baseRuntime)
 	}
 	if base.SessionID == "" {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no session_id; cannot resume", instance)
 	}
 	if base.Workspace == "" {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no workspace; cannot resume", instance)
 	}
 
@@ -689,12 +720,14 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 		var err error
 		bin, err = runtimebin.ClaudeCompatibleBinary()
 		if err != nil {
+			m.mu.Unlock()
 			return nil, fmt.Errorf("start: %w", err)
 		}
 	}
 	args := []string{bin, "--resume", base.SessionID}
 	proc, err := m.spawner(args, os.Environ(), base.Workspace, logPath, logPath, "")
 	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("start: spawn: %w", err)
 	}
 
@@ -707,26 +740,187 @@ func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 	meta.ExitCode = nil
 	meta.Status = StatusRunning
 	meta.LogPath = logPath
+	meta.Adopted = false
+	meta.RestartBackoffUntil = time.Time{}
 	reaped := make(chan struct{})
 	next := &tracked{meta: &meta, process: proc, reaped: reaped}
 
-	m.mu.Lock()
-	if current, exists := m.instances[instance]; exists && current != t && current.meta.Status == StatusRunning {
-		m.mu.Unlock()
-		_ = proc.Kill()
-		return nil, fmt.Errorf("start: instance %q was started concurrently (pid=%d)", instance, current.meta.PID)
-	}
 	m.instances[instance] = next
-	m.mu.Unlock()
-
 	if err := WriteMetadata(m.daemonRoot, &meta); err != nil {
+		m.mu.Unlock()
 		_ = proc.Kill()
 		return nil, fmt.Errorf("start: persist: %w", err)
 	}
+	m.mu.Unlock()
+
 	m.recordEvent("start", &meta, "instance resumed")
 	go m.reap(instance, proc, reaped)
 	out := meta
 	return &out, nil
+}
+
+func (m *InstanceManager) ensureTracked(instance string, expected *Metadata) error {
+	m.mu.Lock()
+	if _, ok := m.instances[instance]; ok {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
+	mdisk := expected
+	if mdisk == nil {
+		var err error
+		mdisk, err = ReadMetadata(m.daemonRoot, instance)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("start: unknown instance %q", instance)
+			}
+			return err
+		}
+	}
+	m.mu.Lock()
+	if _, ok := m.instances[instance]; !ok {
+		meta := *mdisk
+		m.instances[instance] = &tracked{meta: &meta}
+	}
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *InstanceManager) reviveLiveIncarnationLocked(t *tracked, expected *Metadata) (bool, *Metadata, error) {
+	if t == nil || t.meta == nil || expected == nil || !sameTrackedIncarnation(t, expected) || expected.PID <= 0 {
+		return false, nil, nil
+	}
+	if !PidLiveCheck(expected.PID) {
+		return false, nil, nil
+	}
+	t.meta.Status = StatusRunning
+	t.meta.ExitedAt = time.Time{}
+	t.meta.ExitCode = nil
+	t.meta.Adopted = true
+	t.meta.RestartBackoffUntil = time.Time{}
+	if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+		return true, nil, fmt.Errorf("start: revive live pid: %w", err)
+	}
+	out := *t.meta
+	return true, &out, nil
+}
+
+func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (*Metadata, bool, error) {
+	if in.Name == "" {
+		return nil, false, errors.New("dispatch: name is required")
+	}
+	if in.Agent == "" {
+		return nil, false, errors.New("dispatch: agent is required")
+	}
+	if in.Workspace == "" {
+		return nil, false, errors.New("dispatch: workspace is required")
+	}
+
+	rt, err := m.dispatchRuntime(in)
+	if err != nil {
+		return nil, false, fmt.Errorf("dispatch: %w", err)
+	}
+	sessionID := ""
+	if rt.Kind == runtimebin.KindClaude {
+		sessionID = newSessionID()
+	}
+	if err := os.MkdirAll(instanceDir(m.daemonRoot, in.Name), 0o755); err != nil {
+		return nil, false, err
+	}
+	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
+	args, err := dispatchArgs(rt, sessionID, in)
+	if err != nil {
+		return nil, false, fmt.Errorf("dispatch: %w", err)
+	}
+	env := os.Environ()
+	if len(in.Env) > 0 {
+		env = append(env, in.Env...)
+	}
+	stdin := dispatchStdin(rt, in)
+
+	m.mu.Lock()
+	if expected != nil {
+		if err := m.ensureExpectedTrackedLocked(expected); err != nil {
+			m.mu.Unlock()
+			return nil, false, err
+		}
+	}
+	t := m.instances[in.Name]
+	if expected != nil && t != nil && !sameTrackedIncarnation(t, expected) {
+		if t.meta.Status == StatusRunning && PidLiveCheck(t.meta.PID) {
+			out := *t.meta
+			m.mu.Unlock()
+			return &out, false, nil
+		}
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("dispatch: instance %q changed concurrently", in.Name)
+	}
+	if revived, out, err := m.reviveLiveIncarnationLocked(t, expected); revived || err != nil {
+		m.mu.Unlock()
+		if err != nil {
+			return nil, false, err
+		}
+		return out, false, nil
+	}
+	if t != nil && t.meta.Status == StatusRunning {
+		if PidLiveCheck(t.meta.PID) {
+			out := *t.meta
+			m.mu.Unlock()
+			return &out, false, nil
+		}
+		t.meta.Status = StatusExited
+		t.meta.ExitedAt = time.Now().UTC()
+		if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+			m.mu.Unlock()
+			return nil, false, fmt.Errorf("dispatch: reconcile stale pid: %w", err)
+		}
+	}
+
+	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath, stdin)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("dispatch: spawn: %w", err)
+	}
+	now := time.Now().UTC()
+	meta := &Metadata{
+		Instance:      in.Name,
+		Agent:         in.Agent,
+		Runtime:       string(rt.Kind),
+		RuntimeBinary: rt.Binary,
+		Workspace:     in.Workspace,
+		PID:           proc.Pid,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		Status:        StatusRunning,
+		LogPath:       logPath,
+	}
+	if err := WriteMetadata(m.daemonRoot, meta); err != nil {
+		m.mu.Unlock()
+		_ = proc.Kill()
+		return nil, false, fmt.Errorf("dispatch: persist metadata: %w", err)
+	}
+	reaped := make(chan struct{})
+	m.instances[in.Name] = &tracked{meta: meta, process: proc, reaped: reaped}
+	m.mu.Unlock()
+
+	m.recordEvent("dispatch", meta, "instance dispatched")
+	go m.reap(in.Name, proc, reaped)
+	if in.Budget > 0 {
+		go m.watchdog(in.Name, proc, reaped, in.Budget)
+	}
+	return meta, true, nil
+}
+
+func (m *InstanceManager) ensureExpectedTrackedLocked(expected *Metadata) error {
+	if expected == nil {
+		return nil
+	}
+	if current := m.instances[expected.Instance]; current == nil {
+		meta := *expected
+		m.instances[expected.Instance] = &tracked{meta: &meta}
+	}
+	return nil
 }
 
 func metadataRuntimeKind(meta *Metadata) runtimebin.Kind {

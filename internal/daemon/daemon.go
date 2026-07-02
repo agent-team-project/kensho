@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
@@ -144,6 +145,7 @@ func NormalizeLoopbackHTTPAddr(addr string) (string, error) {
 
 // Daemon is one running daemon. Build with New, then call Run.
 type Daemon struct {
+	mu       sync.Mutex
 	cfg      Config
 	manager  *InstanceManager
 	channels *ChannelStore
@@ -203,7 +205,11 @@ func (d *Daemon) Events() *EventResolver { return d.events }
 func (d *Daemon) Run(ctx context.Context) error {
 	runCtx, cancelSchedules := context.WithCancel(ctx)
 	defer cancelSchedules()
-	if err := Reconcile(DaemonRoot(d.cfg.TeamDir), d.manager); err != nil {
+	var topo *topology.Topology
+	if d.events != nil {
+		topo = d.events.Topology()
+	}
+	if err := ReconcileWithTopology(d.cfg.TeamDir, d.manager, topo); err != nil {
 		return fmt.Errorf("daemon: reconcile: %w", err)
 	}
 	if d.events != nil {
@@ -232,11 +238,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: listen %s: %w", socket, err)
 	}
-	d.listen = l
-	d.server = &http.Server{
+	srv := &http.Server{
 		Handler:           Handler(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.Build),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	d.mu.Lock()
+	d.listen = l
+	d.server = srv
+	d.mu.Unlock()
 	defer os.Remove(socket)
 	defer os.Remove(HTTPAddrPath(d.cfg.TeamDir))
 
@@ -248,8 +257,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return fmt.Errorf("daemon: listen http %s: %w", d.cfg.HTTPAddr, err)
 		}
 		listeners = append(listeners, httpListen)
-		d.httpAddr = httpListen.Addr().String()
-		if err := os.WriteFile(HTTPAddrPath(d.cfg.TeamDir), []byte(d.httpAddr+"\n"), 0o644); err != nil {
+		httpAddr := httpListen.Addr().String()
+		d.mu.Lock()
+		d.httpAddr = httpAddr
+		d.mu.Unlock()
+		if err := os.WriteFile(HTTPAddrPath(d.cfg.TeamDir), []byte(httpAddr+"\n"), 0o644); err != nil {
 			_ = l.Close()
 			_ = httpListen.Close()
 			return fmt.Errorf("daemon: write http addr: %w", err)
@@ -257,14 +269,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	d.logf("agent-teamd listening on %s (pid=%d)", socket, os.Getpid())
-	if d.httpAddr != "" {
-		d.logf("agent-teamd loopback http listening on %s", d.httpAddr)
+	if httpAddr := d.HTTPAddr(); httpAddr != "" {
+		d.logf("agent-teamd loopback http listening on %s", httpAddr)
 	}
 
 	errCh := make(chan error, len(listeners))
 	for _, listener := range listeners {
 		go func(listener net.Listener) {
-			err := d.server.Serve(listener)
+			err := srv.Serve(listener)
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return
@@ -280,13 +292,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = d.server.Shutdown(shutdownCtx)
+		_ = srv.Shutdown(shutdownCtx)
 		return nil
 	case err := <-errCh:
 		if err != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = d.server.Shutdown(shutdownCtx)
+			_ = srv.Shutdown(shutdownCtx)
 		}
 		return err
 	}
@@ -295,23 +307,31 @@ func (d *Daemon) Run(ctx context.Context) error {
 // Shutdown stops the http server and cleans up the socket / pidfile. Safe to
 // call multiple times. Tests use this to stop in-process daemons.
 func (d *Daemon) Shutdown(ctx context.Context) error {
-	if d.server == nil {
+	d.mu.Lock()
+	srv := d.server
+	d.mu.Unlock()
+	if srv == nil {
 		return nil
 	}
-	return d.server.Shutdown(ctx)
+	return srv.Shutdown(ctx)
 }
 
 // Addr returns the listening socket path. Empty if Run hasn't started yet.
 func (d *Daemon) Addr() string {
-	if d.listen == nil {
+	d.mu.Lock()
+	listen := d.listen
+	d.mu.Unlock()
+	if listen == nil {
 		return ""
 	}
-	return d.listen.Addr().String()
+	return listen.Addr().String()
 }
 
 // HTTPAddr returns the optional loopback HTTP address. Empty when disabled or
 // before Run has started.
 func (d *Daemon) HTTPAddr() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.httpAddr
 }
 

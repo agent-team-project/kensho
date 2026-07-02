@@ -129,6 +129,88 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 	}
 }
 
+func TestPlanShowsRestartPolicyAction(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "on-failure"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusCrashed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"plan", "--json", "--action", "restart", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan --action restart: %v\nstderr: %s", err, stderr.String())
+	}
+
+	var body planResult
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode plan json: %v\nbody=%s", err, out.String())
+	}
+	if body.Summary.Total != 1 || body.Summary.Restart != 1 {
+		t.Fatalf("summary = %+v, want one restart row", body.Summary)
+	}
+	if got := body.Instances[0]; got.Instance != "manager" || got.Action != "restart" || !strings.Contains(got.Detail, `restart policy "on-failure"`) {
+		t.Fatalf("row = %+v, want restart policy detail", got)
+	}
+}
+
+func TestSyncDryRunShowsRestartPolicyAction(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "always"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exit0 := 0
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusExited,
+		ExitCode: &exit0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"sync", "--dry-run", "--json", "--action", "restart", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sync --dry-run --action restart: %v\nstderr: %s", err, stderr.String())
+	}
+
+	var body planResult
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode sync json: %v\nbody=%s", err, out.String())
+	}
+	if body.Summary.Total != 1 || body.Summary.Restart != 1 {
+		t.Fatalf("summary = %+v, want one restart row", body.Summary)
+	}
+	if got := body.Instances[0]; got.Instance != "manager" || got.Action != "restart" || !strings.Contains(got.Detail, `restart policy "always"`) {
+		t.Fatalf("row = %+v, want restart policy detail", got)
+	}
+}
+
 func TestPlanFiltersRowsByRuntime(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
