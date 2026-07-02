@@ -27,6 +27,7 @@ Two design sketches capture where the project is going. Read the relevant one if
 - [`documentation/orchestrator.md`](./documentation/orchestrator.md) — v1.1+ Go daemon (`agent-teamd`) that owns instance lifecycle, replaces Claude Code's in-session dispatch primitives with an orchestrator-mediated model, and unblocks runtime-agnostic execution. Read before touching the dispatch path or thinking about persistent / restartable instances.
 - [`documentation/topology.md`](./documentation/topology.md) — declarative topology (`instances.toml`): which named instances exist, how each is configured, what events trigger each. Schema, layered config, and the event-resolution daemon endpoints landed in SQU-27; read before touching `topology` / `event` / `instance up/down` or extending event types.
 - [`documentation/recoverable-managers.md`](./documentation/recoverable-managers.md) — daemon-owned recoverable managers (SQU-44): restart policy, generated catch-up briefs, per-instance launch-env snapshots, Codex session capture + managed resume, transition notifications. Read before touching reconcile, `start`/resume paths, or the managed-resume capability gate.
+- [`documentation/operating-model.md`](./documentation/operating-model.md) — field-tested operating defaults (SQU-42/SQU-48): two-plane model, small-jobs safety unit, gate discipline, pipeline shape, reviewer checklists, capacity planning, auth-mode fidelity. Read before changing bundled agent/reviewer prompts or pipeline defaults.
 
 ## Repo layout
 
