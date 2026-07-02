@@ -281,3 +281,12 @@ triage, pipeline status, overview/next hints, and the drain loop.
 2. Investigate why `agent-team`-supervised `codex exec -` stalls if it
    reproduces again, even though
    raw replay with the same stdin/add-dir succeeds.
+
+## Addendum — 2026-07-02 live validation
+
+Both suggested next fixes are resolved:
+
+1. **Probes re-run healthy.** `agent-team runtime probe --runtime codex --exec` passed a real subscription-auth round-trip (gpt-5.5, 5.2s, last-message sidecar captured). The lone probe failure was the `codex doctor --json` decode bug on codex-cli 0.142.x array-valued details — fixed in SQU-34 (#46); probe now reports parsed doctor checks end-to-end. The 20s default `--timeout` can still be exceeded when concurrent Codex workers load the machine — raise it for loaded probes.
+2. **The supervised `codex exec -` stall did not reproduce** across 7+ daemon-dispatched Codex worker runs (SQU-34/38/39/40/41/43/50), each a full ticket-to-PR cycle via stdin prompt mode with `--output-last-message` sidecars present. Removing from the watch list.
+
+Daemon-socket access from Codex workers (finding 7) is validated under `--dangerously-bypass-approvals-and-sandbox` (the daemon-dispatch default for autonomous workers): workers read/acked inbox messages and wrote status over the exported socket path during real runs.
