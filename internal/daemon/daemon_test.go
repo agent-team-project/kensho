@@ -230,6 +230,9 @@ func TestDaemonRecordsLaunchEnvOnBoot(t *testing.T) {
 	if le.Bin != wantBin || le.Dir != wantDir || le.PID != os.Getpid() || le.Version != 1 {
 		t.Fatalf("launch env = %+v, want bin=%q dir=%q pid=%d version=1", le, wantBin, wantDir, os.Getpid())
 	}
+	if le.Build.Empty() {
+		t.Fatalf("launch env missing build identity: %+v", le)
+	}
 	if len(le.Args) != len(os.Args) || le.Args[0] != os.Args[0] {
 		t.Fatalf("launch env args = %+v, want os.Args starting with %q", le.Args, os.Args[0])
 	}

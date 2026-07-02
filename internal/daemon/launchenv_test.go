@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 )
 
 func TestLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
@@ -21,6 +23,7 @@ func TestLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 		RecordedAt: recordedAt,
 		PID:        1234,
 		Version:    1,
+		Build:      buildinfo.Info{Version: "0.1.0", Revision: "abc123def4567890"},
 	}
 
 	if err := WriteLaunchEnv(root, le); err != nil {
@@ -32,6 +35,9 @@ func TestLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	}
 	if got.Bin != le.Bin || got.Dir != le.Dir || got.PID != le.PID || got.Version != le.Version || !got.RecordedAt.Equal(recordedAt) {
 		t.Fatalf("round trip mismatch: got %+v want %+v", got, le)
+	}
+	if got.Build.ShortRevision() != "abc123def456" {
+		t.Fatalf("build = %+v, want snapshot build", got.Build)
 	}
 	if envHasKey(got.Env, DefaultStrippedEnvKeys[0]) {
 		t.Fatalf("denied key persisted in env: %+v", got.Env)

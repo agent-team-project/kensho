@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 )
@@ -356,8 +357,54 @@ func TestDaemonStatusJSON_ReadyWithInstanceCount(t *testing.T) {
 	if !body.Running || !body.Ready || !body.SocketExists || body.PID != os.Getpid() || body.Instances != 1 || body.Error != "" {
 		t.Fatalf("status json should report ready daemon with one instance: %+v", body)
 	}
+	if body.Build.Empty() {
+		t.Fatalf("status json missing build identity: %+v", body)
+	}
+	if len(body.Warnings) != 0 {
+		t.Fatalf("status json warnings = %+v, want none for matching build", body.Warnings)
+	}
 	if len(body.Actions) != 2 || body.Actions[0] != "agent-team ps" || body.Actions[1] != "agent-team monitor" {
 		t.Fatalf("status json actions = %+v, want ps/monitor", body.Actions)
+	}
+}
+
+func TestDaemonStatusJSONWarnsOnBuildMismatch(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-daemon-status-build-mismatch-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))
+	cleanup := startRunTestDaemonWithBuild(t, teamDir, mgr, buildinfo.Info{
+		Version:  "daemon-dev",
+		Revision: "deadbeefcafebabefeedface1234567890abcdef",
+		Time:     "2026-07-02T12:34:56Z",
+	})
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	var body daemonStatusJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode daemon status json: %v\nbody=%s", err, out.String())
+	}
+	if body.Build.ShortRevision() != "deadbeefcafe" {
+		t.Fatalf("status build = %+v, want daemon test build", body.Build)
+	}
+	if len(body.Warnings) != 1 || !strings.Contains(body.Warnings[0], "daemon runs daemon-dev rev deadbeefcafe") || !strings.Contains(body.Warnings[0], "restart the daemon") {
+		t.Fatalf("status warnings = %+v, want build mismatch restart warning", body.Warnings)
+	}
+	if len(body.Actions) != 1 || body.Actions[0] != "agent-team daemon restart" {
+		t.Fatalf("status actions = %+v, want daemon restart", body.Actions)
 	}
 }
 
@@ -1527,6 +1574,9 @@ func TestDaemonRestartRelaunchesFromSnapshotEnv(t *testing.T) {
 	if body.SnapshotMissing || body.Start.SnapshotMissing {
 		t.Fatalf("restart incorrectly reported missing snapshot: %+v", body)
 	}
+	if body.RelaunchedBinary != "/snapshot/bin/agent-teamd" || body.Start.RelaunchedBinary != "/snapshot/bin/agent-teamd" {
+		t.Fatalf("restart relaunched binary = top %q start %q, want snapshot binary", body.RelaunchedBinary, body.Start.RelaunchedBinary)
+	}
 	if captured.Bin != "/snapshot/bin/agent-teamd" || captured.Dir != "/snapshot/workdir" {
 		t.Fatalf("captured launch = %+v, want snapshot bin/dir", captured)
 	}
@@ -1617,6 +1667,43 @@ func TestDaemonRestartFallbackPrintsSnapshotWarning(t *testing.T) {
 	}
 }
 
+func TestDaemonRestartTextPrintsRelaunchedBinary(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeRawLaunchEnvForCLITest(t, teamDir, daemon.LaunchEnv{
+		Bin:        "/snapshot/bin/agent-teamd",
+		Args:       []string{"/snapshot/bin/agent-teamd", "--target", tmp},
+		Dir:        "/snapshot/workdir",
+		Env:        []string{"PATH=/snapshot/bin"},
+		RecordedAt: time.Now().UTC(),
+		PID:        1111,
+		Version:    1,
+	})
+	withDaemonStartDetachedLaunch(t, func(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
+		return daemonLifecycleJSON{
+			Action:  "start",
+			Changed: true,
+			PID:     6789,
+			Log:     daemon.LogPath(teamDir),
+			Message: "started",
+			Status:  daemonStatusJSON{Running: true, Ready: true, PID: 6789, TeamDir: teamDir},
+		}, nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "restart", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon restart text: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(out.String(), "binary: /snapshot/bin/agent-teamd") {
+		t.Fatalf("restart output missing relaunched binary:\n%s", out.String())
+	}
+}
+
 func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -1630,6 +1717,7 @@ func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
 		RecordedAt: recordedAt,
 		PID:        2468,
 		Version:    1,
+		Build:      buildinfo.Info{Version: "0.1.0", Revision: "feedfacecafebabedeadbeef1234567890abcdef"},
 	}); err != nil {
 		t.Fatalf("WriteLaunchEnv: %v", err)
 	}
@@ -1648,6 +1736,9 @@ func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
 	}
 	if !body.Recorded || body.Bin != "/snapshot/bin/agent-teamd" || body.Dir != "/snapshot/workdir" || body.PID != 2468 {
 		t.Fatalf("daemon env json = %+v", body)
+	}
+	if body.Build.ShortRevision() != "feedfacecafe" {
+		t.Fatalf("daemon env build = %+v, want snapshot build", body.Build)
 	}
 	for _, forbidden := range []string{"secret-token", "secret-password", "secret-key"} {
 		if strings.Contains(strings.Join(body.Env, "\n"), forbidden) {

@@ -8,19 +8,22 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 )
 
 // LaunchEnv is the daemon's boot-time process snapshot. Restart uses this to
 // decouple relaunch from the shell environment of the operator running restart.
 type LaunchEnv struct {
-	Bin        string    `json:"bin"`
-	Args       []string  `json:"args,omitempty"`
-	Dir        string    `json:"dir,omitempty"`
-	Env        []string  `json:"env,omitempty"`
-	Stripped   []string  `json:"stripped,omitempty"`
-	RecordedAt time.Time `json:"recorded_at"`
-	PID        int       `json:"pid,omitempty"`
-	Version    int       `json:"version"`
+	Bin        string         `json:"bin"`
+	Args       []string       `json:"args,omitempty"`
+	Dir        string         `json:"dir,omitempty"`
+	Env        []string       `json:"env,omitempty"`
+	Stripped   []string       `json:"stripped,omitempty"`
+	RecordedAt time.Time      `json:"recorded_at"`
+	PID        int            `json:"pid,omitempty"`
+	Version    int            `json:"version"`
+	Build      buildinfo.Info `json:"build,omitempty"`
 }
 
 var DefaultStrippedEnvKeys = []string{"OPENAI_API_KEY"}

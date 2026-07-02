@@ -37,7 +37,7 @@ func run(argv []string) error {
 		return err
 	}
 	if *showVersion {
-		fmt.Println("agent-teamd", cli.Version)
+		fmt.Println("agent-teamd", cli.BuildInfo().VersionLine())
 		return nil
 	}
 
@@ -51,7 +51,7 @@ func run(argv []string) error {
 		return fmt.Errorf("%s not found — run `agent-team init` first", teamDir)
 	}
 
-	d, err := daemon.New(daemon.Config{TeamDir: teamDir, HTTPAddr: *httpAddr})
+	d, err := daemon.New(daemon.Config{TeamDir: teamDir, HTTPAddr: *httpAddr, Build: cli.BuildInfo()})
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +13,11 @@ import (
 // (`-X github.com/jamesaud/agent-team/internal/cli.Version=...`) — see
 // `.goreleaser.yaml`.
 var Version = "0.1.0"
+
+// BuildInfo returns the current CLI binary identity.
+func BuildInfo() buildinfo.Info {
+	return buildinfo.Current(Version)
+}
 
 const (
 	rootRepoFlagName         = "repo"
@@ -42,7 +48,7 @@ func NewRootCmd() *cobra.Command {
 		SilenceErrors: true,
 		Version:       Version,
 	}
-	root.SetVersionTemplate("agent-team " + Version + "\n")
+	root.SetVersionTemplate("agent-team " + BuildInfo().VersionLine() + "\n")
 	root.PersistentFlags().String(rootRepoFlagName, "", "Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.")
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newUpgradeCmd())

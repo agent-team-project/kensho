@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -42,6 +43,9 @@ type Config struct {
 	// addition to the Unix socket. Empty keeps the daemon Unix-socket-only.
 	// Use addresses such as "127.0.0.1:0" for an ephemeral local port.
 	HTTPAddr string
+
+	// Build is the identity of the running daemon binary.
+	Build buildinfo.Info
 
 	// SpawnerOverride lets tests substitute a fake claude. nil -> DefaultSpawner.
 	SpawnerOverride Spawner
@@ -165,6 +169,9 @@ func New(cfg Config) (*Daemon, error) {
 		return nil, err
 	}
 	cfg.HTTPAddr = httpAddr
+	if cfg.Build.Empty() {
+		cfg.Build = buildinfo.Current("0.1.0")
+	}
 	mgr := NewInstanceManager(DaemonRoot(cfg.TeamDir), cfg.SpawnerOverride)
 	channels := NewChannelStore(DaemonRoot(cfg.TeamDir))
 	// Topology is best-effort: missing or malformed `instances.toml` shouldn't
@@ -227,7 +234,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.listen = l
 	d.server = &http.Server{
-		Handler:           Handler(d.manager, d.channels, d.events, d.cfg.TeamDir),
+		Handler:           Handler(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.Build),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	defer os.Remove(socket)
@@ -335,6 +342,7 @@ func (d *Daemon) recordLaunchEnv() {
 		RecordedAt: time.Now().UTC(),
 		PID:        os.Getpid(),
 		Version:    1,
+		Build:      d.cfg.Build,
 	}
 	if err := WriteLaunchEnv(DaemonRoot(d.cfg.TeamDir), le); err != nil {
 		d.logf("launch-env: write snapshot failed: %v", err)
