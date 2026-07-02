@@ -479,7 +479,13 @@ func (c *daemonClient) PublishEvent(eventType string, payload map[string]any) (*
 }
 
 func (c *daemonClient) PublishEventWithTrace(eventType string, payload map[string]any, trace bool) (*eventResponse, error) {
-	body, err := json.Marshal(map[string]any{"type": eventType, "payload": payload, "trace": trace})
+	// Omit `trace` unless requested so newer CLIs stay publishable against
+	// older daemons whose decoders reject unknown fields (SQU-55).
+	req := map[string]any{"type": eventType, "payload": payload}
+	if trace {
+		req["trace"] = true
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}

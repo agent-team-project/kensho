@@ -83,7 +83,6 @@ func TestHTTP_DispatchValidation(t *testing.T) {
 		{"missing name", `{"agent":"w","workspace":"/tmp"}`},
 		{"missing workspace", `{"agent":"w","name":"x"}`},
 		{"bad json", `{not-json}`},
-		{"unknown field", `{"agent":"w","name":"x","workspace":"/tmp","extra":1}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -93,6 +92,15 @@ func TestHTTP_DispatchValidation(t *testing.T) {
 			}
 		})
 	}
+
+	// Unknown fields are tolerated on the wire: a newer CLI's additive field
+	// must not brick an older daemon (SQU-55).
+	t.Run("unknown field tolerated", func(t *testing.T) {
+		resp := mustPost(t, srv.URL+"/v1/dispatch", `{"agent":"w","name":"x-tolerant","workspace":"/tmp","extra":1}`)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("status: got %d want 200, body=%s", resp.StatusCode, readBody(t, resp))
+		}
+	})
 }
 
 func TestHTTP_DispatchPassesStdin(t *testing.T) {
@@ -461,7 +469,6 @@ func TestHTTP_Message_Validation(t *testing.T) {
 	}{
 		{"missing to", `{"body":"hi"}`},
 		{"missing body", `{"to":"x"}`},
-		{"unknown field", `{"to":"x","body":"y","foo":1}`},
 		{"bad json", `{not-json}`},
 	}
 	for _, c := range cases {
@@ -472,6 +479,14 @@ func TestHTTP_Message_Validation(t *testing.T) {
 			}
 		})
 	}
+
+	// Unknown fields are tolerated on the wire (SQU-55).
+	t.Run("unknown field tolerated", func(t *testing.T) {
+		resp := mustPost(t, srv.URL+"/v1/message", `{"to":"x","body":"y","foo":1}`)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("status: got %d want 200, body=%s", resp.StatusCode, readBody(t, resp))
+		}
+	})
 }
 
 func TestHTTP_Message_MethodGuard(t *testing.T) {

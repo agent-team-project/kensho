@@ -1173,13 +1173,15 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 	}
 }
 
+// decodeJSON tolerates unknown fields by design: wire requests come from CLIs
+// that may be newer than this daemon, and rejecting additive fields turns
+// every CLI upgrade into a breaking change for running daemons (SQU-55).
+// Strict validation belongs to config/topology parsing, not the wire.
 func decodeJSON(r *http.Request, v any) error {
 	if r.Body == nil {
 		return errors.New("empty body")
 	}
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(v)
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func writeJSON(w http.ResponseWriter, code int, body any) {
