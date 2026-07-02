@@ -22,7 +22,7 @@ as the output directory instead.
 | `agent-team upgrade --check\|--apply` | Compare current template lock to target or apply clean template changes; add `--apply --dry-run --commands` for the clean apply command |
 | `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults; `agents` is a plural alias |
 | `agent-team agent doctor [agent\|--all]` | Validate installed agent definitions and agent-level runtime defaults; add `--strict` / `--strict-runtime` for CI checks or `--commands` for focused follow-ups |
-| `agent-team doctor [--strict] [--commands]` | Validate local layout, durable job files, runtime availability, workflow wiring, daemon binary, and template provenance; add `--strict` for CI or `--commands` for aggregate remediation commands |
+| `agent-team doctor [--canary [agent]] [--strict] [--commands]` | Validate local layout, durable job files, runtime availability, workflow wiring, daemon binary, and template provenance; add `--canary` after daemon restarts to dispatch a throwaway runtime smoke test |
 | `agent-team dispatch <target> <ticket>` | Publish or preview an `agent.dispatch` topology event; add `--dry-run --commands` to print the matching dispatch apply command for matched routes |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 | `agent-team docs site [--commands] [--json]` | Show VitePress developer docs paths, local URL, and dev/build/preview commands |
