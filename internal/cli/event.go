@@ -23,6 +23,7 @@ func newEventCmd() *cobra.Command {
 		Short: "Publish manual topology events to the daemon (for testing trigger matching).",
 	}
 	cmd.AddCommand(newEventPublishCmd())
+	cmd.AddCommand(newEventTraceCmd())
 	return cmd
 }
 
@@ -34,6 +35,7 @@ func newEventPublishCmd() *cobra.Command {
 		dryRun      bool
 		commands    bool
 		jsonOut     bool
+		trace       bool
 		format      string
 	)
 	cwd, _ := os.Getwd()
@@ -52,6 +54,10 @@ func newEventPublishCmd() *cobra.Command {
 			}
 			if commands && format != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team event publish: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if commands && trace {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team event publish: --commands cannot be combined with --trace.")
 				return exitErr(2)
 			}
 			if commands && !dryRun {
@@ -108,6 +114,9 @@ func newEventPublishCmd() *cobra.Command {
 						PayloadRaw:     string(payloadBody),
 					})
 				}
+				if trace && !jsonOut && formatTemplate == nil {
+					return renderEventTrace(cmd.OutOrStdout(), preview.Trace, false)
+				}
 				return renderEventPublishPreview(cmd.OutOrStdout(), preview, jsonOut, formatTemplate)
 			}
 			dc, err := newDaemonClient(teamDir)
@@ -115,7 +124,7 @@ func newEventPublishCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: daemon is not running — start it first with `agent-team daemon start`.")
 				return exitErr(2)
 			}
-			res, err := dc.PublishEvent(eventType, body)
+			res, err := dc.PublishEventWithTrace(eventType, body, trace)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 				return exitErr(1)
@@ -126,6 +135,9 @@ func newEventPublishCmd() *cobra.Command {
 			}
 			if formatTemplate != nil {
 				return renderEventPublishFormat(out, res, formatTemplate)
+			}
+			if trace {
+				return renderEventTrace(out, res.Trace, false)
 			}
 			if len(res.Matched) == 0 {
 				fmt.Fprintln(out, "(no triggers matched)")
@@ -162,8 +174,62 @@ func newEventPublishCmd() *cobra.Command {
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching triggers without publishing to the daemon.")
 	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command, one per line.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit the daemon event outcome as JSON.")
+	c.Flags().BoolVar(&trace, "trace", false, "Include per-trigger match and rejection trace output.")
 	c.Flags().StringVar(&format, "format", "", "Render the event outcome or dry-run preview with a Go template, e.g. '{{len .Matched}} {{len .Dispatched}}'.")
 	return c
+}
+
+func newEventTraceCmd() *cobra.Command {
+	var (
+		target       string
+		payloadPairs []string
+		jsonOut      bool
+	)
+	cwd, _ := os.Getwd()
+	c := &cobra.Command{
+		Use:   "trace <type>",
+		Short: "Dry-run an event against local topology and explain trigger decisions.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			eventType := args[0]
+			payload, err := parseEventTracePayload(payloadPairs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event trace: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			top, err := topology.LoadFromTeamDir(teamDir)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event trace: %v\n", err)
+				return exitErr(1)
+			}
+			trace := topology.EventTrace{Type: eventType, Payload: payload, Entries: []topology.EventTraceEntry{}}
+			if top != nil {
+				trace = top.Trace(eventType, payload)
+			}
+			return renderEventTrace(cmd.OutOrStdout(), &trace, jsonOut)
+		},
+	}
+	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	c.Flags().StringArrayVar(&payloadPairs, "payload", nil, "Payload predicate value as key=value; may be repeated.")
+	c.Flags().BoolVar(&jsonOut, "json", false, "Emit the event trace as JSON.")
+	return c
+}
+
+func parseEventTracePayload(pairs []string) (map[string]any, error) {
+	payload := map[string]any{}
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, fmt.Errorf("payload values must be key=value, got %q", pair)
+		}
+		payload[key] = value
+	}
+	return payload, nil
 }
 
 type eventPublishPreview struct {
@@ -172,6 +238,7 @@ type eventPublishPreview struct {
 	Matched      []string                  `json:"matched"`
 	Pipelines    []string                  `json:"pipelines,omitempty"`
 	PipelineJobs []eventPipelineJobPreview `json:"pipeline_jobs,omitempty"`
+	Trace        *topology.EventTrace      `json:"-"`
 	DryRun       bool                      `json:"dry_run"`
 }
 
@@ -243,14 +310,21 @@ func previewEventPublish(teamDir, eventType string, payload map[string]any) (*ev
 		Payload: payload,
 		Matched: []string{},
 		DryRun:  true,
+		Trace:   &topology.EventTrace{Type: eventType, Payload: payload, Entries: []topology.EventTraceEntry{}},
 	}
 	if top == nil {
 		return preview, nil
 	}
-	for _, inst := range top.Resolve(eventType, payload) {
-		preview.Matched = append(preview.Matched, inst.Name)
+	trace := top.Trace(eventType, payload)
+	preview.Trace = &trace
+	for _, name := range trace.MatchedInstanceNames() {
+		preview.Matched = append(preview.Matched, name)
 	}
-	for _, pipeline := range top.ResolvePipelines(eventType, payload) {
+	for _, name := range trace.MatchedPipelineNames() {
+		pipeline := top.Pipelines[name]
+		if pipeline == nil {
+			continue
+		}
 		preview.Pipelines = append(preview.Pipelines, pipeline.Name)
 		preview.PipelineJobs = append(preview.PipelineJobs, previewPipelineJob(teamDir, eventType, payload, pipeline))
 	}
@@ -462,4 +536,46 @@ func renderEventPublishFormat(w io.Writer, res *eventResponse, tmpl *template.Te
 	}
 	_, err := fmt.Fprintln(w)
 	return err
+}
+
+func renderEventTrace(w io.Writer, trace *topology.EventTrace, jsonOut bool) error {
+	if trace == nil {
+		trace = &topology.EventTrace{Entries: []topology.EventTraceEntry{}}
+	}
+	if trace.Payload == nil {
+		trace.Payload = map[string]any{}
+	}
+	if jsonOut {
+		return json.NewEncoder(w).Encode(trace)
+	}
+	payload, _ := json.Marshal(trace.Payload)
+	fmt.Fprintf(w, "event: %s payload=%s\n", trace.Type, string(payload))
+	if len(trace.Entries) == 0 {
+		fmt.Fprintln(w, "(no triggers declared)")
+		return nil
+	}
+	for _, entry := range trace.Entries {
+		status := "MISS"
+		reason := entry.Reason
+		if entry.Matched {
+			status = "MATCH"
+			reason = "MATCH"
+			if entry.Kind == topology.EventTraceKindPipeline && entry.FirstStep != nil {
+				reason = fmt.Sprintf("MATCH (pipeline first step %s -> %s)", entry.FirstStep.ID, entry.FirstStep.Target)
+			}
+		}
+		trigger := "trigger"
+		if entry.TriggerIndex != nil {
+			trigger = fmt.Sprintf("trigger[%d]", *entry.TriggerIndex)
+		}
+		matcher := ""
+		if entry.Matcher != "" {
+			matcher = " " + entry.Matcher
+		}
+		fmt.Fprintf(w, "%-5s %-28s %-10s %-18s%s - %s\n", status, entry.Scope, trigger, entry.TriggerEvent, matcher, reason)
+	}
+	if trace.MatchedRules == 0 {
+		fmt.Fprintln(w, "WARNING: matched 0 rules")
+	}
+	return nil
 }

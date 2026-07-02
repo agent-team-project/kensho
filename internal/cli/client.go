@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 // errDaemonNotRunning is returned by NewDaemonClient when no daemon is alive
@@ -440,6 +441,7 @@ type eventResponse struct {
 	Blocked    []map[string]interface{} `json:"blocked"`
 	Rejected   []map[string]interface{} `json:"rejected"`
 	Outcomes   []daemon.EventOutcome    `json:"outcomes,omitempty"`
+	Trace      *topology.EventTrace     `json:"trace,omitempty"`
 }
 
 // PublishEvent posts an event to the daemon's resolver and returns the
@@ -447,7 +449,11 @@ type eventResponse struct {
 // payload as an empty match scope (matches triggers with an empty `match`
 // table).
 func (c *daemonClient) PublishEvent(eventType string, payload map[string]any) (*eventResponse, error) {
-	body, err := json.Marshal(map[string]any{"type": eventType, "payload": payload})
+	return c.PublishEventWithTrace(eventType, payload, false)
+}
+
+func (c *daemonClient) PublishEventWithTrace(eventType string, payload map[string]any, trace bool) (*eventResponse, error) {
+	body, err := json.Marshal(map[string]any{"type": eventType, "payload": payload, "trace": trace})
 	if err != nil {
 		return nil, err
 	}

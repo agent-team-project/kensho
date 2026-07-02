@@ -178,6 +178,7 @@ func New(cfg Config) (*Daemon, error) {
 		topo = nil
 	}
 	events := NewEventResolver(mgr, cfg.TeamDir, topo)
+	events.SetLogOutput(cfg.LogOut)
 	return &Daemon{cfg: cfg, manager: mgr, channels: channels, events: events}, nil
 }
 

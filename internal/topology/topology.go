@@ -207,17 +207,11 @@ func (t *Topology) Resolve(eventType string, payload map[string]any) []*Instance
 	if t == nil {
 		return nil
 	}
-	var matched []*Instance
-	for _, inst := range t.SortedInstances() {
-		for _, trig := range inst.Triggers {
-			matches, matchPayload := triggerMatchesEvent(trig, eventType, payload)
-			if !matches {
-				continue
-			}
-			if trig.Matches(matchPayload) {
-				matched = append(matched, inst)
-				break
-			}
+	trace := t.Trace(eventType, payload)
+	matched := make([]*Instance, 0, len(trace.MatchedInstanceNames()))
+	for _, name := range trace.MatchedInstanceNames() {
+		if inst := t.Find(name); inst != nil {
+			matched = append(matched, inst)
 		}
 	}
 	return matched
@@ -228,14 +222,11 @@ func (t *Topology) ResolvePipelines(eventType string, payload map[string]any) []
 	if t == nil {
 		return nil
 	}
-	var matched []*Pipeline
-	for _, p := range t.SortedPipelines() {
-		matches, matchPayload := triggerMatchesEvent(p.Trigger, eventType, payload)
-		if !matches {
-			continue
-		}
-		if p.Trigger.Matches(matchPayload) {
-			matched = append(matched, p)
+	trace := t.Trace(eventType, payload)
+	matched := make([]*Pipeline, 0, len(trace.MatchedPipelineNames()))
+	for _, name := range trace.MatchedPipelineNames() {
+		if pipeline := t.Pipelines[name]; pipeline != nil {
+			matched = append(matched, pipeline)
 		}
 	}
 	return matched

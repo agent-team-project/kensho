@@ -390,6 +390,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		var body struct {
 			Type    string         `json:"type"`
 			Payload map[string]any `json:"payload"`
+			Trace   bool           `json:"trace"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -402,12 +403,16 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		if body.Payload == nil {
 			body.Payload = map[string]any{}
 		}
-		outcomes, err := events.Event(body.Type, body.Payload)
+		result, err := events.EventWithResult(body.Type, body.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, eventResponseMap(outcomes))
+		resp := eventResponseMap(result.Outcomes)
+		if body.Trace {
+			resp["trace"] = result.Trace
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
 
 	mux.HandleFunc("/v1/intake/", func(w http.ResponseWriter, r *http.Request) {

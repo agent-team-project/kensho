@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -156,6 +157,57 @@ func TestEvent_PersistentMessages(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `\"event\":\"user_invocation\"`) {
 		t.Errorf("mailbox missing event: %s", string(body))
+	}
+}
+
+func TestEvent_TraceResponseExplainsRejectedTriggers(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, root, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event", `{"type":"agent.dispatch","payload":{"target":"manager"},"trace":true}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var got struct {
+		Matched []string            `json:"matched"`
+		Trace   topology.EventTrace `json:"trace"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Matched) != 0 || got.Trace.MatchedRules != 0 {
+		t.Fatalf("got matched=%v trace=%+v, want no matches", got.Matched, got.Trace)
+	}
+	worker := traceEntryByScope(t, got.Trace, "instances.worker")
+	if worker.Matched || worker.Matcher != "match.target=worker" || worker.Reason != "payload target=manager != worker" {
+		t.Fatalf("worker trace = %+v", worker)
+	}
+	manager := traceEntryByScope(t, got.Trace, "instances.manager")
+	if manager.Matched || manager.Reason != "event type mismatch" {
+		t.Fatalf("manager trace = %+v", manager)
+	}
+}
+
+func TestEvent_ZeroMatchLogsWarning(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, root, mustParseTopo(t))
+	var logs bytes.Buffer
+	resolver.SetLogOutput(&logs)
+
+	result, err := resolver.EventWithResult("agent.dispatch", map[string]any{"target": "manager"})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if result.Trace == nil || result.Trace.MatchedRules != 0 {
+		t.Fatalf("trace = %+v, want zero matched rules", result.Trace)
+	}
+	logText := logs.String()
+	if !strings.Contains(logText, "WARNING event \"agent.dispatch\" matched 0 rules") || !strings.Contains(logText, `"target":"manager"`) {
+		t.Fatalf("warning log = %q", logText)
 	}
 }
 
@@ -2064,4 +2116,15 @@ func TestTopology_NoEventsConfigured(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 on empty topology, got %d", resp.StatusCode)
 	}
+}
+
+func traceEntryByScope(t *testing.T, trace topology.EventTrace, scope string) topology.EventTraceEntry {
+	t.Helper()
+	for _, entry := range trace.Entries {
+		if entry.Scope == scope {
+			return entry
+		}
+	}
+	t.Fatalf("trace entry %q missing: %+v", scope, trace.Entries)
+	return topology.EventTraceEntry{}
 }

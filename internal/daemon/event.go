@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -45,6 +46,7 @@ type EventResolver struct {
 	mgr      *InstanceManager
 	teamDir  string
 	queueCap int
+	logOut   io.Writer
 
 	mu       sync.Mutex
 	topo     *topology.Topology
@@ -99,6 +101,14 @@ func (r *EventResolver) Topology() *topology.Topology {
 	return r.topo
 }
 
+// SetLogOutput wires daemon log output for resolver warnings. A nil writer
+// disables resolver-owned log lines, which keeps focused unit tests quiet.
+func (r *EventResolver) SetLogOutput(w io.Writer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logOut = w
+}
+
 // EventOutcome is the per-instance result of an Event call, returned in the
 // HTTP response so callers know what was actuated.
 type EventOutcome struct {
@@ -116,6 +126,7 @@ type EventOutcome struct {
 type EventResult struct {
 	Outcomes  []EventOutcome            `json:"outcomes"`
 	Reconcile *jobstore.ReconcileResult `json:"reconcile,omitempty"`
+	Trace     *topology.EventTrace      `json:"trace,omitempty"`
 }
 
 type pipelineStepDispatchResult struct {
@@ -148,10 +159,19 @@ func (r *EventResolver) EventWithResult(eventType string, payload map[string]any
 	r.mu.Lock()
 	t := r.topo
 	r.mu.Unlock()
-	if t == nil {
-		return &EventResult{Reconcile: reconciled}, nil
+	trace := traceForTopology(t, eventType, payload)
+	if trace.MatchedRules == 0 {
+		r.logZeroMatch(trace)
 	}
-	matched := t.Resolve(eventType, payload)
+	if t == nil {
+		return &EventResult{Reconcile: reconciled, Trace: trace}, nil
+	}
+	matched := make([]*topology.Instance, 0, len(trace.MatchedInstanceNames()))
+	for _, name := range trace.MatchedInstanceNames() {
+		if inst := t.Find(name); inst != nil {
+			matched = append(matched, inst)
+		}
+	}
 	out := make([]EventOutcome, 0, len(matched))
 	directOutcomes := make(map[string]EventOutcome, len(matched))
 	for _, inst := range matched {
@@ -159,10 +179,34 @@ func (r *EventResolver) EventWithResult(eventType string, payload map[string]any
 		directOutcomes[inst.Name] = outcome
 		out = append(out, outcome)
 	}
-	for _, pipeline := range t.ResolvePipelines(eventType, payload) {
-		out = append(out, r.actuatePipeline(pipeline, eventType, payload, directOutcomes)...)
+	for _, name := range trace.MatchedPipelineNames() {
+		if pipeline := t.Pipelines[name]; pipeline != nil {
+			out = append(out, r.actuatePipeline(pipeline, eventType, payload, directOutcomes)...)
+		}
 	}
-	return &EventResult{Outcomes: out, Reconcile: reconciled}, nil
+	return &EventResult{Outcomes: out, Reconcile: reconciled, Trace: trace}, nil
+}
+
+func traceForTopology(t *topology.Topology, eventType string, payload map[string]any) *topology.EventTrace {
+	if t != nil {
+		trace := t.Trace(eventType, payload)
+		return &trace
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	return &topology.EventTrace{Type: eventType, Payload: payload, Entries: []topology.EventTraceEntry{}}
+}
+
+func (r *EventResolver) logZeroMatch(trace *topology.EventTrace) {
+	r.mu.Lock()
+	out := r.logOut
+	r.mu.Unlock()
+	if out == nil || trace == nil {
+		return
+	}
+	payload, _ := json.Marshal(trace.Payload)
+	fmt.Fprintf(out, "%s WARNING event %q matched 0 rules payload=%s\n", time.Now().UTC().Format(time.RFC3339), trace.Type, string(payload))
 }
 
 func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any) *jobstore.ReconcileResult {

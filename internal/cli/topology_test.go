@@ -883,6 +883,113 @@ target = "worker"
 	}
 }
 
+func TestEventTraceCommandExplainsTriggerDecisions(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := topoFixture + `
+[pipelines.cypher]
+trigger.event = "ticket.created"
+trigger.match.project = "cypher"
+
+[[pipelines.cypher.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.graphql]
+trigger.event = "ticket.created"
+trigger.match.project = "graphql"
+
+[[pipelines.graphql.steps]]
+id = "implement"
+target = "worker"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--target", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("event trace: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"event: ticket.created payload={\"project\":\"cypher\"}",
+		"MATCH pipelines.cypher",
+		"MATCH (pipeline first step implement -> worker)",
+		"MISS  pipelines.graphql",
+		"payload project=cypher != graphql",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("event trace output missing %q:\n%s", want, out.String())
+		}
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--json", "--target", target})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("event trace --json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var trace topology.EventTrace
+	if err := json.Unmarshal(jsonOut.Bytes(), &trace); err != nil {
+		t.Fatalf("decode trace json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if trace.MatchedRules != 1 || len(trace.MatchedPipelineNames()) != 1 || trace.MatchedPipelineNames()[0] != "cypher" {
+		t.Fatalf("trace = %+v", trace)
+	}
+	graphql := cliTraceEntryByScope(t, trace, "pipelines.graphql")
+	if graphql.Matched || graphql.Reason != "payload project=cypher != graphql" {
+		t.Fatalf("graphql trace = %+v", graphql)
+	}
+}
+
+func TestEventPublishTraceUsesDaemonTrace(t *testing.T) {
+	target, err := os.MkdirTemp("/tmp", "agent-team-event-trace-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"event", "publish", "agent.dispatch", "--payload", `{"target":"manager"}`, "--trace", "--target", target})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("event publish --trace: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"event: agent.dispatch payload={\"target\":\"manager\"}",
+		"MISS  instances.manager",
+		"event type mismatch",
+		"MISS  instances.worker",
+		"payload target=manager != worker",
+		"WARNING: matched 0 rules",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("event publish --trace output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestEventPublishFormat(t *testing.T) {
 	target, err := os.MkdirTemp("/tmp", "agent-team-event-format-")
 	if err != nil {
@@ -984,4 +1091,15 @@ func TestTopologyShow_NoFile(t *testing.T) {
 	if !strings.Contains(out.String(), "no instances declared") {
 		t.Errorf("expected helpful empty-state message, got: %s", out.String())
 	}
+}
+
+func cliTraceEntryByScope(t *testing.T, trace topology.EventTrace, scope string) topology.EventTraceEntry {
+	t.Helper()
+	for _, entry := range trace.Entries {
+		if entry.Scope == scope {
+			return entry
+		}
+	}
+	t.Fatalf("trace entry %q missing: %+v", scope, trace.Entries)
+	return topology.EventTraceEntry{}
 }

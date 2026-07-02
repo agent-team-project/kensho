@@ -752,6 +752,87 @@ func TestResolve_UserInvocationMatchesAny(t *testing.T) {
 	}
 }
 
+func TestTrace_ExplainsInstanceAndPipelineTriggerDecisions(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "user_invocation"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.core]
+trigger.event = "ticket.created"
+trigger.match.project = "Core"
+
+[[pipelines.core.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.graphql]
+trigger.event = "ticket.created"
+trigger.match.project = "GraphQL"
+
+[[pipelines.graphql.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	trace := top.Trace("ticket.created", map[string]any{"project": "GraphQL"})
+	if trace.MatchedRules != 1 {
+		t.Fatalf("matched rules = %d, want 1: %+v", trace.MatchedRules, trace.Entries)
+	}
+	manager := findTraceEntry(t, trace, "instances.manager")
+	if manager.Matched || manager.Reason != "event type mismatch" {
+		t.Fatalf("manager trace = %+v", manager)
+	}
+	core := findTraceEntry(t, trace, "pipelines.core")
+	if core.Matched || core.Matcher != "match.project=Core" || core.Reason != "payload project=GraphQL != Core" {
+		t.Fatalf("core trace = %+v", core)
+	}
+	graphql := findTraceEntry(t, trace, "pipelines.graphql")
+	if !graphql.Matched || graphql.Reason != EventTraceReasonMatched || graphql.FirstStep == nil || graphql.FirstStep.ID != "implement" || graphql.FirstStep.Target != "worker" {
+		t.Fatalf("graphql trace = %+v", graphql)
+	}
+	if got := trace.MatchedPipelineNames(); !reflect.DeepEqual(got, []string{"graphql"}) {
+		t.Fatalf("matched pipelines = %v", got)
+	}
+}
+
+func TestTrace_ExplainsWebhookAliasPayloadPredicates(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.tm]
+agent = "ticket-manager"
+
+[[instances.tm.triggers]]
+event = "ticket_webhook"
+match.event = ["created", "updated"]
+match.project = "Core"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	deleted := top.Trace("ticket.deleted", map[string]any{"project": "Core"})
+	deletedEntry := findTraceEntry(t, deleted, "instances.tm")
+	if deletedEntry.Matched || deletedEntry.Matcher != "match.event=[created, updated]" || deletedEntry.Reason != "payload event=deleted not in [created, updated]" {
+		t.Fatalf("deleted trace = %+v", deletedEntry)
+	}
+	missing := top.Trace("ticket.created", map[string]any{})
+	missingEntry := findTraceEntry(t, missing, "instances.tm")
+	if missingEntry.Matched || missingEntry.Matcher != "match.project=Core" || missingEntry.Reason != "payload project missing" {
+		t.Fatalf("missing trace = %+v", missingEntry)
+	}
+}
+
 func TestPersistentNames(t *testing.T) {
 	top, err := Parse([]byte(sampleTOML))
 	if err != nil {
@@ -853,4 +934,15 @@ func names(insts []*Instance) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func findTraceEntry(t *testing.T, trace EventTrace, scope string) EventTraceEntry {
+	t.Helper()
+	for _, entry := range trace.Entries {
+		if entry.Scope == scope {
+			return entry
+		}
+	}
+	t.Fatalf("trace entry %q missing: %+v", scope, trace.Entries)
+	return EventTraceEntry{}
 }
