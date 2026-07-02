@@ -410,14 +410,15 @@ type tickOptions struct {
 }
 
 type tickResult struct {
-	Reconcile *daemonReconcileResponse   `json:"reconcile,omitempty"`
-	JobEvents []jobEventReconcileResult  `json:"job_events,omitempty"`
-	JobStatus []jobStatusReconcileResult `json:"job_status,omitempty"`
-	Schedule  *daemon.ScheduleFireResult `json:"schedule,omitempty"`
-	Outbox    *daemon.OutboxDrainResult  `json:"outbox,omitempty"`
-	Queue     *daemon.QueueDrainResult   `json:"queue,omitempty"`
-	Advance   []pipelineAdvanceResult    `json:"advance,omitempty"`
-	DryRun    bool                       `json:"dry_run,omitempty"`
+	Reconcile  *daemonReconcileResponse   `json:"reconcile,omitempty"`
+	JobEvents  []jobEventReconcileResult  `json:"job_events,omitempty"`
+	JobStatus  []jobStatusReconcileResult `json:"job_status,omitempty"`
+	Schedule   *daemon.ScheduleFireResult `json:"schedule,omitempty"`
+	Outbox     *daemon.OutboxDrainResult  `json:"outbox,omitempty"`
+	Queue      *daemon.QueueDrainResult   `json:"queue,omitempty"`
+	Advance    []pipelineAdvanceResult    `json:"advance,omitempty"`
+	Compaction *terminalCompactionResult  `json:"compaction,omitempty"`
+	DryRun     bool                       `json:"dry_run,omitempty"`
 }
 
 type tickUntilIdleResult struct {
@@ -537,6 +538,15 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 		}
 		result.Advance = advanced
 	}
+	policy, err := loadHealthPolicy(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	compaction, err := runTerminalCompaction(teamDir, policy.TerminalRetention, time.Now().UTC(), opts.DryRun)
+	if err != nil {
+		return nil, err
+	}
+	result.Compaction = compaction
 	return result, nil
 }
 
@@ -648,6 +658,9 @@ func tickResultIsIdle(result *tickResult) bool {
 		if advanced.Action == "advanced" || advanced.Action == "would_advance" {
 			return false
 		}
+	}
+	if result.Compaction != nil && (len(result.Compaction.Jobs) > 0 || len(result.Compaction.Instances) > 0) {
+		return false
 	}
 	return true
 }
@@ -773,9 +786,16 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 	fmt.Fprintln(w)
 	if result.Advance != nil {
 		fmt.Fprintln(w, "Pipeline advance:")
-		return renderPipelineAdvanceResults(w, result.Advance, false, nil)
+		if err := renderPipelineAdvanceResults(w, result.Advance, false, nil); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "Pipeline advance: skipped")
 	}
-	fmt.Fprintln(w, "Pipeline advance: skipped")
+	if result.Compaction != nil {
+		fmt.Fprintln(w)
+		renderTerminalCompactionResult(w, result.Compaction)
+	}
 	return nil
 }
 

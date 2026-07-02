@@ -1899,9 +1899,14 @@ func newJobShowCmd() *cobra.Command {
 					return exitErr(2)
 				}
 			}
-			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
+			}
+			j, err := job.ReadLiveOrArchive(teamDir, args[0])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job: %v\n", err)
+				return exitErr(1)
 			}
 			return renderJobShowResult(cmd.OutOrStdout(), teamDir, j, jsonOut, tmpl, includeEvents, eventTail, eventSortMode, commands, operatorCommandScopeFromCommand(cmd, repo, "repo"))
 		},

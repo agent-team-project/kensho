@@ -104,15 +104,23 @@ func AppendSnapshotEvent(teamDir string, j *Job, eventType, actor, message strin
 
 // ListEvents reads a job event log. A missing log returns an empty slice.
 func ListEvents(teamDir, rawID string) ([]Event, error) {
+	events, err := listLiveEvents(teamDir, rawID)
+	if err == nil {
+		return events, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return ArchivedEvents(teamDir, rawID)
+}
+
+func listLiveEvents(teamDir, rawID string) ([]Event, error) {
 	id := IDFromInput(rawID)
 	if id == "" {
 		return nil, fmt.Errorf("job id %q produced an empty normalized id", rawID)
 	}
 	f, err := os.Open(EventPath(teamDir, id))
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	defer f.Close()

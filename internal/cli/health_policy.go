@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,14 +17,16 @@ const defaultStatusStaleAfter = 10 * time.Minute
 const staleAfter = defaultStatusStaleAfter
 
 type healthPolicy struct {
-	StatusStaleAfter time.Duration
-	JobStaleAfter    time.Duration
+	StatusStaleAfter  time.Duration
+	JobStaleAfter     time.Duration
+	TerminalRetention time.Duration
 }
 
 func defaultHealthPolicy() healthPolicy {
 	return healthPolicy{
-		StatusStaleAfter: defaultStatusStaleAfter,
-		JobStaleAfter:    defaultJobTriageStaleAfter,
+		StatusStaleAfter:  defaultStatusStaleAfter,
+		JobStaleAfter:     defaultJobTriageStaleAfter,
+		TerminalRetention: 0,
 	}
 }
 
@@ -45,6 +49,13 @@ func loadHealthPolicy(teamDir string) (healthPolicy, error) {
 			return policy, err
 		}
 		policy.JobStaleAfter = d
+	}
+	if v, ok := cfg.GetDotted("health.terminal_retention"); ok {
+		d, err := parseHealthPolicyDuration("health.terminal_retention", v)
+		if err != nil {
+			return policy, err
+		}
+		policy.TerminalRetention = d
 	}
 	return policy, nil
 }
@@ -84,10 +95,32 @@ func parseHealthPolicyDuration(key string, value any) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return 0, fmt.Errorf("%s: invalid duration %q: %w", key, raw, err)
+		d, err = parseDayDuration(raw)
+		if err != nil {
+			return 0, fmt.Errorf("%s: invalid duration %q: %w", key, raw, err)
+		}
 	}
 	if d < 0 {
 		return 0, fmt.Errorf("%s must be >= 0", key)
 	}
 	return d, nil
+}
+
+func parseDayDuration(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasSuffix(raw, "d") {
+		return 0, fmt.Errorf("unsupported duration unit")
+	}
+	daysRaw := strings.TrimSpace(strings.TrimSuffix(raw, "d"))
+	if daysRaw == "" {
+		return 0, fmt.Errorf("missing day count")
+	}
+	days, err := strconv.ParseFloat(daysRaw, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(days) || math.IsInf(days, 0) {
+		return 0, fmt.Errorf("invalid day count")
+	}
+	return time.Duration(days * float64(24*time.Hour)), nil
 }
