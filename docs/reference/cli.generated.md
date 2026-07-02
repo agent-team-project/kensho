@@ -1968,6 +1968,7 @@ Subcommands:
 - `agent-team job explain` - Explain pipeline step readiness for one job.
 - `agent-team job graph` - Render one job&#39;s pipeline graph with step state.
 - `agent-team job hold` - Hold a job so pipeline automation will not advance it.
+- `agent-team job keep-worktree` - Disable automatic worktree cleanup for a job.
 - `agent-team job kill` - Force-stop a job&#39;s owning instance.
 - `agent-team job logs` - Show a job&#39;s owning instance log.
 - `agent-team job ls` - List durable jobs.
@@ -2411,6 +2412,25 @@ Flags:
       --repo string           Repo root containing .agent_team. (default "<repo>")
       --state strings         With --all, next-step state to hold: ready, queued, running, blocked, failed, held, done, none, or all. Defaults to active non-held, non-done jobs.
       --until string          Hold until this RFC3339 timestamp.
+```
+
+## `agent-team job keep-worktree`
+
+Disable automatic worktree cleanup for a job.
+
+Set a job&#39;s reap_worktree policy to never so its recorded worktree and branch are preserved when the job closes or its PR merges.
+
+```text
+agent-team job keep-worktree <job-id> [reason...] [flags]
+```
+
+Flags:
+
+```text
+      --actor string    Actor label recorded in the keep-worktree audit event. (default "cli")
+      --format string   Render the updated job with a Go template, e.g. '{{.ID}} {{.ReapWorktree}}'.
+      --json            Emit the updated job as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job kill`

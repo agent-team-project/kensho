@@ -291,6 +291,7 @@ agent-team job runtime ls <job-id> [--step <id>] [--summary] [--latest | --last 
 agent-team job ps <job-id> [--step <id>] [-w] [-q] [--runtime codex] [--status running] [--summary] [--format '{{.Instance}} {{.Status}}'] [--json]
 agent-team job stats <job-id> [--step <id>] [-w] [-a] [--runtime codex] [--status crashed] [--summary] [--format '{{.Instance}} {{.CPUPercent}}'] [--json]
 agent-team job cleanup <job-id>|--all [--dry-run] [--commands] [--merged] [--force-branch] [--verify-pr] [--format '{{.Total}} {{.Cleaned}}'] [--json]
+agent-team job keep-worktree <job-id> [reason...] [--actor cli] [--format '{{.ID}} {{.ReapWorktree}}'] [--json]
 agent-team job rm <job-id> [<job-id>...] [--force] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json]
 agent-team job prune [--status done|failed|terminal] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json]
 agent-team job hold <job-id>|--all [reason...] [--message "..."] [--message-file <path|->] [--state ready|failed|all] [--for 2h|--until <rfc3339>] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
 var ticketIdentifierPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])([a-z][a-z0-9]{1,9}-[0-9]+)(?:$|[^a-z0-9])`)
@@ -35,25 +36,26 @@ const (
 
 // Job is one durable work unit under `.agent_team/jobs/<id>.toml`.
 type Job struct {
-	ID         string    `toml:"id"`
-	Ticket     string    `toml:"ticket"`
-	TicketURL  string    `toml:"ticket_url,omitempty"`
-	Target     string    `toml:"target"`
-	Kickoff    string    `toml:"kickoff,omitempty"`
-	Instance   string    `toml:"instance,omitempty"`
-	Pipeline   string    `toml:"pipeline,omitempty"`
-	Status     Status    `toml:"status"`
-	Held       bool      `toml:"held,omitempty"`
-	HoldReason string    `toml:"hold_reason,omitempty"`
-	HoldUntil  time.Time `toml:"hold_until,omitempty"`
-	Branch     string    `toml:"branch,omitempty"`
-	Worktree   string    `toml:"worktree,omitempty"`
-	PR         string    `toml:"pr,omitempty"`
-	LastEvent  string    `toml:"last_event,omitempty"`
-	LastStatus string    `toml:"last_status,omitempty"`
-	CreatedAt  time.Time `toml:"created_at"`
-	UpdatedAt  time.Time `toml:"updated_at"`
-	Steps      []Step    `toml:"steps,omitempty"`
+	ID           string    `toml:"id"`
+	Ticket       string    `toml:"ticket"`
+	TicketURL    string    `toml:"ticket_url,omitempty"`
+	Target       string    `toml:"target"`
+	Kickoff      string    `toml:"kickoff,omitempty"`
+	Instance     string    `toml:"instance,omitempty"`
+	Pipeline     string    `toml:"pipeline,omitempty"`
+	Status       Status    `toml:"status"`
+	Held         bool      `toml:"held,omitempty"`
+	HoldReason   string    `toml:"hold_reason,omitempty"`
+	HoldUntil    time.Time `toml:"hold_until,omitempty"`
+	Branch       string    `toml:"branch,omitempty"`
+	Worktree     string    `toml:"worktree,omitempty"`
+	ReapWorktree string    `toml:"reap_worktree,omitempty"`
+	PR           string    `toml:"pr,omitempty"`
+	LastEvent    string    `toml:"last_event,omitempty"`
+	LastStatus   string    `toml:"last_status,omitempty"`
+	CreatedAt    time.Time `toml:"created_at"`
+	UpdatedAt    time.Time `toml:"updated_at"`
+	Steps        []Step    `toml:"steps,omitempty"`
 }
 
 // Step is a pipeline step snapshot recorded on a job.
@@ -235,6 +237,9 @@ func Validate(j *Job) error {
 	}
 	if !ValidStatus(j.Status) {
 		return fmt.Errorf("unknown job status %q", j.Status)
+	}
+	if !worktreepolicy.Valid(j.ReapWorktree) {
+		return fmt.Errorf("reap_worktree must be on_close, on_merge, or never")
 	}
 	if j.CreatedAt.IsZero() {
 		return errors.New("created_at is required")

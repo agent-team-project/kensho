@@ -23,6 +23,8 @@ import (
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/jamesaud/agent-team/internal/worktreecleanup"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 	"github.com/spf13/cobra"
 )
 
@@ -68,6 +70,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobReleaseCmd())
 	cmd.AddCommand(newJobReopenCmd())
 	cmd.AddCommand(newJobCleanupCmd())
+	cmd.AddCommand(newJobKeepWorktreeCmd())
 	cmd.AddCommand(newJobRmCmd())
 	cmd.AddCommand(newJobPruneCmd())
 	cmd.AddCommand(newJobNextCmd())
@@ -1423,6 +1426,9 @@ func newJobCreateCmd() *cobra.Command {
 			if pipelineDef != nil {
 				j.Pipeline = pipelineDef.Name
 				j.Steps = jobStepsFromPipeline(pipelineDef)
+				if pipelineDef.ReapWorktree != worktreepolicy.Never {
+					j.ReapWorktree = pipelineDef.ReapWorktree
+				}
 			}
 			if strings.TrimSpace(id) != "" {
 				normalized := job.NormalizeID(id)
@@ -1492,6 +1498,10 @@ func newJobCreateCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
+						return exitErr(2)
+					}
 					if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
 						return exitErr(2)
@@ -2196,6 +2206,10 @@ func newJobDispatchCmd() *cobra.Command {
 				}
 				payload["job_id"] = j.ID
 				payload["job"] = j.ID
+				if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
+					return exitErr(2)
+				}
 				if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
 					return exitErr(2)
@@ -4096,6 +4110,9 @@ func newJobCloseCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "closed", closeActor, closeMessage, map[string]string{"status": status}); err != nil {
 				return err
 			}
+			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, closeActor); err != nil {
+				return err
+			}
 			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
 		},
 	}
@@ -4286,6 +4303,9 @@ func newJobCancelCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "cancelled", cancelActor, reason, data); err != nil {
 				return err
 			}
+			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, cancelActor); err != nil {
+				return err
+			}
 			result.Job = j
 			return renderJobCancelResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
@@ -4331,6 +4351,58 @@ func jobCancelMessage(message, messageFile string, positional []string) (string,
 		return "cancelled by operator", nil
 	}
 	return sendMessageBody(message, messageFile, positional)
+}
+
+func newJobKeepWorktreeCmd() *cobra.Command {
+	var (
+		repo    string
+		actor   string
+		jsonOut bool
+		format  string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "keep-worktree <job-id> [reason...]",
+		Short: "Disable automatic worktree cleanup for a job.",
+		Long:  "Set a job's reap_worktree policy to never so its recorded worktree and branch are preserved when the job closes or its PR merges.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job keep-worktree: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			tmpl, err := parseJobFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job keep-worktree: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			message := strings.TrimSpace(strings.Join(args[1:], " "))
+			if message == "" {
+				message = "automatic worktree cleanup disabled"
+			}
+			keepActor := strings.TrimSpace(actor)
+			if keepActor == "" {
+				keepActor = "cli"
+			}
+			j.ReapWorktree = worktreepolicy.Never
+			j.LastEvent = "keep_worktree"
+			j.LastStatus = message
+			j.UpdatedAt = time.Now().UTC()
+			if err := writeJobWithAudit(teamDir, j, "keep_worktree", keepActor, message, map[string]string{"reap_worktree": worktreepolicy.Never}); err != nil {
+				return err
+			}
+			return renderJobResult(cmd.OutOrStdout(), j, jsonOut, tmpl)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the keep-worktree audit event.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render the updated job with a Go template, e.g. '{{.ID}} {{.ReapWorktree}}'.")
+	return cmd
 }
 
 func applyJobCancelUpdate(j *job.Job, message string) {
@@ -5782,6 +5854,10 @@ func newJobReopenCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
+						return exitErr(2)
+					}
 					if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 						return exitErr(2)
@@ -7768,6 +7844,15 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 					if err := writeJobWithAudit(teamDir, result.Job, "cleanup", "cli", cleanupSummary, nil); err != nil {
 						return err
 					}
+				}
+			}
+			if !dryRun && result.Job != nil && result.Job.Status == job.StatusDone && cleanupSummary == "" {
+				autoSummary, err := autoReapJobOwnedWorktree(teamDir, result.Job, worktreepolicy.OnMerge, "cli")
+				if err != nil {
+					return err
+				}
+				if autoSummary != "" {
+					cleanupSummary = autoSummary
 				}
 			}
 			if advance {
@@ -11389,6 +11474,10 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	}
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
+	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
+		return nil, "", exitErr(2)
+	}
 	if err := applyDispatchRuntimeSelection(teamDir, payload, selection); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 		return nil, "", exitErr(2)
@@ -11414,6 +11503,101 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 		return nil, "", err
 	}
 	return &jobDispatchResult{Job: j, Event: res}, requestedName, nil
+}
+
+func applyJobReapWorktreePolicyToPayload(teamDir string, j *job.Job, payload map[string]any) error {
+	if j == nil {
+		return nil
+	}
+	if strings.TrimSpace(j.ReapWorktree) == "" {
+		policy, err := jobReapWorktreePolicy(teamDir, j.Target, j.Pipeline)
+		if err != nil {
+			return err
+		}
+		if policy != worktreepolicy.Never {
+			j.ReapWorktree = policy
+		}
+	} else {
+		normalized, err := worktreepolicy.Normalize(j.ReapWorktree)
+		if err != nil {
+			return err
+		}
+		j.ReapWorktree = normalized
+	}
+	if policy := strings.TrimSpace(j.ReapWorktree); policy != "" {
+		payload["reap_worktree"] = policy
+	}
+	return nil
+}
+
+func jobReapWorktreePolicy(teamDir, target, pipeline string) (string, error) {
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return "", err
+	}
+	if top == nil {
+		return worktreepolicy.Never, nil
+	}
+	if pipeline := top.Pipelines[strings.TrimSpace(pipeline)]; pipeline != nil && pipeline.ReapWorktree != worktreepolicy.Never {
+		return pipeline.ReapWorktree, nil
+	}
+	if inst := top.Find(strings.TrimSpace(target)); inst != nil {
+		return inst.ReapWorktree, nil
+	}
+	return worktreepolicy.Never, nil
+}
+
+func autoReapJobOwnedWorktree(teamDir string, j *job.Job, trigger, actor string) (string, error) {
+	if j == nil {
+		return "", nil
+	}
+	if j.Status != job.StatusDone && j.Status != job.StatusFailed {
+		return "", nil
+	}
+	policy, err := autoReapPolicyForJob(teamDir, j)
+	if err != nil {
+		return "", err
+	}
+	if !worktreepolicy.ShouldReap(policy, trigger) {
+		return "", nil
+	}
+	if strings.TrimSpace(j.Worktree) == "" && strings.TrimSpace(j.Branch) == "" {
+		return "", nil
+	}
+	cleanupActor := strings.TrimSpace(actor)
+	if cleanupActor == "" {
+		cleanupActor = "cli"
+	}
+	data := map[string]string{
+		"reap_worktree": policy,
+		"trigger":       strings.TrimSpace(trigger),
+	}
+	summary, err := cleanupJobOwnedWorktree(filepath.Dir(teamDir), j, true, false)
+	if err != nil {
+		if appendErr := job.AppendSnapshotEvent(teamDir, j, "cleanup_skipped", cleanupActor, err.Error(), data); appendErr != nil {
+			return "", appendErr
+		}
+		return "", nil
+	}
+	j.Worktree = ""
+	j.Branch = ""
+	j.LastEvent = "cleanup"
+	j.LastStatus = summary
+	j.UpdatedAt = time.Now().UTC()
+	if err := writeJobWithAudit(teamDir, j, "cleanup", cleanupActor, summary, data); err != nil {
+		return "", err
+	}
+	return summary, nil
+}
+
+func autoReapPolicyForJob(teamDir string, j *job.Job) (string, error) {
+	if j == nil {
+		return worktreepolicy.Never, nil
+	}
+	if policy := strings.TrimSpace(j.ReapWorktree); policy != "" {
+		return worktreepolicy.Normalize(policy)
+	}
+	return jobReapWorktreePolicy(teamDir, j.Target, j.Pipeline)
 }
 
 func containsFold(value, substr string) bool {
@@ -11871,6 +12055,11 @@ func reconcileSelectedJobsFromStatus(teamDir string, jobs []*job.Job, dryRun boo
 			if err := writeJobWithAudit(teamDir, j, "status_reconcile", "cli", result.Message, data); err != nil {
 				return nil, err
 			}
+			if result.After == job.StatusDone || result.After == job.StatusFailed {
+				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
+					return nil, err
+				}
+			}
 		}
 		results = append(results, result)
 	}
@@ -11917,6 +12106,11 @@ func reconcileSelectedJobsFromEventsWithFilter(teamDir string, jobs []*job.Job, 
 		if result.Changed && !dryRun {
 			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, jobEventReconcileData(meta, matchedBy)); err != nil {
 				return nil, err
+			}
+			if result.After == job.StatusDone || result.After == job.StatusFailed {
+				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
+					return nil, err
+				}
 			}
 		}
 		results = append(results, result)
@@ -11988,6 +12182,11 @@ func reconcileJobsFromLifecycleEvents(teamDir, daemonRoot string, jobs []*job.Jo
 			}
 			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, data); err != nil {
 				return nil, err
+			}
+			if result.After == job.StatusDone || result.After == job.StatusFailed {
+				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
+					return nil, err
+				}
 			}
 		}
 		results = append(results, result)
@@ -12796,6 +12995,9 @@ func advanceJob(cmd *cobra.Command, teamDir string, j *job.Job, workspace string
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", nil); err != nil {
 				return nil, err
 			}
+			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
+				return nil, err
+			}
 			return &jobAdvanceResult{Job: j, Message: jobStepsCompleteMessage(j)}, nil
 		}
 		j.Status = job.StatusBlocked
@@ -12830,6 +13032,10 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = stepID
+	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
+		return nil, exitErr(2)
+	}
 	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
 		return nil, exitErr(2)
@@ -13723,7 +13929,7 @@ func previewJobCleanup(repoRoot string, j *job.Job, forceBranch bool, verifyPR b
 		preview.PRVerification = &verification
 	}
 	if preview.Worktree != "" {
-		if err := validateJobOwnedWorktree(repoRoot, preview.Worktree); err != nil {
+		if err := worktreecleanup.ValidateJobOwnedWorktree(repoRoot, preview.Worktree); err != nil {
 			return preview, err
 		}
 		exists, err := pathExists(preview.Worktree)
@@ -13735,7 +13941,7 @@ func previewJobCleanup(repoRoot string, j *job.Job, forceBranch bool, verifyPR b
 	}
 	if preview.Branch != "" {
 		preview.BranchDeleteMode = jobCleanupBranchDeleteMode(forceBranch)
-		exists, err := gitBranchExists(repoRoot, preview.Branch)
+		exists, err := worktreecleanup.GitBranchExists(repoRoot, preview.Branch)
 		if err != nil {
 			return preview, err
 		}
@@ -13963,48 +14169,12 @@ func jobCleanupApplyCommandArgs(opts jobCleanupCommandOptions) []string {
 }
 
 func cleanupJobOwnedWorktree(repoRoot string, j *job.Job, forceBranch bool, verifyPR bool) (string, error) {
-	if strings.TrimSpace(j.Worktree) == "" && strings.TrimSpace(j.Branch) == "" {
-		return "nothing to clean", nil
-	}
 	if verifyPR {
 		if _, err := verifyJobPRMerged(repoRoot, j); err != nil {
 			return "", err
 		}
 	}
-	removed := make([]string, 0, 2)
-	if strings.TrimSpace(j.Worktree) != "" {
-		if err := validateJobOwnedWorktree(repoRoot, j.Worktree); err != nil {
-			return "", err
-		}
-		if _, err := os.Stat(j.Worktree); err == nil {
-			if out, err := exec.Command("git", "-C", repoRoot, "worktree", "remove", "--force", j.Worktree).CombinedOutput(); err != nil {
-				return "", fmt.Errorf("remove worktree %s: %w: %s", j.Worktree, err, strings.TrimSpace(string(out)))
-			}
-			removed = append(removed, "worktree")
-		} else if !os.IsNotExist(err) {
-			return "", err
-		}
-	}
-	if strings.TrimSpace(j.Branch) != "" {
-		exists, err := gitBranchExists(repoRoot, j.Branch)
-		if err != nil {
-			return "", err
-		}
-		if exists {
-			deleteFlag := "-d"
-			if forceBranch {
-				deleteFlag = "-D"
-			}
-			if out, err := exec.Command("git", "-C", repoRoot, "branch", deleteFlag, j.Branch).CombinedOutput(); err != nil {
-				return "", fmt.Errorf("remove branch %s: %w: %s", j.Branch, err, strings.TrimSpace(string(out)))
-			}
-			removed = append(removed, jobCleanupRemovedBranchSummary(forceBranch))
-		}
-	}
-	if len(removed) == 0 {
-		return "nothing to clean", nil
-	}
-	return "removed " + strings.Join(removed, " and "), nil
+	return worktreecleanup.CleanupJobOwnedWorktree(repoRoot, j, worktreecleanup.Options{ForceBranch: forceBranch})
 }
 
 func verifyJobPRMerged(repoRoot string, j *job.Job) (jobPRMergeVerification, error) {
@@ -14049,71 +14219,6 @@ func verifyJobPRMerged(repoRoot string, j *job.Job) (jobPRMergeVerification, err
 		return verification, fmt.Errorf("verify PR merge for job %q: PR is not merged (state=%s)", j.ID, state)
 	}
 	return verification, nil
-}
-
-func validateJobOwnedWorktree(repoRoot, worktreePath string) error {
-	rawRoot, err := filepath.Abs(filepath.Join(repoRoot, ".claude", "worktrees"))
-	if err != nil {
-		return err
-	}
-	rawPath, err := filepath.Abs(worktreePath)
-	if err != nil {
-		return err
-	}
-	if pathInsideDir(rawRoot, rawPath) {
-		return nil
-	}
-	root := resolvePathWithExistingPrefix(rawRoot)
-	path := resolvePathWithExistingPrefix(rawPath)
-	if pathInsideDir(root, path) {
-		return nil
-	}
-	return fmt.Errorf("refusing to remove worktree outside %s: %s", root, path)
-}
-
-func resolvePathWithExistingPrefix(path string) string {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil {
-		return resolved
-	}
-	missing := []string{}
-	current := path
-	for {
-		resolved, err := filepath.EvalSymlinks(current)
-		if err == nil {
-			for i := len(missing) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, missing[i])
-			}
-			return resolved
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return path
-		}
-		missing = append(missing, filepath.Base(current))
-		current = parent
-	}
-}
-
-func pathInsideDir(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
-func gitBranchExists(repoRoot, branch string) (bool, error) {
-	out, err := exec.Command("git", "-C", repoRoot, "branch", "--list", branch, "--format", "%(refname:short)").CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("list branch %s: %w: %s", branch, err, strings.TrimSpace(string(out)))
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.TrimSpace(line) == branch {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func parseJobFormat(format string) (*template.Template, error) {
@@ -14411,6 +14516,9 @@ func previewJobStepDispatch(teamDir string, j *job.Job, step *job.Step, workspac
 		payload["pipeline"] = j.Pipeline
 	}
 	payload["pipeline_step"] = step.ID
+	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+		return nil, err
+	}
 	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		return nil, err
 	}

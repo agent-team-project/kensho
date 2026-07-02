@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/template"
+	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
 // FileName is the conventional file name at the template root and at
@@ -58,6 +59,9 @@ type Instance struct {
 	Description string
 	// Replicas is meaningful only for ephemeral instances. Defaults to 1.
 	Replicas int
+	// ReapWorktree controls opt-in cleanup of job-owned worker worktrees.
+	// Defaults to "never".
+	ReapWorktree string
 	// Config holds per-instance overrides for the resolved config tree —
 	// dotted-path keys flattened from `[instances.<name>.config]` in TOML.
 	// Empty when no overrides are declared.
@@ -95,6 +99,9 @@ type Pipeline struct {
 	// instead of waiting for an external `agent-team pipeline tick`. Opt-in;
 	// defaults false so existing pipelines keep their manual-advance behavior.
 	AutoAdvance bool
+	// ReapWorktree controls opt-in cleanup for jobs created by this pipeline.
+	// Defaults to "never".
+	ReapWorktree string
 }
 
 // PipelineStep is one target dispatch in a pipeline.
@@ -369,18 +376,20 @@ type rawTopology struct {
 }
 
 type rawInstance struct {
-	Agent       string           `toml:"agent"`
-	Ephemeral   bool             `toml:"ephemeral"`
-	Description string           `toml:"description"`
-	Replicas    *int             `toml:"replicas"`
-	Config      map[string]any   `toml:"config"`
-	Triggers    []map[string]any `toml:"triggers"`
+	Agent        string           `toml:"agent"`
+	Ephemeral    bool             `toml:"ephemeral"`
+	Description  string           `toml:"description"`
+	Replicas     *int             `toml:"replicas"`
+	ReapWorktree string           `toml:"reap_worktree"`
+	Config       map[string]any   `toml:"config"`
+	Triggers     []map[string]any `toml:"triggers"`
 }
 
 type rawPipeline struct {
-	Trigger     map[string]any   `toml:"trigger"`
-	Steps       []map[string]any `toml:"steps"`
-	AutoAdvance bool             `toml:"auto_advance"`
+	Trigger      map[string]any   `toml:"trigger"`
+	Steps        []map[string]any `toml:"steps"`
+	AutoAdvance  bool             `toml:"auto_advance"`
+	ReapWorktree string           `toml:"reap_worktree"`
 }
 
 type rawSchedule struct {
@@ -476,6 +485,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		// author either fixes the config or marks the instance ephemeral.
 		return nil, fmt.Errorf("instance %q: replicas only valid on ephemeral instances", name)
 	}
+	reapWorktree, err := worktreepolicy.Normalize(ri.ReapWorktree)
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
 	cfg := template.Tree{}
 	if len(ri.Config) > 0 {
 		// `config` arrives as a free-form map[string]any from BurntSushi/toml.
@@ -488,13 +501,14 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		return nil, err
 	}
 	return &Instance{
-		Name:        name,
-		Agent:       ri.Agent,
-		Ephemeral:   ri.Ephemeral,
-		Description: ri.Description,
-		Replicas:    replicas,
-		Config:      cfg,
-		Triggers:    triggers,
+		Name:         name,
+		Agent:        ri.Agent,
+		Ephemeral:    ri.Ephemeral,
+		Description:  ri.Description,
+		Replicas:     replicas,
+		ReapWorktree: reapWorktree,
+		Config:       cfg,
+		Triggers:     triggers,
 	}, nil
 }
 
@@ -507,7 +521,11 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, AutoAdvance: rp.AutoAdvance}, nil
+	reapWorktree, err := worktreepolicy.Normalize(rp.ReapWorktree)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline %q: %w", name, err)
+	}
+	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree}, nil
 }
 
 func finaliseSchedule(name string, rs *rawSchedule) (*Schedule, error) {

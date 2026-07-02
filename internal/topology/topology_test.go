@@ -93,6 +93,9 @@ func TestParse_Sample(t *testing.T) {
 	if !worker.Ephemeral || worker.Replicas != 3 {
 		t.Errorf("worker: %+v", worker)
 	}
+	if worker.ReapWorktree != "never" {
+		t.Errorf("worker reap_worktree = %q, want never", worker.ReapWorktree)
+	}
 }
 
 func TestParse_ExampleTopologies(t *testing.T) {
@@ -126,6 +129,7 @@ func TestParse_Pipelines(t *testing.T) {
 [instances.worker]
 agent = "worker"
 ephemeral = true
+reap_worktree = "on_close"
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -134,6 +138,7 @@ match.target = "worker"
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 trigger.match.project = "Core"
+reap_worktree = "on_merge"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
@@ -167,8 +172,14 @@ max_attempts = 2
 	if p.AutoAdvance {
 		t.Fatalf("AutoAdvance should default to false, got true")
 	}
+	if p.ReapWorktree != "on_merge" {
+		t.Fatalf("pipeline ReapWorktree = %q, want on_merge", p.ReapWorktree)
+	}
 	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("steps = %+v", p.Steps)
+	}
+	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" {
+		t.Fatalf("worker ReapWorktree = %+v, want on_close", worker)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
@@ -203,6 +214,48 @@ target = "worker"
 	}
 	if !p.AutoAdvance {
 		t.Fatalf("AutoAdvance = false, want true when auto_advance = true")
+	}
+}
+
+func TestParse_RejectsInvalidReapWorktree(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "instance",
+			body: `
+[instances.worker]
+agent = "worker"
+reap_worktree = "always"
+`,
+		},
+		{
+			name: "pipeline",
+			body: `
+[instances.worker]
+agent = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+reap_worktree = "always"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]byte(tt.body))
+			if err == nil {
+				t.Fatal("expected invalid reap_worktree error")
+			}
+			if !strings.Contains(err.Error(), "reap_worktree must be on_close, on_merge, or never") {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 

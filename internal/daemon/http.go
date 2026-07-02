@@ -824,13 +824,14 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 	out := make([]map[string]any, 0, len(topo.Instances))
 	for _, inst := range topo.SortedInstances() {
 		entry := map[string]any{
-			"name":        inst.Name,
-			"agent":       inst.Agent,
-			"ephemeral":   inst.Ephemeral,
-			"description": inst.Description,
-			"replicas":    inst.Replicas,
-			"config":      map[string]any(inst.Config),
-			"triggers":    marshalTriggers(inst.Triggers),
+			"name":          inst.Name,
+			"agent":         inst.Agent,
+			"ephemeral":     inst.Ephemeral,
+			"description":   inst.Description,
+			"replicas":      inst.Replicas,
+			"reap_worktree": inst.ReapWorktree,
+			"config":        map[string]any(inst.Config),
+			"triggers":      marshalTriggers(inst.Triggers),
 		}
 		if events != nil && inst.Ephemeral {
 			running, queued := events.QueueDepth(inst.Name)
@@ -842,9 +843,10 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 	pipelines := make([]map[string]any, 0, len(topo.Pipelines))
 	for _, pipeline := range topo.SortedPipelines() {
 		pipelines = append(pipelines, map[string]any{
-			"name":    pipeline.Name,
-			"trigger": marshalTrigger(pipeline.Trigger),
-			"steps":   marshalPipelineSteps(pipeline.Steps),
+			"name":          pipeline.Name,
+			"trigger":       marshalTrigger(pipeline.Trigger),
+			"steps":         marshalPipelineSteps(pipeline.Steps),
+			"reap_worktree": pipeline.ReapWorktree,
 		})
 	}
 	schedules := make([]map[string]any, 0, len(topo.Schedules))
