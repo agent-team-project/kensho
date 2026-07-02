@@ -29,16 +29,30 @@ func newDoctorCmd() *cobra.Command {
 		format         string
 		runtimeKind    string
 		runtimeBinary  string
+		canary         bool
+		canaryTimeout  time.Duration
 	)
 	cwd, _ := os.Getwd()
 
 	cmd := &cobra.Command{
-		Use:   "doctor",
+		Use:   "doctor [agent]",
 		Short: "Sanity-check the vendored team.",
 		Long: "Sanity-check the vendored team: .agent_team/ layout, config.toml validity, " +
 			"template provenance, each agent's frontmatter, skill resolution across all agents, " +
 			"durable job files, pipeline workflow wiring, the selected runtime binary, whether the companion agent-teamd binary is available for daemon-backed lifecycle commands, and the daemon's running/readiness state when the repo is otherwise valid.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && !canary {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: agent argument requires --canary.")
+				return exitErr(2)
+			}
+			if len(args) > 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: accepts at most one canary agent.")
+				return exitErr(2)
+			}
+			if canaryTimeout <= 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: --canary-timeout must be > 0.")
+				return exitErr(2)
+			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team doctor: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -62,9 +76,17 @@ func newDoctorCmd() *cobra.Command {
 				strictTemplate = true
 			}
 			strictActionFlag := scopedDoctorStrictActionFlag(strict, strictRuntime)
+			canaryAgent := ""
+			if len(args) == 1 {
+				canaryAgent = args[0]
+			}
 			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, strictActionFlag, jsonOut, commands, tmpl, runtimeSelection{
 				Kind:   runtimeKind,
 				Binary: runtimeBinary,
+			}, doctorCanaryOptions{
+				Enabled: canary,
+				Agent:   canaryAgent,
+				Timeout: canaryTimeout,
 			})
 		},
 	}
@@ -78,10 +100,12 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to validate for this invocation. Overrides env and repo config.")
+	cmd.Flags().BoolVar(&canary, "canary", false, "Dispatch a throwaway daemon-backed runtime canary and verify it exits cleanly.")
+	cmd.Flags().DurationVar(&canaryTimeout, "canary-timeout", defaultDoctorCanaryTimeout, "Maximum time to wait for the daemon-backed canary to exit.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate bool, strictActionFlag string, jsonOut, commands bool, tmpl *texttemplate.Template, selection runtimeSelection) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate bool, strictActionFlag string, jsonOut, commands bool, tmpl *texttemplate.Template, selection runtimeSelection, canaryOpts doctorCanaryOptions) error {
 	target = effectiveRepoTarget(cmd, target)
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -106,7 +130,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 	if st, err := os.Stat(teamDir); err != nil || !st.IsDir() {
 		problems = append(problems, fmt.Sprintf("%s not found — run `agent-team init` first.", teamDir))
 		actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", abs}), " "))
-		return reportDoctor(cmd, problems, warnings, actions, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
+		return reportDoctor(cmd, problems, warnings, actions, nil, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
 	}
 	if info, err := collectRuntimeInfoForConfigWithSelection(filepath.Join(teamDir, "config.toml"), selection); err != nil {
 		problems = append(problems, err.Error())
@@ -328,8 +352,22 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		warnings = append(warnings, healthWarnings...)
 		actions = appendDoctorActions(actions, healthActions...)
 	}
+	var canary *doctorCanaryResult
+	if canaryOpts.Enabled && len(problems) == 0 {
+		canaryOpts.Runtime = selection
+		result, err := collectDoctorCanary(cmd, abs, teamDir, canaryOpts)
+		if err != nil {
+			problems = append(problems, "canary: "+err.Error())
+		} else {
+			canary = result
+			actions = appendDoctorActions(actions, result.Actions...)
+			if !result.OK {
+				problems = append(problems, "canary: "+doctorCanaryProblemSummary(result))
+			}
+		}
+	}
 
-	return reportDoctor(cmd, problems, warnings, actions, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
+	return reportDoctor(cmd, problems, warnings, actions, canary, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
 }
 
 func doctorDaemonStatusWarnings(status daemonStatusJSON) []string {
@@ -479,18 +517,20 @@ func doctorSymlinkResolvesInside(path, root string) bool {
 }
 
 type doctorResult struct {
-	OK       bool     `json:"ok"`
-	Problems []string `json:"problems,omitempty"`
-	Warnings []string `json:"warnings,omitempty"`
-	Actions  []string `json:"actions,omitempty"`
+	OK       bool                `json:"ok"`
+	Problems []string            `json:"problems,omitempty"`
+	Warnings []string            `json:"warnings,omitempty"`
+	Actions  []string            `json:"actions,omitempty"`
+	Canary   *doctorCanaryResult `json:"canary,omitempty"`
 }
 
-func reportDoctor(cmd *cobra.Command, problems, warnings, actions []string, jsonOut, commands bool, tmpl *texttemplate.Template, scope operatorCommandScope) error {
+func reportDoctor(cmd *cobra.Command, problems, warnings, actions []string, canary *doctorCanaryResult, jsonOut, commands bool, tmpl *texttemplate.Template, scope operatorCommandScope) error {
 	result := doctorResult{
 		OK:       len(problems) == 0,
 		Problems: problems,
 		Warnings: warnings,
 		Actions:  actions,
+		Canary:   canary,
 	}
 	if jsonOut {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
@@ -521,6 +561,9 @@ func reportDoctor(cmd *cobra.Command, problems, warnings, actions []string, json
 	}
 	if len(problems) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "agent-team doctor: OK")
+		if canary != nil {
+			renderDoctorCanaryText(cmd.OutOrStdout(), canary)
+		}
 		for _, w := range warnings {
 			fmt.Fprintf(cmd.ErrOrStderr(), "  warning: %s\n", w)
 		}
@@ -532,6 +575,9 @@ func reportDoctor(cmd *cobra.Command, problems, warnings, actions []string, json
 	}
 	for _, w := range warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "  warning: %s\n", w)
+	}
+	if canary != nil {
+		renderDoctorCanaryText(cmd.ErrOrStderr(), canary)
 	}
 	return exitErr(1)
 }

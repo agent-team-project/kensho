@@ -246,6 +246,144 @@ func TestDoctorJSONReportsWarnings(t *testing.T) {
 	}
 }
 
+func TestDoctorCanaryRequiresDaemon(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--canary", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --canary to fail when daemon is down")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor canary json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.OK || result.Canary == nil || result.Canary.OK {
+		t.Fatalf("doctor canary result = %+v, want failed canary", result)
+	}
+	if !containsRuntimeIssue(result.Canary.Issues, "daemon", "not_running") {
+		t.Fatalf("canary issues = %+v, want daemon/not_running", result.Canary.Issues)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --canary --json stderr = %q", errOut.String())
+	}
+}
+
+func TestDoctorCanaryCodexSuccessCleansState(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "codex-test" {
+			t.Fatalf("look path bin = %q, want codex-test", bin)
+		}
+		return "/usr/local/bin/codex-test", nil
+	})
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	target := tmp
+	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
+		target = eval
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, doctorCanarySuccessSpawnerForTest(t))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--canary", "worker", "--runtime", "codex", "--runtime-bin", "codex-test", "--canary-timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor canary codex success: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor canary json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || result.Canary == nil || !result.Canary.OK {
+		t.Fatalf("doctor canary result = %+v, want ok", result)
+	}
+	if result.Canary.Runtime != string(runtimebin.KindCodex) || result.Canary.RuntimeBinary != "codex-test" {
+		t.Fatalf("canary runtime = %s/%s, want codex/codex-test", result.Canary.Runtime, result.Canary.RuntimeBinary)
+	}
+	if !result.Canary.RuntimeBanner {
+		t.Fatalf("canary did not record Codex runtime banner: %+v", result.Canary)
+	}
+	if result.Canary.LastMessage != doctorCanaryMarker {
+		t.Fatalf("last message = %q, want marker", result.Canary.LastMessage)
+	}
+	if !result.Canary.CleanupOK {
+		t.Fatalf("cleanup failed: %+v", result.Canary)
+	}
+	if _, err := os.Stat(filepath.Join(teamDir, "state", result.Canary.Instance)); !os.IsNotExist(err) {
+		t.Fatalf("canary state still exists or unexpected stat err: %v", err)
+	}
+	if _, err := daemon.ReadMetadata(root, result.Canary.Instance); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canary daemon metadata still exists or unexpected err: %v", err)
+	}
+}
+
+func TestDoctorCanaryClassifiesMissingDaemonRuntimeBinary(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "missing-codex-doctor-test" {
+			t.Fatalf("look path bin = %q, want missing-codex-doctor-test", bin)
+		}
+		return "", exec.ErrNotFound
+	})
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	target := tmp
+	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
+		target = eval
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--canary", "--runtime", "codex", "--runtime-bin", "missing-codex-doctor-test", "--canary-timeout", "2s", "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected missing daemon runtime binary to fail canary")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor canary json: %v\nbody=%s stderr=%s", err, out.String(), errOut.String())
+	}
+	if result.Canary == nil || result.Canary.OK {
+		t.Fatalf("canary result = %+v, want failed canary", result.Canary)
+	}
+	if !containsRuntimeIssue(result.Canary.Issues, "dispatch", "binary_missing") {
+		t.Fatalf("canary issues = %+v, want dispatch/binary_missing", result.Canary.Issues)
+	}
+	if !containsDoctorMessage(result.Canary.Actions, "agent-team runtime ls --json") {
+		t.Fatalf("canary actions = %+v, want runtime ls action", result.Canary.Actions)
+	}
+}
+
 func TestDoctorFormatReportsWarnings(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
@@ -1421,4 +1559,49 @@ func containsDoctorMessage(messages []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func containsRuntimeIssue(issues []runtimeProbeIssue, source, id string) bool {
+	for _, issue := range issues {
+		if issue.Source == source && issue.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func doctorCanarySuccessSpawnerForTest(t *testing.T) daemon.Spawner {
+	t.Helper()
+	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		bin, err := exec.LookPath("sh")
+		if err != nil {
+			return nil, err
+		}
+		stdin, err := os.Open(os.DevNull)
+		if err != nil {
+			return nil, err
+		}
+		stdout, err := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			_ = stdin.Close()
+			return nil, err
+		}
+		stderr, err := os.OpenFile(stderrPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			_ = stdin.Close()
+			_ = stdout.Close()
+			return nil, err
+		}
+		defer stdin.Close()
+		defer stdout.Close()
+		defer stderr.Close()
+
+		lastMessagePath, _ := argValue(args, "--output-last-message")
+		script := `if [ -n "$1" ]; then printf '%s' "$2" > "$1"; fi; printf '%s\n' "$2"`
+		return os.StartProcess(bin, []string{"sh", "-c", script, "sh", lastMessagePath, doctorCanaryMarker}, &os.ProcAttr{
+			Dir:   workspace,
+			Env:   env,
+			Files: []*os.File{stdin, stdout, stderr},
+		})
+	}
 }
