@@ -878,7 +878,7 @@ func newPipelineTriageCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline triage: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := parseJobTriageFilters(minSeverity, reasons)
+			filters, err := parseJobTriageFilters(minSeverity, reasons, false, false)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline triage: %v\n", err)
 				return exitErr(2)

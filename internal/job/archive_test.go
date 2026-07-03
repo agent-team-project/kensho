@@ -26,6 +26,9 @@ func TestCompactTerminalArchivesJobAndEvents(t *testing.T) {
 	if err := AppendEvent(teamDir, &Event{TS: old, JobID: j.ID, Type: "closed", Status: StatusDone, Message: "done"}); err != nil {
 		t.Fatalf("AppendEvent: %v", err)
 	}
+	if err := AppendGateRecord(teamDir, &GateRecord{TS: old, JobID: j.ID, Name: "rust-checks", Status: GateStatusFail, Signature: "missing-binary"}); err != nil {
+		t.Fatalf("AppendGateRecord: %v", err)
+	}
 
 	active, err := New("SQU-41", "worker", "keep me", old)
 	if err != nil {
@@ -43,6 +46,9 @@ func TestCompactTerminalArchivesJobAndEvents(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].ID != "squ-40" || results[0].Action != "archived" {
 		t.Fatalf("results = %+v", results)
+	}
+	if !results[0].EventLog || !results[0].GateLog {
+		t.Fatalf("archive result logs = %+v, want event and gate logs", results[0])
 	}
 	if _, err := os.Stat(filepath.Join(teamDir, "daemon", "archive", "2026-06.jsonl")); err != nil {
 		t.Fatalf("archive file missing: %v", err)
@@ -63,6 +69,16 @@ func TestCompactTerminalArchivesJobAndEvents(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "closed" {
 		t.Fatalf("events = %+v", events)
+	}
+	gates, err := ListGateRecords(teamDir, "squ-40")
+	if err != nil {
+		t.Fatalf("ListGateRecords: %v", err)
+	}
+	if len(gates) != 1 || gates[0].Name != "rust-checks" || gates[0].Status != GateStatusFail {
+		t.Fatalf("gates = %+v", gates)
+	}
+	if _, err := os.Stat(GatePath(teamDir, "squ-40")); !os.IsNotExist(err) {
+		t.Fatalf("live gate log err = %v, want not exist", err)
 	}
 	if _, err := Read(teamDir, "squ-41"); err != nil {
 		t.Fatalf("active job removed: %v", err)

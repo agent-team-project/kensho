@@ -94,6 +94,10 @@ match.target = "worker"
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
+[pipelines.ticket_to_pr.infra_signatures]
+disk_exhaustion = "No space left on device"
+missing_binary = "error: test binary .* not found"
+
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
@@ -118,6 +122,11 @@ Normalized intake events use names like `ticket.created`, `ticket.updated`,
 `pr.opened`, and `pr.merged`. Older topology files may still use
 `ticket_webhook` or `pr_webhook`; those trigger names match the corresponding
 normalized events, with the suffix available as `match.event`.
+
+Pipeline `infra_signatures` entries are regexes used to classify failed gate
+signatures reported by `agent-team job gate set`. They classify an explicit
+`pass`/`fail` result as `infra` or `content`; they do not decide whether the
+gate passed.
 
 ## Job TOML
 
@@ -210,6 +219,28 @@ audit rows across pipeline-owned jobs without opening each job log separately.
 Use `agent-team team job-events <team>` for the same durable audit view inside
 one declared team boundary. Add `--follow` to stream newly appended audit rows
 from any matching job.
+
+## Job Gates JSONL
+
+Gate results are append-only JSONL rows at
+`.agent_team/jobs/<job-id>.gates.jsonl`. Latest row per gate name wins in CLI
+views.
+
+They record:
+
+- timestamp
+- job id
+- gate name
+- explicit status (`pass` or `fail`)
+- optional failure signature
+- optional log reference
+- actor
+
+Use `agent-team job gate set <job-id> <gate-name> --status pass|fail` to append
+records and `agent-team job gates <job-id> [--json]` to read the latest folded
+results. Failed results are classified as `infra` when their signature matches
+the job pipeline's `[pipelines.<name>.infra_signatures]`; otherwise they are
+`content`.
 
 ## Runtime Metadata
 

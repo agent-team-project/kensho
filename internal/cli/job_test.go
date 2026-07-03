@@ -2334,6 +2334,155 @@ func TestJobShowIncludesQueueItems(t *testing.T) {
 	}
 }
 
+func TestJobGatesClassifyAndSurfaceInJobViews(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture+`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[pipelines.ticket_to_pr.infra_signatures]
+missing_binary = "missing-binary:.*"
+disk_exhaustion = "No space left on device"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	infraJob := mustNewJob(t, "SQU-300", "worker")
+	infraJob.Pipeline = "ticket_to_pr"
+	infraJob.Status = job.StatusRunning
+	infraJob.CreatedAt = now
+	infraJob.UpdatedAt = now
+	if err := job.Write(teamDir, infraJob); err != nil {
+		t.Fatalf("write infra job: %v", err)
+	}
+	contentJob := mustNewJob(t, "SQU-301", "worker")
+	contentJob.Pipeline = "ticket_to_pr"
+	contentJob.Status = job.StatusRunning
+	contentJob.CreatedAt = now
+	contentJob.UpdatedAt = now
+	if err := job.Write(teamDir, contentJob); err != nil {
+		t.Fatalf("write content job: %v", err)
+	}
+
+	setInfra := NewRootCmd()
+	setInfraOut, setInfraErr := &bytes.Buffer{}, &bytes.Buffer{}
+	setInfra.SetOut(setInfraOut)
+	setInfra.SetErr(setInfraErr)
+	setInfra.SetArgs([]string{"job", "gate", "set", "SQU-300", "rust-checks", "--repo", root, "--status", "fail", "--signature", "missing-binary:coral-app/grpc", "--log-ref", "logs/rust.txt", "--actor", "worker-squ-300", "--json"})
+	if err := setInfra.Execute(); err != nil {
+		t.Fatalf("job gate set infra: %v\nstderr=%s", err, setInfraErr.String())
+	}
+	var infraResult jobGateResult
+	if err := json.Unmarshal(setInfraOut.Bytes(), &infraResult); err != nil {
+		t.Fatalf("decode gate set json: %v\nbody=%s", err, setInfraOut.String())
+	}
+	if infraResult.Class != jobGateClassInfra || infraResult.MatchedSignature != "missing_binary" || infraResult.LogRef != "logs/rust.txt" {
+		t.Fatalf("infra gate result = %+v", infraResult)
+	}
+	setPass := NewRootCmd()
+	setPass.SetOut(&bytes.Buffer{})
+	setPass.SetErr(&bytes.Buffer{})
+	setPass.SetArgs([]string{"job", "gate", "set", "SQU-300", "unit-tests", "--repo", root, "--status", "pass"})
+	if err := setPass.Execute(); err != nil {
+		t.Fatalf("job gate set pass: %v", err)
+	}
+	setContent := NewRootCmd()
+	setContent.SetOut(&bytes.Buffer{})
+	setContent.SetErr(&bytes.Buffer{})
+	setContent.SetArgs([]string{"job", "gate", "set", "SQU-301", "lint", "--repo", root, "--status", "fail", "--signature", "gofmt changed files"})
+	if err := setContent.Execute(); err != nil {
+		t.Fatalf("job gate set content: %v", err)
+	}
+
+	gatesCmd := NewRootCmd()
+	gatesOut, gatesErr := &bytes.Buffer{}, &bytes.Buffer{}
+	gatesCmd.SetOut(gatesOut)
+	gatesCmd.SetErr(gatesErr)
+	gatesCmd.SetArgs([]string{"job", "gates", "SQU-300", "--repo", root, "--json"})
+	if err := gatesCmd.Execute(); err != nil {
+		t.Fatalf("job gates: %v\nstderr=%s", err, gatesErr.String())
+	}
+	var gates []jobGateResult
+	if err := json.Unmarshal(gatesOut.Bytes(), &gates); err != nil {
+		t.Fatalf("decode gates json: %v\nbody=%s", err, gatesOut.String())
+	}
+	if len(gates) != 2 || gates[0].Name != "rust-checks" || gates[0].Class != jobGateClassInfra || gates[1].Name != "unit-tests" || gates[1].Class != "" {
+		t.Fatalf("gates = %+v", gates)
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"job", "show", "SQU-300", "--repo", root})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("job show gates: %v\nstderr=%s", err, showErr.String())
+	}
+	for _, want := range []string{"Gates:", "rust-checks", "infra", "logs/rust.txt"} {
+		if !strings.Contains(showOut.String(), want) {
+			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
+		}
+	}
+
+	snapshotCmd := NewRootCmd()
+	snapshotOut, snapshotErr := &bytes.Buffer{}, &bytes.Buffer{}
+	snapshotCmd.SetOut(snapshotOut)
+	snapshotCmd.SetErr(snapshotErr)
+	snapshotCmd.SetArgs([]string{"job", "snapshot", "SQU-300", "--repo", root, "--json"})
+	if err := snapshotCmd.Execute(); err != nil {
+		t.Fatalf("job snapshot gates: %v\nstderr=%s", err, snapshotErr.String())
+	}
+	var snapshot jobSnapshotResult
+	if err := json.Unmarshal(snapshotOut.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode snapshot json: %v\nbody=%s", err, snapshotOut.String())
+	}
+	if len(snapshot.Gates) != 2 || snapshot.Gates[0].Class != jobGateClassInfra {
+		t.Fatalf("snapshot gates = %+v", snapshot.Gates)
+	}
+
+	infraTriage := NewRootCmd()
+	infraTriageOut, infraTriageErr := &bytes.Buffer{}, &bytes.Buffer{}
+	infraTriage.SetOut(infraTriageOut)
+	infraTriage.SetErr(infraTriageErr)
+	infraTriage.SetArgs([]string{"job", "triage", "--repo", root, "--infra-only", "--json"})
+	if err := infraTriage.Execute(); err != nil {
+		t.Fatalf("job triage infra-only: %v\nstderr=%s", err, infraTriageErr.String())
+	}
+	var infraSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(infraTriageOut.Bytes(), &infraSnapshot); err != nil {
+		t.Fatalf("decode infra triage: %v\nbody=%s", err, infraTriageOut.String())
+	}
+	if len(infraSnapshot.Attention) != 1 || infraSnapshot.Attention[0].JobID != "squ-300" || infraSnapshot.Attention[0].GateInfra != 1 || !containsString(infraSnapshot.Attention[0].Reasons, "gate_infra_failed") {
+		t.Fatalf("infra triage = %+v", infraSnapshot.Attention)
+	}
+
+	teamContent := NewRootCmd()
+	teamContentOut, teamContentErr := &bytes.Buffer{}, &bytes.Buffer{}
+	teamContent.SetOut(teamContentOut)
+	teamContent.SetErr(teamContentErr)
+	teamContent.SetArgs([]string{"team", "triage", "delivery", "--repo", root, "--content-only", "--json"})
+	if err := teamContent.Execute(); err != nil {
+		t.Fatalf("team triage content-only: %v\nstderr=%s", err, teamContentErr.String())
+	}
+	var contentSnapshot jobTriageSnapshot
+	if err := json.Unmarshal(teamContentOut.Bytes(), &contentSnapshot); err != nil {
+		t.Fatalf("decode content triage: %v\nbody=%s", err, teamContentOut.String())
+	}
+	if len(contentSnapshot.Attention) != 1 || contentSnapshot.Attention[0].JobID != "squ-301" || contentSnapshot.Attention[0].GateContent != 1 || !containsString(contentSnapshot.Attention[0].Reasons, "gate_content_failed") {
+		t.Fatalf("content triage = %+v", contentSnapshot.Attention)
+	}
+}
+
 func TestJobQueueListsOwnedItems(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

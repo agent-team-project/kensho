@@ -101,6 +101,10 @@ Pipelines define job steps:
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
+[pipelines.ticket_to_pr.infra_signatures]
+disk_exhaustion = "No space left on device"
+missing_binary = "error: test binary .* not found"
+
 [[pipelines.ticket_to_pr.steps]]
 id = "triage"
 target = "ticket-manager"
@@ -124,6 +128,11 @@ Use `gate = "pr"` when a later step should wait for PR metadata. The step remain
 Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionally bypassed. The job stores that step as `status = "done"` plus `skipped = true`, allowing dependent steps to continue while preserving the operator decision.
 
 Use `optional = true` when a stage is useful but should not block the workflow if it fails. Optional failures still appear in `job explain`, `pipeline explain`, and retry views, but downstream `after` dependencies are treated as satisfied.
+
+Use `[pipelines.<name>.infra_signatures]` to classify failed gate signatures
+reported with `agent-team job gate set`. These regexes only classify explicit
+failed results as `infra`; unmatched failed gates are `content`, and pass/fail
+is always decided by the reporting agent.
 
 ## Teams
 

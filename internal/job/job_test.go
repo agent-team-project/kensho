@@ -324,6 +324,78 @@ func TestJobEventsMissingAndInvalid(t *testing.T) {
 	}
 }
 
+func TestJobGateRecordsAppendListLatest(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.FixedZone("local", 3600))
+	if err := AppendGateRecord(teamDir, &GateRecord{
+		TS:        now,
+		JobID:     "SQU-42",
+		Name:      " rust-checks ",
+		Status:    GateStatusFail,
+		Signature: " missing-binary:coral-app/grpc ",
+		LogRef:    " logs/rust.txt ",
+		Actor:     " worker-squ-42 ",
+	}); err != nil {
+		t.Fatalf("AppendGateRecord first: %v", err)
+	}
+	if err := AppendGateRecord(teamDir, &GateRecord{
+		JobID:  "squ-42",
+		Name:   "rust-checks",
+		Status: GateStatusPass,
+	}); err != nil {
+		t.Fatalf("AppendGateRecord second: %v", err)
+	}
+	if err := AppendGateRecord(teamDir, &GateRecord{
+		JobID:  "squ-42",
+		Name:   "lint",
+		Status: GateStatusFail,
+	}); err != nil {
+		t.Fatalf("AppendGateRecord third: %v", err)
+	}
+	records, err := ListGateRecords(teamDir, "SQU-42")
+	if err != nil {
+		t.Fatalf("ListGateRecords: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("records len=%d, want 3: %+v", len(records), records)
+	}
+	first := records[0]
+	if first.JobID != "squ-42" || first.Name != "rust-checks" || first.Status != GateStatusFail || first.TS.Location() != time.UTC {
+		t.Fatalf("first record = %+v", first)
+	}
+	if first.Signature != "missing-binary:coral-app/grpc" || first.LogRef != "logs/rust.txt" || first.Actor != "worker-squ-42" {
+		t.Fatalf("first record fields = %+v", first)
+	}
+	latest := LatestGateRecords(records)
+	if len(latest) != 2 || latest[0].Name != "lint" || latest[1].Name != "rust-checks" || latest[1].Status != GateStatusPass {
+		t.Fatalf("latest = %+v", latest)
+	}
+}
+
+func TestJobGateRecordsMissingAndInvalid(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	records, err := ListGateRecords(teamDir, "missing")
+	if err != nil {
+		t.Fatalf("ListGateRecords missing: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("missing records = %+v", records)
+	}
+	if err := AppendGateRecord(teamDir, &GateRecord{JobID: "SQU-42", Status: GateStatusPass}); err == nil {
+		t.Fatalf("AppendGateRecord accepted missing name")
+	}
+	if err := os.MkdirAll(Directory(teamDir), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(GatePath(teamDir, "squ-43"), []byte("{bad json}\n"), 0o644); err != nil {
+		t.Fatalf("write bad gate log: %v", err)
+	}
+	_, err = ListGateRecords(teamDir, "squ-43")
+	if err == nil || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("ListGateRecords invalid err=%v, want line number", err)
+	}
+}
+
 func TestReconcilePRMarksMergedJobDone(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)

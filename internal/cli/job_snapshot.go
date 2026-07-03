@@ -151,6 +151,7 @@ type jobSnapshotResult struct {
 	JobEvents               []job.Event              `json:"job_events,omitempty"`
 	LifecycleEvents         []daemon.LifecycleEvent  `json:"lifecycle_events,omitempty"`
 	Timeline                []jobTimelineEntry       `json:"timeline,omitempty"`
+	Gates                   []jobGateResult          `json:"gates,omitempty"`
 	Queue                   []*daemon.QueueItem      `json:"queue,omitempty"`
 	QueueSummary            *queueSummary            `json:"queue_summary,omitempty"`
 	QueueQuarantine         []queueQuarantineItem    `json:"queue_quarantine,omitempty"`
@@ -234,6 +235,11 @@ func collectJobSnapshot(teamDir, repoRoot string, j *job.Job, opts jobSnapshotOp
 			}
 			out.Timeline = timeline
 		}
+	}
+	if gates, err := latestClassifiedJobGateResults(teamDir, j); err != nil {
+		out.addError("gates", err)
+	} else {
+		out.Gates = gates
 	}
 	if queue, err := queueItemsForJob(teamDir, j); err != nil {
 		out.addError("queue", err)
@@ -588,6 +594,9 @@ func jobSnapshotActions(j *job.Job, snapshot *jobSnapshotResult, instance string
 		if len(snapshot.OutboxQuarantine) > 0 {
 			add(fmt.Sprintf("agent-team job outbox quarantine %s", j.ID))
 		}
+		if len(snapshot.Gates) > 0 {
+			add(fmt.Sprintf("agent-team job gates %s", j.ID))
+		}
 		for _, row := range snapshot.Inbox {
 			if row.Unread > 0 {
 				add(fmt.Sprintf("agent-team inbox show %s --unread", row.Instance))
@@ -684,6 +693,16 @@ func renderJobSnapshotSummary(w io.Writer, snapshot *jobSnapshotResult) {
 	if snapshot.Timeline != nil {
 		jobRows, lifecycleRows := countJobTimelineSources(snapshot.Timeline)
 		fmt.Fprintf(w, "timeline: events=%d job=%d lifecycle=%d\n", len(snapshot.Timeline), jobRows, lifecycleRows)
+	}
+	if len(snapshot.Gates) > 0 {
+		infra, content := jobGateClassCounts(snapshot.Gates)
+		failed := 0
+		for _, gate := range snapshot.Gates {
+			if gate.Status == job.GateStatusFail {
+				failed++
+			}
+		}
+		fmt.Fprintf(w, "gates: total=%d failed=%d infra=%d content=%d\n", len(snapshot.Gates), failed, infra, content)
 	}
 	if snapshot.QueueSummary != nil {
 		fmt.Fprintln(w, queueSummaryLine(*snapshot.QueueSummary))

@@ -2365,6 +2365,8 @@ func newTeamTriageCmd() *cobra.Command {
 		staleAfter  time.Duration
 		minSeverity string
 		reasons     []string
+		infraOnly   bool
+		contentOnly bool
 		watch       bool
 		noClear     bool
 		interval    time.Duration
@@ -2405,7 +2407,7 @@ func newTeamTriageCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team triage: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := parseJobTriageFilters(minSeverity, reasons)
+			filters, err := parseJobTriageFilters(minSeverity, reasons, infraOnly, contentOnly)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team triage: %v\n", err)
 				return exitErr(2)
@@ -2443,6 +2445,8 @@ func newTeamTriageCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks).")
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&infraOnly, "infra-only", false, "Only show attention rows with failed gates classified as infra.")
+	cmd.Flags().BoolVar(&contentOnly, "content-only", false, "Only show attention rows with failed gates classified as content.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the team triage view until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")

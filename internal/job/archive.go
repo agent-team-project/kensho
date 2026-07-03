@@ -15,12 +15,13 @@ import (
 const archiveRecordTypeJob = "job"
 
 type archivedJobRecord struct {
-	Type       string    `json:"type"`
-	ArchivedAt time.Time `json:"archived_at"`
-	ID         string    `json:"id"`
-	TerminalAt time.Time `json:"terminal_at"`
-	Job        *Job      `json:"job"`
-	Events     []Event   `json:"events,omitempty"`
+	Type       string       `json:"type"`
+	ArchivedAt time.Time    `json:"archived_at"`
+	ID         string       `json:"id"`
+	TerminalAt time.Time    `json:"terminal_at"`
+	Job        *Job         `json:"job"`
+	Events     []Event      `json:"events,omitempty"`
+	Gates      []GateRecord `json:"gates,omitempty"`
 }
 
 // TerminalArchiveResult describes one live terminal job matched by archive
@@ -36,6 +37,7 @@ type TerminalArchiveResult struct {
 	DryRun      bool      `json:"dry_run,omitempty"`
 	JobFile     bool      `json:"job_file"`
 	EventLog    bool      `json:"event_log"`
+	GateLog     bool      `json:"gate_log"`
 }
 
 // IsTerminalStatus reports whether status is a durable terminal job status.
@@ -94,6 +96,18 @@ func ArchivedEvents(teamDir, rawID string) ([]Event, error) {
 	return append([]Event(nil), record.Events...), nil
 }
 
+// ArchivedGates returns the archived gate-result snapshot for a compacted job.
+func ArchivedGates(teamDir, rawID string) ([]GateRecord, error) {
+	record, ok, err := readArchivedJobRecord(teamDir, rawID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return append([]GateRecord(nil), record.Gates...), nil
+}
+
 // CompactTerminal archives terminal jobs older than retention and removes their
 // live job and event files. A retention <= 0 leaves files untouched.
 func CompactTerminal(teamDir string, retention time.Duration, now time.Time, dryRun bool) ([]TerminalArchiveResult, error) {
@@ -137,6 +151,16 @@ func CompactTerminal(teamDir string, retention time.Duration, now time.Time, dry
 		if len(events) > 0 {
 			result.EventLog = true
 		}
+		gates, err := listLiveGateRecords(teamDir, j.ID)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) && !os.IsNotExist(err) {
+				return nil, err
+			}
+			gates = nil
+		}
+		if len(gates) > 0 {
+			result.GateLog = true
+		}
 		if dryRun {
 			result.Action = "would_archive"
 			results = append(results, result)
@@ -150,6 +174,7 @@ func CompactTerminal(teamDir string, retention time.Duration, now time.Time, dry
 			TerminalAt: terminalAt,
 			Job:        j,
 			Events:     events,
+			Gates:      gates,
 		})
 		if err != nil {
 			return nil, err
@@ -160,6 +185,9 @@ func CompactTerminal(teamDir string, retention time.Duration, now time.Time, dry
 			return nil, err
 		}
 		if err := removeIfExists(EventPath(teamDir, j.ID)); err != nil {
+			return nil, err
+		}
+		if err := removeIfExists(GatePath(teamDir, j.ID)); err != nil {
 			return nil, err
 		}
 		results = append(results, result)

@@ -116,6 +116,10 @@ strategy = "squash"              # squash, rebase, or script
 # script = ".agent_team/scripts/union-merge.sh"   # required when strategy = "script"
 # owned_paths = ["coverage/baselines", "coverage/counts.json"]
 
+[pipelines.ticket_to_pr.infra_signatures]
+disk_exhaustion = "No space left on device"
+missing_binary = "error: test binary .* not found"
+
 [[pipelines.ticket_to_pr.steps]]
 id     = "implement"
 label  = "Implementation"
@@ -172,6 +176,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `merge.strategy` | no | — | Mechanical merge strategy for pipeline jobs. Supported values: `"squash"`, `"rebase"`, or `"script"`. When present, `agent-team job merge <job-id>` applies this strategy and records the outcome on the job. |
 | `merge.script` | for `script` | — | Repo-relative or absolute executable path for custom merge mechanics. The script receives three positional arguments: base branch, head branch, and worktree path. A nonzero exit blocks the merge. |
 | `merge.owned_paths` | no | empty | Repo-relative path prefixes or glob patterns owned by the merge strategy. If every changed file between base and head matches these paths, `job merge --dry-run` and `job merge` surface `drift: reconcilable` on the job/result; otherwise drift is `unclassified`. |
+| `infra_signatures.<name>` | no | empty | Regex used to classify explicit failed job gate signatures as infrastructure failures. Failed gates that do not match are classified as content failures. Signatures classify only; agents still report pass/fail explicitly with `agent-team job gate set`. |
 | `steps[].id` | yes | — | Unique step identifier within the pipeline. |
 | `steps[].label` | no | empty | Human-readable step name for CLI, graph, and job diagnostics. The stable `id` is still used for commands. |
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |

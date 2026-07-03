@@ -8,6 +8,7 @@ package topology
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -120,6 +121,9 @@ type Pipeline struct {
 	// ReapWorktree controls opt-in cleanup for jobs created by this pipeline.
 	// Defaults to "never".
 	ReapWorktree string
+	// InfraSignatures maps stable names to regex patterns that classify failed
+	// gate signatures as infrastructure failures.
+	InfraSignatures map[string]string
 }
 
 // PipelineMerge describes `[pipelines.<name>.merge]`.
@@ -404,11 +408,12 @@ type rawInstance struct {
 }
 
 type rawPipeline struct {
-	Trigger      map[string]any    `toml:"trigger"`
-	Steps        []map[string]any  `toml:"steps"`
-	Merge        *rawPipelineMerge `toml:"merge"`
-	AutoAdvance  bool              `toml:"auto_advance"`
-	ReapWorktree string            `toml:"reap_worktree"`
+	Trigger         map[string]any    `toml:"trigger"`
+	Steps           []map[string]any  `toml:"steps"`
+	Merge           *rawPipelineMerge `toml:"merge"`
+	InfraSignatures map[string]string `toml:"infra_signatures"`
+	AutoAdvance     bool              `toml:"auto_advance"`
+	ReapWorktree    string            `toml:"reap_worktree"`
 }
 
 type rawPipelineMerge struct {
@@ -578,7 +583,11 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree}, nil
+	infraSignatures, err := parsePipelineInfraSignatures(name, rp.InfraSignatures)
+	if err != nil {
+		return nil, err
+	}
+	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree, InfraSignatures: infraSignatures}, nil
 }
 
 func parsePipelineMerge(name string, raw *rawPipelineMerge) (*PipelineMerge, error) {
@@ -628,6 +637,28 @@ func parseOwnedMergePaths(name string, raw *rawPipelineMerge) ([]string, error) 
 		out = append(out, p)
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+func parsePipelineInfraSignatures(name string, raw map[string]string) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(raw))
+	for key, pattern := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return nil, fmt.Errorf("pipeline %q infra_signatures: name must be non-empty", name)
+		}
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			return nil, fmt.Errorf("pipeline %q infra_signatures.%s: pattern must be non-empty", name, key)
+		}
+		if _, err := regexp.Compile(pattern); err != nil {
+			return nil, fmt.Errorf("pipeline %q infra_signatures.%s: invalid regex: %w", name, key, err)
+		}
+		out[key] = pattern
+	}
 	return out, nil
 }
 

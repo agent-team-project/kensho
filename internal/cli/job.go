@@ -41,6 +41,8 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobCreateCmd())
 	cmd.AddCommand(newJobLsCmd())
 	cmd.AddCommand(newJobShowCmd())
+	cmd.AddCommand(newJobGateCmd())
+	cmd.AddCommand(newJobGatesCmd())
 	cmd.AddCommand(newJobDoctorCmd())
 	cmd.AddCommand(newJobQuarantineCmd())
 	cmd.AddCommand(newJobQueueCmd())
@@ -7100,6 +7102,8 @@ func newJobTriageCmd() *cobra.Command {
 		staleAfter  time.Duration
 		minSeverity string
 		reasons     []string
+		infraOnly   bool
+		contentOnly bool
 		watch       bool
 		noClear     bool
 		interval    time.Duration
@@ -7140,7 +7144,7 @@ func newJobTriageCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job triage: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := parseJobTriageFilters(minSeverity, reasons)
+			filters, err := parseJobTriageFilters(minSeverity, reasons, infraOnly, contentOnly)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job triage: %v\n", err)
 				return exitErr(2)
@@ -7179,6 +7183,8 @@ func newJobTriageCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&staleAfter, "stale-after", defaultJobTriageStaleAfter, "Flag queued or running jobs with no update after this duration (default: [health].job_stale_after or 24h; 0 disables stale checks).")
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "Only show attention rows at least this severe: critical, warning, or info.")
 	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Only show attention rows with this reason. Can repeat or comma-separate.")
+	cmd.Flags().BoolVar(&infraOnly, "infra-only", false, "Only show attention rows with failed gates classified as infra.")
+	cmd.Flags().BoolVar(&contentOnly, "content-only", false, "Only show attention rows with failed gates classified as content.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the triage view until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
@@ -9614,34 +9620,37 @@ type jobTriageSnapshot struct {
 }
 
 type jobTriageItem struct {
-	JobID                           string     `json:"job_id"`
-	Ticket                          string     `json:"ticket"`
-	Status                          job.Status `json:"status"`
-	Severity                        string     `json:"severity"`
-	Reasons                         []string   `json:"reasons"`
-	Actions                         []string   `json:"actions,omitempty"`
-	Message                         string     `json:"message,omitempty"`
-	Target                          string     `json:"target,omitempty"`
-	Instance                        string     `json:"instance,omitempty"`
-	Pipeline                        string     `json:"pipeline,omitempty"`
-	UpdatedAt                       time.Time  `json:"updated_at"`
-	StepID                          string     `json:"step_id,omitempty"`
-	StepState                       string     `json:"step_state,omitempty"`
-	StepTarget                      string     `json:"step_target,omitempty"`
-	QueuePending                    int        `json:"queue_pending,omitempty"`
-	QueueDead                       int        `json:"queue_dead,omitempty"`
-	QueueDelayed                    int        `json:"queue_delayed,omitempty"`
-	QueueIDs                        []string   `json:"queue_ids,omitempty"`
-	QueueQuarantined                int        `json:"queue_quarantined,omitempty"`
-	QueueQuarantineRestorable       int        `json:"queue_quarantine_restorable,omitempty"`
-	QueueQuarantineUnrestorable     int        `json:"queue_quarantine_unrestorable,omitempty"`
-	QueueQuarantinePaths            []string   `json:"queue_quarantine_paths,omitempty"`
-	QueueQuarantineRestorablePaths  []string   `json:"queue_quarantine_restorable_paths,omitempty"`
-	OutboxQuarantined               int        `json:"outbox_quarantined,omitempty"`
-	OutboxQuarantineRestorable      int        `json:"outbox_quarantine_restorable,omitempty"`
-	OutboxQuarantineUnrestorable    int        `json:"outbox_quarantine_unrestorable,omitempty"`
-	OutboxQuarantinePaths           []string   `json:"outbox_quarantine_paths,omitempty"`
-	OutboxQuarantineRestorablePaths []string   `json:"outbox_quarantine_restorable_paths,omitempty"`
+	JobID                           string          `json:"job_id"`
+	Ticket                          string          `json:"ticket"`
+	Status                          job.Status      `json:"status"`
+	Severity                        string          `json:"severity"`
+	Reasons                         []string        `json:"reasons"`
+	Actions                         []string        `json:"actions,omitempty"`
+	Message                         string          `json:"message,omitempty"`
+	Target                          string          `json:"target,omitempty"`
+	Instance                        string          `json:"instance,omitempty"`
+	Pipeline                        string          `json:"pipeline,omitempty"`
+	UpdatedAt                       time.Time       `json:"updated_at"`
+	StepID                          string          `json:"step_id,omitempty"`
+	StepState                       string          `json:"step_state,omitempty"`
+	StepTarget                      string          `json:"step_target,omitempty"`
+	QueuePending                    int             `json:"queue_pending,omitempty"`
+	QueueDead                       int             `json:"queue_dead,omitempty"`
+	QueueDelayed                    int             `json:"queue_delayed,omitempty"`
+	QueueIDs                        []string        `json:"queue_ids,omitempty"`
+	QueueQuarantined                int             `json:"queue_quarantined,omitempty"`
+	QueueQuarantineRestorable       int             `json:"queue_quarantine_restorable,omitempty"`
+	QueueQuarantineUnrestorable     int             `json:"queue_quarantine_unrestorable,omitempty"`
+	QueueQuarantinePaths            []string        `json:"queue_quarantine_paths,omitempty"`
+	QueueQuarantineRestorablePaths  []string        `json:"queue_quarantine_restorable_paths,omitempty"`
+	OutboxQuarantined               int             `json:"outbox_quarantined,omitempty"`
+	OutboxQuarantineRestorable      int             `json:"outbox_quarantine_restorable,omitempty"`
+	OutboxQuarantineUnrestorable    int             `json:"outbox_quarantine_unrestorable,omitempty"`
+	OutboxQuarantinePaths           []string        `json:"outbox_quarantine_paths,omitempty"`
+	OutboxQuarantineRestorablePaths []string        `json:"outbox_quarantine_restorable_paths,omitempty"`
+	GateFailures                    []jobGateResult `json:"gate_failures,omitempty"`
+	GateInfra                       int             `json:"gate_infra,omitempty"`
+	GateContent                     int             `json:"gate_content,omitempty"`
 }
 
 type jobTriageQueueStats struct {
@@ -9667,12 +9676,16 @@ type jobTriageOutboxQuarantineStats struct {
 type jobTriageFilters struct {
 	MinSeverity string
 	Reasons     map[string]bool
+	GateClass   string
 }
 
 const defaultJobTriageStaleAfter = 24 * time.Hour
 
-func parseJobTriageFilters(minSeverity string, reasons []string) (jobTriageFilters, error) {
+func parseJobTriageFilters(minSeverity string, reasons []string, infraOnly, contentOnly bool) (jobTriageFilters, error) {
 	var filters jobTriageFilters
+	if infraOnly && contentOnly {
+		return filters, fmt.Errorf("--infra-only and --content-only cannot be combined")
+	}
 	severity := strings.ToLower(strings.TrimSpace(minSeverity))
 	if severity != "" {
 		switch severity {
@@ -9687,6 +9700,11 @@ func parseJobTriageFilters(minSeverity string, reasons []string) (jobTriageFilte
 		return filters, err
 	}
 	filters.Reasons = reasonSet
+	if infraOnly {
+		filters.GateClass = jobGateClassInfra
+	} else if contentOnly {
+		filters.GateClass = jobGateClassContent
+	}
 	return filters, nil
 }
 
@@ -9713,7 +9731,7 @@ func filterJobTriageAttention(items []jobTriageItem, filters jobTriageFilters) [
 }
 
 func (f jobTriageFilters) empty() bool {
-	return f.MinSeverity == "" && len(f.Reasons) == 0
+	return f.MinSeverity == "" && len(f.Reasons) == 0 && f.GateClass == ""
 }
 
 func (f jobTriageFilters) match(item jobTriageItem) bool {
@@ -9724,6 +9742,18 @@ func (f jobTriageFilters) match(item jobTriageItem) bool {
 		found := false
 		for _, reason := range item.Reasons {
 			if f.Reasons[reason] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	if f.GateClass != "" {
+		found := false
+		for _, gate := range item.GateFailures {
+			if gate.Class == f.GateClass {
 				found = true
 				break
 			}
@@ -10109,9 +10139,13 @@ func collectJobTriage(teamDir string, now time.Time, staleAfter time.Duration) (
 	queueByJob := queueStatsByJob(jobs, queueItems, now)
 	addQueueQuarantineStatsByJob(queueByJob, jobs, quarantineItems)
 	outboxQuarantineByJob := outboxQuarantineStatsByJob(jobs, outboxQuarantineItems)
+	gateFailuresByJob, err := jobGateFailuresByJob(teamDir, jobs)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
 	attention := make([]jobTriageItem, 0, len(jobs))
 	for _, j := range jobs {
-		if item, ok := triageJob(j, inspectNextJobStep(j), queueByJob[j.ID], outboxQuarantineByJob[j.ID], now, staleAfter); ok {
+		if item, ok := triageJob(j, inspectNextJobStep(j), queueByJob[j.ID], outboxQuarantineByJob[j.ID], gateFailuresByJob[j.ID], now, staleAfter); ok {
 			attention = append(attention, item)
 		}
 	}
@@ -10270,7 +10304,8 @@ func addOutboxQuarantineItemToTriageStats(stats *jobTriageOutboxQuarantineStats,
 	}
 }
 
-func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, outboxQuarantineStats jobTriageOutboxQuarantineStats, now time.Time, staleAfter time.Duration) (jobTriageItem, bool) {
+func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, outboxQuarantineStats jobTriageOutboxQuarantineStats, gateFailures []jobGateResult, now time.Time, staleAfter time.Duration) (jobTriageItem, bool) {
+	gateInfra, gateContent := jobGateClassCounts(gateFailures)
 	item := jobTriageItem{
 		JobID:                           j.ID,
 		Ticket:                          j.Ticket,
@@ -10294,6 +10329,9 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 		OutboxQuarantineUnrestorable:    outboxQuarantineStats.QuarantineUnrestorable,
 		OutboxQuarantinePaths:           append([]string(nil), outboxQuarantineStats.QuarantinePaths...),
 		OutboxQuarantineRestorablePaths: append([]string(nil), outboxQuarantineStats.QuarantineRestorablePaths...),
+		GateFailures:                    append([]jobGateResult(nil), gateFailures...),
+		GateInfra:                       gateInfra,
+		GateContent:                     gateContent,
 	}
 	if next.Step != nil {
 		item.StepID = next.Step.ID
@@ -10341,6 +10379,12 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 	if outboxQuarantineStats.Quarantined > 0 {
 		addTriageReason("outbox_quarantined", "warning")
 	}
+	if gateInfra > 0 {
+		addTriageReason("gate_infra_failed", "warning")
+	}
+	if gateContent > 0 {
+		addTriageReason("gate_content_failed", "critical")
+	}
 	switch next.State {
 	case "failed":
 		addTriageReason("failed_step", "critical")
@@ -10361,6 +10405,8 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 		item.Message = j.LastStatus
 	} else if strings.TrimSpace(next.Message) != "" {
 		item.Message = next.Message
+	} else if len(gateFailures) > 0 {
+		item.Message = jobGateTriageMessage(gateFailures)
 	} else {
 		item.Message = strings.Join(item.Reasons, ",")
 	}
@@ -10483,9 +10529,9 @@ func renderJobTriageAttention(w io.Writer, items []jobTriageItem) {
 	}
 	fmt.Fprintln(w, "Attention:")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "JOB\tSEVERITY\tSTATUS\tREASONS\tTARGET\tINSTANCE\tQUEUE\tUPDATED\tACTION\tMESSAGE")
+	fmt.Fprintln(tw, "JOB\tSEVERITY\tSTATUS\tREASONS\tTARGET\tINSTANCE\tQUEUE\tGATES\tUPDATED\tACTION\tMESSAGE")
 	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			item.JobID,
 			item.Severity,
 			item.Status,
@@ -10493,6 +10539,7 @@ func renderJobTriageAttention(w io.Writer, items []jobTriageItem) {
 			emptyDash(item.Target),
 			emptyDash(item.Instance),
 			jobTriageQueueSummary(item),
+			jobGateSummaryText(item.GateFailures),
 			item.UpdatedAt.Format(time.RFC3339),
 			emptyDash(strings.Join(item.Actions, "; ")),
 			emptyDash(item.Message),
@@ -10543,6 +10590,9 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 		if item.OutboxQuarantineUnrestorable > 0 {
 			add(fmt.Sprintf("agent-team job outbox quarantine drop %s --all --unrestorable --limit %d --dry-run", item.JobID, queueRecoveryHintLimit))
 		}
+	}
+	if stringSliceContains(item.Reasons, "gate_infra_failed") || stringSliceContains(item.Reasons, "gate_content_failed") {
+		add(fmt.Sprintf("agent-team job gates %s", item.JobID))
 	}
 	if stringSliceContains(item.Reasons, "failed") || stringSliceContains(item.Reasons, "failed_step") {
 		add(fmt.Sprintf("agent-team job retry %s --dispatch", item.JobID))
@@ -16165,8 +16215,9 @@ func parseJobShowEventsTail(raw string) (int, error) {
 }
 
 type jobShowResult struct {
-	Job    *job.Job    `json:"job"`
-	Events []job.Event `json:"events"`
+	Job    *job.Job        `json:"job"`
+	Events []job.Event     `json:"events"`
+	Gates  []jobGateResult `json:"gates,omitempty"`
 }
 
 func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, eventSort string, commandsOut bool, scope operatorCommandScope) error {
@@ -16179,9 +16230,14 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 			sortJobEvents(events)
 			events = job.TailEvents(events, eventTail)
 			sortJobEventsForDisplay(events, eventSort)
+			gates, err := latestClassifiedJobGateResults(teamDir, j)
+			if err != nil {
+				return err
+			}
 			return json.NewEncoder(w).Encode(jobShowResult{
 				Job:    j,
 				Events: events,
+				Gates:  gates,
 			})
 		}
 		return renderJobResult(w, j, jsonOut, tmpl)
@@ -16210,7 +16266,17 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 		actions := jobDetailActions(j, teamDir, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems, time.Now().UTC())
 		return renderOperatorActionCommands(w, actions, scope)
 	}
+	gates, err := latestClassifiedJobGateResults(teamDir, j)
+	if err != nil {
+		return err
+	}
 	renderJobDetailWithRuntime(w, teamDir, j, queueItems, outboxItems, statusPreviews, quarantineItems, outboxQuarantineItems)
+	if len(gates) > 0 {
+		fmt.Fprintln(w, "Gates:")
+		if err := renderJobGateResults(w, gates, false); err != nil {
+			return err
+		}
+	}
 	if includeEvents {
 		events, err := job.ListEvents(teamDir, j.ID)
 		if err != nil {
@@ -16707,7 +16773,7 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 	}
 	sort.Strings(outboxQuarantineStats.QuarantinePaths)
 	sort.Strings(outboxQuarantineStats.QuarantineRestorablePaths)
-	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, outboxQuarantineStats, now, 0); ok {
+	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, outboxQuarantineStats, nil, now, 0); ok {
 		for _, action := range triage.Actions {
 			add(action)
 		}

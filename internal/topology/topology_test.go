@@ -224,6 +224,10 @@ strategy = "script"
 script = ".agent_team/scripts/union-merge.sh"
 owned_paths = ["coverage/baselines", "coverage/counts.json"]
 
+[pipelines.ticket_to_pr.infra_signatures]
+disk_exhaustion = "No space left on device"
+missing_binary = "error: test binary .* not found"
+
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
@@ -262,6 +266,9 @@ max_attempts = 2
 	if p.Merge == nil || p.Merge.Strategy != "script" || p.Merge.Script != ".agent_team/scripts/union-merge.sh" || strings.Join(p.Merge.OwnedPaths, ",") != "coverage/baselines,coverage/counts.json" {
 		t.Fatalf("pipeline merge = %+v", p.Merge)
 	}
+	if p.InfraSignatures["disk_exhaustion"] != "No space left on device" || p.InfraSignatures["missing_binary"] != "error: test binary .* not found" {
+		t.Fatalf("pipeline infra signatures = %+v", p.InfraSignatures)
+	}
 	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
@@ -271,6 +278,26 @@ max_attempts = 2
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
 		t.Fatalf("matched = %+v", matched)
+	}
+}
+
+func TestParse_PipelineInfraSignaturesValidation(t *testing.T) {
+	_, err := Parse([]byte(`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[pipelines.ticket_to_pr.infra_signatures]
+disk_exhaustion = "["
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err == nil {
+		t.Fatal("expected invalid regex error")
+	}
+	if !strings.Contains(err.Error(), "infra_signatures.disk_exhaustion") || !strings.Contains(err.Error(), "invalid regex") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

@@ -2014,6 +2014,8 @@ Subcommands:
 - `agent-team job doctor` - Validate durable job files.
 - `agent-team job events` - Show a job&#39;s durable event history.
 - `agent-team job explain` - Explain pipeline step readiness for one job.
+- `agent-team job gate` - Write durable per-job gate results.
+- `agent-team job gates` - Show latest gate results for one job.
 - `agent-team job graph` - Render one job&#39;s pipeline graph with step state.
 - `agent-team job hold` - Hold a job so pipeline automation will not advance it.
 - `agent-team job keep-worktree` - Disable automatic worktree cleanup for a job.
@@ -2412,6 +2414,62 @@ Flags:
       --state strings       Only render when the job's next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
       --step string         Only include details for this pipeline step id.
   -w, --watch               Refresh the job pipeline explanation until interrupted.
+```
+
+## `agent-team job gate`
+
+Write durable per-job gate results.
+
+Write durable per-job gate results to the append-only gate log under `.agent_team/jobs/`.
+
+```text
+agent-team job gate
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team job gate set` - Append one gate result to a job.
+
+## `agent-team job gate set`
+
+Append one gate result to a job.
+
+```text
+agent-team job gate set <job-id> <gate-name> [flags]
+```
+
+Flags:
+
+```text
+      --actor string       Actor recorded on the gate result; defaults to AGENT_TEAM_INSTANCE or cli.
+      --json               Emit the recorded gate result as JSON.
+      --log-ref string     Path or URL with supporting gate output.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --signature string   Failure signature or short failure text used for infra/content classification.
+      --status string      Gate status: pass or fail.
+```
+
+## `agent-team job gates`
+
+Show latest gate results for one job.
+
+Show latest per-name gate results from a job&#39;s append-only gate log. Failed gates are classified as infra or content using the job pipeline&#39;s infra_signatures.
+
+```text
+agent-team job gates <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --json          Emit gate results as JSON.
+      --repo string   Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team job graph`
@@ -3838,7 +3896,9 @@ Flags:
 
 ```text
       --commands               Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
+      --content-only           Only show attention rows with failed gates classified as content.
       --format string          Render the triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
+      --infra-only             Only show attention rows with failed gates classified as infra.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit triage snapshot as JSON.
       --min-severity string    Only show attention rows at least this severe: critical, warning, or info.
@@ -9746,7 +9806,9 @@ Flags:
 
 ```text
       --commands               Print only recommended commands, one per line. agent-team follow-ups preserve the selected repo scope.
+      --content-only           Only show attention rows with failed gates classified as content.
       --format string          Render the team triage snapshot with a Go template, e.g. '{{.Summary.Total}} {{len .Attention}}'.
+      --infra-only             Only show attention rows with failed gates classified as infra.
       --interval duration      Refresh interval for --watch. (default 2s)
       --json                   Emit team triage snapshot as JSON.
       --min-severity string    Only show attention rows at least this severe: critical, warning, or info.
