@@ -132,6 +132,15 @@ type daemonReconcileResponse struct {
 	Changes    []daemonReconcileChange `json:"changes"`
 }
 
+type runtimeExtensionResponse struct {
+	InstanceID       string           `json:"instance_id"`
+	Metadata         *daemon.Metadata `json:"metadata"`
+	ByMillis         int64            `json:"by_ms"`
+	PreviousDeadline time.Time        `json:"previous_deadline"`
+	NewDeadline      time.Time        `json:"new_deadline"`
+	Actor            string           `json:"actor,omitempty"`
+}
+
 type daemonAPIStatus struct {
 	Ready     bool           `json:"ready"`
 	PID       int            `json:"pid,omitempty"`
@@ -807,6 +816,30 @@ func (c *daemonClient) StopInstanceWithOptions(instance string, force bool, time
 		return fmt.Errorf("daemon: stop: %s", readErrorBody(resp))
 	}
 	return nil
+}
+
+func (c *daemonClient) ExtendInstance(instance string, by time.Duration, actor string) (*runtimeExtensionResponse, error) {
+	payload := map[string]any{
+		"instance": instance,
+		"by_ms":    by.Milliseconds(),
+	}
+	if actor != "" {
+		payload["actor"] = actor
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := c.hc.Post(c.baseURL+"/v1/extend", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: extend: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: extend: %s", readErrorBody(resp))
+	}
+	var out runtimeExtensionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: extend decode: %w", err)
+	}
+	return &out, nil
 }
 
 // StartInstance hits POST /v1/start to resume a previously-stopped persistent

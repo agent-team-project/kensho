@@ -41,6 +41,7 @@ Subcommands:
 - `agent-team drain` - Run maintenance cycles until idle.
 - `agent-team event` - Publish manual topology events to the daemon (for testing trigger matching).
 - `agent-team events` - Show daemon lifecycle events.
+- `agent-team extend` - Extend a running instance watchdog deadline.
 - `agent-team graph` - Render the automation graph.
 - `agent-team health` - Check daemon, instance, queue, job, and outbox health.
 - `agent-team help` - Help about any command
@@ -1213,6 +1214,33 @@ Inherited Flags:
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
+## `agent-team extend`
+
+Extend a running instance watchdog deadline.
+
+Extend the armed watchdog deadline for one running daemon-managed instance. The command refuses instances that are not running or do not have an armed watchdog.
+
+```text
+agent-team extend <instance> [flags]
+```
+
+Flags:
+
+```text
+      --actor string    Actor label recorded in lifecycle/audit events. (default "cli")
+      --by duration     Amount to add to the running watchdog deadline, for example 30m.
+      --format string   Render the extension result with a Go template, e.g. '{{.Instance}} {{.NewDeadline}}'.
+      --json            Emit machine-readable JSON.
+  -q, --quiet           Suppress non-error output and use only the exit code.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
 ## `agent-team graph`
 
 Render the automation graph.
@@ -2141,6 +2169,7 @@ Subcommands:
 - `agent-team job doctor` - Validate durable job files.
 - `agent-team job events` - Show a job&#39;s durable event history.
 - `agent-team job explain` - Explain pipeline step readiness for one job.
+- `agent-team job extend` - Extend a job&#39;s running watchdog deadline.
 - `agent-team job gate` - Write durable per-job gate results.
 - `agent-team job gates` - Show latest gate results for one job.
 - `agent-team job graph` - Render one job&#39;s pipeline graph with step state.
@@ -2576,6 +2605,28 @@ Flags:
       --state strings       Only render when the job's next-step state matches: ready, queued, running, blocked, failed, held, done, none, or all. Can repeat or comma-separate.
       --step string         Only include details for this pipeline step id.
   -w, --watch               Refresh the job pipeline explanation until interrupted.
+```
+
+## `agent-team job extend`
+
+Extend a job&#39;s running watchdog deadline.
+
+Extend the armed watchdog deadline for a job&#39;s running owning instance. Use --step for pipeline jobs when the target step is ambiguous.
+
+```text
+agent-team job extend <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --actor string    Actor label recorded in the job audit event. (default "cli")
+      --by duration     Amount to add to the running watchdog deadline, for example 30m.
+      --format string   Render the extension result with a Go template, e.g. '{{.Job.ID}} {{.Extension.NewDeadline}}'.
+      --json            Emit machine-readable JSON.
+  -q, --quiet           Suppress non-error output and use only the exit code.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --step string     Use this pipeline step's owning instance.
 ```
 
 ## `agent-team job gate`

@@ -54,6 +54,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobStartCmd())
 	cmd.AddCommand(newJobAdoptCmd())
 	cmd.AddCommand(newJobDispatchCmd())
+	cmd.AddCommand(newJobExtendCmd())
 	cmd.AddCommand(newJobSendCmd())
 	cmd.AddCommand(newJobNoteCmd())
 	cmd.AddCommand(newJobBlockCmd())

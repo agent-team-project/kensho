@@ -218,8 +218,9 @@ type InstanceManager struct {
 }
 
 type tracked struct {
-	meta    *Metadata
-	process *os.Process
+	meta           *Metadata
+	process        *os.Process
+	watchdogUpdate chan struct{}
 	// reaped is closed by the reaper goroutine after it has finalised the
 	// in-memory + on-disk metadata for this incarnation of the instance.
 	// Each Dispatch / Start replaces it so the channel always reflects the
@@ -320,15 +321,16 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	}
 
 	reaped := make(chan struct{})
+	watchdogUpdate := newWatchdogUpdateChannel(in.Budget)
 	m.mu.Lock()
-	m.instances[in.Name] = &tracked{meta: meta, process: proc, reaped: reaped}
+	m.instances[in.Name] = &tracked{meta: meta, process: proc, watchdogUpdate: watchdogUpdate, reaped: reaped}
 	m.mu.Unlock()
 	out := *meta
 	m.recordEvent("dispatch", &out, "instance dispatched")
 	capture := m.startCodexSessionCapture(rt.Kind, *meta)
 	go m.reap(in.Name, proc, reaped)
-	if in.Budget > 0 {
-		go m.watchdog(in.Name, proc, reaped, in.Budget)
+	if watchdogUpdate != nil {
+		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
 	if captured := waitForCodexSessionCapture(capture); captured != nil {
 		out = *captured
@@ -345,6 +347,79 @@ func applyRuntimeBudgetMetadata(meta *Metadata, now time.Time, budget time.Durat
 	}
 	meta.RuntimeBudget = budget.String()
 	meta.RuntimeDeadline = now.Add(budget).UTC()
+}
+
+func newWatchdogUpdateChannel(budget time.Duration) chan struct{} {
+	if budget <= 0 {
+		return nil
+	}
+	return make(chan struct{}, 1)
+}
+
+type RuntimeBudgetExtension struct {
+	Metadata         *Metadata     `json:"metadata"`
+	By               time.Duration `json:"by"`
+	PreviousDeadline time.Time     `json:"previous_deadline"`
+	NewDeadline      time.Time     `json:"new_deadline"`
+	Actor            string        `json:"actor,omitempty"`
+}
+
+func (m *InstanceManager) ExtendRuntimeBudget(instance string, by time.Duration, actor string) (*RuntimeBudgetExtension, error) {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return nil, errors.New("extend: instance is required")
+	}
+	if by <= 0 {
+		return nil, errors.New("extend: --by must be > 0")
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "cli"
+	}
+
+	m.mu.Lock()
+	t, ok := m.instances[instance]
+	if !ok || t == nil || t.meta == nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("extend: unknown instance %q", instance)
+	}
+	if t.meta.Status != StatusRunning {
+		status := t.meta.Status
+		m.mu.Unlock()
+		return nil, fmt.Errorf("extend: instance %q is not running (status=%s)", instance, status)
+	}
+	if t.process == nil || t.watchdogUpdate == nil || strings.TrimSpace(t.meta.RuntimeBudget) == "" || t.meta.RuntimeDeadline.IsZero() {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("extend: instance %q has no armed watchdog", instance)
+	}
+	previousDeadline := t.meta.RuntimeDeadline.UTC()
+	newDeadline := previousDeadline.Add(by).UTC()
+	t.meta.RuntimeDeadline = newDeadline
+	if !t.meta.StartedAt.IsZero() {
+		if budget := newDeadline.Sub(t.meta.StartedAt.UTC()); budget > 0 {
+			t.meta.RuntimeBudget = budget.String()
+		}
+	}
+	out := *t.meta
+	update := t.watchdogUpdate
+	if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("extend: persist metadata: %w", err)
+	}
+	select {
+	case update <- struct{}{}:
+	default:
+	}
+	m.mu.Unlock()
+
+	m.recordEvent("extended", &out, fmt.Sprintf("runtime budget extended by %s by %s", by, actor))
+	return &RuntimeBudgetExtension{
+		Metadata:         &out,
+		By:               by,
+		PreviousDeadline: previousDeadline,
+		NewDeadline:      newDeadline,
+		Actor:            actor,
+	}, nil
 }
 
 // dispatchRuntime resolves the runtime for a dispatch with this precedence:
@@ -1405,14 +1480,15 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		return nil, false, fmt.Errorf("dispatch: persist metadata: %w", err)
 	}
 	reaped := make(chan struct{})
-	m.instances[in.Name] = &tracked{meta: meta, process: proc, reaped: reaped}
+	watchdogUpdate := newWatchdogUpdateChannel(in.Budget)
+	m.instances[in.Name] = &tracked{meta: meta, process: proc, watchdogUpdate: watchdogUpdate, reaped: reaped}
 	m.mu.Unlock()
 
 	m.recordEvent("dispatch", meta, "instance dispatched")
 	capture := m.startCodexSessionCapture(rt.Kind, *meta)
 	go m.reap(in.Name, proc, reaped)
-	if in.Budget > 0 {
-		go m.watchdog(in.Name, proc, reaped, in.Budget)
+	if watchdogUpdate != nil {
+		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
 	if captured := waitForCodexSessionCapture(capture); captured != nil {
 		meta = captured
@@ -1635,53 +1711,97 @@ func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- 
 // The reaper remains the SOLE finaliser that fires the hook: the watchdog only
 // pre-marks status and kills, so the pipeline still advances exactly once. A
 // non-positive budget disables the watchdog (the default).
-func (m *InstanceManager) watchdog(instance string, proc *os.Process, reaped <-chan struct{}, budget time.Duration) {
-	if budget <= 0 || proc == nil {
+func (m *InstanceManager) watchdog(instance string, proc *os.Process, reaped <-chan struct{}, updates <-chan struct{}) {
+	if proc == nil || updates == nil {
 		return
 	}
-	timer := time.NewTimer(budget)
-	defer timer.Stop()
-	select {
-	case <-reaped:
-		// Exited on its own within budget — nothing to enforce.
-		return
-	case <-timer.C:
-	}
+	for {
+		deadline, ok := m.watchdogDeadline(instance, proc)
+		if !ok {
+			return
+		}
+		if wait := time.Until(deadline); wait > 0 {
+			timer := time.NewTimer(wait)
+			select {
+			case <-reaped:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				// Exited on its own within budget — nothing to enforce.
+				return
+			case <-updates:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				continue
+			case <-timer.C:
+			}
+		}
 
-	// Budget elapsed. Re-validate under the lock that THIS process is still the
-	// live, running incarnation before touching anything: the reaper may have
-	// just finalised it, a stop may have set Stopped, or a newer dispatch may
-	// have replaced it. Any of those → no-op (the watchdog never double-kills).
-	m.mu.Lock()
-	t, ok := m.instances[instance]
-	if !ok || t.process != proc || t.meta.Status != StatusRunning {
+		// Budget elapsed. Re-validate under the lock that THIS process is still the
+		// live, running incarnation before touching anything: the reaper may have
+		// just finalised it, a stop may have set Stopped, an operator may have
+		// extended the deadline, or a newer dispatch may have replaced it. Any of
+		// those → no-op/loop (the watchdog never double-kills).
+		m.mu.Lock()
+		t, ok := m.instances[instance]
+		if !ok || t.meta == nil || t.process != proc || t.meta.Status != StatusRunning {
+			m.mu.Unlock()
+			return
+		}
+		if t.meta.RuntimeDeadline.After(time.Now().UTC()) {
+			m.mu.Unlock()
+			continue
+		}
+		pid := t.meta.PID
+		budget := strings.TrimSpace(t.meta.RuntimeBudget)
+		if budget == "" && !t.meta.StartedAt.IsZero() && !t.meta.RuntimeDeadline.IsZero() {
+			budget = t.meta.RuntimeDeadline.Sub(t.meta.StartedAt).String()
+		}
+		// Mark Crashed and persist BEFORE killing: the terminal intent is then durable
+		// across a daemon restart in the kill→reap window, and the reaper (which only
+		// promotes from Running) preserves Crashed instead of recording a plain exit
+		// if the child happens to exit 0 on the signal.
+		t.meta.Status = StatusCrashed
+		out := *t.meta
+		if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
+			// Nowhere to surface this; the reaper + next reconcile still finalise.
+			_ = err
+		}
 		m.mu.Unlock()
-		return
-	}
-	pid := t.meta.PID
-	// Mark Crashed and persist BEFORE killing: the terminal intent is then durable
-	// across a daemon restart in the kill→reap window, and the reaper (which only
-	// promotes from Running) preserves Crashed instead of recording a plain exit
-	// if the child happens to exit 0 on the signal.
-	t.meta.Status = StatusCrashed
-	out := *t.meta
-	if err := WriteMetadata(m.daemonRoot, t.meta); err != nil {
-		// Nowhere to surface this; the reaper + next reconcile still finalise.
-		_ = err
-	}
-	m.mu.Unlock()
-	m.recordEvent("watchdog", &out, fmt.Sprintf("instance exceeded runtime budget %s; killing", budget))
+		m.recordEvent("watchdog", &out, fmt.Sprintf("instance exceeded runtime budget %s; killing", budget))
 
-	// SIGTERM the process group, allow a short grace, then SIGKILL. A wedged child
-	// commonly ignores SIGTERM, so escalation is expected. Signal errors are
-	// best-effort and unactionable from this goroutine: if the process is already
-	// gone (ErrProcessDone/ESRCH) the reaper handles the wait; any other failure
-	// still leaves the reaper as the finaliser.
-	_ = signalProcessGroupOrProcess(proc, pid, syscall.SIGTERM)
-	if waitForProcessExit(pid, reaped, stopKillWaitTimeout) {
+		// SIGTERM the process group, allow a short grace, then SIGKILL. A wedged child
+		// commonly ignores SIGTERM, so escalation is expected. Signal errors are
+		// best-effort and unactionable from this goroutine: if the process is already
+		// gone (ErrProcessDone/ESRCH) the reaper handles the wait; any other failure
+		// still leaves the reaper as the finaliser.
+		_ = signalProcessGroupOrProcess(proc, pid, syscall.SIGTERM)
+		if waitForProcessExit(pid, reaped, stopKillWaitTimeout) {
+			return
+		}
+		_ = signalProcessGroupOrProcess(proc, pid, syscall.SIGKILL)
 		return
 	}
-	_ = signalProcessGroupOrProcess(proc, pid, syscall.SIGKILL)
+}
+
+func (m *InstanceManager) watchdogDeadline(instance string, proc *os.Process) (time.Time, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.instances[instance]
+	if !ok || t.meta == nil || t.process != proc || t.meta.Status != StatusRunning {
+		return time.Time{}, false
+	}
+	if t.meta.RuntimeDeadline.IsZero() {
+		return time.Time{}, false
+	}
+	return t.meta.RuntimeDeadline, true
 }
 
 // SetReapHook installs (or replaces) a callback invoked after each reaper

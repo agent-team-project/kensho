@@ -139,6 +139,43 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, map[string]any{"stopped": true})
 	})
 
+	mux.HandleFunc("/v1/extend", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			Instance string `json:"instance"`
+			ByMillis int64  `json:"by_ms"`
+			Actor    string `json:"actor"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.TrimSpace(body.Instance) == "" {
+			writeError(w, http.StatusBadRequest, "instance is required")
+			return
+		}
+		if body.ByMillis <= 0 {
+			writeError(w, http.StatusBadRequest, "by_ms must be > 0")
+			return
+		}
+		extension, err := m.ExtendRuntimeBudget(body.Instance, time.Duration(body.ByMillis)*time.Millisecond, body.Actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"instance_id":       extension.Metadata.Instance,
+			"metadata":          extension.Metadata,
+			"by_ms":             extension.By.Milliseconds(),
+			"previous_deadline": extension.PreviousDeadline,
+			"new_deadline":      extension.NewDeadline,
+			"actor":             extension.Actor,
+		})
+	})
+
 	mux.HandleFunc("/v1/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")

@@ -83,6 +83,53 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 	}
 }
 
+func TestHTTP_ExtendRuntimeBudget(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	meta, err := m.Dispatch(DispatchInput{
+		Agent: "worker", Name: "w-extend", Workspace: t.TempDir(),
+		Budget: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	resp := mustPost(t, srv.URL+"/v1/extend", `{"instance":"w-extend","by_ms":500,"actor":"ops"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("extend status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		InstanceID       string    `json:"instance_id"`
+		ByMillis         int64     `json:"by_ms"`
+		PreviousDeadline time.Time `json:"previous_deadline"`
+		NewDeadline      time.Time `json:"new_deadline"`
+		Actor            string    `json:"actor"`
+		Metadata         Metadata  `json:"metadata"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode extend: %v", err)
+	}
+	if body.InstanceID != "w-extend" || body.ByMillis != 500 || body.Actor != "ops" {
+		t.Fatalf("extend body = %+v", body)
+	}
+	if !body.PreviousDeadline.Equal(meta.RuntimeDeadline) || !body.NewDeadline.Equal(meta.RuntimeDeadline.Add(500*time.Millisecond)) {
+		t.Fatalf("deadlines = %s -> %s, want %s -> %s", body.PreviousDeadline, body.NewDeadline, meta.RuntimeDeadline, meta.RuntimeDeadline.Add(500*time.Millisecond))
+	}
+	if body.Metadata.RuntimeBudget != "2.5s" || !body.Metadata.RuntimeDeadline.Equal(body.NewDeadline) {
+		t.Fatalf("metadata = %+v, want extended budget/deadline", body.Metadata)
+	}
+
+	resp = mustPost(t, srv.URL+"/v1/extend", `{"instance":"w-extend","by_ms":0}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("zero extend status: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"w-extend","force":true,"timeout_ms":25}`)
+	waitForStatusNot(t, m, "w-extend", StatusRunning)
+}
+
 func TestHTTP_DispatchValidation(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)

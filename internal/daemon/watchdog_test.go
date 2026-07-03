@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -101,6 +102,100 @@ func TestInstance_WatchdogCrashesOverBudget(t *testing.T) {
 	}
 	if disk.ExitedAt.IsZero() {
 		t.Fatalf("ExitedAt not set after watchdog kill")
+	}
+}
+
+func TestInstance_ExtendRuntimeBudgetMovesWatchdogDeadline(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(60 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	start := time.Now()
+	if _, err := m.Dispatch(DispatchInput{
+		Agent: "worker", Name: "extended", Workspace: t.TempDir(),
+		Budget: 80 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	extension, err := m.ExtendRuntimeBudget("extended", 220*time.Millisecond, "test")
+	if err != nil {
+		t.Fatalf("extend: %v", err)
+	}
+	if extension.PreviousDeadline.IsZero() || extension.NewDeadline.IsZero() || !extension.NewDeadline.After(extension.PreviousDeadline) {
+		t.Fatalf("extension deadlines = %+v", extension)
+	}
+	if got := extension.NewDeadline.Sub(extension.PreviousDeadline); got != 220*time.Millisecond {
+		t.Fatalf("deadline moved by %s, want 220ms", got)
+	}
+
+	if err := m.WaitForReaper("extended", 8*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < 180*time.Millisecond {
+		t.Fatalf("watchdog fired before extended deadline: elapsed=%s", elapsed)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("watchdog took too long after extension: elapsed=%s", elapsed)
+	}
+	disk, err := ReadMetadata(root, "extended")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if disk.Status != StatusCrashed {
+		t.Fatalf("status after watchdog = %s, want crashed", disk.Status)
+	}
+	if disk.RuntimeBudget != "300ms" {
+		t.Fatalf("runtime budget = %q, want 300ms", disk.RuntimeBudget)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if !lifecycleEventsContain(events, "extended", "extended") {
+		t.Fatalf("events missing extended lifecycle event: %+v", events)
+	}
+}
+
+func TestInstance_ExtendRuntimeBudgetRefusals(t *testing.T) {
+	root := t.TempDir()
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+
+	if _, err := m.ExtendRuntimeBudget("", time.Second, "test"); err == nil || !strings.Contains(err.Error(), "instance is required") {
+		t.Fatalf("empty instance err = %v, want required", err)
+	}
+	if _, err := m.ExtendRuntimeBudget("missing", time.Second, "test"); err == nil || !strings.Contains(err.Error(), "unknown instance") {
+		t.Fatalf("missing instance err = %v, want unknown", err)
+	}
+	if _, err := m.Dispatch(DispatchInput{Agent: "worker", Name: "free", Workspace: t.TempDir()}); err != nil {
+		t.Fatalf("dispatch free: %v", err)
+	}
+	if _, err := m.ExtendRuntimeBudget("free", time.Second, "test"); err == nil || !strings.Contains(err.Error(), "no armed watchdog") {
+		t.Fatalf("free extend err = %v, want no armed watchdog", err)
+	}
+	if _, err := m.StopWithOptions("free", StopOptions{Force: true, Timeout: 25 * time.Millisecond}); err != nil {
+		t.Fatalf("cleanup stop free: %v", err)
+	}
+	_ = m.WaitForReaper("free", 5*time.Second)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent: "worker", Name: "budgeted", Workspace: t.TempDir(),
+		Budget: time.Second,
+	}); err != nil {
+		t.Fatalf("dispatch budgeted: %v", err)
+	}
+	if _, err := m.ExtendRuntimeBudget("budgeted", 0, "test"); err == nil || !strings.Contains(err.Error(), "--by must be > 0") {
+		t.Fatalf("zero extend err = %v, want by validation", err)
+	}
+	if _, err := m.StopWithOptions("budgeted", StopOptions{Force: true, Timeout: 25 * time.Millisecond}); err != nil {
+		t.Fatalf("stop budgeted: %v", err)
+	}
+	if err := m.WaitForReaper("budgeted", 5*time.Second); err != nil {
+		t.Fatalf("wait budgeted: %v", err)
+	}
+	if _, err := m.ExtendRuntimeBudget("budgeted", time.Second, "test"); err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("stopped extend err = %v, want not running", err)
 	}
 }
 

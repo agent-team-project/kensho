@@ -55,6 +55,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newStartCmd())
 	root.AddCommand(newStopCmd())
 	root.AddCommand(newKillCmd())
+	root.AddCommand(newExtendCmd())
 	root.AddCommand(newRestartCmd())
 	root.AddCommand(newReloadCmd())
 	root.AddCommand(newPlanCmd())
