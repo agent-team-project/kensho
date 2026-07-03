@@ -213,6 +213,54 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	}
 }
 
+func TestPsFreezesRuntimeBudgetElapsedForTerminalMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	started := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	exited := started.Add(8 * time.Minute)
+	deadline := started.Add(30 * time.Minute)
+	now := started.Add(time.Hour + 17*time.Minute)
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:        "reviewer-squ-75",
+		Agent:           "worker",
+		Status:          daemon.StatusExited,
+		StartedAt:       started,
+		ExitedAt:        exited,
+		RuntimeBudget:   "30m0s",
+		RuntimeDeadline: deadline,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	var jsonBuf bytes.Buffer
+	if err := runPsJSON(&jsonBuf, teamDir, now); err != nil {
+		t.Fatalf("runPsJSON: %v", err)
+	}
+	var rows []psJSONRow
+	if err := json.Unmarshal(jsonBuf.Bytes(), &rows); err != nil {
+		t.Fatalf("decode json: %v\nbody=%s", err, jsonBuf.String())
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one terminal daemon metadata row", rows)
+	}
+	if rows[0].RuntimeElapsed != "8m0s" || rows[0].RuntimeRemaining != "" {
+		t.Fatalf("row = %+v, want elapsed frozen at exit and no remaining budget", rows[0])
+	}
+
+	var textBuf bytes.Buffer
+	if err := runPs(&textBuf, teamDir, now); err != nil {
+		t.Fatalf("runPs: %v", err)
+	}
+	text := textBuf.String()
+	if !strings.Contains(text, "elapsed=8m0s") {
+		t.Fatalf("ps output missing frozen elapsed:\n%s", text)
+	}
+	if strings.Contains(text, "remaining=") {
+		t.Fatalf("ps output should omit remaining for terminal rows:\n%s", text)
+	}
+}
+
 func TestPsFormatRendersRows(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

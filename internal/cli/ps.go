@@ -974,14 +974,33 @@ func metadataRuntimeBudgetElapsed(meta *daemon.Metadata, now time.Time) string {
 	if meta == nil || strings.TrimSpace(meta.RuntimeBudget) == "" || meta.StartedAt.IsZero() {
 		return ""
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	elapsed := now.Sub(meta.StartedAt)
+	end := metadataRuntimeBudgetElapsedEnd(meta, now)
+	elapsed := end.Sub(meta.StartedAt)
 	if elapsed < 0 {
 		elapsed = 0
 	}
 	return roundedDurationString(elapsed)
+}
+
+func metadataRuntimeBudgetElapsedEnd(meta *daemon.Metadata, now time.Time) time.Time {
+	if meta != nil && metadataStatusTerminal(meta.Status) {
+		if finished := daemonMetadataFinishedAt(meta); !finished.IsZero() {
+			return finished
+		}
+	}
+	if now.IsZero() {
+		return time.Now().UTC()
+	}
+	return now
+}
+
+func metadataStatusTerminal(status daemon.Status) bool {
+	switch status {
+	case daemon.StatusStopped, daemon.StatusExited, daemon.StatusCrashed:
+		return true
+	default:
+		return false
+	}
 }
 
 func metadataRuntimeBudgetRemaining(meta *daemon.Metadata, now time.Time) string {

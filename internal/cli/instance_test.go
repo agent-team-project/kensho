@@ -180,6 +180,7 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	started := time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
+	stopped := started.Add(8 * time.Minute)
 	deadline := started.Add(45 * time.Minute)
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
 		Instance:        "adhoc",
@@ -190,6 +191,7 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		Workspace:       tmp,
 		SessionID:       "session-1",
 		StartedAt:       started,
+		StoppedAt:       stopped,
 		RuntimeBudget:   "45m0s",
 		RuntimeDeadline: deadline,
 		Adopted:         true,
@@ -220,6 +222,9 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		body.Runtime.SessionID != "session-1" ||
 		body.Runtime.RuntimeBudget != "45m0s" ||
 		body.Runtime.RuntimeDeadline != deadline.Format(time.RFC3339) ||
+		body.Runtime.RuntimeElapsed != "8m0s" ||
+		body.Runtime.RuntimeRemaining != "" ||
+		body.Runtime.StoppedAt != stopped.Format(time.RFC3339) ||
 		!body.Runtime.Adopted {
 		t.Fatalf("runtime = %+v, want stopped manager session", body.Runtime)
 	}
