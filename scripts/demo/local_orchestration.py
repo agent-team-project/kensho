@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,7 @@ def main(argv: list[str]) -> int:
         step("init bundled team")
         run(binary, "init", "--target", repo, "--set", "linear.team_id=demo-team", "--set", "linear.ticket_prefix=DEMO")
         enable_demo_schedule(repo)
+        prepare_merge_drift_branch(repo)
         if args.real_codex_probe:
             probe_output = Path(args.real_codex_probe_output).resolve() if args.real_codex_probe_output else root / "runtime-probe-codex.json"
             step("probe real Codex runtime")
@@ -106,6 +108,9 @@ def main(argv: list[str]) -> int:
         run(binary, "pipeline", "doctor", "--all", "--repo", repo, "--json", parse_json=True)
         run(binary, "team", "graph", "delivery", "--repo", repo, "--routes", "--json", parse_json=True)
         run(binary, "team", "doctor", "--all", "--repo", repo, "--json", parse_json=True)
+
+        step("verify event trace diagnostics")
+        verify_event_trace(binary, repo)
 
         step("verify command-only schedule hints")
         schedule_due_commands = run(binary, "schedule", "due", "--repo", repo, "--commands")
@@ -179,6 +184,9 @@ def main(argv: list[str]) -> int:
         first = preview[0]
         print(f"preview: job={first['job_id']} step={first.get('step_id')} action={first['action']}")
 
+        step("verify gate infra classification")
+        verify_gate_classification(binary, repo, job_id)
+
         step("verify command-only ready hints")
         job_ready_commands = run(binary, "job", "ready", "--repo", repo, "--commands")
         require_command(job_ready_commands, f"agent-team --repo {repo} job advance demo-1")
@@ -238,6 +246,21 @@ def main(argv: list[str]) -> int:
         snapshot = run(binary, "snapshot", "--target", repo, "--events", "20", "--json", parse_json=True)
         print(f"snapshot sections: jobs={len(snapshot.get('jobs') or [])} events={len(snapshot.get('events') or [])}")
 
+        step("verify approval-required manual gate")
+        approval_job_id = verify_approval_required_gate(binary, repo)
+
+        step("verify job merge dry-run")
+        verify_job_merge_dry_run(binary, repo)
+
+        step("verify instance brief")
+        verify_instance_brief(binary, repo, approval_job_id)
+
+        step("verify lock-held queue drain")
+        verify_lock_queue(binary, repo)
+
+        step("verify restart policy relaunch")
+        verify_restart_policy(binary, repo, env)
+
         print(f"\nDemo complete. Repo: {repo}")
         if args.keep:
             print("Kept temporary files because --keep was set.")
@@ -291,6 +314,29 @@ def run(binary: Path, *args: object, env: dict[str, str] | None = None, parse_js
     return result.stdout
 
 
+def run_expect_failure(binary: Path, *args: object, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    cmd = [str(binary), *(str(arg) for arg in args)]
+    print("+", " ".join(cmd), "# expected failure")
+    child_env = scrub_agent_team_env(os.environ.copy() if env is None else env)
+    result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=child_env)
+    if result.returncode == 0:
+        raise DemoError(f"{' '.join(cmd)} unexpectedly succeeded\nstdout={result.stdout}\nstderr={result.stderr}")
+    return result
+
+
+def run_git(repo: Path, *args: str) -> str:
+    cmd = ["git", "-C", str(repo), *args]
+    print("+", " ".join(cmd))
+    result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise DemoError(f"{' '.join(cmd)} failed with {result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}")
+    if result.stdout.strip():
+        print(result.stdout.rstrip())
+    if result.stderr.strip():
+        print(result.stderr.rstrip())
+    return result.stdout
+
+
 def scrub_agent_team_env(env: dict[str, str]) -> dict[str, str]:
     return {key: value for key, value in env.items() if not key.startswith("AGENT_TEAM_")}
 
@@ -323,6 +369,281 @@ def worker_from_team_drain(data: dict) -> str:
     return ""
 
 
+def require_substrings(output: str, *needles: str) -> None:
+    for needle in needles:
+        if needle not in output:
+            raise DemoError(f"expected output to contain {needle!r}; got:\n{output}")
+
+
+def require_json_field(data: dict, key: str, expected: object) -> None:
+    actual = data.get(key)
+    if actual != expected:
+        raise DemoError(f"expected JSON field {key}={expected!r}; got {actual!r} in {json.dumps(data, indent=2)}")
+
+
+def require_job_in_attention(snapshot: dict, job_id: str, reason: str | None = None) -> None:
+    attention = snapshot.get("attention") or snapshot.get("Attention") or []
+    for row in attention:
+        if field(row, "job_id", "JobID") != job_id:
+            continue
+        if reason is None or reason in (row.get("reasons") or row.get("Reasons") or []):
+            return
+    raise DemoError(f"expected triage attention for {job_id} reason={reason!r}; got {json.dumps(attention, indent=2)}")
+
+
+def find_step(job_data: dict, step_id: str) -> dict:
+    for step in job_data.get("steps") or job_data.get("Steps") or []:
+        if field(step, "id", "ID") == step_id:
+            return step
+    raise DemoError(f"expected step {step_id!r}; got {json.dumps(job_data, indent=2)}")
+
+
+def prepare_merge_drift_branch(repo: Path) -> None:
+    (repo / "README.md").write_text("# agent-team demo\n", encoding="utf-8")
+    run_git(repo, "init")
+    run_git(repo, "checkout", "-B", "main")
+    run_git(repo, "config", "user.email", "demo@example.invalid")
+    run_git(repo, "config", "user.name", "agent-team demo")
+    run_git(repo, "config", "commit.gpgsign", "false")
+    run_git(repo, "add", "README.md")
+    run_git(repo, "commit", "-m", "demo base")
+    run_git(repo, "checkout", "-B", "worker-demo-merge")
+    baseline = repo / "coverage" / "baselines" / "a.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text("{}\n", encoding="utf-8")
+    run_git(repo, "add", "coverage/baselines/a.json")
+    run_git(repo, "commit", "-m", "update demo baseline")
+    run_git(repo, "checkout", "main")
+
+
+def verify_event_trace(binary: Path, repo: Path) -> None:
+    match_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=worker", "--target", repo)
+    require_substrings(match_trace, "MATCH", "instances.worker", "MISS", "instances.manager")
+    miss_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=missing", "--target", repo)
+    require_substrings(miss_trace, "MISS", "WARNING: matched 0 rules")
+    print("event trace verified: MATCH/MISS and zero-match warning")
+
+
+def verify_gate_classification(binary: Path, repo: Path, job_id: str) -> None:
+    gate = run(
+        binary,
+        "job",
+        "gate",
+        "set",
+        job_id,
+        "runtime-check",
+        "--repo",
+        repo,
+        "--status",
+        "fail",
+        "--signature",
+        "missing-binary:demo-runtime",
+        "--log-ref",
+        "logs/runtime-check.txt",
+        "--actor",
+        "demo",
+        "--json",
+        parse_json=True,
+    )
+    require_json_field(gate, "class", "infra")
+    require_json_field(gate, "matched_signature", "missing_binary")
+    gates = run(binary, "job", "gates", job_id, "--repo", repo, "--json", parse_json=True)
+    if not any(row.get("name") == "runtime-check" and row.get("class") == "infra" for row in gates):
+        raise DemoError(f"job gates did not surface infra classification: {json.dumps(gates, indent=2)}")
+    triage = run(binary, "job", "triage", "--repo", repo, "--infra-only", "--json", parse_json=True)
+    require_job_in_attention(triage, job_id, "gate_infra_failed")
+    print(f"gate classification verified: {job_id} runtime-check class=infra")
+
+
+def verify_approval_required_gate(binary: Path, repo: Path) -> str:
+    created = run(
+        binary,
+        "pipeline",
+        "run",
+        "ticket_to_pr",
+        "DEMO-APPROVAL",
+        "Approval required demo",
+        "--repo",
+        repo,
+        "--json",
+        parse_json=True,
+    )
+    job_id = str(field(created, "id", "ID"))
+    run(binary, "job", "step", job_id, "implement", "--skip", "--message", "demo skips implementation", "--repo", repo, "--json", parse_json=True)
+    run(binary, "job", "step", job_id, "review", "--skip", "--message", "demo skips review", "--repo", repo, "--json", parse_json=True)
+    blocked = run(binary, "job", "advance", job_id, "--repo", repo, "--json", parse_json=True)
+    step = find_step(blocked.get("job") or blocked.get("Job") or {}, "approve")
+    if field(step, "id", "ID") != "approve" or field(step, "status", "Status") != "blocked":
+        raise DemoError(f"approval gate did not block at approve step: {json.dumps(blocked, indent=2)}")
+    if not step.get("approval_required") and not step.get("ApprovalRequired"):
+        raise DemoError(f"approve step did not report approval_required: {json.dumps(step, indent=2)}")
+
+    body_file = repo / "approval-request.md"
+    body_file.write_text("Approve the demo manual gate.\n", encoding="utf-8")
+    requested = run(
+        binary,
+        "approval",
+        "request",
+        "--repo",
+        repo,
+        "--job",
+        job_id,
+        "--id",
+        "demo-approval",
+        "--title",
+        "Demo approval",
+        "--body-file",
+        body_file,
+        "--step",
+        "approve",
+        "--actor",
+        "demo",
+        "--requesting-instance",
+        "manager",
+        "--json",
+        parse_json=True,
+    )
+    require_json_field(requested, "status", "pending")
+    failed = run_expect_failure(binary, "job", "approve", job_id, "--repo", repo, "--step", "approve")
+    if "requires approval" not in failed.stderr:
+        raise DemoError(f"job approve did not report approval requirement:\n{failed.stderr}")
+
+    approved = run(
+        binary,
+        "approval",
+        "approve",
+        "demo-approval",
+        "--repo",
+        repo,
+        "--job",
+        job_id,
+        "--actor",
+        "demo-supervisor",
+        "--notes",
+        "demo approved",
+        "--json",
+        parse_json=True,
+    )
+    require_json_field(approved, "status", "approved")
+    advance = run(binary, "job", "advance", job_id, "--repo", repo, "--dry-run", "--json", parse_json=True)
+    advanced_step = advance.get("step") or advance.get("Step") or find_step(advance.get("job") or advance.get("Job") or {}, "approve")
+    if field(advanced_step, "id", "ID") != "approve":
+        raise DemoError(f"approval did not make approve step advanceable: {json.dumps(advance, indent=2)}")
+    run(
+        binary,
+        "job",
+        "step",
+        job_id,
+        "approve",
+        "--status",
+        "running",
+        "--instance",
+        "manager",
+        "--force",
+        "--message",
+        "manager owns approved demo gate",
+        "--repo",
+        repo,
+        "--json",
+        parse_json=True,
+    )
+    print(f"approval-required gate verified: {job_id} approve blocked, approved, and advanceable")
+    return job_id
+
+
+def verify_job_merge_dry_run(binary: Path, repo: Path) -> None:
+    created = run(
+        binary,
+        "pipeline",
+        "run",
+        "ticket_to_pr",
+        "DEMO-MERGE",
+        "Merge dry-run demo",
+        "--repo",
+        repo,
+        "--json",
+        parse_json=True,
+    )
+    job_id = str(field(created, "id", "ID"))
+    result = run(binary, "job", "merge", job_id, "--repo", repo, "--branch", "worker-demo-merge", "--dry-run", "--json", parse_json=True)
+    require_json_field(result, "strategy", "squash")
+    require_json_field(result, "action", "would_merge")
+    drift = result.get("drift") or {}
+    drift_class = field(drift, "classification", "Classification")
+    drift_files = drift.get("files") or drift.get("Files") or []
+    if drift_class != "reconcilable" or "coverage/baselines/a.json" not in drift_files:
+        raise DemoError(f"merge dry-run did not classify owned-path drift: {json.dumps(result, indent=2)}")
+    print(f"merge dry-run verified: {job_id} strategy=squash drift=reconcilable")
+
+
+def verify_instance_brief(binary: Path, repo: Path, job_id: str) -> None:
+    brief = run(binary, "instance", "brief", "manager", "--target", repo)
+    require_substrings(brief, "# Instance brief: manager", "Owned Jobs", job_id)
+    print(f"instance brief verified: manager owns {job_id}")
+
+
+def verify_lock_queue(binary: Path, repo: Path) -> None:
+    first_payload = json.dumps({"target": "worker", "name": "worker-lock-a", "ticket": "DEMO-LOCK-1"})
+    second_payload = json.dumps({"target": "worker", "name": "worker-lock-b", "ticket": "DEMO-LOCK-2"})
+    first = run(binary, "event", "publish", "agent.dispatch", "--payload", first_payload, "--target", repo, "--json", parse_json=True)
+    if "worker" not in (first.get("matched") or []):
+        raise DemoError(f"first lock dispatch did not match worker: {json.dumps(first, indent=2)}")
+    second = run(binary, "event", "publish", "agent.dispatch", "--payload", second_payload, "--target", repo, "--json", parse_json=True)
+    outcomes = second.get("outcomes") or []
+    if not any(row.get("action") == "queued" and row.get("reason") == "lock_held" for row in outcomes):
+        raise DemoError(f"second lock dispatch was not queued for lock_held: {json.dumps(second, indent=2)}")
+    queued = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
+    if not any(row.get("instance_id") == "worker-lock-b" and row.get("reason") == "lock_held" for row in queued):
+        raise DemoError(f"lock-held queue item not found: {json.dumps(queued, indent=2)}")
+    locks = run(binary, "locks", "--repo", repo, "--json", parse_json=True)
+    if not any(row.get("name") == "demo" and row.get("used") == 1 for row in locks):
+        raise DemoError(f"demo lock did not show one holder: {json.dumps(locks, indent=2)}")
+    run(binary, "wait", "worker-lock-a", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+    run(binary, "wait", "worker-lock-b", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+    remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
+    if any(row.get("instance_id") == "worker-lock-b" for row in remaining):
+        raise DemoError(f"lock-held queue item did not drain: {json.dumps(remaining, indent=2)}")
+    print("lock queue verified: second worker queued with reason=lock_held and drained")
+
+
+def verify_restart_policy(binary: Path, repo: Path, env: dict[str, str]) -> None:
+    before = manager_pid(binary, repo)
+    if before == 0:
+        run(binary, "start", "manager", "--target", repo, "--wait", "--timeout", "5s", "--json", env=env, parse_json=True)
+        before = manager_pid(binary, repo)
+    if before == 0:
+        raise DemoError("manager did not start for restart-policy demo")
+    print(f"killing manager pid {before} to exercise restart policy")
+    os.kill(before, signal.SIGKILL)
+    time.sleep(0.25)
+    run(binary, "daemon", "reconcile", "--target", repo, "--json", parse_json=True)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        after = manager_pid(binary, repo)
+        if after and after != before:
+            print(f"restart policy verified: manager relaunched pid {before} -> {after}")
+            return
+        time.sleep(0.25)
+        run(binary, "daemon", "reconcile", "--target", repo, "--json", parse_json=True)
+    rows = run(binary, "ps", "--target", repo, "--json", parse_json=True)
+    raise DemoError(f"manager was not relaunched by restart policy: {json.dumps(rows, indent=2)}")
+
+
+def manager_pid(binary: Path, repo: Path) -> int:
+    rows = run(binary, "ps", "--target", repo, "--json", parse_json=True)
+    for row in rows:
+        if field(row, "instance", "Instance") != "manager":
+            continue
+        if field(row, "status", "Status") != "running":
+            return 0
+        raw = field(row, "pid", "PID")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 def configure_fake_runtime(repo: Path, runtime: str, fake_runtime: Path) -> None:
     cfg = repo / ".agent_team" / "config.toml"
     with cfg.open("a", encoding="utf-8") as f:
@@ -334,6 +655,16 @@ def configure_fake_runtime(repo: Path, runtime: str, fake_runtime: Path) -> None
 def enable_demo_schedule(repo: Path) -> None:
     topology = repo / ".agent_team" / "instances.toml"
     body = topology.read_text(encoding="utf-8")
+    manager_header = textwrap.dedent(
+        """\
+        [instances.manager]
+        agent       = "manager"
+        ephemeral   = false
+        """
+    )
+    if manager_header not in body:
+        raise DemoError("bundled topology no longer has the expected manager header")
+    body = body.replace(manager_header, manager_header + 'restart     = "on-failure"\n', 1)
     manager_trigger = textwrap.dedent(
         """\
         [[instances.manager.triggers]]
@@ -352,12 +683,48 @@ def enable_demo_schedule(repo: Path) -> None:
     if manager_trigger not in body:
         raise DemoError("bundled topology no longer has the expected manager dispatch trigger")
     body = body.replace(manager_trigger, schedule_trigger, 1)
+    worker_replicas = 'replicas      = 3\nreap_worktree = "on_merge"'
+    if worker_replicas not in body:
+        raise DemoError("bundled topology no longer has the expected worker replica/reap lines")
+    body = body.replace(worker_replicas, 'replicas      = 3\nlocks         = ["demo"]\nreap_worktree = "on_merge"', 1)
+    pipeline_header = textwrap.dedent(
+        """\
+        [pipelines.ticket_to_pr]
+        trigger.event = "ticket.created"
+        auto_advance  = true
+        """
+    )
+    if pipeline_header not in body:
+        raise DemoError("bundled topology no longer has the expected ticket_to_pr pipeline header")
+    body = body.replace(
+        pipeline_header,
+        pipeline_header
+        + textwrap.dedent(
+            """\
+
+            [pipelines.ticket_to_pr.merge]
+            strategy = "squash"
+            owned_paths = ["coverage/baselines"]
+
+            [pipelines.ticket_to_pr.infra_signatures]
+            missing_binary = "missing-binary:.*"
+            """
+        ),
+        1,
+    )
+    approve_gate = 'gate         = "manual"\ninstructions = """'
+    if approve_gate not in body:
+        raise DemoError("bundled topology no longer has the expected approve gate")
+    body = body.replace(approve_gate, 'gate         = "manual"\napproval_required = true\ninstructions = """', 1)
     team_pipelines = 'pipelines   = ["ticket_to_pr"]'
     if team_pipelines not in body:
         raise DemoError("bundled topology no longer has the expected delivery pipeline list")
     body = body.replace(team_pipelines, team_pipelines + '\nschedules   = ["demo_due"]', 1)
     body += textwrap.dedent(
         """\
+
+        [locks.demo]
+        slots = 1
 
         [schedules.demo_due]
         every = "24h"
@@ -408,7 +775,10 @@ def write_fake_runtime(path: Path) -> None:
             print(f"fake {runtime} instance={instance} args={' '.join(sys.argv[1:])}", flush=True)
             if instance.startswith("worker-") or "-worker-" in instance:
                 write_status("implementing", "fake worker running")
-                time.sleep(0.2)
+                if instance.startswith("worker-lock-"):
+                    time.sleep(1.0)
+                else:
+                    time.sleep(0.2)
                 write_status("done", "fake worker completed")
                 print(f"fake worker complete: {instance}", flush=True)
                 raise SystemExit(0)
