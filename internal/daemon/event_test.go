@@ -1053,6 +1053,44 @@ func TestEvent_EphemeralDispatchPayloadRuntimeOverridesEnv(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-44", 5*time.Second)
 }
 
+func TestEvent_DirectDispatchWithJobIDWritesLinearInProgress(t *testing.T) {
+	// SQU-68 round-5 finding: a direct agent.dispatch that attaches a job via
+	// job_id (no pipeline_step) must still attempt the in-progress write-back.
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "worker")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[team]\npm_tool = \"linear\"\n\n[linear]\nteam_id = \"demo\"\nticket_prefix = \"SQU\"\nin_progress_state = \"In Progress\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-96","ticket":"SQU-96","job_id":"squ-96","kickoff":"direct dispatch","workspace":"repo"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-96")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Type == "linear_writeback_skipped" && ev.Data["action"] == string(linearwriteback.ActionDispatchInProgress) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("direct job_id dispatch missing in-progress write-back attempt: %+v", events)
+	}
+	_, _ = m.Stop("worker-squ-96")
+	_ = m.WaitForReaper("worker-squ-96", 5*time.Second)
+}
+
 func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "")
 	t.Setenv("LINEAR_USER_API_KEY", "")

@@ -7749,14 +7749,19 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 4 ||
+	// Both the daemon and CLI dispatch records now attempt the in-progress
+	// write-back (direct job_id dispatches included — SQU-68 round 5), so the
+	// sequence carries a linear_writeback event after each dispatched event.
+	if len(events) != 5 ||
 		events[0].Type != "reopened" ||
 		events[1].Type != "dispatched" ||
 		events[1].Actor != "daemon" ||
-		events[2].Type != "dispatched" ||
-		events[2].Actor != "cli" ||
-		events[3].Type != "linear_writeback_skipped" ||
-		events[3].Data["action"] != "dispatch_in_progress" {
+		events[2].Type != "linear_writeback_skipped" ||
+		events[2].Data["action"] != "dispatch_in_progress" ||
+		events[3].Type != "dispatched" ||
+		events[3].Actor != "cli" ||
+		events[4].Type != "linear_writeback_skipped" ||
+		events[4].Data["action"] != "dispatch_in_progress" {
 		t.Fatalf("events = %+v", events)
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-80")

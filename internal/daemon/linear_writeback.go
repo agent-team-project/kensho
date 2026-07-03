@@ -18,12 +18,12 @@ func (r *EventResolver) writeLinearDispatchInProgress(j *jobstore.Job, stepID st
 	_ = linearwriteback.DispatchInProgress(context.Background(), r.teamDir, j)
 }
 
+// linearDispatchStepFromPayload extracts the pipeline step for the dispatch
+// write-back. A dispatch that attaches a job without a pipeline_step (direct
+// `agent.dispatch` with job_id/ticket) still attempts the write-back — the
+// non-first-step suppression is handled by jobFirstStep when a step is named.
 func linearDispatchStepFromPayload(payload map[string]any) (string, bool) {
-	stepID := payloadString(payload, "pipeline_step")
-	if stepID == "" && firstPayloadString(payload, "job_id", "job") != "" {
-		return "", false
-	}
-	return stepID, true
+	return payloadString(payload, "pipeline_step"), true
 }
 
 func linearDispatchStarted(j *jobstore.Job) bool {
