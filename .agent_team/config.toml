@@ -29,3 +29,7 @@ terminal_retention = "14d"
 [notifications]
 phase_transitions = ["blocked"]
 idle_renotify = "0"
+
+[runtime]
+kind = "codex"
+binary = "codex"
