@@ -23,6 +23,9 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 	defer srv.Close()
 
 	// POST /v1/dispatch
+	if err := AppendMessage(root, "w-1", &Message{ID: "direct-mail", From: "manager", Body: "do not append"}); err != nil {
+		t.Fatalf("append mailbox: %v", err)
+	}
 	body := `{"agent":"worker","name":"w-1","prompt":"hi","workspace":"` + t.TempDir() + `"}`
 	resp := mustPost(t, srv.URL+"/v1/dispatch", body)
 	if resp.StatusCode != http.StatusOK {
@@ -42,6 +45,16 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 	}
 	if dispBody.PID == 0 || dispBody.SessionID == "" {
 		t.Errorf("missing pid/session: %+v", dispBody)
+	}
+	if prompt, ok := argValue(fake.lastCall(), "-p"); !ok || prompt != "hi" {
+		t.Fatalf("direct dispatch prompt = %q, %v; want caller prompt only in %#v", prompt, ok, fake.lastCall())
+	}
+	unread, err := ReadUnacked(root, "w-1")
+	if err != nil {
+		t.Fatalf("ReadUnacked: %v", err)
+	}
+	if len(unread) != 1 || unread[0].Body != "do not append" {
+		t.Fatalf("direct dispatch should not advance mailbox, got %+v", unread)
 	}
 
 	// GET /v1/instances

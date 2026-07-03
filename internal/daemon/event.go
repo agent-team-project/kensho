@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/loader"
@@ -33,6 +34,11 @@ const DefaultQueueCap = 10
 // event is moved to dead-letter. Initial capacity queueing does not count as
 // an attempt; only failed dispatch attempts do.
 const MaxQueueAttempts = 3
+
+const (
+	kickoffMailboxHeading  = "## Unread messages (delivered at dispatch)"
+	kickoffMailboxMaxBytes = 8 * 1024
+)
 
 // EventResolver routes inbound events to declared instances per the topology.
 // Persistent instances receive a JSON-encoded event payload via mailbox
@@ -1086,6 +1092,11 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		}
 		worktreePath = workspace
 	}
+	prompt, err = r.appendUnreadMailboxToPrompt(name, inst.Agent, prompt, payload, branch)
+	if err != nil {
+		cleanupWorkspace()
+		return nil, err
+	}
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
 	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, payload)
@@ -1114,6 +1125,138 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	}
 	r.attachSpawnOwnership(meta, payload, branch, worktreePath)
 	return meta, nil
+}
+
+func (r *EventResolver) appendUnreadMailboxToPrompt(instance, agent, prompt string, payload map[string]any, branch string) (string, error) {
+	unread, err := ReadUnacked(r.mgr.daemonRoot, instance)
+	if err != nil {
+		return "", fmt.Errorf("event runtime: read kickoff mailbox: %w", err)
+	}
+	section, delivered, truncated, cursor := formatKickoffMailbox(unread, kickoffMailboxMaxBytes)
+	if delivered == 0 {
+		return prompt, nil
+	}
+	if err := WriteCursor(r.mgr.daemonRoot, instance, cursor); err != nil {
+		return "", fmt.Errorf("event runtime: advance kickoff mailbox cursor: %w", err)
+	}
+	r.recordKickoffMailDelivered(instance, agent, payload, branch, delivered, len(section), truncated)
+	return prompt + "\n\n" + section, nil
+}
+
+func formatKickoffMailbox(messages []*Message, maxBytes int) (section string, delivered int, truncated bool, cursor string) {
+	if len(messages) == 0 || maxBytes <= 0 {
+		return "", 0, false, ""
+	}
+	var full strings.Builder
+	full.WriteString(kickoffMailboxHeading)
+	full.WriteString("\n\n")
+	for i, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		delivered++
+		cursor = msg.ID
+		if delivered > 1 {
+			full.WriteString("\n")
+		}
+		from := strings.TrimSpace(msg.From)
+		if from == "" {
+			from = "unknown"
+		}
+		at := ""
+		if !msg.TS.IsZero() {
+			at = msg.TS.UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(&full, "%d. From: %s", delivered, from)
+		if at != "" {
+			fmt.Fprintf(&full, " at %s", at)
+		}
+		if strings.TrimSpace(msg.ID) != "" {
+			fmt.Fprintf(&full, " (id: %s)", msg.ID)
+		}
+		full.WriteString("\n")
+		full.WriteString(indentMailboxBody(msg.Body))
+		if i < len(messages)-1 {
+			full.WriteString("\n")
+		}
+	}
+	if delivered == 0 {
+		return "", 0, false, ""
+	}
+	text := full.String()
+	if len(text) <= maxBytes {
+		return text, delivered, false, cursor
+	}
+	note := fmt.Sprintf("\n\n[truncated: unread mailbox delivery capped at %d bytes; %d message(s) were marked delivered at dispatch]", maxBytes, delivered)
+	limit := maxBytes - len(note)
+	if limit < 0 {
+		return truncateUTF8(note, maxBytes), delivered, true, cursor
+	}
+	return truncateUTF8(text, limit) + note, delivered, true, cursor
+}
+
+func indentMailboxBody(body string) string {
+	body = strings.TrimRight(strings.ToValidUTF8(body, "\uFFFD"), "\n")
+	if body == "" {
+		return "   (empty)"
+	}
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = "   " + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func truncateUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && !utf8.ValidString(s[:maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
+}
+
+func (r *EventResolver) recordKickoffMailDelivered(instance, agent string, payload map[string]any, branch string, delivered, bytes int, truncated bool) {
+	if delivered <= 0 {
+		return
+	}
+	jobID := eventJobID(payload)
+	ticket := payloadString(payload, "ticket")
+	message := fmt.Sprintf("delivered %d unread mailbox message(s) in dispatch kickoff", delivered)
+	if truncated {
+		message += " (truncated)"
+	}
+	_ = AppendLifecycleEvent(r.mgr.daemonRoot, &LifecycleEvent{
+		Action:   "kickoff_mail_delivered",
+		Instance: instance,
+		Agent:    agent,
+		Job:      jobID,
+		Ticket:   ticket,
+		Branch:   branch,
+		Message:  message,
+	})
+	if jobID == "" || strings.TrimSpace(r.teamDir) == "" {
+		return
+	}
+	data := map[string]string{
+		"messages": fmt.Sprint(delivered),
+		"bytes":    fmt.Sprint(bytes),
+	}
+	if truncated {
+		data["truncated"] = "true"
+	}
+	_ = jobstore.AppendEvent(r.teamDir, &jobstore.Event{
+		JobID:    jobID,
+		Type:     "kickoff_mail_delivered",
+		Instance: instance,
+		Message:  message,
+		Actor:    "daemon",
+		Data:     data,
+	})
 }
 
 func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]any, branch, worktreePath string) {

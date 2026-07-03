@@ -482,6 +482,191 @@ func TestEvent_EphemeralDispatchUsesRequestedChildName(t *testing.T) {
 	}
 }
 
+func TestEvent_EphemeralDispatchDeliversUnreadMailboxInKickoff(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	first := &Message{ID: "mail-1", From: "manager", Body: "first steer"}
+	second := &Message{ID: "mail-2", From: "reviewer", Body: "second steer"}
+	if err := AppendMessage(root, "worker-squ-64", first); err != nil {
+		t.Fatalf("append first mail: %v", err)
+	}
+	if err := AppendMessage(root, "worker-squ-64", second); err != nil {
+		t.Fatalf("append second mail: %v", err)
+	}
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-squ-64",
+		"ticket":  "SQU-64",
+		"job_id":  "squ-64",
+		"kickoff": "implement SQU-64",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-squ-64")
+		_ = m.WaitForReaper("worker-squ-64", 5*time.Second)
+	})
+
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	for _, want := range []string{kickoffMailboxHeading, "first steer", "second steer", "From: manager", "From: reviewer"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	unread, err := ReadUnacked(root, "worker-squ-64")
+	if err != nil {
+		t.Fatalf("ReadUnacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("unread after dispatch = %+v, want none", unread)
+	}
+	cursor, err := ReadCursor(root, "worker-squ-64")
+	if err != nil {
+		t.Fatalf("ReadCursor: %v", err)
+	}
+	if cursor != second.ID {
+		t.Fatalf("cursor = %q, want %q", cursor, second.ID)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if !lifecycleEventsContain(events, "kickoff_mail_delivered", "worker-squ-64") {
+		t.Fatalf("lifecycle events missing kickoff_mail_delivered: %+v", events)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, "squ-64")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	found := false
+	for _, ev := range jobEvents {
+		if ev.Type == "kickoff_mail_delivered" && ev.Actor == "daemon" && ev.Instance == "worker-squ-64" && ev.Data["messages"] == "2" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("job events missing kickoff_mail_delivered: %+v", jobEvents)
+	}
+}
+
+func TestEvent_EphemeralDispatchLeavesKickoffAloneWhenNoUnreadMailbox(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-no-mail",
+		"kickoff": "implement without mail",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-no-mail")
+		_ = m.WaitForReaper("worker-no-mail", 5*time.Second)
+	})
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	if strings.Contains(prompt, kickoffMailboxHeading) {
+		t.Fatalf("prompt unexpectedly contains mailbox section:\n%s", prompt)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if lifecycleEventsContain(events, "kickoff_mail_delivered", "worker-no-mail") {
+		t.Fatalf("lifecycle events unexpectedly include kickoff_mail_delivered: %+v", events)
+	}
+}
+
+func TestEvent_EphemeralDispatchTruncatesUnreadMailboxKickoff(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	msg := &Message{ID: "mail-big", From: "manager", Body: strings.Repeat("x", kickoffMailboxMaxBytes*2)}
+	if err := AppendMessage(root, "worker-big-mail", msg); err != nil {
+		t.Fatalf("append mail: %v", err)
+	}
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-big-mail",
+		"ticket":  "SQU-65",
+		"job_id":  "squ-65",
+		"kickoff": "implement SQU-65",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-big-mail")
+		_ = m.WaitForReaper("worker-big-mail", 5*time.Second)
+	})
+
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	idx := strings.Index(prompt, kickoffMailboxHeading)
+	if idx < 0 {
+		t.Fatalf("prompt missing mailbox heading:\n%s", prompt)
+	}
+	section := prompt[idx:]
+	if len(section) > kickoffMailboxMaxBytes {
+		t.Fatalf("mailbox section length = %d, want <= %d", len(section), kickoffMailboxMaxBytes)
+	}
+	if !strings.Contains(section, "truncated") {
+		t.Fatalf("truncated mailbox section missing note:\n%s", section)
+	}
+	unread, err := ReadUnacked(root, "worker-big-mail")
+	if err != nil {
+		t.Fatalf("ReadUnacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("unread after truncated dispatch = %+v, want none", unread)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, "squ-65")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	found := false
+	for _, ev := range jobEvents {
+		if ev.Type == "kickoff_mail_delivered" && ev.Data["truncated"] == "true" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("job events missing truncated kickoff_mail_delivered: %+v", jobEvents)
+	}
+}
+
 func TestEvent_EphemeralJobExitPreservesMetadataAndCompletesJob(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
@@ -1761,6 +1946,82 @@ timeout = "2h"
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
 		t.Fatalf("optional review step = %+v", j.Steps[1])
+	}
+}
+
+func TestEvent_PipelineStepDispatchDeliversUnreadMailboxInKickoff(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	msg := &Message{ID: "pipeline-mail-1", From: "manager", Body: "pipeline mail"}
+	if err := AppendMessage(root, "worker-squ-92", msg); err != nil {
+		t.Fatalf("append mail: %v", err)
+	}
+	result, err := resolver.EventWithResult("ticket.created", map[string]any{
+		"ticket":    "SQU-92",
+		"kickoff":   "implement SQU-92",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-92" {
+		t.Fatalf("outcomes = %+v, want dispatched worker-squ-92", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-squ-92")
+		_ = m.WaitForReaper("worker-squ-92", 5*time.Second)
+	})
+
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	if !strings.Contains(prompt, kickoffMailboxHeading) || !strings.Contains(prompt, "pipeline mail") {
+		t.Fatalf("pipeline prompt missing mailbox delivery:\n%s", prompt)
+	}
+	unread, err := ReadUnacked(root, "worker-squ-92")
+	if err != nil {
+		t.Fatalf("ReadUnacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("unread after pipeline dispatch = %+v, want none", unread)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, "squ-92")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	found := false
+	for _, ev := range jobEvents {
+		if ev.Type == "kickoff_mail_delivered" && ev.Instance == "worker-squ-92" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("job events missing kickoff_mail_delivered: %+v", jobEvents)
 	}
 }
 
