@@ -121,17 +121,20 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 	tmp := t.TempDir()
 	teamDir := filepath.Join(tmp, ".agent_team")
 	started := time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
+	deadline := started.Add(45 * time.Minute)
 	meta := &daemon.Metadata{
-		Instance:      "adhoc",
-		Agent:         "manager",
-		Status:        daemon.StatusRunning,
-		Runtime:       "codex",
-		RuntimeBinary: "codex-dev",
-		PID:           12345,
-		Workspace:     tmp,
-		SessionID:     "session-1",
-		StartedAt:     started,
-		LogPath:       filepath.Join(teamDir, "daemon", "adhoc", "child.log"),
+		Instance:        "adhoc",
+		Agent:           "manager",
+		Status:          daemon.StatusRunning,
+		Runtime:         "codex",
+		RuntimeBinary:   "codex-dev",
+		PID:             12345,
+		Workspace:       tmp,
+		SessionID:       "session-1",
+		StartedAt:       started,
+		RuntimeBudget:   "45m0s",
+		RuntimeDeadline: deadline,
+		LogPath:         filepath.Join(teamDir, "daemon", "adhoc", "child.log"),
 	}
 
 	var out bytes.Buffer
@@ -147,6 +150,8 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		"workspace:   " + filepath.ToSlash(tmp),
 		"session_id:  session-1",
 		"started_at:  2026-06-17T12:30:00Z",
+		"budget:      45m0s",
+		"deadline:    2026-06-17T13:15:00Z",
 		"log:         .agent_team/daemon/adhoc/child.log",
 	} {
 		if !strings.Contains(body, want) {
@@ -174,15 +179,20 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
+	started := time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
+	deadline := started.Add(45 * time.Minute)
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance:      "adhoc",
-		Agent:         "manager",
-		Status:        daemon.StatusStopped,
-		Runtime:       "codex",
-		RuntimeBinary: "codex-dev",
-		Workspace:     tmp,
-		SessionID:     "session-1",
-		Adopted:       true,
+		Instance:        "adhoc",
+		Agent:           "manager",
+		Status:          daemon.StatusStopped,
+		Runtime:         "codex",
+		RuntimeBinary:   "codex-dev",
+		Workspace:       tmp,
+		SessionID:       "session-1",
+		StartedAt:       started,
+		RuntimeBudget:   "45m0s",
+		RuntimeDeadline: deadline,
+		Adopted:         true,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -208,6 +218,8 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		body.Runtime.Runtime != "codex" ||
 		body.Runtime.RuntimeBinary != "codex-dev" ||
 		body.Runtime.SessionID != "session-1" ||
+		body.Runtime.RuntimeBudget != "45m0s" ||
+		body.Runtime.RuntimeDeadline != deadline.Format(time.RFC3339) ||
 		!body.Runtime.Adopted {
 		t.Fatalf("runtime = %+v, want stopped manager session", body.Runtime)
 	}

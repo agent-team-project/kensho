@@ -1489,6 +1489,52 @@ func TestEvent_DrainQueuesWithResultReportsOutcomes(t *testing.T) {
 	}
 }
 
+func TestEvent_DrainQueuesArmsQueuedTimeoutBudget(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Now().UTC()
+	item := &QueueItem{
+		ID:         "queued-timeout",
+		State:      QueueStatePending,
+		EventType:  "agent.dispatch",
+		Instance:   "worker",
+		InstanceID: "worker-queued-timeout",
+		Payload: map[string]any{
+			"target":    "worker",
+			"name":      "worker-queued-timeout",
+			"ticket":    "SQU-502",
+			"workspace": "repo",
+			"timeout":   "50ms",
+		},
+		QueuedAt:  now,
+		UpdatedAt: now,
+	}
+	if err := WriteQueueItem(root, item); err != nil {
+		t.Fatalf("WriteQueueItem: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.DrainQueuesWithResult()
+	if err != nil {
+		t.Fatalf("DrainQueuesWithResult: %v", err)
+	}
+	if result.Dispatched != 1 || len(result.Outcomes) != 1 || result.Outcomes[0].InstanceID != "worker-queued-timeout" {
+		t.Fatalf("drain result = %+v, want dispatched queued timeout", result)
+	}
+	if err := m.WaitForReaper("worker-queued-timeout", 8*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	meta, err := ReadMetadata(root, "worker-queued-timeout")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if meta.RuntimeBudget != "50ms" || meta.RuntimeDeadline.IsZero() || meta.Status != StatusCrashed {
+		t.Fatalf("metadata = %+v, want crashed with 50ms budget", meta)
+	}
+}
+
 func TestEvent_DrainQueuesWithResultForIDsSkipsUnselectedItems(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
@@ -1715,6 +1761,66 @@ timeout = "2h"
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
 		t.Fatalf("optional review step = %+v", j.Steps[1])
+	}
+}
+
+func TestEvent_PipelineStepTimeoutArmsWatchdog(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+timeout = "50ms"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult("ticket.created", map[string]any{
+		"ticket":    "SQU-501",
+		"kickoff":   "implement SQU-501",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-501" {
+		t.Fatalf("outcomes = %+v, want dispatched worker-squ-501", result.Outcomes)
+	}
+	if err := m.WaitForReaper("worker-squ-501", 8*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-501")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if meta.RuntimeBudget != "50ms" || meta.RuntimeDeadline.IsZero() {
+		t.Fatalf("metadata budget = %+v, want 50ms with deadline", meta)
+	}
+	if meta.Status != StatusCrashed {
+		t.Fatalf("metadata status = %s, want crashed", meta.Status)
+	}
+	j, err := jobstore.Read(teamDir, "squ-501")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusFailed {
+		t.Fatalf("job steps after watchdog = %+v, want failed implement", j.Steps)
 	}
 }
 

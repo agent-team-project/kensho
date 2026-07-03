@@ -785,13 +785,13 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		rows = mergeDaemonRows(rows, insts, agentNames)
+		rows = mergeDaemonRows(rows, insts, agentNames, now)
 	case errors.Is(err, errDaemonNotRunning):
 		insts, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 		if err != nil {
 			return nil, err
 		}
-		rows = mergeDaemonRows(rows, insts, agentNames)
+		rows = mergeDaemonRows(rows, insts, agentNames, now)
 	default:
 		return nil, err
 	}
@@ -799,7 +799,7 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 	return rows, nil
 }
 
-func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames map[string]bool) []instanceRow {
+func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames map[string]bool, now time.Time) []instanceRow {
 	rowByInstance := map[string]int{}
 	for i := range rows {
 		rowByInstance[rows[i].Instance] = i
@@ -807,7 +807,7 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 	for _, m := range insts {
 		idx, ok := rowByInstance[m.Instance]
 		if !ok {
-			newRow := newRowFromMeta(m, agentNames)
+			newRow := newRowFromMeta(m, agentNames, now)
 			rows = append(rows, newRow)
 			rowByInstance[newRow.Instance] = len(rows) - 1
 			continue
@@ -818,6 +818,10 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 		rows[idx].Lifecycle = metadataStatusKey(m)
 		rows[idx].Runtime = m.Runtime
 		rows[idx].RuntimeBinary = m.RuntimeBinary
+		rows[idx].RuntimeBudget = m.RuntimeBudget
+		rows[idx].RuntimeDeadline = m.RuntimeDeadline
+		rows[idx].RuntimeElapsed = metadataRuntimeBudgetElapsed(m, now)
+		rows[idx].RuntimeRemaining = metadataRuntimeBudgetRemaining(m, now)
 		rows[idx].RuntimeStale = runtimeResumeMetadataIsStale(m)
 		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
 		rows[idx].Ticket = firstNonEmpty(rows[idx].Ticket, m.Ticket)
@@ -839,7 +843,7 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "INSTANCE\tAGENT\tJOB\tSTATUS\tPHASE\tPID\tAGE\tSUMMARY")
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tJOB\tSTATUS\tPHASE\tPID\tBUDGET\tAGE\tSUMMARY")
 	for _, r := range rows {
 		phase := r.Phase
 		if r.Stale {
@@ -855,61 +859,71 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 		if r.PID > 0 {
 			pid = strconv.Itoa(r.PID)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Instance, r.Agent, emptyDash(r.Job), life, phase, pid, r.Age, r.Summary)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.Instance, r.Agent, emptyDash(r.Job), life, phase, pid, runtimeBudgetTableText(r), r.Age, r.Summary)
 	}
 	return tw.Flush()
 }
 
 type psJSONRow struct {
-	Instance      string `json:"instance"`
-	Agent         string `json:"agent"`
-	Status        string `json:"status"`
-	Phase         string `json:"phase"`
-	Age           string `json:"age"`
-	Summary       string `json:"summary,omitempty"`
-	Runtime       string `json:"runtime,omitempty"`
-	RuntimeBinary string `json:"runtime_binary,omitempty"`
-	Job           string `json:"job,omitempty"`
-	Ticket        string `json:"ticket,omitempty"`
-	Branch        string `json:"branch,omitempty"`
-	PR            string `json:"pr,omitempty"`
-	Workspace     string `json:"workspace,omitempty"`
-	Stale         bool   `json:"stale"`
-	RuntimeStale  bool   `json:"runtime_stale,omitempty"`
-	Unhealthy     bool   `json:"unhealthy,omitempty"`
-	HasStatus     bool   `json:"has_status"`
-	PID           int    `json:"pid,omitempty"`
-	StartedAt     string `json:"started_at,omitempty"`
-	StoppedAt     string `json:"stopped_at,omitempty"`
-	ExitedAt      string `json:"exited_at,omitempty"`
+	Instance         string `json:"instance"`
+	Agent            string `json:"agent"`
+	Status           string `json:"status"`
+	Phase            string `json:"phase"`
+	Age              string `json:"age"`
+	Summary          string `json:"summary,omitempty"`
+	Runtime          string `json:"runtime,omitempty"`
+	RuntimeBinary    string `json:"runtime_binary,omitempty"`
+	RuntimeBudget    string `json:"runtime_budget,omitempty"`
+	RuntimeDeadline  string `json:"runtime_deadline,omitempty"`
+	RuntimeElapsed   string `json:"runtime_elapsed,omitempty"`
+	RuntimeRemaining string `json:"runtime_remaining,omitempty"`
+	Job              string `json:"job,omitempty"`
+	Ticket           string `json:"ticket,omitempty"`
+	Branch           string `json:"branch,omitempty"`
+	PR               string `json:"pr,omitempty"`
+	Workspace        string `json:"workspace,omitempty"`
+	Stale            bool   `json:"stale"`
+	RuntimeStale     bool   `json:"runtime_stale,omitempty"`
+	Unhealthy        bool   `json:"unhealthy,omitempty"`
+	HasStatus        bool   `json:"has_status"`
+	PID              int    `json:"pid,omitempty"`
+	StartedAt        string `json:"started_at,omitempty"`
+	StoppedAt        string `json:"stopped_at,omitempty"`
+	ExitedAt         string `json:"exited_at,omitempty"`
 }
 
 func psJSONRows(rows []instanceRow) []psJSONRow {
 	out := make([]psJSONRow, 0, len(rows))
 	for _, r := range rows {
 		row := psJSONRow{
-			Instance:      r.Instance,
-			Agent:         r.Agent,
-			Status:        psStatusKey(r),
-			Phase:         psPhaseKey(r),
-			Age:           r.Age,
-			Summary:       r.Summary,
-			Runtime:       r.Runtime,
-			RuntimeBinary: r.RuntimeBinary,
-			Job:           r.Job,
-			Ticket:        r.Ticket,
-			Branch:        r.Branch,
-			PR:            r.PR,
-			Workspace:     filepath.ToSlash(r.Workspace),
-			Stale:         r.Stale,
-			RuntimeStale:  r.RuntimeStale,
-			Unhealthy:     psRowUnhealthy(r),
-			HasStatus:     r.HasFile,
-			PID:           r.PID,
+			Instance:         r.Instance,
+			Agent:            r.Agent,
+			Status:           psStatusKey(r),
+			Phase:            psPhaseKey(r),
+			Age:              r.Age,
+			Summary:          r.Summary,
+			Runtime:          r.Runtime,
+			RuntimeBinary:    r.RuntimeBinary,
+			RuntimeBudget:    r.RuntimeBudget,
+			RuntimeElapsed:   r.RuntimeElapsed,
+			RuntimeRemaining: r.RuntimeRemaining,
+			Job:              r.Job,
+			Ticket:           r.Ticket,
+			Branch:           r.Branch,
+			PR:               r.PR,
+			Workspace:        filepath.ToSlash(r.Workspace),
+			Stale:            r.Stale,
+			RuntimeStale:     r.RuntimeStale,
+			Unhealthy:        psRowUnhealthy(r),
+			HasStatus:        r.HasFile,
+			PID:              r.PID,
 		}
 		if !r.StartedAt.IsZero() {
 			row.StartedAt = r.StartedAt.UTC().Format(time.RFC3339)
+		}
+		if !r.RuntimeDeadline.IsZero() {
+			row.RuntimeDeadline = r.RuntimeDeadline.UTC().Format(time.RFC3339)
 		}
 		if !r.StoppedAt.IsZero() {
 			row.StoppedAt = r.StoppedAt.UTC().Format(time.RFC3339)
@@ -925,31 +939,77 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 // newRowFromMeta builds a row for an instance the daemon knows about but
 // which has no state dir / status.toml on disk yet. Phase shows `—` until
 // the instance starts emitting status.
-func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool) instanceRow {
+func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool, now time.Time) instanceRow {
 	agent := m.Agent
 	if !agentNames[agent] {
 		// Best-effort: if the agent name isn't recognised, fall back to "—".
 		agent = guessAgentName(m.Instance, agentNames)
 	}
 	return instanceRow{
-		Instance:      m.Instance,
-		Agent:         agent,
-		Phase:         "—",
-		Age:           "—",
-		Lifecycle:     metadataStatusKey(m),
-		Runtime:       m.Runtime,
-		RuntimeBinary: m.RuntimeBinary,
-		RuntimeStale:  runtimeResumeMetadataIsStale(m),
-		Job:           m.Job,
-		Ticket:        m.Ticket,
-		Branch:        m.Branch,
-		PR:            m.PR,
-		Workspace:     m.Workspace,
-		PID:           m.PID,
-		StartedAt:     m.StartedAt,
-		StoppedAt:     m.StoppedAt,
-		ExitedAt:      m.ExitedAt,
+		Instance:         m.Instance,
+		Agent:            agent,
+		Phase:            "—",
+		Age:              "—",
+		Lifecycle:        metadataStatusKey(m),
+		Runtime:          m.Runtime,
+		RuntimeBinary:    m.RuntimeBinary,
+		RuntimeBudget:    m.RuntimeBudget,
+		RuntimeDeadline:  m.RuntimeDeadline,
+		RuntimeElapsed:   metadataRuntimeBudgetElapsed(m, now),
+		RuntimeRemaining: metadataRuntimeBudgetRemaining(m, now),
+		RuntimeStale:     runtimeResumeMetadataIsStale(m),
+		Job:              m.Job,
+		Ticket:           m.Ticket,
+		Branch:           m.Branch,
+		PR:               m.PR,
+		Workspace:        m.Workspace,
+		PID:              m.PID,
+		StartedAt:        m.StartedAt,
+		StoppedAt:        m.StoppedAt,
+		ExitedAt:         m.ExitedAt,
 	}
+}
+
+func metadataRuntimeBudgetElapsed(meta *daemon.Metadata, now time.Time) string {
+	if meta == nil || strings.TrimSpace(meta.RuntimeBudget) == "" || meta.StartedAt.IsZero() {
+		return ""
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	elapsed := now.Sub(meta.StartedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return roundedDurationString(elapsed)
+}
+
+func metadataRuntimeBudgetRemaining(meta *daemon.Metadata, now time.Time) string {
+	if meta == nil || strings.TrimSpace(meta.RuntimeBudget) == "" || meta.RuntimeDeadline.IsZero() || meta.Status != daemon.StatusRunning {
+		return ""
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	remaining := meta.RuntimeDeadline.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return roundedDurationString(remaining)
+}
+
+func runtimeBudgetTableText(row instanceRow) string {
+	if strings.TrimSpace(row.RuntimeBudget) == "" {
+		return "—"
+	}
+	parts := []string{"budget=" + row.RuntimeBudget}
+	if strings.TrimSpace(row.RuntimeElapsed) != "" {
+		parts = append(parts, "elapsed="+row.RuntimeElapsed)
+	}
+	if strings.TrimSpace(row.RuntimeRemaining) != "" {
+		parts = append(parts, "remaining="+row.RuntimeRemaining)
+	}
+	return strings.Join(parts, " ")
 }
 
 func firstNonEmpty(values ...string) string {

@@ -93,6 +93,12 @@ func TestInstance_WatchdogCrashesOverBudget(t *testing.T) {
 	if disk.Status != StatusCrashed {
 		t.Fatalf("status after watchdog = %s, want crashed", disk.Status)
 	}
+	if disk.RuntimeBudget != "50ms" {
+		t.Fatalf("runtime budget = %q, want 50ms", disk.RuntimeBudget)
+	}
+	if disk.RuntimeDeadline.IsZero() || !disk.RuntimeDeadline.After(disk.StartedAt) {
+		t.Fatalf("runtime deadline = %s, started_at = %s", disk.RuntimeDeadline, disk.StartedAt)
+	}
 	if disk.ExitedAt.IsZero() {
 		t.Fatalf("ExitedAt not set after watchdog kill")
 	}

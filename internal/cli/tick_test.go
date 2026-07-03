@@ -43,7 +43,7 @@ func TestTickRunsMaintenanceCycle(t *testing.T) {
 		UpdatedAt: now,
 		Steps: []job.Step{
 			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
-			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}},
+			{ID: "implement", Target: "worker", Status: job.StatusBlocked, After: []string{"triage"}, Timeout: "45m0s"},
 		},
 	}
 	if err := job.Write(teamDir, j); err != nil {
@@ -173,7 +173,7 @@ branch = "worker-squ-94"
 		t.Fatalf("tick dispatch route preview = %+v", dispatchPreview)
 	}
 	payload := dispatchPreview.Payload
-	if payload["job_id"] != "squ-93" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" {
+	if payload["job_id"] != "squ-93" || payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["runtime"] != "codex" || payload["runtime_binary"] != "codex-dev" || payload["timeout"] != "45m0s" {
 		t.Fatalf("tick route preview payload = %+v", payload)
 	}
 
@@ -224,6 +224,13 @@ branch = "worker-squ-94"
 	}
 	if updated.Steps[1].Status != job.StatusRunning || updated.Steps[1].Instance == "" {
 		t.Fatalf("advanced job = %+v", updated)
+	}
+	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), updated.Steps[1].Instance)
+	if err != nil {
+		t.Fatalf("read advanced metadata: %v", err)
+	}
+	if meta.RuntimeBudget != "45m0s" || meta.RuntimeDeadline.IsZero() {
+		t.Fatalf("advanced metadata = %+v, want armed 45m budget", meta)
 	}
 	statusUpdated, err := job.Read(teamDir, "squ-94")
 	if err != nil {

@@ -73,22 +73,34 @@ func TestPsTextShowsPIDFromDaemonMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
+	started := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	deadline := started.Add(2 * time.Minute)
+	now := started.Add(30 * time.Second)
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusRunning,
-		PID:      12345,
+		Instance:        "manager",
+		Agent:           "manager",
+		Status:          daemon.StatusRunning,
+		PID:             12345,
+		StartedAt:       started,
+		RuntimeBudget:   "2m0s",
+		RuntimeDeadline: deadline,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if err := runPs(&buf, teamDir, time.Now()); err != nil {
+	if err := runPs(&buf, teamDir, now); err != nil {
 		t.Fatalf("runPs: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "PID") || !strings.Contains(out, "12345") {
 		t.Fatalf("ps output missing PID column/value: %q", out)
+	}
+	if !strings.Contains(out, "BUDGET") ||
+		!strings.Contains(out, "budget=2m0s") ||
+		!strings.Contains(out, "elapsed=30s") ||
+		!strings.Contains(out, "remaining=1m30s") {
+		t.Fatalf("ps output missing runtime budget details: %q", out)
 	}
 }
 
@@ -160,17 +172,23 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
+	started := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	deadline := started.Add(45 * time.Minute)
+	now := started.Add(5 * time.Minute)
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
-		Instance: "adhoc",
-		Agent:    "manager",
-		Status:   daemon.StatusStopped,
-		PID:      123,
+		Instance:        "adhoc",
+		Agent:           "manager",
+		Status:          daemon.StatusStopped,
+		PID:             123,
+		StartedAt:       started,
+		RuntimeBudget:   "45m0s",
+		RuntimeDeadline: deadline,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if err := runPsJSON(&buf, teamDir, time.Now()); err != nil {
+	if err := runPsJSON(&buf, teamDir, now); err != nil {
 		t.Fatalf("runPsJSON: %v", err)
 	}
 	var rows []psJSONRow
@@ -183,6 +201,12 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	got := rows[0]
 	if got.Instance != "adhoc" || got.Agent != "manager" || got.Status != "stopped" || got.PID != 123 {
 		t.Fatalf("row = %+v, want stopped manager metadata", got)
+	}
+	if got.RuntimeBudget != "45m0s" ||
+		got.RuntimeDeadline != deadline.Format(time.RFC3339) ||
+		got.RuntimeElapsed != "5m0s" ||
+		got.RuntimeRemaining != "" {
+		t.Fatalf("row = %+v, want persisted runtime budget metadata", got)
 	}
 	if got.HasStatus {
 		t.Fatalf("daemon-only row should not report status.toml: %+v", got)
@@ -970,7 +994,7 @@ func TestMergeDaemonRowsUpdatesAgentForExistingStateRow(t *testing.T) {
 	metas := []*daemon.Metadata{
 		{Instance: "adhoc", Agent: "manager", Status: daemon.StatusRunning, Runtime: "codex", RuntimeBinary: "codex-dev", PID: 42, StartedAt: started, StoppedAt: stopped, ExitedAt: exited},
 	}
-	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true})
+	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true}, started.Add(30*time.Minute))
 	if got[0].Agent != "manager" || got[0].Lifecycle != "running" || got[0].Runtime != "codex" || got[0].RuntimeBinary != "codex-dev" || got[0].PID != 42 || !got[0].StartedAt.Equal(started) || !got[0].StoppedAt.Equal(stopped) || !got[0].ExitedAt.Equal(exited) {
 		t.Fatalf("row = %+v, want daemon agent/status/pid", got[0])
 	}
@@ -1008,7 +1032,7 @@ func TestMergeDaemonRowsNormalizesMissingStatus(t *testing.T) {
 		{Instance: "adhoc", Agent: "manager", PID: 43},
 	}
 
-	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true})
+	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true}, time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	if len(got) != 2 {
 		t.Fatalf("rows = %+v, want two", got)
 	}
