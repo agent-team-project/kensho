@@ -525,29 +525,18 @@ def verify_approval_required_gate(binary: Path, repo: Path) -> str:
         parse_json=True,
     )
     require_json_field(approved, "status", "approved")
+    # The approval decision itself is the real apply path: approving the linked
+    # request must queue the gated step — no --force status mutation, no extra
+    # approve command.
+    shown = run(binary, "job", "show", job_id, "--repo", repo, "--json", parse_json=True)
+    cleared_step = find_step(shown.get("job") or shown.get("Job") or shown, "approve")
+    if field(cleared_step, "id", "ID") != "approve" or field(cleared_step, "status", "Status") != "queued":
+        raise DemoError(f"approval decision did not queue the approve step: {json.dumps(shown, indent=2)}")
     advance = run(binary, "job", "advance", job_id, "--repo", repo, "--dry-run", "--json", parse_json=True)
     advanced_step = advance.get("step") or advance.get("Step") or find_step(advance.get("job") or advance.get("Job") or {}, "approve")
     if field(advanced_step, "id", "ID") != "approve":
-        raise DemoError(f"approval did not make approve step advanceable: {json.dumps(advance, indent=2)}")
-    run(
-        binary,
-        "job",
-        "step",
-        job_id,
-        "approve",
-        "--status",
-        "running",
-        "--instance",
-        "manager",
-        "--force",
-        "--message",
-        "manager owns approved demo gate",
-        "--repo",
-        repo,
-        "--json",
-        parse_json=True,
-    )
-    print(f"approval-required gate verified: {job_id} approve blocked, approved, and advanceable")
+        raise DemoError(f"approved gate is not advanceable: {json.dumps(advance, indent=2)}")
+    print(f"approval-required gate verified: {job_id} blocked -> approval approved -> gate queued")
     return job_id
 
 
