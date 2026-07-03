@@ -40,21 +40,66 @@ description   = "Code-writing agent. Spawned on `agent.dispatch` (see assign-wor
 event        = "agent.dispatch"
 match.target = "worker"
 
+[instances.reviewer]
+agent       = "reviewer"
+ephemeral   = true
+replicas    = 2
+description = "Adversarial content reviewer for worker PRs. Reads, verifies, reports a verdict; never pushes."
+
+[[instances.reviewer.triggers]]
+event        = "agent.dispatch"
+match.target = "reviewer"
+
+# The field-proven pipeline shape (see documentation/operating-model.md):
+# headless implement -> adversarial review chain on process exit; the manual
+# gate stops exactly where merge judgment is needed. Watchdog timeouts rescue
+# wedged runtimes; max_attempts = 1 because a hang can strike after the PR
+# opens and a retry would open a duplicate — the manager re-dispatches instead.
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
+auto_advance  = true
 
 [[pipelines.ticket_to_pr.steps]]
-id     = "implement"
-target = "worker"
+id           = "implement"
+target       = "worker"
+workspace    = "worktree"
+timeout      = "45m"
+max_attempts = 1
 
 [[pipelines.ticket_to_pr.steps]]
-id     = "review"
-target = "manager"
-after  = ["implement"]
+id           = "review"
+target       = "reviewer"
+after        = ["implement"]
+timeout      = "30m"
+max_attempts = 1
+instructions = """
+Hand-verify, in order: (1) the ticket's acceptance criteria are actually met —
+check the specific behaviors, not the PR description; (2) tests cover the
+changed behavior and would fail without the change; (3) no unrelated files or
+drive-by edits; (4) no dead code or commented-out blocks. Judge CONTENT only:
+infra failures are gate results, not bounces, and base drift is not a bounce.
+Report via `job gate set` and a PR comment starting `REVIEW: APPROVE` or
+`REVIEW: BOUNCE`.
+"""
+
+# The manual gate: nothing merges without human (or manager) judgment. To make
+# an explicit approval artifact mandatory before this step can advance, add
+# `approval_required = true` and pair it with `agent-team approval request`.
+[[pipelines.ticket_to_pr.steps]]
+id           = "approve"
+target       = "manager"
+after        = ["review"]
+gate         = "manual"
+instructions = """
+Read the reviewer's verdict and the diff. If REVIEW: APPROVE and gates are
+green, merge with `agent-team job merge <job-id>` (or `gh pr merge`), close the
+ticket, and mark the job done. If REVIEW: BOUNCE, re-dispatch a worker with the
+findings as kickoff — do not amend the branch yourself.
+"""
 
 [teams.delivery]
-description = "Default software-delivery team for ticket intake, implementation, and review."
-instances   = ["manager", "ticket-manager", "worker"]
+description = "Default software-delivery team for ticket intake, implementation, review, and merge."
+instances   = ["manager", "ticket-manager", "worker", "reviewer"]
 pipelines   = ["ticket_to_pr"]
 
 # Optional fixed-interval schedule. Uncomment and adapt to publish a `schedule`
