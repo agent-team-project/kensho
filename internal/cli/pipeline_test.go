@@ -11344,7 +11344,7 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 		t.Fatalf("decode pipeline run json: %v\nbody=%s", err, out.String())
 	}
-	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 2 {
+	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 3 {
 		t.Fatalf("created job = %+v", created)
 	}
 	if created.Kickoff != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline: run pipeline from file" {
@@ -11402,7 +11402,7 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatalf("decode pipeline run dry-run json: %v\nbody=%s", err, out.String())
 	}
-	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-306" || preview.Job.Pipeline != "ticket_to_pr" || len(preview.Job.Steps) != 2 {
+	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-306" || preview.Job.Pipeline != "ticket_to_pr" || len(preview.Job.Steps) != 3 {
 		t.Fatalf("preview = %+v", preview)
 	}
 	if preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[0].Status != job.StatusQueued || preview.Job.Steps[1].Status != job.StatusBlocked {

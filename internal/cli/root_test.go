@@ -334,8 +334,8 @@ func TestRootGraphShortcutRendersGraphScopes(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &graph); err != nil {
 		t.Fatalf("decode graph json: %v\nbody=%s", err, out.String())
 	}
-	if graph.Name != "ticket_to_pr" || len(graph.Nodes) != 2 {
-		t.Fatalf("graph = %+v, want ticket_to_pr with two nodes", graph)
+	if graph.Name != "ticket_to_pr" || len(graph.Nodes) != 3 {
+		t.Fatalf("graph = %+v, want ticket_to_pr with three nodes", graph)
 	}
 }
 

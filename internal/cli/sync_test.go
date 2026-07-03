@@ -36,8 +36,8 @@ func TestSyncDryRunJSONUsesPlanAndDoesNotStartDaemon(t *testing.T) {
 	if body.Daemon.Running {
 		t.Fatalf("daemon should not be running: %+v", body.Daemon)
 	}
-	if body.Summary.Start != 2 || body.Summary.OnDemand != 1 {
-		t.Fatalf("summary = %+v, want two starts and one on-demand", body.Summary)
+	if body.Summary.Start != 2 || body.Summary.OnDemand != 2 {
+		t.Fatalf("summary = %+v, want two starts and two on-demand", body.Summary)
 	}
 	if _, err := os.Stat(daemon.PidPath(teamDir)); !os.IsNotExist(err) {
 		t.Fatalf("dry-run should not create daemon pidfile, stat err=%v", err)
@@ -65,11 +65,11 @@ func TestSyncDryRunSummaryJSONUsesPlanAndDoesNotStartDaemon(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode sync dry-run summary json: %v\nbody=%s", err, out.String())
 	}
-	if body.Summary.Total != 3 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 1 || !body.Summary.DryRun {
-		t.Fatalf("summary = %+v, want two starts and one on-demand dry-run", body.Summary)
+	if body.Summary.Total != 4 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 2 || !body.Summary.DryRun {
+		t.Fatalf("summary = %+v, want two starts and two on-demand dry-runs", body.Summary)
 	}
-	if body.Summary.Statuses["unknown"] != 3 {
-		t.Fatalf("statuses = %+v, want unknown=3", body.Summary.Statuses)
+	if body.Summary.Statuses["unknown"] != 4 {
+		t.Fatalf("statuses = %+v, want unknown=4", body.Summary.Statuses)
 	}
 	if _, err := os.Stat(daemon.PidPath(teamDir)); !os.IsNotExist(err) {
 		t.Fatalf("dry-run should not create daemon pidfile, stat err=%v", err)

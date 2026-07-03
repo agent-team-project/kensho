@@ -6349,7 +6349,7 @@ func TestJobCreateFromPipeline(t *testing.T) {
 	if err := json.Unmarshal(createOut.Bytes(), &created); err != nil {
 		t.Fatalf("decode pipeline job json: %v\nbody=%s", err, createOut.String())
 	}
-	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 2 {
+	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 3 {
 		t.Fatalf("created pipeline job = %+v", created)
 	}
 	if created.Steps[0].ID != "implement" || created.Steps[0].Status != job.StatusQueued {
@@ -6390,7 +6390,7 @@ func TestJobCreateFromPipeline(t *testing.T) {
 	if err := json.Unmarshal(explainOut.Bytes(), &explained); err != nil {
 		t.Fatalf("decode explain json: %v\nbody=%s", err, explainOut.String())
 	}
-	if explained.State != "queued" || len(explained.Steps) != 2 {
+	if explained.State != "queued" || len(explained.Steps) != 3 {
 		t.Fatalf("explained pipeline = %+v", explained)
 	}
 	if explained.Steps[0].ID != "implement" || explained.Steps[0].State != "ready" || !explained.Steps[0].Ready {

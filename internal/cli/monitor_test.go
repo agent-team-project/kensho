@@ -1399,11 +1399,11 @@ func TestMonitorPlanJSONFiltersByAction(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("monitor --plan should include plan: %+v", body)
 	}
-	if body.Plan.Summary.Total != 1 || body.Plan.Summary.OnDemand != 1 {
-		t.Fatalf("plan summary = %+v, want one on-demand row", body.Plan.Summary)
+	if body.Plan.Summary.Total != 2 || body.Plan.Summary.OnDemand != 2 {
+		t.Fatalf("plan summary = %+v, want two on-demand rows", body.Plan.Summary)
 	}
-	if len(body.Plan.Instances) != 1 || body.Plan.Instances[0].Instance != "worker" || body.Plan.Instances[0].Action != "on-demand" {
-		t.Fatalf("plan rows = %+v, want worker on-demand only", body.Plan.Instances)
+	if len(body.Plan.Instances) != 2 || body.Plan.Instances[0].Action != "on-demand" || body.Plan.Instances[1].Action != "on-demand" {
+		t.Fatalf("plan rows = %+v, want reviewer+worker on-demand only", body.Plan.Instances)
 	}
 }
 
