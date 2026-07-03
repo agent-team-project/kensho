@@ -36,6 +36,8 @@ func newSendCmd() *cobra.Command {
 		runtimeStale  bool
 		unhealthyOnly bool
 		allowMissing  bool
+		interrupt     bool
+		force         bool
 		dryRun        bool
 		commands      bool
 		jsonOut       bool
@@ -70,6 +72,14 @@ func newSendCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --last must be >= 0.")
 				return exitErr(2)
 			}
+			if force && !interrupt {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --force requires --interrupt.")
+				return exitErr(2)
+			}
+			if interrupt && allowMissing {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --interrupt cannot be combined with --allow-missing.")
+				return exitErr(2)
+			}
 			if latest && last > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: choose one of --latest or --last.")
 				return exitErr(2)
@@ -92,9 +102,15 @@ func newSendCmd() *cobra.Command {
 				RuntimeStale:   runtimeStale,
 				Unhealthy:      unhealthyOnly,
 				AllowMissing:   allowMissing,
+				Interrupt:      interrupt,
+				Force:          force,
 				DryRun:         dryRun,
 				JSON:           jsonOut,
 				Format:         formatTemplate,
+			}
+			if interrupt && opts.selectingSet() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --interrupt requires a single instance target.")
+				return exitErr(2)
 			}
 			var (
 				to   string
@@ -125,6 +141,12 @@ func newSendCmd() *cobra.Command {
 			client, err := sendClientForTeamDir(teamDir)
 			if err != nil {
 				return err
+			}
+			if interrupt && !dryRun {
+				if _, ok := client.(localSendClient); ok {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --interrupt requires a running daemon.")
+					return exitErr(2)
+				}
 			}
 			if len(phaseFilters) > 0 {
 				opts.PhaseByInstance = sendPhaseByInstance(teamDir, time.Now())
@@ -170,6 +192,8 @@ func newSendCmd() *cobra.Command {
 						Stale:          staleOnly,
 						RuntimeStale:   runtimeStale,
 						Unhealthy:      unhealthyOnly,
+						Interrupt:      interrupt,
+						Force:          force,
 					})
 				}
 				known := true
@@ -197,6 +221,8 @@ func newSendCmd() *cobra.Command {
 					MessageFileSet: cmd.Flags().Changed("message-file"),
 					Positional:     args[1:],
 					AllowMissing:   allowMissing,
+					Interrupt:      interrupt,
+					Force:          force,
 				})
 			}
 			if opts.selectingSet() {
@@ -220,6 +246,8 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Send to daemon-known running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to daemon-known instances that are crashed, status-stale, or runtime-stale.")
 	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
+	cmd.Flags().BoolVar(&interrupt, "interrupt", false, "Deliver the message, gracefully stop the instance, and managed-resume the same captured session.")
+	cmd.Flags().BoolVar(&force, "force", false, "With --interrupt, allow fresh fallback when no captured session can be resumed.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching send apply command when the preview has actionable recipients. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -305,6 +333,8 @@ type sendOptions struct {
 	Unhealthy       bool
 	StaleByInstance map[string]bool
 	AllowMissing    bool
+	Interrupt       bool
+	Force           bool
 	DryRun          bool
 	JSON            bool
 	Format          *template.Template
@@ -317,6 +347,7 @@ func (o sendOptions) selectingSet() bool {
 type sendClient interface {
 	Instances() ([]*daemon.Metadata, error)
 	SendMessage(to, from, body string) (*messageResponse, error)
+	InterruptMessage(to, from, body string, force bool) (*messageResponse, error)
 }
 
 func sendClientForTeamDir(teamDir string) (sendClient, error) {
@@ -354,13 +385,18 @@ func (c localSendClient) SendMessage(to, from, body string) (*messageResponse, e
 	}, nil
 }
 
+func (c localSendClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
+	return nil, errors.New("agent-team send: --interrupt requires a running daemon")
+}
+
 type sendJSON struct {
-	Delivered bool      `json:"delivered"`
-	DryRun    bool      `json:"dry_run,omitempty"`
-	To        string    `json:"to"`
-	From      string    `json:"from"`
-	ID        string    `json:"id"`
-	TS        time.Time `json:"ts"`
+	Delivered   bool      `json:"delivered"`
+	Interrupted bool      `json:"interrupted,omitempty"`
+	DryRun      bool      `json:"dry_run,omitempty"`
+	To          string    `json:"to"`
+	From        string    `json:"from"`
+	ID          string    `json:"id"`
+	TS          time.Time `json:"ts"`
 }
 
 func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body string, opts sendOptions) error {
@@ -390,39 +426,58 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 	}
 	if opts.DryRun {
 		row := sendDryRunRow(to, from)
+		row.Interrupted = opts.Interrupt
 		if opts.JSON {
 			return json.NewEncoder(stdout).Encode(row)
 		}
 		if opts.Format != nil {
 			return renderSendFormat(stdout, []sendJSON{row}, opts.Format)
 		}
-		fmt.Fprintf(stdout, "  would-send   %-20s\n", to)
+		if opts.Interrupt {
+			fmt.Fprintf(stdout, "  would-interrupt   %-20s\n", to)
+		} else {
+			fmt.Fprintf(stdout, "  would-send   %-20s\n", to)
+		}
 		return nil
 	}
-	res, err := client.SendMessage(to, from, body)
+	var (
+		res *messageResponse
+		err error
+	)
+	if opts.Interrupt {
+		res, err = client.InterruptMessage(to, from, body, opts.Force)
+	} else {
+		res, err = client.SendMessage(to, from, body)
+	}
 	if err != nil {
 		return err
 	}
 	if opts.JSON {
 		return json.NewEncoder(stdout).Encode(sendJSON{
-			Delivered: res.Delivered,
-			To:        to,
-			From:      from,
-			ID:        res.ID,
-			TS:        res.TS,
+			Delivered:   res.Delivered,
+			Interrupted: opts.Interrupt || res.Interrupted,
+			To:          to,
+			From:        from,
+			ID:          res.ID,
+			TS:          res.TS,
 		})
 	}
 	row := sendJSON{
-		Delivered: res.Delivered,
-		To:        to,
-		From:      from,
-		ID:        res.ID,
-		TS:        res.TS,
+		Delivered:   res.Delivered,
+		Interrupted: opts.Interrupt || res.Interrupted,
+		To:          to,
+		From:        from,
+		ID:          res.ID,
+		TS:          res.TS,
 	}
 	if opts.Format != nil {
 		return renderSendFormat(stdout, []sendJSON{row}, opts.Format)
 	}
-	fmt.Fprintf(stdout, "  sent   %-20s id=%s\n", to, res.ID)
+	if row.Interrupted {
+		fmt.Fprintf(stdout, "  interrupted   %-20s id=%s\n", to, res.ID)
+	} else {
+		fmt.Fprintf(stdout, "  sent   %-20s id=%s\n", to, res.ID)
+	}
 	return nil
 }
 
@@ -430,6 +485,10 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 	body = strings.TrimSpace(body)
 	if body == "" {
 		fmt.Fprintln(stderr, "agent-team send: message body is required.")
+		return exitErr(2)
+	}
+	if opts.Interrupt {
+		fmt.Fprintln(stderr, "agent-team send: --interrupt requires a single instance target.")
 		return exitErr(2)
 	}
 	if opts.Limit < 0 {
@@ -557,6 +616,8 @@ type scopedSendApplyCommandOptions struct {
 	RuntimeStale   bool
 	Unhealthy      bool
 	AllowMissing   bool
+	Interrupt      bool
+	Force          bool
 }
 
 func renderScopedSendApplyCommand(w io.Writer, hasRecipients bool, opts scopedSendApplyCommandOptions) error {
@@ -627,6 +688,12 @@ func scopedSendApplyCommandArgs(opts scopedSendApplyCommandOptions) []string {
 	}
 	if opts.AllowMissing {
 		args = append(args, "--allow-missing")
+	}
+	if opts.Interrupt {
+		args = append(args, "--interrupt")
+	}
+	if opts.Force {
+		args = append(args, "--force")
 	}
 	if !messageSet && !messageFileSet && len(opts.Positional) > 0 {
 		args = append(args, opts.Positional...)

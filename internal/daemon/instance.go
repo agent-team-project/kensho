@@ -157,12 +157,40 @@ type StopOptions struct {
 	Timeout time.Duration
 }
 
+// StartOptions controls managed resume behavior. The default Start path keeps
+// historical behavior: preflight failures may fall back to a fresh declared
+// launch, but missing session IDs are refused. Interrupts tighten that policy
+// unless the caller explicitly allows conversation-losing fallback.
+type StartOptions struct {
+	ResumePrompt             string
+	DisallowFreshFallback    bool
+	AllowFreshWithoutSession bool
+}
+
 // RestartOptions controls the stop half of a restart. By default restart
 // waits Timeout for a graceful stop. With Force set, restart escalates through
 // StopWithOptions, sending SIGKILL if the child does not exit before Timeout.
 type RestartOptions struct {
 	Force   bool
 	Timeout time.Duration
+	StartOptions
+}
+
+// InterruptOptions controls a hard mailbox push: durable delivery followed by
+// a managed stop+resume of the same runtime session.
+type InterruptOptions struct {
+	From    string
+	Body    string
+	Force   bool
+	Timeout time.Duration
+}
+
+// InterruptResult reports the durable message and resumed runtime metadata.
+type InterruptResult struct {
+	Message   *Message
+	Metadata  *Metadata
+	Delivered int
+	Truncated bool
 }
 
 const (
@@ -706,7 +734,7 @@ func (m *InstanceManager) RestartWithOptions(instance string, opts RestartOption
 	m.mu.Unlock()
 
 	if !ok {
-		return m.Start(instance)
+		return m.StartWithOptions(instance, opts.StartOptions)
 	}
 	if running {
 		if opts.Force {
@@ -735,12 +763,138 @@ func (m *InstanceManager) RestartWithOptions(instance string, opts RestartOption
 			}
 		}
 	}
-	meta, err := m.Start(instance)
+	meta, err := m.StartWithOptions(instance, opts.StartOptions)
 	if err != nil {
 		return nil, err
 	}
 	m.recordEvent("restart", meta, "instance restarted")
 	return meta, nil
+}
+
+func (m *InstanceManager) Interrupt(instance string, opts InterruptOptions) (*InterruptResult, error) {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return nil, errors.New("interrupt: instance is required")
+	}
+	body := strings.TrimSpace(opts.Body)
+	if body == "" {
+		return nil, errors.New("interrupt: message body is required")
+	}
+	if opts.Timeout < 0 {
+		return nil, errors.New("interrupt: timeout must be >= 0")
+	}
+	if opts.Timeout == 0 {
+		opts.Timeout = 10 * time.Second
+	}
+	if err := m.ensureTracked(instance, nil); err != nil {
+		return nil, errors.New(strings.Replace(err.Error(), "start:", "interrupt:", 1))
+	}
+
+	m.mu.Lock()
+	t := m.instances[instance]
+	if t == nil || t.meta == nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("interrupt: unknown instance %q", instance)
+	}
+	base := *t.meta
+	running := base.Status == StatusRunning
+	m.mu.Unlock()
+
+	if err := m.interruptResumePreflight(instance, base, opts.Force); err != nil {
+		return nil, err
+	}
+
+	from := strings.TrimSpace(opts.From)
+	if from == "" {
+		from = "(cli)"
+	}
+	msg := &Message{
+		From: from,
+		Body: body,
+		TS:   time.Now().UTC(),
+	}
+	if err := AppendMessage(m.daemonRoot, instance, msg); err != nil {
+		return nil, fmt.Errorf("interrupt: mailbox: %w", err)
+	}
+
+	startOpts := StartOptions{
+		DisallowFreshFallback:    !opts.Force,
+		AllowFreshWithoutSession: opts.Force,
+	}
+	delivered := 0
+	truncated := false
+	if metadataRuntimeKind(&base) == runtimebin.KindCodex {
+		prompt, count, wasTruncated, err := m.codexInterruptResumePrompt(instance)
+		if err != nil {
+			return nil, err
+		}
+		startOpts.ResumePrompt = prompt
+		delivered = count
+		truncated = wasTruncated
+	}
+
+	var meta *Metadata
+	var err error
+	if running {
+		meta, err = m.RestartWithOptions(instance, RestartOptions{
+			Timeout:      opts.Timeout,
+			StartOptions: startOpts,
+		})
+	} else {
+		meta, err = m.StartWithOptions(instance, startOpts)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("interrupt: resume: %w", err)
+	}
+	m.recordEvent("interrupted", meta, fmt.Sprintf("interrupt delivered message %s and resumed session", msg.ID))
+	return &InterruptResult{
+		Message:   msg,
+		Metadata:  meta,
+		Delivered: delivered,
+		Truncated: truncated,
+	}, nil
+}
+
+func (m *InstanceManager) interruptResumePreflight(instance string, base Metadata, force bool) error {
+	kind := metadataRuntimeKind(&base)
+	if !runtimeKindSupportsManagedResume(kind) {
+		return fmt.Errorf("interrupt: runtime %q does not support managed resume", kind)
+	}
+	if strings.TrimSpace(base.Workspace) == "" {
+		return fmt.Errorf("interrupt: %q has no workspace recorded; cannot resume", instance)
+	}
+	if strings.TrimSpace(base.SessionID) == "" {
+		if force {
+			return nil
+		}
+		return fmt.Errorf("interrupt: %q has no session_id; use --force to allow a fresh fallback", instance)
+	}
+	env, err := m.startEnv(instance)
+	if err != nil {
+		return fmt.Errorf("interrupt: launch env: %w", err)
+	}
+	if err := managedResumePreflight(base, env); err != nil {
+		if force {
+			return nil
+		}
+		return fmt.Errorf("interrupt: managed resume preflight failed: %w; use --force to allow a fresh fallback", err)
+	}
+	return nil
+}
+
+func (m *InstanceManager) codexInterruptResumePrompt(instance string) (string, int, bool, error) {
+	unread, err := ReadUnacked(m.daemonRoot, instance)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("interrupt: read mailbox: %w", err)
+	}
+	section, delivered, truncated, cursor := formatKickoffMailbox(unread, kickoffMailboxMaxBytes)
+	if delivered == 0 {
+		return "Interrupted by agent-teamd. Run `inbox check` for pending messages, then continue your work.", 0, false, nil
+	}
+	if err := WriteCursor(m.daemonRoot, instance, cursor); err != nil {
+		return "", 0, false, fmt.Errorf("interrupt: advance mailbox cursor: %w", err)
+	}
+	return section, delivered, truncated, nil
 }
 
 // Remove deletes daemon-owned runtime metadata for an instance. Running
@@ -825,10 +979,14 @@ func (m *InstanceManager) Remove(instance string, force bool, timeout time.Durat
 // ephemeral-vs-persistent here — the agent's frontmatter gates that, and
 // SQU-29 wires it in.)
 func (m *InstanceManager) Start(instance string) (*Metadata, error) {
-	return m.start(instance, nil)
+	return m.StartWithOptions(instance, StartOptions{})
 }
 
-func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata, error) {
+func (m *InstanceManager) StartWithOptions(instance string, opts StartOptions) (*Metadata, error) {
+	return m.start(instance, nil, opts)
+}
+
+func (m *InstanceManager) start(instance string, expected *Metadata, opts StartOptions) (*Metadata, error) {
 	if instance == "" {
 		return nil, errors.New("start: instance is required")
 	}
@@ -879,6 +1037,10 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 		return nil, fmt.Errorf("start: runtime %q does not support managed resume; create a new run instead", baseRuntime)
 	}
 	if base.SessionID == "" {
+		if opts.AllowFreshWithoutSession {
+			m.mu.Unlock()
+			return m.resumeFallbackFresh(instance, &base, errors.New("no session_id; cannot resume"), opts.ResumePrompt)
+		}
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no session_id; cannot resume", instance)
 	}
@@ -888,8 +1050,12 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 		return nil, fmt.Errorf("start: launch env: %w", err)
 	}
 	if err := managedResumePreflight(base, env); err != nil {
+		if opts.DisallowFreshFallback {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("start: resume preflight failed: %w", err)
+		}
 		m.mu.Unlock()
-		return m.resumeFallbackFresh(instance, &base, err)
+		return m.resumeFallbackFresh(instance, &base, err, opts.ResumePrompt)
 	}
 	brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance)
 	if err != nil {
@@ -907,14 +1073,9 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 			m.mu.Unlock()
 			return nil, fmt.Errorf("start: brief mailbox: %w", err)
 		}
-	} else if baseRuntime == runtimebin.KindCodex {
-		// `codex exec resume <id> -` requires a non-empty stdin prompt; an
-		// empty brief (ad-hoc instance, no daemon-owned state yet) must not
-		// fail the resume.
-		stdin = brief
-		if strings.TrimSpace(stdin) == "" {
-			stdin = "Resumed by agent-teamd. Run `inbox check` for pending messages, then continue your work."
-		}
+	}
+	if baseRuntime == runtimebin.KindCodex {
+		stdin = codexManagedResumeStdin(brief, opts.ResumePrompt)
 	}
 
 	logPath := base.LogPath
@@ -974,6 +1135,22 @@ func managedResumeArgs(kind runtimebin.Kind, bin, sessionID string) []string {
 		return []string{bin, "exec", "resume", sessionID, "-"}
 	}
 	return []string{bin, "--resume", sessionID}
+}
+
+func codexManagedResumeStdin(brief, resumePrompt string) string {
+	parts := make([]string, 0, 2)
+	if strings.TrimSpace(brief) != "" {
+		parts = append(parts, brief)
+	}
+	if strings.TrimSpace(resumePrompt) != "" {
+		parts = append(parts, resumePrompt)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n\n")
+	}
+	// `codex exec resume <id> -` requires a non-empty stdin prompt; an empty
+	// brief (ad-hoc instance, no daemon-owned state yet) must not fail resume.
+	return "Resumed by agent-teamd. Run `inbox check` for pending messages, then continue your work."
 }
 
 func managedResumePreflight(meta Metadata, env []string) error {
@@ -1057,7 +1234,7 @@ func envValue(env []string, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, cause error) (*Metadata, error) {
+func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, cause error, extraPrompt string) (*Metadata, error) {
 	teamDir := filepath.Dir(m.daemonRoot)
 	topo, err := topology.LoadFromTeamDir(teamDir)
 	if err != nil {
@@ -1073,7 +1250,7 @@ func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, c
 	if base != nil {
 		m.recordEvent("resume_fallback", base, fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause))
 	}
-	meta, _, err := launchDeclaredFresh(teamDir, m, inst, base)
+	meta, _, err := launchDeclaredFreshWithPrompt(teamDir, m, inst, base, extraPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("start: resume fallback: %w", err)
 	}

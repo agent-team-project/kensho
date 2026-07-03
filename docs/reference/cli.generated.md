@@ -7740,8 +7740,10 @@ Flags:
       --allow-missing         Allow queueing a message for an instance the daemon does not know yet.
       --commands              With --dry-run, print the matching send apply command when the preview has actionable recipients. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview matching recipients without appending mailbox messages.
+      --force                 With --interrupt, allow fresh fallback when no captured session can be resumed.
       --format string         Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.
       --from string           Sender label recorded with the message. (default "(cli)")
+      --interrupt             Deliver the message, gracefully stop the instance, and managed-resume the same captured session.
       --json                  Emit machine-readable JSON.
   -n, --last int              Send to the N most recently started daemon-known instances after other filters (0 = all).
       --latest                Send to the most recently started daemon-known instance after other filters.

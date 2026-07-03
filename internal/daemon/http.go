@@ -206,6 +206,58 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		})
 	})
 
+	mux.HandleFunc("/v1/interrupt", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			To            string `json:"to"`
+			From          string `json:"from"`
+			Body          string `json:"body"`
+			Force         bool   `json:"force"`
+			TimeoutMillis int64  `json:"timeout_ms"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if strings.TrimSpace(body.To) == "" {
+			writeError(w, http.StatusBadRequest, "`to` is required")
+			return
+		}
+		if strings.TrimSpace(body.Body) == "" {
+			writeError(w, http.StatusBadRequest, "`body` is required")
+			return
+		}
+		if body.TimeoutMillis < 0 {
+			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
+			return
+		}
+		result, err := m.Interrupt(body.To, InterruptOptions{
+			From:    body.From,
+			Body:    body.Body,
+			Force:   body.Force,
+			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		resp := map[string]any{
+			"delivered":   true,
+			"interrupted": true,
+			"id":          result.Message.ID,
+			"ts":          result.Message.TS,
+		}
+		if result.Metadata != nil {
+			resp["instance_id"] = result.Metadata.Instance
+			resp["pid"] = result.Metadata.PID
+			resp["session_id"] = result.Metadata.SessionID
+		}
+		writeJSON(w, http.StatusOK, resp)
+	})
+
 	mux.HandleFunc("/v1/remove", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")

@@ -587,6 +587,119 @@ description = "Recoverable Codex manager."
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestInstance_InterruptCodexResumesSameSessionWithMailboxPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	root := DaemonRoot(teamDir)
+	codexHome := t.TempDir()
+	sessionID := "019b20fb-3b9d-7bb0-b034-d757cdbf2fd9"
+	writeCodexRollout(t, codexHome, sessionID)
+	workspace := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	spawn := func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		f, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := f.WriteString(`{"type":"thread.started","thread_id":"` + sessionID + `"}` + "\n"); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		_ = f.Close()
+		return fake.spawn(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	}
+	m := NewInstanceManager(root, spawn)
+
+	disp, err := m.Dispatch(DispatchInput{
+		Agent:         "manager",
+		Name:          "mgr",
+		Workspace:     workspace,
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: "codex",
+		Args:          []string{"exec", "-"},
+		Env:           []string{"CODEX_HOME=" + codexHome},
+		Stdin:         "initial prompt",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if disp.SessionID != sessionID {
+		t.Fatalf("dispatch session = %q, want %q", disp.SessionID, sessionID)
+	}
+
+	result, err := m.Interrupt("mgr", InterruptOptions{From: "ops", Body: "please handle this now"})
+	if err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+	if result.Metadata == nil || result.Metadata.SessionID != sessionID {
+		t.Fatalf("interrupt metadata = %+v, want same session %s", result.Metadata, sessionID)
+	}
+	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+		t.Fatalf("resume args = %v, want %v", got, want)
+	}
+	stdin := fake.lastStdin()
+	for _, want := range []string{kickoffMailboxHeading, "From: ops", "please handle this now"} {
+		if !strings.Contains(stdin, want) {
+			t.Fatalf("resume stdin missing %q:\n%s", want, stdin)
+		}
+	}
+	if result.Message == nil || result.Message.ID == "" || result.Delivered != 1 {
+		t.Fatalf("interrupt result = %+v", result)
+	}
+	unread, err := ReadUnacked(root, "mgr")
+	if err != nil {
+		t.Fatalf("read unacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("interrupt mailbox should have been delivered to resume stdin, unread=%+v", unread)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if !lifecycleEventsContain(events, "interrupted", "mgr") {
+		t.Fatalf("events missing interrupted: %+v", events)
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_InterruptNoSessionRefusesWithoutForce(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	root := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-runtime",
+		Workspace: t.TempDir(),
+		Args:      []string{"exec", "-"},
+		Stdin:     "initial prompt",
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	err := func() error {
+		_, err := m.Interrupt("worker-runtime", InterruptOptions{From: "ops", Body: "wake up"})
+		return err
+	}()
+	if err == nil || !strings.Contains(err.Error(), "has no session_id") {
+		t.Fatalf("interrupt error = %v, want missing session refusal", err)
+	}
+	messages, readErr := ReadMessages(root, "worker-runtime")
+	if readErr != nil {
+		t.Fatalf("read messages: %v", readErr)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("refused interrupt should not append mailbox message: %+v", messages)
+	}
+
+	_, _ = m.Stop("worker-runtime")
+	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
+}
+
 func TestInstance_StartCodexEmptyBriefUsesDefaultResumePrompt(t *testing.T) {
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")

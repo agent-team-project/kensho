@@ -14,14 +14,20 @@ import (
 )
 
 type fakeSendClient struct {
-	metas          []*daemon.Metadata
-	instanceCalls  int
-	sentTo         string
-	sentFrom       string
-	sentBody       string
-	sends          []sendCall
-	messageResp    *messageResponse
-	messageSendErr error
+	metas            []*daemon.Metadata
+	instanceCalls    int
+	sentTo           string
+	sentFrom         string
+	sentBody         string
+	interruptedTo    string
+	interruptedFrom  string
+	interruptedBody  string
+	interruptedForce bool
+	sends            []sendCall
+	messageResp      *messageResponse
+	messageSendErr   error
+	interruptResp    *messageResponse
+	interruptErr     error
 }
 
 type sendCall struct {
@@ -47,6 +53,20 @@ func (f *fakeSendClient) SendMessage(to, from, body string) (*messageResponse, e
 		return f.messageResp, nil
 	}
 	return &messageResponse{Delivered: true, ID: "msg-1", TS: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)}, nil
+}
+
+func (f *fakeSendClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
+	f.interruptedTo = to
+	f.interruptedFrom = from
+	f.interruptedBody = body
+	f.interruptedForce = force
+	if f.interruptErr != nil {
+		return nil, f.interruptErr
+	}
+	if f.interruptResp != nil {
+		return f.interruptResp, nil
+	}
+	return &messageResponse{Delivered: true, Interrupted: true, ID: "interrupt-1", TS: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)}, nil
 }
 
 func TestSendRequiresKnownInstanceByDefault(t *testing.T) {
@@ -76,6 +96,80 @@ func TestSendKnownInstance(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "sent") || !strings.Contains(stdout.String(), "msg-1") {
 		t.Fatalf("stdout = %q, want sent confirmation", stdout.String())
+	}
+}
+
+func TestSendInterruptKnownInstance(t *testing.T) {
+	client := &fakeSendClient{metas: []*daemon.Metadata{{Instance: "manager"}}}
+	stdout := &bytes.Buffer{}
+	if err := runSendWithClient(stdout, &bytes.Buffer{}, client, "manager", "stop and read this", sendOptions{From: "user", Interrupt: true, Force: true}); err != nil {
+		t.Fatalf("runSendWithClient interrupt: %v", err)
+	}
+	if client.interruptedTo != "manager" || client.interruptedFrom != "user" || client.interruptedBody != "stop and read this" || !client.interruptedForce {
+		t.Fatalf("interrupted = to:%q from:%q body:%q force:%v", client.interruptedTo, client.interruptedFrom, client.interruptedBody, client.interruptedForce)
+	}
+	if client.sentTo != "" {
+		t.Fatalf("normal send should not have been used: %+v", client)
+	}
+	if !strings.Contains(stdout.String(), "interrupted") || !strings.Contains(stdout.String(), "interrupt-1") {
+		t.Fatalf("stdout = %q, want interrupt confirmation", stdout.String())
+	}
+}
+
+func TestSendInterruptRequiresRunningDaemon(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusRunning,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	stderr := &bytes.Buffer{}
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"send", "manager", "wake up", "--interrupt", "--target", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("send --interrupt without daemon succeeded")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "--interrupt requires a running daemon") {
+		t.Fatalf("stderr = %q, want daemon requirement", stderr.String())
+	}
+}
+
+func TestSendInterruptDryRunCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusRunning,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"send", "manager", "--target", tmp, "--from", "ops", "--message", "wake up", "--interrupt", "--force", "--dry-run", "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("send --interrupt --dry-run --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "manager", "--repo", tmp, "--from", "ops", "--message", "wake up", "--interrupt", "--force"}), " ")
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Fatalf("send interrupt dry-run commands = %q, want %q", got, want)
 	}
 }
 

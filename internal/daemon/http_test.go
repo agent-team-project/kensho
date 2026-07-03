@@ -219,6 +219,68 @@ func TestHTTP_RestartResumesSession(t *testing.T) {
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestHTTP_InterruptResumesSession(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/dispatch",
+		`{"agent":"manager","name":"mgr","workspace":"`+t.TempDir()+`"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dispatch: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var disp struct {
+		SessionID string `json:"session_id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&disp)
+
+	resp = mustPost(t, srv.URL+"/v1/interrupt", `{"to":"mgr","from":"ops","body":"hard steer"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("interrupt: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var out struct {
+		Delivered   bool   `json:"delivered"`
+		Interrupted bool   `json:"interrupted"`
+		ID          string `json:"id"`
+		SessionID   string `json:"session_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode interrupt: %v", err)
+	}
+	if !out.Delivered || !out.Interrupted || out.ID == "" || out.SessionID != disp.SessionID {
+		t.Fatalf("interrupt response = %+v, want delivered interrupted same session %s", out, disp.SessionID)
+	}
+	args := fake.lastCall()
+	foundResume := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--resume" && args[i+1] == disp.SessionID {
+			foundResume = true
+		}
+	}
+	if !foundResume {
+		t.Errorf("expected --resume %s, got: %v", disp.SessionID, args)
+	}
+	messages, err := ReadUnacked(root, "mgr")
+	if err != nil {
+		t.Fatalf("read mailbox: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Body != "hard steer" || messages[0].From != "ops" {
+		t.Fatalf("mailbox = %+v, want delivered interrupt message", messages)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if !lifecycleEventsContain(events, "interrupted", "mgr") {
+		t.Fatalf("events missing interrupted: %+v", events)
+	}
+
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestHTTP_RemoveRequiresForceForRunning(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)

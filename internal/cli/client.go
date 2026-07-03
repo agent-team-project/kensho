@@ -119,9 +119,10 @@ type dispatchResponse struct {
 }
 
 type messageResponse struct {
-	Delivered bool      `json:"delivered"`
-	ID        string    `json:"id"`
-	TS        time.Time `json:"ts"`
+	Delivered   bool      `json:"delivered"`
+	Interrupted bool      `json:"interrupted,omitempty"`
+	ID          string    `json:"id"`
+	TS          time.Time `json:"ts"`
 }
 
 type daemonReconcileResponse struct {
@@ -267,6 +268,26 @@ func (c *daemonClient) SendMessage(to, from, body string) (*messageResponse, err
 	var out messageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("daemon: message decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
+	payload, err := json.Marshal(map[string]any{"to": to, "from": from, "body": body, "force": force})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Post(c.baseURL+"/v1/interrupt", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: interrupt: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: interrupt: %s", readErrorBody(resp))
+	}
+	var out messageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: interrupt decode: %w", err)
 	}
 	return &out, nil
 }

@@ -228,7 +228,7 @@ func restartPolicyWantsLaunch(policy string, meta *Metadata) bool {
 
 func relaunchDeclaredInstance(teamDir string, m *InstanceManager, topo *topology.Topology, inst *topology.Instance, meta *Metadata) (*Metadata, bool, error) {
 	if managedResumeSupported(meta) {
-		out, err := m.start(inst.Name, meta)
+		out, err := m.start(inst.Name, meta, StartOptions{})
 		installWatcherForRevivedAdoption(m, out, teamDir, topo)
 		return out, err == nil, err
 	}
@@ -245,6 +245,10 @@ func managedResumeSupported(meta *Metadata) bool {
 }
 
 func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Instance, expected *Metadata) (*Metadata, bool, error) {
+	return launchDeclaredFreshWithPrompt(teamDir, m, inst, expected, "")
+}
+
+func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, inst *topology.Instance, expected *Metadata, extraPrompt string) (*Metadata, bool, error) {
 	if inst == nil {
 		return nil, false, errors.New("restart: declared instance is required")
 	}
@@ -255,6 +259,9 @@ func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Inst
 	}
 	workspace := r.teamDirParent()
 	prompt := fmt.Sprintf("Topology restart for declared instance %q (agent=%s, restart=%s).", inst.Name, inst.Agent, inst.Restart)
+	if strings.TrimSpace(extraPrompt) != "" {
+		prompt += "\n\n" + extraPrompt
+	}
 	env := append([]string(nil), runtime.env...)
 	if snapshotEnv, ok, err := m.instanceLaunchEnv(inst.Name); err != nil {
 		return nil, false, fmt.Errorf("restart: launch env: %w", err)

@@ -69,6 +69,14 @@ Agent-side skills can read messages from the instance inbox.
 
 Messages are stored locally so they can be inspected or delivered even when a runtime process restarts.
 
+For a hard steer to a running daemon-managed instance, use:
+
+```sh
+agent-team send manager "Stop and handle this before continuing." --interrupt
+```
+
+`send --interrupt` first records the message in the durable mailbox, then gracefully stops the runtime child and managed-resumes the same captured session with the unread mail delivered as resume context. Codex resumes receive the unread mailbox on `codex exec resume <session> -` stdin; Claude resumes read the already-delivered mailbox after restart. Without a captured session, the command refuses unless `--force` is supplied, because a fresh fallback loses conversation fidelity. The cost model is that at most the in-flight turn is lost; completed turns remain in the runtime session store. Avoid using it while an agent is intentionally in a critical shell section such as a push, even though the daemon only sends SIGTERM to the child process group and git operations are generally atomic enough to recover.
+
 `agent-team inbox` is the human-facing read side of the mailbox:
 
 - `inbox ls` summarizes total and unread messages per instance, including mailboxes created for future instances with `send --allow-missing`.
