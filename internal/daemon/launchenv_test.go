@@ -71,6 +71,51 @@ func TestReadLaunchEnvMissingIsDetectable(t *testing.T) {
 	}
 }
 
+func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
+	root := t.TempDir()
+	recordedAt := time.Now().UTC().Truncate(time.Second)
+	le := &LaunchEnv{
+		Bin:        "claude",
+		Args:       []string{"claude", "--resume", "session-1"},
+		Dir:        "/repo",
+		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "MARKER=dispatch"},
+		RecordedAt: recordedAt,
+		PID:        4321,
+		Version:    1,
+	}
+
+	if err := WriteInstanceLaunchEnv(root, "manager", le); err != nil {
+		t.Fatalf("WriteInstanceLaunchEnv: %v", err)
+	}
+	got, err := ReadInstanceLaunchEnv(root, "manager")
+	if err != nil {
+		t.Fatalf("ReadInstanceLaunchEnv: %v", err)
+	}
+	if got.Bin != le.Bin || got.Dir != le.Dir || got.PID != le.PID || !got.RecordedAt.Equal(recordedAt) {
+		t.Fatalf("round trip mismatch: got %+v want %+v", got, le)
+	}
+	if envHasKey(got.Env, DefaultStrippedEnvKeys[0]) {
+		t.Fatalf("denied key persisted in env: %+v", got.Env)
+	}
+	if !envHasKey(got.Env, "OPENAI_API_KEY_EXTRA") || !envHasKey(got.Env, "MARKER") {
+		t.Fatalf("allowed keys missing from env: %+v", got.Env)
+	}
+	body, err := os.ReadFile(InstanceLaunchEnvPath(root, "manager"))
+	if err != nil {
+		t.Fatalf("read raw instance snapshot: %v", err)
+	}
+	if strings.Contains(string(body), "must-not-persist") {
+		t.Fatalf("denied value persisted in instance snapshot: %s", string(body))
+	}
+	st, err := os.Stat(InstanceLaunchEnvPath(root, "manager"))
+	if err != nil {
+		t.Fatalf("stat instance snapshot: %v", err)
+	}
+	if got, want := st.Mode().Perm(), fs.FileMode(0o600); got != want {
+		t.Fatalf("instance snapshot mode = %o, want %o", got, want)
+	}
+}
+
 func TestStripEnvRemovesOnlyExactKeys(t *testing.T) {
 	got := stripEnv([]string{
 		"KEY=value",

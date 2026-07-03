@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -397,6 +399,111 @@ restart = "on-failure"
 	if err := m.WaitForReaper("manager", time.Second); err != nil {
 		t.Fatalf("wait revived watcher: %v", err)
 	}
+}
+
+func TestLaunchDeclaredFreshPrependsBrief(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "always"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo.Find("manager"), nil)
+	if err != nil {
+		t.Fatalf("launch declared fresh: %v", err)
+	}
+	if !launched || meta == nil {
+		t.Fatalf("launch result meta=%+v launched=%t", meta, launched)
+	}
+	args := fake.lastCall()
+	promptFile := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--append-system-prompt-file" {
+			promptFile = args[i+1]
+			break
+		}
+	}
+	if promptFile == "" {
+		t.Fatalf("prompt file arg missing from %v", args)
+	}
+	body, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("read prompt file: %v", err)
+	}
+	if !strings.Contains(string(body), "# Instance brief: manager") || !strings.Contains(string(body), "--- runtime kickoff ---") {
+		t.Fatalf("prompt missing prepended brief:\n%s", string(body))
+	}
+
+	_, _ = m.Stop("manager")
+	waitForStatusNot(t, m, "manager", StatusRunning)
+}
+
+func TestLaunchDeclaredFreshUsesPersistedLaunchEnvSnapshot(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "always"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(teamDir, "state", "manager")
+	root := DaemonRoot(teamDir)
+	if err := WriteInstanceLaunchEnv(root, "manager", &LaunchEnv{
+		Bin:  "claude",
+		Args: []string{"claude", "--session-id", "old"},
+		Dir:  filepath.Dir(teamDir),
+		Env: []string{
+			"MARKER=dispatch",
+			"OPENAI_API_KEY=must-not-persist",
+			"AGENT_TEAM_ROOT=" + teamDir,
+			"AGENT_TEAM_INSTANCE=manager",
+			"AGENT_TEAM_STATE_DIR=" + stateDir,
+		},
+		RecordedAt: time.Now().UTC(),
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("write instance launch env: %v", err)
+	}
+	t.Setenv("MARKER", "current-after-dispatch")
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo.Find("manager"), nil)
+	if err != nil {
+		t.Fatalf("launch declared fresh: %v", err)
+	}
+	if !launched || meta == nil {
+		t.Fatalf("launch result meta=%+v launched=%t", meta, launched)
+	}
+	env := fake.lastEnv()
+	if !containsString(env, "MARKER=dispatch") {
+		t.Fatalf("relaunch env missing dispatch marker: %+v", env)
+	}
+	if containsString(env, "MARKER=current-after-dispatch") {
+		t.Fatalf("relaunch env used current shell marker instead of snapshot: %+v", env)
+	}
+	if envHasKey(env, "OPENAI_API_KEY") {
+		t.Fatalf("relaunch env included stripped denied key: %+v", env)
+	}
+
+	_, _ = m.Stop("manager")
+	waitForStatusNot(t, m, "manager", StatusRunning)
 }
 
 func restartFixtureTeamDir(t *testing.T) string {

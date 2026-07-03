@@ -46,6 +46,7 @@ Fields:
 | `agent` | Agent directory name |
 | `ephemeral` | Spawn per event and exit when complete |
 | `description` | Human-readable purpose |
+| `brief` | Generate and inject a recoverable catch-up brief for persistent instances |
 | `replicas` | Max concurrent ephemeral runs |
 | `triggers` | Event matchers |
 

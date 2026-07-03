@@ -38,6 +38,12 @@ func PrevLaunchEnvPath(teamDir string) string {
 	return filepath.Join(DaemonRoot(teamDir), "launch-env.prev.json")
 }
 
+// InstanceLaunchEnvPath returns the per-instance launch-env snapshot path
+// under the instance's daemon metadata directory.
+func InstanceLaunchEnvPath(daemonRoot, instance string) string {
+	return filepath.Join(instanceDir(daemonRoot, instance), "launch-env.json")
+}
+
 func launchEnvPathForRoot(daemonRoot string) string {
 	return filepath.Join(daemonRoot, "launch-env.json")
 }
@@ -75,10 +81,7 @@ func WriteLaunchEnv(daemonRoot string, le *LaunchEnv) error {
 	if err := os.MkdirAll(daemonRoot, 0o755); err != nil {
 		return fmt.Errorf("launch-env: mkdir: %w", err)
 	}
-	snapshot := *le
-	snapshot.Args = append([]string(nil), le.Args...)
-	snapshot.Env = stripEnv(le.Env, DefaultStrippedEnvKeys)
-	snapshot.Stripped = append([]string(nil), DefaultStrippedEnvKeys...)
+	snapshot := sanitizedLaunchEnvSnapshot(le)
 	body, err := json.MarshalIndent(&snapshot, "", "  ")
 	if err != nil {
 		return fmt.Errorf("launch-env: marshal: %w", err)
@@ -92,10 +95,60 @@ func WriteLaunchEnv(daemonRoot string, le *LaunchEnv) error {
 	return nil
 }
 
+// WriteInstanceLaunchEnv writes the resolved child process environment for one
+// instance. It uses the same denied-key treatment as WriteLaunchEnv so secrets
+// such as OPENAI_API_KEY are never serialized.
+func WriteInstanceLaunchEnv(daemonRoot, instance string, le *LaunchEnv) error {
+	if strings.TrimSpace(instance) == "" {
+		return fmt.Errorf("launch-env: instance is required")
+	}
+	if le == nil {
+		return fmt.Errorf("launch-env: nil snapshot")
+	}
+	dir := instanceDir(daemonRoot, instance)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("launch-env: mkdir: %w", err)
+	}
+	snapshot := sanitizedLaunchEnvSnapshot(le)
+	body, err := json.MarshalIndent(&snapshot, "", "  ")
+	if err != nil {
+		return fmt.Errorf("launch-env: marshal: %w", err)
+	}
+	body = append(body, '\n')
+	if err := writeLaunchEnvFileAtomic(InstanceLaunchEnvPath(daemonRoot, instance), body); err != nil {
+		return err
+	}
+	*le = snapshot
+	return nil
+}
+
+func sanitizedLaunchEnvSnapshot(le *LaunchEnv) LaunchEnv {
+	snapshot := *le
+	snapshot.Args = append([]string(nil), le.Args...)
+	snapshot.Env = stripEnv(le.Env, DefaultStrippedEnvKeys)
+	snapshot.Stripped = append([]string(nil), DefaultStrippedEnvKeys...)
+	return snapshot
+}
+
 // ReadLaunchEnv reads the active launch-env snapshot. Missing files wrap
 // fs.ErrNotExist so callers can branch with errors.Is.
 func ReadLaunchEnv(daemonRoot string) (*LaunchEnv, error) {
 	path := launchEnvPathForRoot(daemonRoot)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("launch-env: read %s: %w", path, err)
+	}
+	var le LaunchEnv
+	if err := json.Unmarshal(body, &le); err != nil {
+		return nil, fmt.Errorf("launch-env: parse %s: %w", path, err)
+	}
+	return &le, nil
+}
+
+// ReadInstanceLaunchEnv reads one instance's launch-env snapshot. Missing files
+// wrap fs.ErrNotExist so callers can fall back for pre-SQU-52 metadata.
+func ReadInstanceLaunchEnv(daemonRoot, instance string) (*LaunchEnv, error) {
+	path := InstanceLaunchEnvPath(daemonRoot, instance)
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("launch-env: read %s: %w", path, err)

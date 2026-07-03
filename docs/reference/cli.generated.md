@@ -1389,12 +1389,36 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team instance brief` - Generate a recoverable catch-up brief for an instance.
 - `agent-team instance down` - Stop declared persistent instances. With no args, stops all running.
 - `agent-team instance ls` - List instances (state dirs).
 - `agent-team instance ps` - List instances with their current status (Docker-ps style).
 - `agent-team instance rm` - Remove an instance&#39;s state.
 - `agent-team instance show` - Show an instance&#39;s state files.
 - `agent-team instance up` - Start or resume instances (idempotent). Requires the daemon.
+
+## `agent-team instance brief`
+
+Generate a recoverable catch-up brief for an instance.
+
+Generate a recoverable catch-up brief for an instance from daemon-owned state: identity, jobs, mailbox, channel cursors, lifecycle events, and fleet rows. The brief is written to .agent_team/state/&lt;name&gt;/brief.md and printed.
+
+```text
+agent-team instance brief <name> [flags]
+```
+
+Flags:
+
+```text
+      --json            Emit the generated brief as structured JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
 
 ## `agent-team instance down`
 

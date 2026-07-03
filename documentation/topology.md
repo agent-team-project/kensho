@@ -62,6 +62,7 @@ Lives at the template root (defaults shipped by template authors) and at `.agent
 agent       = "manager"
 ephemeral   = false
 restart     = "on-failure"   # never (default), on-failure, or always
+brief       = true           # generate/reinject recoverable-manager brief
 description = "User-facing entry point. Coordinates ticket-managers and workers."
 
 [[instances.manager.triggers]]
@@ -152,6 +153,7 @@ schedules   = ["nightly"]
 | `agent` | yes | — | Agent template directory under `.agent_team/agents/`. Must exist after `init`. |
 | `ephemeral` | no | `false` | If `true`, spawn-on-trigger and exit on completion. If `false`, brought up by `agent-team start`, runs until stopped. |
 | `restart` | no | `never` | Reconcile relaunch policy for persistent instances: `never`, `on-failure`, or `always`. |
+| `brief` | no | persistent: `true`; ephemeral: `false` | Generate `<state-dir>/brief.md` and inject it into fresh launches / managed resumes. Set `false` to opt a persistent instance out. |
 | `description` | no | empty | Human-readable. Shown in `instance ps`. |
 | `config.<dotted.key>` | no | — | Override values for the resolved per-instance config (layers between repo and CLI flags). Same dotted-key syntax as parameter declarations in `template.toml`. |
 | `replicas` | no | `1` | Max concurrent runs. Ephemeral only — for persistent, this is implicitly 1. |

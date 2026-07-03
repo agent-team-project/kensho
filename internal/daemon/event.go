@@ -1126,6 +1126,11 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			"--- agent prompt ---\n\n%s",
 		instance, agentName, filepath.ToSlash(stateRel), stateDir, chosen.Prompt,
 	)
+	if brief, err := InstanceBriefLaunchText(r.teamDir, instance); err != nil {
+		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: generate instance brief: %w", err)
+	} else if brief != "" {
+		kickoff = brief + "\n\n--- runtime kickoff ---\n\n" + kickoff
+	}
 	promptFile := filepath.Join(runtimeDir, "system_prompt.md")
 	if err := os.WriteFile(promptFile, []byte(kickoff), 0o644); err != nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: write prompt file: %w", err)

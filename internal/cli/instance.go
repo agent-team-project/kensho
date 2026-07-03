@@ -31,6 +31,7 @@ func newInstanceCmd() *cobra.Command {
 	cmd.AddCommand(newInstanceLsCmd())
 	cmd.AddCommand(newInstancePsCmd())
 	cmd.AddCommand(newInstanceShowCmd())
+	cmd.AddCommand(newInstanceBriefCmd())
 	cmd.AddCommand(newInstanceRmCmd())
 	cmd.AddCommand(newInstanceUpCmd())
 	cmd.AddCommand(newInstanceDownCmd())

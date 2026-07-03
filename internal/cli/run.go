@@ -317,6 +317,11 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			"--- agent prompt ---\n\n%s",
 		instance, agentName, filepath.ToSlash(stateRel), stateDir, chosen.Prompt,
 	)
+	if brief, err := daemon.InstanceBriefLaunchText(teamDir, instance); err != nil {
+		return fmt.Errorf("generate instance brief: %w", err)
+	} else if brief != "" {
+		kickoff = brief + "\n\n--- runtime kickoff ---\n\n" + kickoff
+	}
 	promptFile := filepath.Join(tmpdir, "system_prompt.md")
 	if err := os.WriteFile(promptFile, []byte(kickoff), 0o644); err != nil {
 		return fmt.Errorf("write prompt file: %w", err)

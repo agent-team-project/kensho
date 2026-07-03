@@ -231,6 +231,11 @@ func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Inst
 	workspace := r.teamDirParent()
 	prompt := fmt.Sprintf("Topology restart for declared instance %q (agent=%s, restart=%s).", inst.Name, inst.Agent, inst.Restart)
 	env := append([]string(nil), runtime.env...)
+	if snapshotEnv, ok, err := m.instanceLaunchEnv(inst.Name); err != nil {
+		return nil, false, fmt.Errorf("restart: launch env: %w", err)
+	} else if ok {
+		env = snapshotEnv
+	}
 	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, nil)
 	if err != nil {
 		return nil, false, err
