@@ -49,6 +49,7 @@ target = "worker"
 id = "review"
 target = "reviewer"
 after = ["implement"]
+timeout = "2m"
 `
 
 // Happy path: when a pipeline opts into auto_advance, the daemon dispatches the
@@ -86,6 +87,13 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 	}
 	if fake.callCount() != 2 {
 		t.Fatalf("spawn calls=%d, want 2 (auto-advance should dispatch review)", fake.callCount())
+	}
+	reviewerMeta, err := ReadMetadata(root, "reviewer-squ-92")
+	if err != nil {
+		t.Fatalf("read reviewer metadata: %v", err)
+	}
+	if reviewerMeta.RuntimeBudget != "2m0s" || reviewerMeta.RuntimeDeadline.IsZero() {
+		t.Fatalf("reviewer metadata = %+v, want 2m budget with deadline", reviewerMeta)
 	}
 
 	j, err := jobstore.Read(teamDir, "squ-92")

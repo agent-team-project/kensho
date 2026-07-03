@@ -14759,7 +14759,7 @@ func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 		UpdatedAt: now,
 		Steps: []job.Step{
 			{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
-			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+			{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}, Timeout: "45m0s"},
 		},
 	}
 	if err := job.Write(teamDir, j); err != nil {
@@ -14787,6 +14787,9 @@ func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 	payload := preview.Dispatch.Preview.Payload
 	if payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "review" || payload["job_id"] != "squ-201" {
 		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["timeout"] != "45m0s" {
+		t.Fatalf("payload timeout = %v, want 45m0s; payload=%+v", payload["timeout"], payload)
 	}
 	unchanged, err := job.Read(teamDir, "squ-201")
 	if err != nil {
@@ -14933,6 +14936,23 @@ func TestJobAdvanceDispatchesNextReadyStep(t *testing.T) {
 	}
 	if formattedUpdated.Steps[1].Status != job.StatusQueued || formattedUpdated.LastEvent != "advance_queued" {
 		t.Fatalf("formatted updated job = %+v", formattedUpdated)
+	}
+}
+
+func TestDispatchTimeoutForJobStepFallsBackToTopology(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	j := &job.Job{
+		ID:       "squ-203",
+		Ticket:   "SQU-203",
+		Target:   "worker",
+		Pipeline: "ticket_to_pr",
+	}
+	step := &job.Step{ID: "implement", Target: "worker"}
+
+	if got, want := dispatchTimeoutForJobStep(teamDir, j, step), "45m0s"; got != want {
+		t.Fatalf("dispatch timeout = %q, want %q", got, want)
 	}
 }
 

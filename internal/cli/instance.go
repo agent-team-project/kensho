@@ -247,23 +247,27 @@ type inspectStateJSON struct {
 }
 
 type inspectRuntimeJSON struct {
-	Lifecycle     string `json:"lifecycle"`
-	Agent         string `json:"agent,omitempty"`
-	Runtime       string `json:"runtime,omitempty"`
-	RuntimeBinary string `json:"runtime_binary,omitempty"`
-	Job           string `json:"job,omitempty"`
-	Ticket        string `json:"ticket,omitempty"`
-	Branch        string `json:"branch,omitempty"`
-	PR            string `json:"pr,omitempty"`
-	PID           int    `json:"pid,omitempty"`
-	Workspace     string `json:"workspace,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
-	StartedAt     string `json:"started_at,omitempty"`
-	StoppedAt     string `json:"stopped_at,omitempty"`
-	ExitedAt      string `json:"exited_at,omitempty"`
-	ExitCode      *int   `json:"exit_code,omitempty"`
-	LogPath       string `json:"log_path,omitempty"`
-	Adopted       bool   `json:"adopted,omitempty"`
+	Lifecycle        string `json:"lifecycle"`
+	Agent            string `json:"agent,omitempty"`
+	Runtime          string `json:"runtime,omitempty"`
+	RuntimeBinary    string `json:"runtime_binary,omitempty"`
+	Job              string `json:"job,omitempty"`
+	Ticket           string `json:"ticket,omitempty"`
+	Branch           string `json:"branch,omitempty"`
+	PR               string `json:"pr,omitempty"`
+	PID              int    `json:"pid,omitempty"`
+	Workspace        string `json:"workspace,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
+	StartedAt        string `json:"started_at,omitempty"`
+	RuntimeBudget    string `json:"runtime_budget,omitempty"`
+	RuntimeDeadline  string `json:"runtime_deadline,omitempty"`
+	RuntimeElapsed   string `json:"runtime_elapsed,omitempty"`
+	RuntimeRemaining string `json:"runtime_remaining,omitempty"`
+	StoppedAt        string `json:"stopped_at,omitempty"`
+	ExitedAt         string `json:"exited_at,omitempty"`
+	ExitCode         *int   `json:"exit_code,omitempty"`
+	LogPath          string `json:"log_path,omitempty"`
+	Adopted          bool   `json:"adopted,omitempty"`
 }
 
 type inspectStatusJSON struct {
@@ -327,9 +331,18 @@ func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectR
 		SessionID:     meta.SessionID,
 		ExitCode:      meta.ExitCode,
 		Adopted:       meta.Adopted,
+		RuntimeBudget: meta.RuntimeBudget,
 	}
 	if !meta.StartedAt.IsZero() {
 		out.StartedAt = meta.StartedAt.Format(time.RFC3339)
+	}
+	if !meta.RuntimeDeadline.IsZero() {
+		out.RuntimeDeadline = meta.RuntimeDeadline.UTC().Format(time.RFC3339)
+	}
+	if meta.RuntimeBudget != "" {
+		now := time.Now().UTC()
+		out.RuntimeElapsed = metadataRuntimeBudgetElapsed(meta, now)
+		out.RuntimeRemaining = metadataRuntimeBudgetRemaining(meta, now)
 	}
 	if !meta.StoppedAt.IsZero() {
 		out.StoppedAt = meta.StoppedAt.Format(time.RFC3339)
@@ -488,6 +501,18 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	}
 	if runtime.StartedAt != "" {
 		fmt.Fprintf(w, "  started_at:  %s\n", runtime.StartedAt)
+	}
+	if runtime.RuntimeBudget != "" {
+		fmt.Fprintf(w, "  budget:      %s\n", runtime.RuntimeBudget)
+	}
+	if runtime.RuntimeElapsed != "" {
+		fmt.Fprintf(w, "  elapsed:     %s\n", runtime.RuntimeElapsed)
+	}
+	if runtime.RuntimeRemaining != "" {
+		fmt.Fprintf(w, "  remaining:   %s\n", runtime.RuntimeRemaining)
+	}
+	if runtime.RuntimeDeadline != "" {
+		fmt.Fprintf(w, "  deadline:    %s\n", runtime.RuntimeDeadline)
 	}
 	if runtime.StoppedAt != "" {
 		fmt.Fprintf(w, "  stopped_at:  %s\n", runtime.StoppedAt)

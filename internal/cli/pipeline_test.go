@@ -11475,7 +11475,7 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 		t.Fatalf("dispatch preview = %+v", advancePreview.Dispatch)
 	}
 	payload := advancePreview.Dispatch.Preview.Payload
-	if payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["job_id"] != "squ-308" || payload["workspace"] != "worktree" {
+	if payload["pipeline"] != "ticket_to_pr" || payload["pipeline_step"] != "implement" || payload["job_id"] != "squ-308" || payload["workspace"] != "worktree" || payload["timeout"] != "45m0s" {
 		t.Fatalf("dispatch payload = %+v", payload)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".agent_team", "jobs", "squ-308.toml")); !os.IsNotExist(err) {
@@ -11982,7 +11982,7 @@ func TestPipelineAdvanceDryRunAndDispatch(t *testing.T) {
 			UpdatedAt: now,
 			Steps: []job.Step{
 				{ID: "triage", Target: "manager", Status: job.StatusDone, Instance: "manager", StartedAt: now, FinishedAt: now},
-				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}},
+				{ID: "review", Target: "manager", Status: job.StatusBlocked, After: []string{"triage"}, Timeout: "30m0s"},
 			},
 		},
 		{
@@ -12054,7 +12054,7 @@ func TestPipelineAdvanceDryRunAndDispatch(t *testing.T) {
 		t.Fatalf("dispatch route preview = %+v", dispatchPreview)
 	}
 	payload := dispatchPreview.Payload
-	if payload["job_id"] != "squ-401" || payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "review" || payload["workspace"] != "repo" {
+	if payload["job_id"] != "squ-401" || payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "review" || payload["workspace"] != "repo" || payload["timeout"] != "30m0s" {
 		t.Fatalf("route preview payload = %+v", payload)
 	}
 	routeUnchanged, err := job.Read(teamDir, "squ-401")
@@ -12374,7 +12374,7 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 			CreatedAt:  now,
 			UpdatedAt:  now,
 			Steps: []job.Step{
-				{ID: "triage", Target: "manager", Status: job.StatusFailed, Instance: "manager-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute)},
+				{ID: "triage", Target: "manager", Status: job.StatusFailed, Instance: "manager-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute), Timeout: "30m0s"},
 			},
 		},
 		{
@@ -12440,7 +12440,7 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 		t.Fatalf("requested name = %q", previewRows[0].Preview.Dispatch.RequestedName)
 	}
 	payload := previewRows[0].Preview.Dispatch.Preview.Payload
-	if payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "triage" || payload["job_id"] != "squ-601" || payload["workspace"] != "repo" {
+	if payload["pipeline"] != "ticket_triage" || payload["pipeline_step"] != "triage" || payload["job_id"] != "squ-601" || payload["workspace"] != "repo" || payload["timeout"] != "30m0s" {
 		t.Fatalf("preview payload = %+v", payload)
 	}
 

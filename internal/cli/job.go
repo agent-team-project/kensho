@@ -13539,26 +13539,8 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 		return &jobAdvanceResult{Job: j, Message: "no ready steps"}, nil
 	}
 	stepID := step.ID
-	name := step.Instance
-	if strings.TrimSpace(name) == "" {
-		name = step.Target + "-" + j.ID + "-" + job.NormalizeID(stepID)
-	}
-	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, job.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions), name, "job:"+j.ID, workspaceForJobStep(step, workspace))
+	payload, requestedName, err := buildJobStepDispatchPayload(teamDir, j, step, workspace, selection)
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
-		return nil, exitErr(2)
-	}
-	payload["job_id"] = j.ID
-	payload["job"] = j.ID
-	if j.Pipeline != "" {
-		payload["pipeline"] = j.Pipeline
-	}
-	payload["pipeline_step"] = stepID
-	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
-		return nil, exitErr(2)
-	}
-	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job advance: %v\n", err)
 		return nil, exitErr(2)
 	}
@@ -13583,6 +13565,65 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 		return &jobAdvanceResult{Job: j, Step: &j.Steps[idx], Event: res}, nil
 	}
 	return &jobAdvanceResult{Job: j, Event: res}, nil
+}
+
+func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, workspace string, selection runtimeSelection) (map[string]any, string, error) {
+	if j == nil {
+		return nil, "", fmt.Errorf("job is required")
+	}
+	if step == nil {
+		return nil, "", fmt.Errorf("step is required")
+	}
+	name := step.Instance
+	if strings.TrimSpace(name) == "" {
+		name = step.Target + "-" + j.ID + "-" + job.NormalizeID(step.ID)
+	}
+	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, job.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions), name, "job:"+j.ID, workspaceForJobStep(step, workspace))
+	if err != nil {
+		return nil, "", err
+	}
+	payload["job_id"] = j.ID
+	payload["job"] = j.ID
+	if j.Pipeline != "" {
+		payload["pipeline"] = j.Pipeline
+	}
+	payload["pipeline_step"] = step.ID
+	if timeout := dispatchTimeoutForJobStep(teamDir, j, step); timeout != "" {
+		payload["timeout"] = timeout
+	}
+	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
+		return nil, "", err
+	}
+	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
+		return nil, "", err
+	}
+	return payload, requestedName, nil
+}
+
+func dispatchTimeoutForJobStep(teamDir string, j *job.Job, step *job.Step) string {
+	if step == nil {
+		return ""
+	}
+	if timeout := strings.TrimSpace(step.Timeout); timeout != "" {
+		return timeout
+	}
+	if j == nil || strings.TrimSpace(j.Pipeline) == "" || strings.TrimSpace(teamDir) == "" {
+		return ""
+	}
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || topo == nil {
+		return ""
+	}
+	pipeline := topo.Pipelines[strings.TrimSpace(j.Pipeline)]
+	if pipeline == nil {
+		return ""
+	}
+	for _, topoStep := range pipeline.Steps {
+		if topoStep.ID == step.ID && topoStep.Timeout > 0 {
+			return topoStep.Timeout.String()
+		}
+	}
+	return ""
 }
 
 func applyAdvanceResponseToJobStep(j *job.Job, stepID, requestedName string, res *eventResponse) {
@@ -15070,24 +15111,8 @@ func previewJobStepDispatch(teamDir string, j *job.Job, step *job.Step, workspac
 	if step == nil {
 		return &jobAdvancePreview{Job: j, Message: "no ready steps", DryRun: true}, nil
 	}
-	name := step.Instance
-	if strings.TrimSpace(name) == "" {
-		name = step.Target + "-" + j.ID + "-" + job.NormalizeID(step.ID)
-	}
-	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, job.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions), name, "job:"+j.ID, workspaceForJobStep(step, workspace))
+	payload, requestedName, err := buildJobStepDispatchPayload(teamDir, j, step, workspace, selection)
 	if err != nil {
-		return nil, err
-	}
-	payload["job_id"] = j.ID
-	payload["job"] = j.ID
-	if j.Pipeline != "" {
-		payload["pipeline"] = j.Pipeline
-	}
-	payload["pipeline_step"] = step.ID
-	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
-		return nil, err
-	}
-	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		return nil, err
 	}
 	dispatch, err := previewDispatchPayload(teamDir, step.Target, requestedName, payload)

@@ -280,6 +280,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		Status:        StatusRunning,
 		LogPath:       logPath,
 	}
+	applyRuntimeBudgetMetadata(meta, now, in.Budget)
 	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
 		_ = proc.Kill()
 		return nil, fmt.Errorf("dispatch: persist launch env: %w", err)
@@ -305,6 +306,17 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		out = *captured
 	}
 	return &out, nil
+}
+
+func applyRuntimeBudgetMetadata(meta *Metadata, now time.Time, budget time.Duration) {
+	if meta == nil || budget <= 0 {
+		return
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	meta.RuntimeBudget = budget.String()
+	meta.RuntimeDeadline = now.Add(budget).UTC()
 }
 
 // dispatchRuntime resolves the runtime for a dispatch with this precedence:
@@ -1204,6 +1216,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		Status:        StatusRunning,
 		LogPath:       logPath,
 	}
+	applyRuntimeBudgetMetadata(meta, now, in.Budget)
 	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
 		m.mu.Unlock()
 		_ = proc.Kill()

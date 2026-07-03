@@ -48,27 +48,31 @@ type blockingSection struct {
 // with a state dir produces one row, even those without a status.toml — the
 // design says we render a placeholder rather than hiding them.
 type instanceRow struct {
-	Instance      string
-	Agent         string // best-effort guess; "—" if unknown
-	Phase         string
-	Age           string
-	Summary       string
-	Stale         bool
-	RuntimeStale  bool
-	HasFile       bool   // false → row was inferred from the empty state dir
-	Lifecycle     string // daemon-reported (running/stopped/exited/crashed); empty when no daemon
-	Runtime       string
-	RuntimeBinary string
-	Job           string
-	Ticket        string
-	Branch        string
-	PR            string
-	Workspace     string
-	PID           int // daemon-reported; 0 when no daemon
-	StatusAt      time.Time
-	StartedAt     time.Time
-	StoppedAt     time.Time
-	ExitedAt      time.Time
+	Instance         string
+	Agent            string // best-effort guess; "—" if unknown
+	Phase            string
+	Age              string
+	Summary          string
+	Stale            bool
+	RuntimeStale     bool
+	HasFile          bool   // false → row was inferred from the empty state dir
+	Lifecycle        string // daemon-reported (running/stopped/exited/crashed); empty when no daemon
+	Runtime          string
+	RuntimeBinary    string
+	RuntimeBudget    string
+	RuntimeDeadline  time.Time
+	RuntimeElapsed   string
+	RuntimeRemaining string
+	Job              string
+	Ticket           string
+	Branch           string
+	PR               string
+	Workspace        string
+	PID              int // daemon-reported; 0 when no daemon
+	StatusAt         time.Time
+	StartedAt        time.Time
+	StoppedAt        time.Time
+	ExitedAt         time.Time
 }
 
 // loadInstanceRows walks <teamDir>/state/*/ and produces one row per
