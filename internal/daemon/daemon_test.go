@@ -142,15 +142,25 @@ func startDaemon(t *testing.T, teamDir string, spawner Spawner) *Daemon {
 	go func() {
 		_ = d.Run(ctx)
 	}()
-	// Wait for socket to appear.
+	// Wait for the socket to accept requests. The file can appear just before
+	// http.Serve is ready, which is visible under -race.
+	socket := SocketPath(teamDir)
+	client := unixClient(socket)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(SocketPath(teamDir)); err == nil {
-			return d
+		if _, err := os.Stat(socket); err == nil {
+			resp, err := client.Get("http://./v1/status")
+			if err == nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return d
+				}
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("daemon socket never appeared at %s", SocketPath(teamDir))
+	t.Fatalf("daemon socket never became ready at %s", socket)
 	return nil
 }
 

@@ -15,6 +15,9 @@ import (
 const (
 	QueueStatePending = "pending"
 	QueueStateDead    = "dead"
+
+	QueueReasonReplicaCapacity = "replica_capacity"
+	QueueReasonLockHeld        = "lock_held"
 )
 
 // QueueItem is one persisted topology dispatch waiting for capacity or manual retry.
@@ -24,6 +27,8 @@ type QueueItem struct {
 	EventType      string         `json:"event_type"`
 	Instance       string         `json:"instance"`
 	InstanceID     string         `json:"instance_id"`
+	Reason         string         `json:"reason,omitempty"`
+	Locks          []string       `json:"locks,omitempty"`
 	Payload        map[string]any `json:"payload"`
 	Attempts       int            `json:"attempts"`
 	LastError      string         `json:"last_error,omitempty"`

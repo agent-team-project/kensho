@@ -536,6 +536,22 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		writeJSON(w, http.StatusOK, items)
 	})
 
+	mux.HandleFunc("/v1/locks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		snapshots := events.LockSnapshots()
+		if snapshots == nil {
+			snapshots = []LockSnapshot{}
+		}
+		writeJSON(w, http.StatusOK, snapshots)
+	})
+
 	mux.HandleFunc("/v1/queue/drain", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")

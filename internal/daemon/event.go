@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,7 @@ type EventResolver struct {
 	mu       sync.Mutex
 	topo     *topology.Topology
 	tracking map[string]*ephTracker // declared-name → tracker
+	locks    map[string]*dispatchLockTracker
 }
 
 type ephTracker struct {
@@ -64,9 +66,16 @@ type queuedEvent struct {
 	payload    map[string]any
 	queuedAt   time.Time
 	uniqueName string
+	reason     string
+	locks      []string
 	attempts   int
 	lastError  string
 	nextRetry  time.Time
+}
+
+type dispatchLockTracker struct {
+	slots   int
+	holders map[string]*LockLease // instance name → lease
 }
 
 // NewEventResolver installs a reap hook on mgr and returns a resolver bound
@@ -79,8 +88,12 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 		queueCap: DefaultQueueCap,
 		topo:     topo,
 		tracking: map[string]*ephTracker{},
+		locks:    map[string]*dispatchLockTracker{},
 	}
 	mgr.SetReapHook(r.onReap)
+	r.mu.Lock()
+	r.recoverLockStateLocked(time.Now().UTC())
+	r.mu.Unlock()
 	_ = r.loadPersistedQueue()
 	return r
 }
@@ -92,6 +105,7 @@ func (r *EventResolver) SetTopology(t *topology.Topology) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.topo = t
+	r.recoverLockStateLocked(time.Now().UTC())
 }
 
 // Topology returns the current topology pointer (for /v1/topology).
@@ -617,6 +631,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 	if err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
+	now := time.Now().UTC()
 	if requested && r.mgr.isRunning(childName) {
 		reason := fmt.Sprintf("instance %q already running", childName)
 		r.upsertDispatchJob(payload, childName, jobstore.StatusRunning, "already_running", reason, "", "")
@@ -660,8 +675,10 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 			id:         newSessionID(),
 			eventType:  eventType,
 			payload:    payload,
-			queuedAt:   time.Now().UTC(),
+			queuedAt:   now,
 			uniqueName: childName,
+			reason:     QueueReasonReplicaCapacity,
+			locks:      r.dispatchLocksLocked(inst, payload),
 		}
 		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
 			r.mu.Unlock()
@@ -672,6 +689,38 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, "queued", "queued", "", "")
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName}
 	}
+	locks := r.dispatchLocksLocked(inst, payload)
+	acquired, err := r.acquireLocksLocked(locks, childName, now)
+	if err != nil {
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "lock_error", err.Error(), "", "")
+		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+	}
+	if !acquired {
+		if len(tr.queue) >= r.queueCap {
+			r.mu.Unlock()
+			reason := fmt.Sprintf("lock held and queue is full (%d)", r.queueCap)
+			r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "queue_full", reason, "", "")
+			return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: reason}
+		}
+		ev := &queuedEvent{
+			id:         newSessionID(),
+			eventType:  eventType,
+			payload:    payload,
+			queuedAt:   now,
+			uniqueName: childName,
+			reason:     QueueReasonLockHeld,
+			locks:      locks,
+		}
+		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
+			r.mu.Unlock()
+			return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+		}
+		tr.queue = append(tr.queue, ev)
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonLockHeld, QueueReasonLockHeld, "", "")
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonLockHeld}
+	}
 	tr.running++
 	r.mu.Unlock()
 
@@ -679,11 +728,13 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 	if err != nil {
 		// Spawn failed; release capacity and don't drain queue (no work freed).
 		r.mu.Lock()
+		r.releaseLocksForInstanceLocked(childName)
 		tr.running--
 		r.mu.Unlock()
 		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "dispatch_failed", err.Error(), "", "")
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
+	r.updateLockLeasePID(meta.Instance, meta.PID)
 	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: meta.Instance}
 }
 
@@ -738,6 +789,255 @@ func payloadWithInstanceReapPolicy(inst *topology.Instance, payload map[string]a
 	}
 	out := copyPayload(payload)
 	out["reap_worktree"] = inst.ReapWorktree
+	return out
+}
+
+func (r *EventResolver) dispatchLocksLocked(inst *topology.Instance, payload map[string]any) []string {
+	names := []string{}
+	if inst != nil {
+		names = append(names, inst.Locks...)
+	}
+	if r.topo != nil {
+		pipelineName := payloadString(payload, "pipeline")
+		stepID := payloadString(payload, "pipeline_step")
+		if pipelineName != "" && stepID != "" {
+			if pipeline := r.topo.Pipelines[pipelineName]; pipeline != nil {
+				for _, step := range pipeline.Steps {
+					if step.ID == stepID {
+						names = append(names, step.Locks...)
+						break
+					}
+				}
+			}
+		}
+	}
+	return normalizeLockNames(names)
+}
+
+func normalizeLockNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (r *EventResolver) acquireLocksLocked(names []string, instance string, now time.Time) (bool, error) {
+	names = normalizeLockNames(names)
+	if len(names) == 0 {
+		return true, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	for _, name := range names {
+		tr := r.lockTrackerLocked(name)
+		if tr == nil {
+			return false, fmt.Errorf("lock %q is not declared", name)
+		}
+		if tr.holders[instance] != nil {
+			continue
+		}
+		if len(tr.holders) >= tr.slots {
+			return false, nil
+		}
+	}
+	acquired := []string{}
+	for _, name := range names {
+		tr := r.lockTrackerLocked(name)
+		if tr.holders[instance] != nil {
+			continue
+		}
+		lease := &LockLease{
+			Lock:       name,
+			Instance:   instance,
+			AcquiredAt: now,
+			UpdatedAt:  now,
+		}
+		if err := WriteLockLease(r.mgr.daemonRoot, lease); err != nil {
+			for _, held := range acquired {
+				delete(r.locks[held].holders, instance)
+				_ = RemoveLockLease(r.mgr.daemonRoot, held, instance)
+			}
+			return false, err
+		}
+		tr.holders[instance] = lease
+		acquired = append(acquired, name)
+	}
+	return true, nil
+}
+
+func (r *EventResolver) lockTrackerLocked(name string) *dispatchLockTracker {
+	if r.locks == nil {
+		r.locks = map[string]*dispatchLockTracker{}
+	}
+	if tr := r.locks[name]; tr != nil {
+		return tr
+	}
+	if r.topo == nil || r.topo.Locks[name] == nil {
+		return nil
+	}
+	tr := &dispatchLockTracker{slots: r.topo.Locks[name].Slots, holders: map[string]*LockLease{}}
+	r.locks[name] = tr
+	return tr
+}
+
+func (r *EventResolver) updateLockLeasePID(instance string, pid int) {
+	if strings.TrimSpace(instance) == "" || pid <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now().UTC()
+	for name, tr := range r.locks {
+		if tr == nil || tr.holders == nil {
+			continue
+		}
+		lease := tr.holders[instance]
+		if lease == nil {
+			continue
+		}
+		lease.PID = pid
+		lease.UpdatedAt = now
+		_ = WriteLockLease(r.mgr.daemonRoot, lease)
+		r.locks[name].holders[instance] = lease
+	}
+}
+
+func (r *EventResolver) releaseLocksForInstanceLocked(instance string) {
+	if strings.TrimSpace(instance) == "" {
+		return
+	}
+	for name, tr := range r.locks {
+		if tr == nil || tr.holders == nil {
+			continue
+		}
+		if tr.holders[instance] == nil {
+			continue
+		}
+		delete(tr.holders, instance)
+		_ = RemoveLockLease(r.mgr.daemonRoot, name, instance)
+	}
+}
+
+func (r *EventResolver) recoverLockStateLocked(now time.Time) {
+	r.locks = map[string]*dispatchLockTracker{}
+	if r.topo != nil {
+		for _, lock := range r.topo.SortedLocks() {
+			r.locks[lock.Name] = &dispatchLockTracker{slots: lock.Slots, holders: map[string]*LockLease{}}
+		}
+	}
+	if r.mgr == nil {
+		return
+	}
+	leases, err := ListLockLeases(r.mgr.daemonRoot)
+	if err != nil {
+		return
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	for _, lease := range leases {
+		tr := r.locks[lease.Lock]
+		if tr == nil {
+			_ = RemoveLockLease(r.mgr.daemonRoot, lease.Lock, lease.Instance)
+			continue
+		}
+		live, recoveredPID := r.lockLeaseLivePID(lease)
+		if !live {
+			_ = RemoveLockLease(r.mgr.daemonRoot, lease.Lock, lease.Instance)
+			continue
+		}
+		if recoveredPID > 0 && lease.PID != recoveredPID {
+			lease.PID = recoveredPID
+			lease.UpdatedAt = now
+			_ = WriteLockLease(r.mgr.daemonRoot, lease)
+		}
+		tr.holders[lease.Instance] = lease
+	}
+}
+
+func (r *EventResolver) lockLeaseLivePID(lease *LockLease) (bool, int) {
+	if lease == nil {
+		return false, 0
+	}
+	if lease.PID > 0 && PidLiveCheck(lease.PID) {
+		return true, lease.PID
+	}
+	if r.mgr == nil {
+		return false, 0
+	}
+	meta, err := ReadMetadata(r.mgr.daemonRoot, lease.Instance)
+	if err != nil || meta == nil || meta.Status != StatusRunning || meta.PID <= 0 {
+		return false, 0
+	}
+	if !PidLiveCheck(meta.PID) {
+		return false, 0
+	}
+	return true, meta.PID
+}
+
+// RecoverLockState rebuilds in-memory dispatch lock holders from the durable
+// ledger, dropping entries whose instances no longer have a live PID.
+func (r *EventResolver) RecoverLockState() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recoverLockStateLocked(time.Now().UTC())
+}
+
+// LockSnapshots returns declared lock utilization from current resolver state.
+func (r *EventResolver) LockSnapshots() []LockSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recoverLockStateLocked(time.Now().UTC())
+	out := make([]LockSnapshot, 0, len(r.locks))
+	names := make([]string, 0, len(r.locks))
+	for name := range r.locks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		tr := r.locks[name]
+		if tr == nil {
+			continue
+		}
+		holders := make([]LockHolder, 0, len(tr.holders))
+		holderNames := make([]string, 0, len(tr.holders))
+		for instance := range tr.holders {
+			holderNames = append(holderNames, instance)
+		}
+		sort.Strings(holderNames)
+		for _, instance := range holderNames {
+			lease := tr.holders[instance]
+			holders = append(holders, LockHolder{
+				Instance:   lease.Instance,
+				PID:        lease.PID,
+				AcquiredAt: lease.AcquiredAt,
+				UpdatedAt:  lease.UpdatedAt,
+			})
+		}
+		available := tr.slots - len(holders)
+		if available < 0 {
+			available = 0
+		}
+		out = append(out, LockSnapshot{
+			Name:      name,
+			Slots:     tr.slots,
+			Used:      len(holders),
+			Available: available,
+			Holders:   holders,
+		})
+	}
 	return out
 }
 
@@ -1341,12 +1641,10 @@ func (r *EventResolver) onReap(spawned string) {
 	if tr.running > 0 {
 		tr.running--
 	}
+	r.releaseLocksForInstanceLocked(spawned)
 	var next *queuedEvent
 	if len(tr.queue) > 0 {
-		next, tr.queue = popReadyQueuedEvent(tr.queue, time.Now().UTC(), nil)
-		if next != nil {
-			tr.running++
-		}
+		next = r.popReadyQueuedEventLocked(declared, tr, time.Now().UTC(), nil)
 	}
 	r.mu.Unlock()
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
@@ -1360,9 +1658,13 @@ func (r *EventResolver) onReap(spawned string) {
 	if _, err := r.spawn(declared, next.uniqueName, next.eventType, next.payload); err != nil {
 		r.recordQueueFailure(declared.Name, next, err)
 		r.mu.Lock()
+		r.releaseLocksForInstanceLocked(next.uniqueName)
 		tr.running--
 		r.mu.Unlock()
 		return
+	}
+	if meta, err := ReadMetadata(r.mgr.daemonRoot, next.uniqueName); err == nil {
+		r.updateLockLeasePID(meta.Instance, meta.PID)
 	}
 	_ = RemoveQueueItem(r.mgr.daemonRoot, next.id)
 }
@@ -1663,10 +1965,49 @@ func popReadyQueuedEvent(queue []*queuedEvent, now time.Time, ids map[string]boo
 	return nil, queue
 }
 
+func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *ephTracker, now time.Time, ids map[string]bool) *queuedEvent {
+	if inst == nil || tr == nil {
+		return nil
+	}
+	for i, ev := range tr.queue {
+		if ev == nil {
+			continue
+		}
+		if !queueDrainIDAllowed(ids, ev.id) {
+			continue
+		}
+		if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
+			continue
+		}
+		if len(ev.locks) == 0 {
+			ev.locks = r.dispatchLocksLocked(inst, ev.payload)
+		}
+		acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, now)
+		if err != nil {
+			ev.lastError = err.Error()
+			ev.reason = "lock_error"
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
+		if !acquired {
+			ev.reason = QueueReasonLockHeld
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
+		tr.queue = append(tr.queue[:i:i], tr.queue[i+1:]...)
+		tr.running++
+		return ev
+	}
+	return nil
+}
+
 func (r *EventResolver) recordQueueFailure(declared string, ev *queuedEvent, spawnErr error) {
 	if ev == nil {
 		return
 	}
+	r.mu.Lock()
+	r.releaseLocksForInstanceLocked(ev.uniqueName)
+	r.mu.Unlock()
 	ev.attempts++
 	ev.lastError = spawnErr.Error()
 	if ev.attempts >= MaxQueueAttempts {
@@ -1730,6 +2071,7 @@ func (r *EventResolver) RecoverQueueState() {
 			tr.running++
 		}
 	}
+	r.recoverLockStateLocked(time.Now().UTC())
 	r.mu.Unlock()
 	_ = r.loadPersistedQueue()
 	r.DrainQueues()
@@ -1763,7 +2105,8 @@ func (r *EventResolver) drainQueuesWithResult(ids map[string]bool) (*QueueDrainR
 			break
 		}
 		result.Attempted++
-		if _, err := r.spawn(declared, ev.uniqueName, ev.eventType, ev.payload); err != nil {
+		meta, err := r.spawn(declared, ev.uniqueName, ev.eventType, ev.payload)
+		if err != nil {
 			r.recordQueueFailure(declared.Name, ev, err)
 			r.mu.Lock()
 			if tr := r.tracking[declared.Name]; tr != nil && tr.running > 0 {
@@ -1774,6 +2117,7 @@ func (r *EventResolver) drainQueuesWithResult(ids map[string]bool) (*QueueDrainR
 			result.Outcomes = append(result.Outcomes, EventOutcome{Instance: declared.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()})
 			continue
 		}
+		r.updateLockLeasePID(meta.Instance, meta.PID)
 		_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
 		result.Dispatched++
 		result.Outcomes = append(result.Outcomes, EventOutcome{Instance: declared.Name, Action: "dispatched", InstanceID: ev.uniqueName})
@@ -1805,8 +2149,10 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 	}
 	result := &QueueDrainResult{DryRun: true, Outcomes: []EventOutcome{}}
 	r.mu.Lock()
+	r.recoverLockStateLocked(time.Now().UTC())
 	if r.topo != nil {
 		now := time.Now().UTC()
+		lockUsage, lockSlots := r.previewLockCountsLocked()
 		for _, inst := range r.topo.SortedInstances() {
 			if !inst.Ephemeral {
 				continue
@@ -1832,6 +2178,14 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 				if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
 					continue
 				}
+				locks := ev.locks
+				if len(locks) == 0 {
+					locks = r.dispatchLocksLocked(inst, ev.payload)
+				}
+				if !previewLocksAvailable(locks, ev.uniqueName, lockUsage, lockSlots) {
+					continue
+				}
+				previewReserveLocks(locks, ev.uniqueName, lockUsage)
 				result.WouldDispatch++
 				result.Outcomes = append(result.Outcomes, EventOutcome{Instance: inst.Name, Action: "would_dispatch", InstanceID: ev.uniqueName})
 				capacity--
@@ -1883,15 +2237,54 @@ func (r *EventResolver) nextDrainableQueuedEvent(ids map[string]bool) (*topology
 		if !ok || tr.running >= inst.Replicas {
 			continue
 		}
-		ev, rest := popReadyQueuedEvent(tr.queue, now, ids)
+		ev := r.popReadyQueuedEventLocked(inst, tr, now, ids)
 		if ev == nil {
 			continue
 		}
-		tr.queue = rest
-		tr.running++
 		return inst, ev
 	}
 	return nil, nil
+}
+
+func (r *EventResolver) previewLockCountsLocked() (map[string]map[string]bool, map[string]int) {
+	usage := map[string]map[string]bool{}
+	slots := map[string]int{}
+	for name, tr := range r.locks {
+		if tr == nil {
+			continue
+		}
+		slots[name] = tr.slots
+		usage[name] = map[string]bool{}
+		for instance := range tr.holders {
+			usage[name][instance] = true
+		}
+	}
+	return usage, slots
+}
+
+func previewLocksAvailable(locks []string, instance string, usage map[string]map[string]bool, slots map[string]int) bool {
+	for _, name := range locks {
+		holders := usage[name]
+		if holders == nil {
+			return false
+		}
+		if holders[instance] {
+			continue
+		}
+		if len(holders) >= slots[name] {
+			return false
+		}
+	}
+	return true
+}
+
+func previewReserveLocks(locks []string, instance string, usage map[string]map[string]bool) {
+	for _, name := range locks {
+		if usage[name] == nil {
+			usage[name] = map[string]bool{}
+		}
+		usage[name][instance] = true
+	}
 }
 
 // DropQueueItem removes a queued item from memory and disk.
@@ -1945,14 +2338,32 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 	}
 	tr.queue = removeQueuedEventByID(tr.queue, id)
 	if tr.running >= inst.Replicas {
+		ev.reason = QueueReasonReplicaCapacity
 		tr.queue = append(tr.queue, ev)
+		_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
 		r.mu.Unlock()
-		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName}, nil
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: ev.reason}, nil
+	}
+	if len(ev.locks) == 0 {
+		ev.locks = r.dispatchLocksLocked(inst, ev.payload)
+	}
+	acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, time.Now().UTC())
+	if err != nil {
+		r.mu.Unlock()
+		return EventOutcome{}, err
+	}
+	if !acquired {
+		ev.reason = QueueReasonLockHeld
+		tr.queue = append(tr.queue, ev)
+		_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+		r.mu.Unlock()
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: QueueReasonLockHeld}, nil
 	}
 	tr.running++
 	r.mu.Unlock()
 
-	if _, err := r.spawn(inst, ev.uniqueName, ev.eventType, ev.payload); err != nil {
+	meta, err := r.spawn(inst, ev.uniqueName, ev.eventType, ev.payload)
+	if err != nil {
 		r.recordQueueFailure(inst.Name, ev, err)
 		r.mu.Lock()
 		if tr.running > 0 {
@@ -1961,6 +2372,7 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		r.mu.Unlock()
 		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()}, nil
 	}
+	r.updateLockLeasePID(meta.Instance, meta.PID)
 	_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
 	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: ev.uniqueName}, nil
 }
@@ -1988,6 +2400,8 @@ func queueItemFromEvent(declared string, ev *queuedEvent, state string) *QueueIt
 		EventType:  ev.eventType,
 		Instance:   declared,
 		InstanceID: ev.uniqueName,
+		Reason:     ev.reason,
+		Locks:      append([]string(nil), ev.locks...),
 		Payload:    ev.payload,
 		Attempts:   ev.attempts,
 		LastError:  ev.lastError,
@@ -2004,6 +2418,8 @@ func queuedEventFromItem(item *QueueItem) *queuedEvent {
 		payload:    item.Payload,
 		queuedAt:   item.QueuedAt,
 		uniqueName: item.InstanceID,
+		reason:     item.Reason,
+		locks:      append([]string(nil), item.Locks...),
 		attempts:   item.Attempts,
 		lastError:  item.LastError,
 		nextRetry:  item.NextRetry,

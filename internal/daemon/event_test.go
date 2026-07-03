@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1284,6 +1285,132 @@ func TestEvent_EphemeralReplicasQueueing(t *testing.T) {
 	rej, _, _ := post("post#5")
 	if rej == "" {
 		t.Errorf("5th event should have been rejected, was not")
+	}
+}
+
+func TestEvent_DispatchLockContentionQueuesAndReapDrains(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[locks.build]
+slots = 1
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+locks = ["build"]
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	first, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-squ-100",
+		"ticket": "SQU-100",
+	})
+	if err != nil {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	if len(first.Outcomes) != 1 || first.Outcomes[0].Action != "dispatched" || first.Outcomes[0].InstanceID != "worker-squ-100" {
+		t.Fatalf("first outcomes = %+v", first.Outcomes)
+	}
+	second, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-squ-101",
+		"ticket": "SQU-101",
+	})
+	if err != nil {
+		t.Fatalf("second dispatch: %v", err)
+	}
+	if len(second.Outcomes) != 1 || second.Outcomes[0].Action != "queued" || second.Outcomes[0].Reason != QueueReasonLockHeld {
+		t.Fatalf("second outcomes = %+v, want lock-held queue", second.Outcomes)
+	}
+	items, err := ListQueueItems(root)
+	if err != nil {
+		t.Fatalf("ListQueueItems: %v", err)
+	}
+	if len(items) != 1 || items[0].Reason != QueueReasonLockHeld || !reflect.DeepEqual(items[0].Locks, []string{"build"}) {
+		t.Fatalf("queue items = %+v", items)
+	}
+	snapshots := resolver.LockSnapshots()
+	if len(snapshots) != 1 || snapshots[0].Name != "build" || snapshots[0].Used != 1 || snapshots[0].Holders[0].Instance != "worker-squ-100" {
+		t.Fatalf("snapshots = %+v", snapshots)
+	}
+
+	if _, err := m.Stop("worker-squ-100"); err != nil {
+		t.Fatalf("stop first: %v", err)
+	}
+	if err := m.WaitForReaper("worker-squ-100", 5*time.Second); err != nil {
+		t.Fatalf("wait first reap: %v", err)
+	}
+	if fake.callCount() != 2 {
+		t.Fatalf("spawn calls=%d, want queued dispatch to drain", fake.callCount())
+	}
+	if _, err := ReadQueueItem(root, items[0].ID); !os.IsNotExist(err) {
+		t.Fatalf("queued item should be removed after lock release, err=%v", err)
+	}
+	snapshots = resolver.LockSnapshots()
+	if len(snapshots) != 1 || snapshots[0].Used != 1 || snapshots[0].Holders[0].Instance != "worker-squ-101" {
+		t.Fatalf("snapshots after drain = %+v", snapshots)
+	}
+	_, _ = m.Stop("worker-squ-101")
+	_ = m.WaitForReaper("worker-squ-101", 5*time.Second)
+}
+
+func TestEvent_LockRecoveryDropsDeadLedgerRows(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[locks.build]
+slots = 1
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["build"]
+`)
+	now := time.Now().UTC()
+	if err := WriteLockLease(root, &LockLease{
+		Lock:       "build",
+		Instance:   "worker-live",
+		AcquiredAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("write live lease: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "worker-live",
+		Agent:     "worker",
+		PID:       os.Getpid(),
+		Status:    StatusRunning,
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("write live metadata: %v", err)
+	}
+	if err := WriteLockLease(root, &LockLease{
+		Lock:       "build",
+		Instance:   "worker-dead",
+		PID:        999_999_999,
+		AcquiredAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("write dead lease: %v", err)
+	}
+
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	snapshots := resolver.LockSnapshots()
+	if len(snapshots) != 1 || snapshots[0].Used != 1 || snapshots[0].Holders[0].Instance != "worker-live" || snapshots[0].Holders[0].PID != os.Getpid() {
+		t.Fatalf("snapshots = %+v, want only recovered live holder", snapshots)
+	}
+	if _, err := ReadLockLease(root, "build", "worker-dead"); !os.IsNotExist(err) {
+		t.Fatalf("dead lease should be removed, err=%v", err)
 	}
 }
 

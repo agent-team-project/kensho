@@ -108,15 +108,18 @@ POST /v1/queue/drain
 POST /v1/queue/drain?dry_run=true
 POST /v1/queue/{id}/retry
 POST /v1/queue/{id}/drop
+GET /v1/locks
 ```
 
 The CLI wraps these with:
 
 ```sh
 agent-team queue ls
+agent-team queue ls --reason lock_held
 agent-team queue drain --dry-run
 agent-team queue retry <id>
 agent-team queue drop <id>
+agent-team locks
 ```
 
 ## Schedules

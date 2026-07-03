@@ -48,6 +48,7 @@ func newQueueLsCmd() *cobra.Command {
 		eventTypes  []string
 		jobs        []string
 		runtimes    []string
+		reasons     []string
 		readyOnly   bool
 		sortBy      string
 		limit       int
@@ -120,6 +121,12 @@ func newQueueLsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue ls: %v\n", err)
 				return exitErr(2)
 			}
+			reasonFilter, err := stringSetFilter(reasons, "--reason", "reason")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team queue ls: %v\n", err)
+				return exitErr(2)
+			}
+			filters.reasons = reasonFilter
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
@@ -147,6 +154,7 @@ func newQueueLsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Filter by job id or ticket; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&reasons, "reason", nil, "Filter by queue reason, such as lock_held. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&readyOnly, "ready", false, "Only show pending queue items whose next retry is due now.")
 	cmd.Flags().StringVar(&sortBy, "sort", "state", "Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit rows after filtering and sorting; 0 means no limit.")
@@ -828,6 +836,7 @@ type queueListFilters struct {
 	eventTypes        map[string]bool
 	jobs              map[string]bool
 	runtimes          map[string]bool
+	reasons           map[string]bool
 	runtimeByInstance map[string]string
 	readyOnly         bool
 	now               time.Time
@@ -914,7 +923,7 @@ func (f queueListFilters) withRuntimeByInstance(runtimeByInstance map[string]str
 }
 
 func (f queueListFilters) empty() bool {
-	return f.state == "" && len(f.instances) == 0 && len(f.eventTypes) == 0 && len(f.jobs) == 0 && len(f.runtimes) == 0 && !f.readyOnly
+	return f.state == "" && len(f.instances) == 0 && len(f.eventTypes) == 0 && len(f.jobs) == 0 && len(f.runtimes) == 0 && len(f.reasons) == 0 && !f.readyOnly
 }
 
 func (f queueListFilters) match(item *daemon.QueueItem) bool {
@@ -931,6 +940,9 @@ func (f queueListFilters) match(item *daemon.QueueItem) bool {
 		return false
 	}
 	if len(f.runtimes) > 0 && !f.runtimes[queueItemRuntimeKey(item, f.runtimeByInstance)] {
+		return false
+	}
+	if len(f.reasons) > 0 && !f.reasons[item.Reason] {
 		return false
 	}
 	if f.readyOnly {
@@ -1208,6 +1220,7 @@ type queueSummary struct {
 	Instances              map[string]int `json:"instances"`
 	Events                 map[string]int `json:"events"`
 	Runtimes               map[string]int `json:"runtimes"`
+	Reasons                map[string]int `json:"reasons"`
 }
 
 func (s queueSummary) MarshalJSON() ([]byte, error) {
@@ -1220,6 +1233,9 @@ func (s queueSummary) MarshalJSON() ([]byte, error) {
 	}
 	if s.Runtimes == nil {
 		s.Runtimes = map[string]int{}
+	}
+	if s.Reasons == nil {
+		s.Reasons = map[string]int{}
 	}
 	return json.Marshal(queueSummaryJSON(s))
 }
@@ -1598,6 +1614,7 @@ func summarizeQueueItems(items []*daemon.QueueItem, now time.Time, runtimeByInst
 		Instances: map[string]int{},
 		Events:    map[string]int{},
 		Runtimes:  map[string]int{},
+		Reasons:   map[string]int{},
 	}
 	for _, item := range items {
 		summary.Total++
@@ -1618,6 +1635,9 @@ func summarizeQueueItems(items []*daemon.QueueItem, now time.Time, runtimeByInst
 			summary.Events[item.EventType]++
 		}
 		summary.Runtimes[queueItemRuntimeKey(item, runtimeByInstance)]++
+		if strings.TrimSpace(item.Reason) != "" {
+			summary.Reasons[item.Reason]++
+		}
 	}
 	return summary
 }
@@ -1676,6 +1696,13 @@ func renderQueueSummary(w io.Writer, summary queueSummary) {
 		fmt.Fprint(w, "runtimes:")
 		for _, key := range sortedCountKeys(summary.Runtimes) {
 			fmt.Fprintf(w, " %s=%d", key, summary.Runtimes[key])
+		}
+		fmt.Fprintln(w)
+	}
+	if len(summary.Reasons) > 0 {
+		fmt.Fprint(w, "reasons:")
+		for _, key := range sortedCountKeys(summary.Reasons) {
+			fmt.Fprintf(w, " %s=%d", key, summary.Reasons[key])
 		}
 		fmt.Fprintln(w)
 	}
@@ -1981,12 +2008,12 @@ func renderQueueTableWithActions(w io.Writer, items []*daemon.QueueItem, runtime
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATE\tINSTANCE\tINSTANCE_ID\tRUNTIME\tATTEMPTS\tNEXT_RETRY\tACTION\tLAST_ERROR")
+	fmt.Fprintln(tw, "ID\tSTATE\tINSTANCE\tINSTANCE_ID\tRUNTIME\tREASON\tATTEMPTS\tNEXT_RETRY\tACTION\tLAST_ERROR")
 	now := time.Now().UTC()
 	for _, item := range items {
 		itemActions := queueItemResolvedActions(item, now, actions)
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			item.ID, item.State, item.Instance, item.InstanceID, queueItemRuntimeLabel(item, runtimeByInstance), item.Attempts, queueTime(item.NextRetry), emptyDash(strings.Join(itemActions, "; ")), emptyDash(item.LastError))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			item.ID, item.State, item.Instance, item.InstanceID, queueItemRuntimeLabel(item, runtimeByInstance), emptyDash(item.Reason), item.Attempts, queueTime(item.NextRetry), emptyDash(strings.Join(itemActions, "; ")), emptyDash(item.LastError))
 	}
 	_ = tw.Flush()
 }
@@ -2037,6 +2064,12 @@ func renderQueueDetailWithActions(w io.Writer, item *daemon.QueueItem, runtimeBy
 	fmt.Fprintf(w, "Instance:    %s\n", item.Instance)
 	fmt.Fprintf(w, "Instance ID: %s\n", item.InstanceID)
 	fmt.Fprintf(w, "Runtime:     %s\n", queueItemRuntimeLabel(item, runtimeByInstance))
+	if item.Reason != "" {
+		fmt.Fprintf(w, "Reason:      %s\n", item.Reason)
+	}
+	if len(item.Locks) > 0 {
+		fmt.Fprintf(w, "Locks:       %s\n", strings.Join(item.Locks, ","))
+	}
 	fmt.Fprintf(w, "Attempts:    %d\n", item.Attempts)
 	if !item.NextRetry.IsZero() {
 		fmt.Fprintf(w, "Next Retry:  %s\n", item.NextRetry.Format(time.RFC3339))

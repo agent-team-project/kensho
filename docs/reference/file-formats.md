@@ -86,6 +86,10 @@ event = "user_invocation"
 agent = "worker"
 ephemeral = true
 replicas = 3
+locks = ["build"]
+
+[locks.build]
+slots = 1
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -103,6 +107,7 @@ id = "implement"
 target = "worker"
 workspace = "worktree"
 runtime = "codex"
+locks = ["build"]
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
@@ -127,6 +132,12 @@ Pipeline `infra_signatures` entries are regexes used to classify failed gate
 signatures reported by `agent-team job gate set`. They classify an explicit
 `pass`/`fail` result as `infra` or `content`; they do not decide whether the
 gate passed.
+
+Named `[locks.<name>]` entries serialize ephemeral dispatches around shared
+resources. `slots = 1` is a mutex; higher values are counting semaphores. Locks
+listed on an instance and a pipeline step are unioned before spawn. If any slot
+is unavailable, the daemon persists the dispatch in the normal queue with
+`reason = "lock_held"`.
 
 ## Job TOML
 

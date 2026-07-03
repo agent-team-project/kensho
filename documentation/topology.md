@@ -102,6 +102,10 @@ agent     = "worker"
 ephemeral = true        # spawn per dispatch
 replicas  = 3            # max 3 concurrent
 reap_worktree = "never"  # opt-in cleanup: never, on_close, or on_merge
+locks = ["build"]        # optional named dispatch locks held while spawned
+
+[locks.build]
+slots = 1                # default 1 = mutex; >1 = counting semaphore
 
 [[instances.worker.triggers]]
 event  = "agent.dispatch"
@@ -127,6 +131,7 @@ instructions = "Implement the ticket with tests and summarize the branch state."
 target = "worker"
 workspace = "worktree"
 runtime = "codex"
+locks = ["build"]
 
 [[pipelines.ticket_to_pr.steps]]
 id     = "review"
@@ -150,7 +155,23 @@ pipelines   = ["ticket_to_pr"]
 schedules   = ["nightly"]
 ```
 
-### Field reference
+### Lock field reference
+
+Locks live under `[locks.<name>]`. A declared instance or pipeline step can
+reference one or more names with `locks = ["name"]`. Ephemeral dispatches acquire
+all required slots before spawn and release them when the spawned instance exits.
+If any slot is unavailable, the dispatch is written to the normal pending queue
+with `reason = "lock_held"` and later `tick`, `drain`, or `queue retry` attempts
+the same dispatch again.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `slots` | no | `1` | Number of concurrent holders allowed for the named lock. `1` is a mutex; values above one are counting semaphores. |
+
+Use `agent-team locks` to inspect declared slots and current holders, and
+`agent-team queue ls --reason lock_held` to inspect queued lock contention.
+
+### Instance field reference
 
 | Field | Required | Default | Meaning |
 |---|---|---|---|
@@ -160,6 +181,7 @@ schedules   = ["nightly"]
 | `brief` | no | persistent: `true`; ephemeral: `false` | Generate `<state-dir>/brief.md` and inject it into fresh launches / managed resumes. Set `false` to opt a persistent instance out. |
 | `description` | no | empty | Human-readable. Shown in `instance ps`. |
 | `config.<dotted.key>` | no | — | Override values for the resolved per-instance config (layers between repo and CLI flags). Same dotted-key syntax as parameter declarations in `template.toml`. |
+| `locks` | no | empty | Named dispatch locks this instance's ephemeral children hold until exit. References must exist under `[locks]`. |
 | `replicas` | no | `1` | Max concurrent runs. Ephemeral only — for persistent, this is implicitly 1. |
 | `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this instance. Supported values: `"never"`, `"on_close"`, or `"on_merge"`. |
 | `triggers` | no | empty | List of trigger blocks. Empty triggers list → instance only invokable by explicit `agent-team run <name>`. |
@@ -182,6 +204,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |
 | `steps[].instructions` | no | empty | Step-specific runtime instructions appended to the job kickoff when this step dispatches. |
 | `steps[].target` | yes | — | Dispatch target. The target should resolve through an `agent.dispatch` trigger. |
+| `steps[].locks` | no | empty | Additional named dispatch locks held for this pipeline step's spawned instance. They are unioned with locks declared on the target instance. |
 | `steps[].workspace` | no | auto | Dispatch workspace default for this stage. Supported values: `"auto"`, `"worktree"`, or `"repo"`. Operator `--workspace` flags override it. |
 | `steps[].runtime` | no | repo default | Dispatch runtime default for this stage. Supported values: `"claude"` or `"codex"`. Operator `--runtime` flags override it. |
 | `steps[].runtime_bin` | no | runtime default | Runtime binary or wrapper default for this stage. Operator `--runtime-bin` flags override it. |

@@ -33,6 +33,9 @@ func TestQueueSummaryEncodesEmptyMapsAsObjects(t *testing.T) {
 	if _, ok := raw["runtimes"].(map[string]any); !ok {
 		t.Fatalf("runtimes = %#v, want object in %s", raw["runtimes"], string(body))
 	}
+	if _, ok := raw["reasons"].(map[string]any); !ok {
+		t.Fatalf("reasons = %#v, want object in %s", raw["reasons"], string(body))
+	}
 }
 
 func TestQueueListJSONEmptyArray(t *testing.T) {
@@ -266,6 +269,129 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	}
 	if _, err := daemon.ReadQueueItem(daemon.DaemonRoot(teamDir), "q-local"); !os.IsNotExist(err) {
 		t.Fatalf("queue item still exists or unexpected err=%v", err)
+	}
+}
+
+func TestQueueListReasonFilterAndLockDetail(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	items := []*daemon.QueueItem{
+		{
+			ID:         "q-lock",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-35",
+			Reason:     daemon.QueueReasonLockHeld,
+			Locks:      []string{"build"},
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-35"},
+			QueuedAt:   now,
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "q-capacity",
+			State:      daemon.QueueStatePending,
+			EventType:  "agent.dispatch",
+			Instance:   "worker",
+			InstanceID: "worker-squ-36",
+			Reason:     daemon.QueueReasonReplicaCapacity,
+			Payload:    map[string]any{"target": "worker", "ticket": "SQU-36"},
+			QueuedAt:   now,
+			UpdatedAt:  now,
+		},
+	}
+	for _, item := range items {
+		if err := daemon.WriteQueueItem(daemon.DaemonRoot(teamDir), item); err != nil {
+			t.Fatalf("WriteQueueItem %s: %v", item.ID, err)
+		}
+	}
+
+	ls := NewRootCmd()
+	lsOut, lsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	ls.SetOut(lsOut)
+	ls.SetErr(lsErr)
+	ls.SetArgs([]string{"queue", "ls", "--target", tmp, "--reason", daemon.QueueReasonLockHeld})
+	if err := ls.Execute(); err != nil {
+		t.Fatalf("queue ls reason: %v\nstderr=%s", err, lsErr.String())
+	}
+	if !strings.Contains(lsOut.String(), "q-lock") || !strings.Contains(lsOut.String(), daemon.QueueReasonLockHeld) {
+		t.Fatalf("queue ls missing lock item:\n%s", lsOut.String())
+	}
+	if strings.Contains(lsOut.String(), "q-capacity") {
+		t.Fatalf("queue ls reason included wrong item:\n%s", lsOut.String())
+	}
+
+	show := NewRootCmd()
+	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
+	show.SetOut(showOut)
+	show.SetErr(showErr)
+	show.SetArgs([]string{"queue", "show", "q-lock", "--target", tmp})
+	if err := show.Execute(); err != nil {
+		t.Fatalf("queue show: %v\nstderr=%s", err, showErr.String())
+	}
+	for _, want := range []string{"Reason:      lock_held", "Locks:       build"} {
+		if !strings.Contains(showOut.String(), want) {
+			t.Fatalf("queue show missing %q:\n%s", want, showOut.String())
+		}
+	}
+}
+
+func TestLocksCommandLocal(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[locks.build]
+slots = 2
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["build"]
+`), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := daemon.WriteLockLease(daemon.DaemonRoot(teamDir), &daemon.LockLease{
+		Lock:       "build",
+		Instance:   "worker-squ-35",
+		PID:        os.Getpid(),
+		AcquiredAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("WriteLockLease: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"locks", "--repo", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("locks: %v\nstderr=%s", err, errOut.String())
+	}
+	for _, want := range []string{"build", "2", "1", "worker-squ-35"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("locks output missing %q:\n%s", want, out.String())
+		}
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"locks", "--repo", tmp, "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("locks json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var snapshots []daemon.LockSnapshot
+	if err := json.Unmarshal(jsonOut.Bytes(), &snapshots); err != nil {
+		t.Fatalf("decode locks json: %v\nbody=%s", err, jsonOut.String())
+	}
+	if len(snapshots) != 1 || snapshots[0].Name != "build" || snapshots[0].Used != 1 || snapshots[0].Available != 1 {
+		t.Fatalf("snapshots = %+v", snapshots)
 	}
 }
 

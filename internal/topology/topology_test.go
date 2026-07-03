@@ -663,6 +663,98 @@ schedules = ["nightly"]
 	}
 }
 
+func TestParse_Locks(t *testing.T) {
+	top, err := Parse([]byte(`
+[locks.cargo]
+slots = 2
+
+[locks.db]
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["cargo"]
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+locks = ["db"]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := top.Locks["cargo"]; got == nil || got.Slots != 2 {
+		t.Fatalf("cargo lock = %+v", got)
+	}
+	if got := top.Locks["db"]; got == nil || got.Slots != 1 {
+		t.Fatalf("db lock = %+v", got)
+	}
+	if !reflect.DeepEqual(top.Instances["worker"].Locks, []string{"cargo"}) {
+		t.Fatalf("instance locks = %+v", top.Instances["worker"].Locks)
+	}
+	step := top.Pipelines["ticket_to_pr"].Steps[0]
+	if !reflect.DeepEqual(step.Locks, []string{"db"}) {
+		t.Fatalf("step locks = %+v", step.Locks)
+	}
+	if got := top.SortedLocks(); len(got) != 2 || got[0].Name != "cargo" || got[1].Name != "db" {
+		t.Fatalf("SortedLocks = %+v", got)
+	}
+}
+
+func TestParse_LocksRejectBadReferences(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["missing"]
+`))
+	if err == nil {
+		t.Fatal("expected unknown instance lock error")
+	}
+	if !strings.Contains(err.Error(), `instance "worker": locks references unknown lock "missing"`) {
+		t.Fatalf("err = %v", err)
+	}
+
+	_, err = Parse([]byte(`
+[locks.cargo]
+slots = 1
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+locks = ["missing"]
+`))
+	if err == nil {
+		t.Fatal("expected unknown step lock error")
+	}
+	if !strings.Contains(err.Error(), `pipeline "ticket_to_pr" step "implement": locks references unknown lock "missing"`) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParse_LocksRejectBadSlots(t *testing.T) {
+	_, err := Parse([]byte(`
+[locks.cargo]
+slots = 0
+`))
+	if err == nil {
+		t.Fatal("expected slots error")
+	}
+	if !strings.Contains(err.Error(), `lock "cargo": slots must be >= 1`) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestParse_TeamRejectsUnknownReference(t *testing.T) {
 	_, err := Parse([]byte(`
 [instances.manager]
@@ -1089,6 +1181,32 @@ pipelines = ["ticket_to_pr"]
 	}
 	if !reflect.DeepEqual(team.Instances, []string{"manager", "worker"}) || !reflect.DeepEqual(team.Pipelines, []string{"ticket_to_pr"}) {
 		t.Fatalf("team = %+v", team)
+	}
+}
+
+func TestLoadLayered_LockRefsValidateAfterMerge(t *testing.T) {
+	tmpl := filepath.Join(t.TempDir(), "tmpl.toml")
+	repo := filepath.Join(t.TempDir(), "repo.toml")
+	if err := os.WriteFile(tmpl, []byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["build"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(repo, []byte(`
+[locks.build]
+slots = 1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	top, err := LoadLayered(tmpl, repo)
+	if err != nil {
+		t.Fatalf("LoadLayered: %v", err)
+	}
+	if top.Locks["build"] == nil || !reflect.DeepEqual(top.Instances["worker"].Locks, []string{"build"}) {
+		t.Fatalf("topology = %+v", top)
 	}
 }
 

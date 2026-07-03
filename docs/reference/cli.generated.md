@@ -50,6 +50,7 @@ Subcommands:
 - `agent-team intake` - Normalize external events into topology events.
 - `agent-team job` - Manage durable work units.
 - `agent-team kill` - Force-stop running instances.
+- `agent-team locks` - Inspect declared dispatch lock utilization.
 - `agent-team logs` - Show an instance&#39;s daemon-captured log.
 - `agent-team monitor` - Show a combined health, recovery, inbox, instance, and resource snapshot.
 - `agent-team next` - Print recommended next operator actions.
@@ -4045,6 +4046,26 @@ Inherited Flags:
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
+## `agent-team locks`
+
+Inspect declared dispatch lock utilization.
+
+Inspect named dispatch locks declared in .agent_team/instances.toml and their active daemon ledger holders.
+
+```text
+agent-team locks [flags]
+```
+
+Aliases: `lock`
+
+Flags:
+
+```text
+      --format string   Render each lock with a Go template, e.g. '{{.Name}} {{.Used}}/{{.Slots}}'.
+      --json            Emit lock snapshots as JSON.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+```
+
 ## `agent-team logs`
 
 Show an instance&#39;s daemon-captured log.
@@ -6524,6 +6545,7 @@ Flags:
       --limit int            Limit rows after filtering and sorting; 0 means no limit.
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
+      --reason strings       Filter by queue reason, such as lock_held. Can repeat or comma-separate.
       --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
       --sort string          Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         Filter by queue state: pending or dead.

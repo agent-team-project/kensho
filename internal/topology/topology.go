@@ -52,6 +52,8 @@ type Topology struct {
 	// Instances is keyed by the declared instance name (the `[instances.<n>]`
 	// table key in the TOML).
 	Instances map[string]*Instance
+	// Locks is keyed by the declared lock name (`[locks.<n>]`).
+	Locks map[string]*Lock
 	// Pipelines is keyed by the declared pipeline name (`[pipelines.<n>]`).
 	Pipelines map[string]*Pipeline
 	// Schedules is keyed by the declared schedule name (`[schedules.<n>]`).
@@ -66,6 +68,8 @@ type Instance struct {
 	Agent       string
 	Ephemeral   bool
 	Description string
+	// Locks names dispatch locks held while this instance's ephemeral child runs.
+	Locks []string
 	// Replicas is meaningful only for ephemeral instances. Defaults to 1.
 	Replicas int
 	// ReapWorktree controls opt-in cleanup of job-owned worker worktrees.
@@ -86,6 +90,13 @@ type Instance struct {
 	// instance. An empty list means the instance is only invokable via an
 	// explicit `agent-team run <name>` (i.e. no event-driven dispatch).
 	Triggers []*Trigger
+}
+
+// Lock is a named dispatch semaphore. Slots defaults to 1, making the lock a
+// mutex unless the topology author declares more capacity.
+type Lock struct {
+	Name  string
+	Slots int
 }
 
 // Trigger is one entry under `[[instances.<name>.triggers]]`.
@@ -140,6 +151,7 @@ type PipelineStep struct {
 	Description  string
 	Instructions string
 	Target       string
+	Locks        []string
 	Workspace    string
 	Runtime      string
 	RuntimeBin   string
@@ -315,6 +327,19 @@ func (t *Topology) SortedInstances() []*Instance {
 	return out
 }
 
+// SortedLocks returns declared locks ordered by name for deterministic output.
+func (t *Topology) SortedLocks() []*Lock {
+	if t == nil {
+		return nil
+	}
+	out := make([]*Lock, 0, len(t.Locks))
+	for _, lock := range t.Locks {
+		out = append(out, lock)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // SortedPipelines returns pipelines ordered by name for deterministic execution.
 func (t *Topology) SortedPipelines() []*Pipeline {
 	if t == nil {
@@ -390,6 +415,7 @@ func (t *Topology) FindTeam(name string) *Team {
 // how lenient toml.Decode is.
 type rawTopology struct {
 	Instances map[string]*rawInstance `toml:"instances"`
+	Locks     map[string]*rawLock     `toml:"locks"`
 	Pipelines map[string]*rawPipeline `toml:"pipelines"`
 	Schedules map[string]*rawSchedule `toml:"schedules"`
 	Teams     map[string]*rawTeam     `toml:"teams"`
@@ -399,12 +425,17 @@ type rawInstance struct {
 	Agent        string           `toml:"agent"`
 	Ephemeral    bool             `toml:"ephemeral"`
 	Description  string           `toml:"description"`
+	Locks        []string         `toml:"locks"`
 	Replicas     *int             `toml:"replicas"`
 	ReapWorktree string           `toml:"reap_worktree"`
 	Restart      string           `toml:"restart"`
 	Brief        *bool            `toml:"brief"`
 	Config       map[string]any   `toml:"config"`
 	Triggers     []map[string]any `toml:"triggers"`
+}
+
+type rawLock struct {
+	Slots *int `toml:"slots"`
 }
 
 type rawPipeline struct {
@@ -453,9 +484,20 @@ func parseWithTeamValidation(body []byte, validateTeamRefs bool) (*Topology, err
 func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 	t := &Topology{
 		Instances: make(map[string]*Instance, len(raw.Instances)),
+		Locks:     make(map[string]*Lock, len(raw.Locks)),
 		Pipelines: make(map[string]*Pipeline, len(raw.Pipelines)),
 		Schedules: make(map[string]*Schedule, len(raw.Schedules)),
 		Teams:     make(map[string]*Team, len(raw.Teams)),
+	}
+	for name, rl := range raw.Locks {
+		if rl == nil {
+			continue
+		}
+		lock, err := finaliseLock(name, rl)
+		if err != nil {
+			return nil, err
+		}
+		t.Locks[name] = lock
 	}
 	for name, ri := range raw.Instances {
 		if ri == nil {
@@ -497,12 +539,36 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		}
 		t.Teams[name] = team
 	}
+	if validateTeamRefs {
+		if err := validateLockReferences(t); err != nil {
+			return nil, err
+		}
+	}
 	return t, nil
+}
+
+func finaliseLock(name string, rl *rawLock) (*Lock, error) {
+	name = strings.TrimSpace(name)
+	if err := validateLockName(name); err != nil {
+		return nil, fmt.Errorf("lock %q: %w", name, err)
+	}
+	slots := 1
+	if rl.Slots != nil {
+		if *rl.Slots < 1 {
+			return nil, fmt.Errorf("lock %q: slots must be >= 1", name)
+		}
+		slots = *rl.Slots
+	}
+	return &Lock{Name: name, Slots: slots}, nil
 }
 
 func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if strings.TrimSpace(ri.Agent) == "" {
 		return nil, fmt.Errorf("instance %q: `agent` is required", name)
+	}
+	locks, err := parseLockRefs("instance", name, "locks", ri.Locks)
+	if err != nil {
+		return nil, err
 	}
 	replicas := DefaultReplicas
 	if ri.Replicas != nil {
@@ -544,6 +610,7 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		Agent:        ri.Agent,
 		Ephemeral:    ri.Ephemeral,
 		Description:  ri.Description,
+		Locks:        locks,
 		Replicas:     replicas,
 		ReapWorktree: reapWorktree,
 		Restart:      restart,
@@ -903,7 +970,11 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
+		locks, err := parsePipelineStepLocks(name, id, body["locks"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -913,6 +984,88 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		}
 	}
 	return steps, nil
+}
+
+func parsePipelineStepLocks(pipeline, step string, raw any) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	values, err := parseStringList(raw, "locks")
+	if err != nil {
+		return nil, err
+	}
+	return parseLockRefs("pipeline "+pipeline+" step", step, "locks", values)
+}
+
+func parseStringList(raw any, field string) ([]string, error) {
+	switch v := raw.(type) {
+	case []string:
+		return append([]string(nil), v...), nil
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s values must be strings", field)
+			}
+			out = append(out, s)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("%s must be a list of strings", field)
+	}
+}
+
+func parseLockRefs(kind, name, field string, refs []string) ([]string, error) {
+	out, err := cleanTeamRefs(kind, name, field, refs)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range out {
+		if err := validateLockName(ref); err != nil {
+			return nil, fmt.Errorf("%s %q: %s references invalid lock %q: %w", kind, name, field, ref, err)
+		}
+	}
+	return out, nil
+}
+
+func validateLockName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name must be non-empty")
+	}
+	if name == "." || name == ".." || strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("name must not contain path segments")
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return fmt.Errorf("name may only contain ASCII letters, digits, '.', '_' and '-'")
+	}
+	return nil
+}
+
+func validateLockReferences(t *Topology) error {
+	if t == nil {
+		return nil
+	}
+	for _, inst := range t.SortedInstances() {
+		for _, lock := range inst.Locks {
+			if t.Locks[lock] == nil {
+				return fmt.Errorf("instance %q: locks references unknown lock %q", inst.Name, lock)
+			}
+		}
+	}
+	for _, pipeline := range t.SortedPipelines() {
+		for _, step := range pipeline.Steps {
+			for _, lock := range step.Locks {
+				if t.Locks[lock] == nil {
+					return fmt.Errorf("pipeline %q step %q: locks references unknown lock %q", pipeline.Name, step.ID, lock)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func parseStepText(raw any, field string) (string, error) {

@@ -33,6 +33,10 @@ agent = "worker"
 ephemeral = true
 replicas = 3
 description = "Implements assigned tickets."
+locks = ["build"]
+
+[locks.build]
+slots = 1
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -47,8 +51,31 @@ Fields:
 | `ephemeral` | Spawn per event and exit when complete |
 | `description` | Human-readable purpose |
 | `brief` | Generate and inject a recoverable catch-up brief for persistent instances |
+| `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
 | `triggers` | Event matchers |
+
+## Locks
+
+Locks serialize dispatches around shared resources such as build caches.
+
+```toml
+[locks.build]
+slots = 1
+
+[instances.worker]
+locks = ["build"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+locks = ["build"]
+```
+
+`slots = 1` is a mutex; larger values act as a counting semaphore. When a
+dispatch cannot acquire every required lock, the daemon writes it to the normal
+pending queue with `reason = "lock_held"`. Inspect holders with
+`agent-team locks` and held work with `agent-team queue ls --reason lock_held`.
 
 ## Triggers
 

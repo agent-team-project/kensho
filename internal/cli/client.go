@@ -520,6 +520,22 @@ func (c *daemonClient) QueueItems() ([]*daemon.QueueItem, error) {
 	return out, nil
 }
 
+func (c *daemonClient) Locks() ([]daemon.LockSnapshot, error) {
+	resp, err := c.hc.Get(c.baseURL + "/v1/locks")
+	if err != nil {
+		return nil, fmt.Errorf("daemon: locks: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: locks: %s", readErrorBody(resp))
+	}
+	var out []daemon.LockSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: locks decode: %w", err)
+	}
+	return out, nil
+}
+
 func (c *daemonClient) QueueItem(id string) (*daemon.QueueItem, error) {
 	resp, err := c.hc.Get(c.baseURL + "/v1/queue/" + url.PathEscape(id))
 	if err != nil {
