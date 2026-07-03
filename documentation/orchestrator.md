@@ -33,8 +33,8 @@ Think Docker containers:
 |---|---|---|
 | **create + start** | `agent-team run <agent>` (exec claude directly) | `agent-team run <agent>` → POST /dispatch → daemon spawns claude as a child |
 | **stop** | Ctrl-C the claude session | `agent-team stop <instance>` → daemon SIGTERMs the instance process group, persists session ID |
-| **start (resume)** | (not possible — session ends with claude) | `agent-team start <instance>` → daemon spawns claude with `--resume <session-id>`, conversation continues |
-| **attach (interactive resume)** | (not possible) | `agent-team attach <instance>` → preflight managed-resume support, daemon SIGTERMs the child, then the CLI exec's `claude --resume <session-id>` directly in the user's terminal. On exit, the daemon `start`s the instance back up unless `--no-resume` was passed. `--dry-run` previews the handoff without stopping the child. Brief downtime by design (Shape A); state files / channel cursors / mailbox cursor are untouched across the handoff. Ephemeral instances cannot be attached — use `agent-team logs --follow` to watch their output. |
+| **start (resume)** | (not possible — session ends with claude) | `agent-team start <instance>` → daemon spawns the runtime's managed resume command (`claude --resume <session-id>` or `codex exec resume <session-id> -`), conversation continues, and the generated brief is injected through the runtime-appropriate channel |
+| **attach (interactive resume)** | (not possible) | `agent-team attach <instance>` → preflight managed-resume support, daemon SIGTERMs the child, then the CLI execs the runtime's interactive resume directly in the user's terminal (`claude --resume <session-id>` or `codex resume <session-id>`). On exit, the daemon `start`s the instance back up unless `--no-resume` was passed. `--dry-run` previews the handoff without stopping the child. Brief downtime by design (Shape A); state files / channel cursors / mailbox cursor are untouched across the handoff. Ephemeral instances cannot be attached — use `agent-team logs --follow` to watch their output. |
 | **list running** | (none) | `agent-team ps` (or `instance ls --running`) |
 | **list all** | `agent-team instance ls` | `agent-team ps -a` (or current `instance ls`) |
 | **inspect** | `agent-team instance show <instance>` | `agent-team inspect <instance>` shows runtime metadata + state |
@@ -92,7 +92,7 @@ ephemeral: true     # default: false
 **Components**:
 
 - **`agent-teamd`** — Go daemon, one per repo. Listens on `.agent_team/daemon.sock`. Static binary, no Python dependency.
-- **Agent processes** — each instance is a `claude` subprocess. Long-lived persistent instances use `--resume <session-id>` on restart; ephemeral instances run with `--print` and exit.
+- **Agent processes** — each instance is a runtime subprocess. Claude instances use `--session-id` / `--resume <session-id>`; Codex daemon exec instances capture `thread.started` from `codex exec --json` and resume with `codex exec resume <session-id> -`. Ephemeral instances run one-shot work and exit.
 - **Orchestrator skill** — a bundled skill (`dispatch`, replacing today's `assign-worker`) that wraps the daemon API. Any agent can invoke it; not tied to the manager+worker shape.
 
 ## Daemon API
@@ -218,7 +218,7 @@ agent-team stats [<instance>...] [--all] [--latest | --last N] [-w] [--no-clear]
 agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--phase idle] [--job SQU-42] [--stale] [--runtime-stale] [--unhealthy] [--no-prefix] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [--tail N|all] [--since 10m] [--grep 'error|panic'] [-f]
                                   # list/show/follow instance or daemon logs; reads daemon-managed logs locally if the daemon is down
 agent-team attach <instance> [--dry-run] [--no-resume]
-                                  # preview or run interactive `claude --resume` handoff; daemon resumes supervision afterward
+                                  # preview or run interactive runtime resume handoff; daemon resumes supervision afterward
 agent-team events [--tail N] [--latest | --last N] [--since 24h] [--summary] [-f] [--format '{{.Action}} {{.Instance}}'] [--action dispatch] [--agent manager] [--instance manager] [--job SQU-42] [--step <id>] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--json]
                                   # lifecycle event history or follow stream; phase/stale/unhealthy narrow by current status.toml; reads local history if the daemon is down
 agent-team start [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status stopped] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--dry-run] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--attach --tail N|all] [--json]
@@ -323,15 +323,15 @@ Decide at implementation time; either keeps the public surface identical.
 | `.agent_team/daemon.pid` | daemon (gitignored) | Pidfile. Read by `agent-team daemon status/stop`. |
 | `.agent_team/daemon/agent-teamd.log` | daemon (gitignored) | Stdout/stderr from a `--detach`'d daemon. Distinct from per-instance child logs. |
 | `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |
-| `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the claude subprocess for this instance. Streamed by `/v1/logs/{id}` (SQU-29). |
+| `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the runtime subprocess for this instance. Codex `--json` dispatches also write their JSONL stream here for session capture. Streamed by `/v1/logs/{id}` (SQU-29). |
 | `.agent_team/daemon/<instance>/mailbox.jsonl` | daemon (gitignored) | Append-only JSONL message inbox. One `{id, from, to, body, ts}` per line. Written by `POST /v1/message` (SQU-29); read by the bundled `inbox` skill. |
 | `.agent_team/daemon/<instance>/mailbox-cursor.txt` | daemon (gitignored) | Highest-acked message ID. Updated by `inbox ack <id>`; consulted by `inbox check` to decide what is unread. |
 
 ### SQU-28/SQU-29 spawn surface
 
-The daemon spawns claude as `claude --session-id <uuid> <args...>`. The session UUID is generated by the daemon on `/v1/dispatch`, persisted, and reused on `/v1/start` via `claude --resume <uuid>` — so resume is deterministic without parsing claude's own output.
+For Claude, the daemon spawns `claude --session-id <uuid> <args...>`. The session UUID is generated by the daemon on `/v1/dispatch`, persisted, and reused on `/v1/start` via `claude --resume <uuid>` — so resume is deterministic without parsing claude's own output. For Codex, daemon-managed exec dispatches add `--json`, tail `child.log` for the first `thread.started` JSONL event, and persist that `thread_id` as the session id. Codex managed start validates the workspace and the rollout under `~/.codex/sessions` (or `CODEX_HOME/sessions`) before running `codex exec resume <session-id> -`; when preflight fails, it records `resume_fallback` and launches a fresh instance with the generated brief.
 
-`agent-team run --prompt/--detach/--attach` resolves the agent runtime client-side and sends full `--agents`, `--add-dir`, `--append-system-prompt-file`, env, stdin, and workspace values through `/v1/dispatch`. Event-driven ephemeral spawns now perform the same agent resolution inside the daemon: load `.agent_team/agents/<name>/agent.md`, build the `--agents` JSON, stage the unioned skills under the instance state dir, write the kickoff prompt file, create `.agent_team/state/<instance>/config.toml`, and export `AGENT_TEAM_ROOT`, `AGENT_TEAM_INSTANCE`, `AGENT_TEAM_STATE_DIR`, and `AGENT_TEAM_DAEMON_SOCKET` before dispatching. Codex one-shot dispatches use `codex exec -` plus stdin to avoid putting the full assembled agent prompt in argv.
+`agent-team run --prompt/--detach/--attach` resolves the agent runtime client-side and sends full `--agents`, `--add-dir`, `--append-system-prompt-file`, env, stdin, and workspace values through `/v1/dispatch`. Event-driven ephemeral spawns now perform the same agent resolution inside the daemon: load `.agent_team/agents/<name>/agent.md`, build the `--agents` JSON, stage the unioned skills under the instance state dir, write the kickoff prompt file, create `.agent_team/state/<instance>/config.toml`, and export `AGENT_TEAM_ROOT`, `AGENT_TEAM_INSTANCE`, `AGENT_TEAM_STATE_DIR`, and `AGENT_TEAM_DAEMON_SOCKET` before dispatching. Codex dispatches use `codex exec --json -` plus stdin to avoid putting the full assembled agent prompt in argv and to expose the session id needed for managed resume.
 
 For code-writing workers, the event payload can request `workspace = "worktree"`. The daemon creates a fresh `.claude/worktrees/<instance>-<id>/` checkout and launches the child there; non-worktree events continue to run in the repo root.
 

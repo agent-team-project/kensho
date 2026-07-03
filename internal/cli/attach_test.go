@@ -429,7 +429,7 @@ func TestAttach_DryRunNoResumePreview(t *testing.T) {
 	}
 }
 
-func TestAttach_DryRunUnsupportedCodexShowsUnmanagedResume(t *testing.T) {
+func TestAttach_DryRunCodexShowsManagedResume(t *testing.T) {
 	env := newAttachTestEnv(t)
 	sleep := exec.Command("sleep", "30")
 	if err := sleep.Start(); err != nil {
@@ -470,21 +470,18 @@ func TestAttach_DryRunUnsupportedCodexShowsUnmanagedResume(t *testing.T) {
 		t.Fatalf("attach codex --dry-run: %v\nstderr=%s", err, errOut.String())
 	}
 	if cap.called {
-		t.Fatal("execClaudeAttach should not run during unsupported dry-run")
+		t.Fatal("execClaudeAttach should not run during dry-run")
 	}
 	if err := env.dmn.Manager().WaitForReaper("codex-worker", 20*time.Millisecond); err == nil {
-		t.Fatal("unsupported dry-run stopped the running daemon child")
+		t.Fatal("dry-run stopped the running daemon child")
 	}
 	body := out.String()
 	for _, want := range []string{
 		"runtime:              codex",
-		"managed_resume:       no",
-		"would_stop:           no",
+		"managed_resume:       yes",
+		"would_stop:           yes",
 		"command:              codex resume legacy-session",
-		"would_resume_daemon:  no",
-		`managed_detail:       runtime "codex" does not support managed resume`,
-		"logs_command:         agent-team logs codex-worker --follow",
-		"last_message_command: agent-team logs codex-worker --last-message",
+		"would_resume_daemon:  yes",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, body)
@@ -499,11 +496,7 @@ func TestAttach_DryRunUnsupportedCodexShowsUnmanagedResume(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("attach codex --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommands := strings.Join([]string{
-		"codex resume legacy-session",
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", env.target, "codex-worker", "--follow"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "logs", "--repo", env.target, "codex-worker", "--last-message"}), " "),
-	}, "\n")
+	wantCommands := strings.Join(shellQuoteArgs([]string{"agent-team", "attach", "--repo", env.target, "codex-worker"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommands {
 		t.Fatalf("attach codex --dry-run --commands = %q, want %q", got, wantCommands)
 	}
@@ -524,7 +517,7 @@ func TestAttach_DryRunUnsupportedCodexShowsUnmanagedResume(t *testing.T) {
 		t.Fatalf("read metadata: %v", err)
 	}
 	if got.Status != daemon.StatusRunning {
-		t.Fatalf("dry-run changed unsupported runtime status: got %s want running", got.Status)
+		t.Fatalf("dry-run changed runtime status: got %s want running", got.Status)
 	}
 }
 
@@ -560,7 +553,7 @@ func TestAttach_DryRunRequiresDirectAttachMode(t *testing.T) {
 	}
 }
 
-func TestAttach_RejectsUnsupportedRuntimeBeforeStop(t *testing.T) {
+func TestAttach_CodexExecsInteractiveResume(t *testing.T) {
 	env := newAttachTestEnv(t)
 	sleep := exec.Command("sleep", "30")
 	if err := sleep.Start(); err != nil {
@@ -593,38 +586,25 @@ func TestAttach_RejectsUnsupportedRuntimeBeforeStop(t *testing.T) {
 	defer restore()
 
 	cmd := NewRootCmd()
-	errOut := &bytes.Buffer{}
-	cmd.SetOut(&bytes.Buffer{})
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "codex-worker", "--target", env.target})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected unsupported runtime error")
+	cmd.SetArgs([]string{"attach", "codex-worker", "--target", env.target, "--no-resume"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("attach codex: %v\nstderr=%s", err, errOut.String())
 	}
-	var ec ExitCode
-	if !errors.As(err, &ec) || int(ec) != 2 {
-		t.Fatalf("expected exit 2, got %v", err)
+	if !cap.called {
+		t.Fatal("execClaudeAttach should run for Codex managed attach")
 	}
-	if cap.called {
-		t.Fatal("execClaudeAttach should not run for unsupported runtime")
-	}
-	stderr := errOut.String()
-	for _, want := range []string{
-		`runtime "codex" does not support managed resume`,
-		`agent-team logs codex-worker --follow`,
-		`agent-team logs codex-worker --last-message`,
-		`codex resume legacy-session`,
-	} {
-		if !strings.Contains(stderr, want) {
-			t.Fatalf("stderr = %q, want %q", stderr, want)
-		}
+	if cap.bin != "codex" || len(cap.args) != 2 || cap.args[0] != "resume" || cap.args[1] != "legacy-session" {
+		t.Fatalf("attach exec = bin %q args %v, want codex resume legacy-session", cap.bin, cap.args)
 	}
 	got, err := daemon.ReadMetadata(daemon.DaemonRoot(env.teamDir), "codex-worker")
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
-	if got.Status != daemon.StatusRunning {
-		t.Fatalf("attach changed unsupported runtime status: got %s want running", got.Status)
+	if got.Status != daemon.StatusStopped {
+		t.Fatalf("attach --no-resume status: got %s want stopped", got.Status)
 	}
 }
 

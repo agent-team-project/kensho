@@ -1042,7 +1042,9 @@ func collectRuntimeInfoForConfigWithSelection(configPath string, selection runti
 	case runtimebin.KindCodex:
 		info.DaemonDispatch = true
 		info.DirectResume = true
-		info.Notes = append(info.Notes, "codex adapter supports direct launches and daemon-managed one-shot exec runs with --prompt; AGENT_TEAM_* vars are exposed to Codex shell commands; direct codex resume is available outside agent-team managed instances; managed resume and native subagent registration are not available")
+		info.ManagedResume = true
+		info.Resume = true
+		info.Notes = append(info.Notes, "codex adapter supports direct launches, daemon-managed one-shot exec runs with --prompt, and managed resume through codex exec resume; AGENT_TEAM_* vars are exposed to Codex shell commands; native subagent registration is not available")
 	default:
 		return runtimeInfo{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}

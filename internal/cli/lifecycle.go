@@ -3216,7 +3216,7 @@ func runInstanceRestart(cmd *cobra.Command, target, prompt string, names []strin
 			continue
 		}
 		if lt.meta != nil {
-			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+			if !lifecycleMetadataCanManagedResume(lt.meta) {
 				result := lifecycleTargetUnsupportedResumeResult(lt)
 				results = append(results, result)
 				if !cfg.JSON && !cfg.Quiet && cfg.Format == nil && !cfg.Summary {

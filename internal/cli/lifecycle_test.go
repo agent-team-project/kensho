@@ -266,8 +266,8 @@ func TestStartAndRestartRuntimeDryRunUseLocalMetadataWhenDaemonStopped(t *testin
 		command string
 		action  string
 	}{
-		{command: "start", action: lifecycleActionUnsupported},
-		{command: "restart", action: lifecycleActionUnsupported},
+		{command: "start", action: "resume"},
+		{command: "restart", action: "restart"},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			cmd := NewRootCmd()
@@ -284,15 +284,6 @@ func TestStartAndRestartRuntimeDryRunUseLocalMetadataWhenDaemonStopped(t *testin
 			}
 			if len(rows) != 1 || rows[0].Instance != "codex-stopped" || rows[0].Action != tc.action || !rows[0].DryRun {
 				t.Fatalf("%s rows = %+v, want codex-stopped %s dry-run", tc.command, rows, tc.action)
-			}
-			for _, want := range []string{
-				`runtime "codex" does not support managed resume`,
-				`agent-team logs codex-stopped --last-message`,
-				`codex resume sid-codex`,
-			} {
-				if !strings.Contains(rows[0].Detail, want) {
-					t.Fatalf("%s detail = %q, want %q", tc.command, rows[0].Detail, want)
-				}
 			}
 		})
 	}
@@ -2806,11 +2797,11 @@ func TestRestartReportsUnsupportedCodexResumeWithoutStoppingInstance(t *testing.
 		t.Fatalf("restart manager --format: %v\nstderr: %s", err, stderr.String())
 	}
 	got := strings.TrimSpace(out.String())
-	if !strings.HasPrefix(got, "manager:unsupported:running:") || !strings.Contains(got, `:runtime "codex" does not support managed resume`) {
-		t.Fatalf("restart output = %q, want unsupported running Codex row", got)
+	if !strings.HasPrefix(got, "manager:unsupported:running:") || !strings.Contains(got, `supports managed resume but no session id is recorded`) {
+		t.Fatalf("restart output = %q, want unsupported missing-session Codex row", got)
 	}
 	for _, want := range []string{
-		`runtime "codex" does not support managed resume`,
+		`supports managed resume but no session id is recorded`,
 		`agent-team resume-plan manager`,
 		`agent-team logs manager --follow`,
 		`agent-team logs manager --last-message`,
@@ -3146,7 +3137,7 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 		t.Fatalf("resume dry-run = %+v, want stopped resume preview", resume)
 	}
 
-	unsupported := dryRunStartResult(lifecycleTarget{
+	resumableCodex := dryRunStartResult(lifecycleTarget{
 		name:  "manager",
 		agent: "manager",
 		meta: &daemon.Metadata{
@@ -3157,30 +3148,16 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 			SessionID:     "sid-manager",
 		},
 	})
-	if unsupported.Action != lifecycleActionUnsupported || unsupported.Status != "stopped" || unsupported.PID != 321 || !unsupported.DryRun {
-		t.Fatalf("unsupported dry-run = %+v, want stopped Codex unsupported preview", unsupported)
-	}
-	if !strings.Contains(unsupported.Detail, `runtime "codex" does not support managed resume`) {
-		t.Fatalf("unsupported detail = %q, want Codex resume limitation", unsupported.Detail)
-	}
-	for _, want := range []string{
-		`agent-team resume-plan manager`,
-		`agent-team logs manager --follow`,
-		`agent-team logs manager --last-message`,
-		`codex resume sid-manager`,
-	} {
-		if !strings.Contains(unsupported.Detail, want) {
-			t.Fatalf("unsupported detail = %q, want %q", unsupported.Detail, want)
-		}
+	if resumableCodex.Action != "resume" || resumableCodex.Status != "stopped" || resumableCodex.PID != 321 || !resumableCodex.DryRun {
+		t.Fatalf("codex dry-run = %+v, want stopped Codex resume preview", resumableCodex)
 	}
 
 	staleUnsupported := dryRunStartResultWithDaemonState(lifecycleTarget{
 		name:  "manager",
 		agent: "manager",
 		meta: &daemon.Metadata{
-			Status:    daemon.StatusRunning,
-			Runtime:   string(runtimebin.KindCodex),
-			SessionID: "sid-running",
+			Status:  daemon.StatusRunning,
+			Runtime: string(runtimebin.KindCodex),
 		},
 	}, false)
 	if staleUnsupported.Action != lifecycleActionUnsupported || staleUnsupported.Status != "running" || !staleUnsupported.DryRun {
@@ -3189,7 +3166,7 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	if !strings.Contains(staleUnsupported.Detail, "recorded running pid is not live") {
 		t.Fatalf("stale unsupported detail = %q, want stale pid context", staleUnsupported.Detail)
 	}
-	if !strings.Contains(staleUnsupported.Detail, `agent-team resume-plan manager`) || !strings.Contains(staleUnsupported.Detail, `agent-team logs manager --last-message`) || !strings.Contains(staleUnsupported.Detail, `codex resume sid-running`) {
+	if !strings.Contains(staleUnsupported.Detail, `agent-team logs manager --follow`) || !strings.Contains(staleUnsupported.Detail, `agent-team logs manager --last-message`) {
 		t.Fatalf("stale unsupported detail = %q, want Codex fallback hints", staleUnsupported.Detail)
 	}
 
@@ -3426,7 +3403,7 @@ func TestStatusSummaryReportsRuntimeResumeCapabilities(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("status summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
-	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
+	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=4 can_managed_resume=2 direct_resume=2") {
 		t.Fatalf("status summary text missing runtime capabilities:\n%s", textOut.String())
 	}
 
@@ -3445,7 +3422,7 @@ func TestStatusSummaryReportsRuntimeResumeCapabilities(t *testing.T) {
 	if snapshot.Runtime.Total != 2 || snapshot.Runtime.Crashed != 1 || snapshot.Runtime.Exited != 1 {
 		t.Fatalf("filtered runtime summary = %+v", snapshot.Runtime)
 	}
-	if snapshot.Runtime.ManagedResume != 0 || snapshot.Runtime.CanManagedResume != 0 || snapshot.Runtime.DirectResume != 1 {
+	if snapshot.Runtime.ManagedResume != 2 || snapshot.Runtime.CanManagedResume != 1 || snapshot.Runtime.DirectResume != 1 {
 		t.Fatalf("filtered runtime resume capability summary = %+v", snapshot.Runtime)
 	}
 	if snapshot.Resources == nil || snapshot.Resources.Total != 2 {
@@ -3780,13 +3757,10 @@ func TestStatusJSONShowsDaemonAndInstances(t *testing.T) {
 func TestStatusJSONReportsRuntimeQueuedAndStalledCounts(t *testing.T) {
 	root := writeOverviewQueuedRuntimeFixture(t, 2)
 	teamDir := filepath.Join(root, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
 		Instance:      "reviewer-stalled",
@@ -4536,9 +4510,8 @@ func TestWaitForInstancesUntilRunningDoesNotTreatRemovedAsSuccess(t *testing.T) 
 }
 
 func TestWaitForInstancesStoppedWaitsForProcessExit(t *testing.T) {
-	prev := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool { return pid == 99 }
-	t.Cleanup(func() { daemon.PidLiveCheck = prev })
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return pid == 99 })
+	t.Cleanup(restorePIDLiveCheck)
 
 	lister := &fakeInstanceLister{snapshots: [][]*daemon.Metadata{
 		{{Instance: "mgr", Status: daemon.StatusStopped, PID: 99}},
@@ -4557,9 +4530,8 @@ func TestWaitForInstancesStoppedWaitsForProcessExit(t *testing.T) {
 }
 
 func TestWaitForInstancesStoppedDeadPIDIsTerminal(t *testing.T) {
-	prev := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool { return false }
-	t.Cleanup(func() { daemon.PidLiveCheck = prev })
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return false })
+	t.Cleanup(restorePIDLiveCheck)
 
 	lister := &fakeInstanceLister{snapshots: [][]*daemon.Metadata{
 		{{Instance: "mgr", Status: daemon.StatusStopped, PID: 99}},

@@ -498,13 +498,10 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 func TestNextCommandFiltersStaleRuntimeSource(t *testing.T) {
 	root := writeOverviewRuntimeFixture(t)
 	teamDir := filepath.Join(root, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	for _, meta := range []*daemon.Metadata{
 		{Instance: "worker-squ-902", Agent: "worker", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "team-stale-session", StartedAt: now.Add(-15 * time.Minute)},

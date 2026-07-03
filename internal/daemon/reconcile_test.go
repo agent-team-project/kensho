@@ -285,8 +285,7 @@ func TestReconcileWithTopology_AdoptedWatcherMarksExitPromptly(t *testing.T) {
 	root := DaemonRoot(teamDir)
 	var live atomic.Bool
 	live.Store(true)
-	oldCheck := PidLiveCheck
-	PidLiveCheck = func(pid int) bool { return live.Load() }
+	restorePIDLiveCheck := SetPidLiveCheckForTest(func(pid int) bool { return live.Load() })
 	oldInterval := adoptedPollInterval
 	adoptedPollInterval = 10 * time.Millisecond
 	var m *InstanceManager
@@ -295,7 +294,7 @@ func TestReconcileWithTopology_AdoptedWatcherMarksExitPromptly(t *testing.T) {
 		if m != nil {
 			_ = m.WaitForReaper("manager", time.Second)
 		}
-		PidLiveCheck = oldCheck
+		restorePIDLiveCheck()
 		adoptedPollInterval = oldInterval
 	})
 	started := time.Now().UTC()
@@ -343,10 +342,9 @@ func TestReconcileWithTopology_ReprobePreventsDuplicateForAdoptedSurvivor(t *tes
 	var checks atomic.Int32
 	var live atomic.Bool
 	live.Store(true)
-	oldCheck := PidLiveCheck
-	PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := SetPidLiveCheckForTest(func(pid int) bool {
 		return live.Load() && checks.Add(1) > 1
-	}
+	})
 	oldInterval := adoptedPollInterval
 	adoptedPollInterval = 10 * time.Millisecond
 	var m *InstanceManager
@@ -359,7 +357,7 @@ func TestReconcileWithTopology_ReprobePreventsDuplicateForAdoptedSurvivor(t *tes
 		if m != nil {
 			_ = m.WaitForReaper("manager", time.Second)
 		}
-		PidLiveCheck = oldCheck
+		restorePIDLiveCheck()
 		adoptedPollInterval = oldInterval
 	})
 	started := time.Now().UTC()

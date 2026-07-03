@@ -72,9 +72,8 @@ func TestClient_Instances(t *testing.T) {
 
 func TestClient_Reconcile(t *testing.T) {
 	root := t.TempDir()
-	oldPidLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool { return false }
-	defer func() { daemon.PidLiveCheck = oldPidLiveCheck }()
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return false })
+	defer restorePIDLiveCheck()
 
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
 		Instance: "orphan",

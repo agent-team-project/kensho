@@ -1,26 +1,26 @@
 # Recoverable managers (design sketch)
 
-**Status**: design. Tracked by SQU-44 (headline lever from the SQU-42 field report; parked upstream as BENCH-719). Read `orchestrator.md` first — this doc extends its lifecycle model and reuses its vocabulary.
+**Status**: design, with Phases 1-3 landed. Tracked by SQU-44 (headline lever from the SQU-42 field report; parked upstream as BENCH-719). Read `orchestrator.md` first — this doc extends its lifecycle model and reuses its vocabulary.
 
 ## Problem
 
-The two-plane architecture proved out in production (SQU-42): the daemon plane (events → dispatch → worktree/PR artifacts → auto-advance) survives supervisor loss; jobs, branches, and PRs persist. But managers — the judgment-bearing persistent instances that bridge the daemon plane and the mailbox plane — are not first-class daemon citizens:
+The two-plane architecture proved out in production (SQU-42): the daemon plane (events → dispatch → worktree/PR artifacts → auto-advance) survives supervisor loss; jobs, branches, and PRs persist. But managers — the judgment-bearing persistent instances that bridge the daemon plane and the mailbox plane — originally were not first-class daemon citizens:
 
-1. A manager's *conversation context* (in-flight plans, review rationale, dispatch decisions) lives in the runtime's session store, keyed by a session id only Claude-managed instances track. If the child dies while the daemon is down, nothing resumes it.
-2. Even where resume works, nothing reconstructs *operating context* mechanically. The virtual-graph team hand-rolled a `TEAM_STATE.md` + re-spawn procedure; every operator will need one.
-3. A daemon restart orphans children: reconcile adopts live PIDs without a reaper, never re-spawns dead ones, and resume rebuilds env from the operator's shell rather than the env the instance was dispatched with.
+1. A manager's *conversation context* (in-flight plans, review rationale, dispatch decisions) lives in the runtime's session store, keyed by a session id. Before this arc, only Claude-managed instances tracked that id automatically; Codex needed capture from runtime output.
+2. Even where resume worked, nothing reconstructed *operating context* mechanically. The virtual-graph team hand-rolled a `TEAM_STATE.md` + re-spawn procedure; every operator would have needed one.
+3. A daemon restart could orphan children: reconcile adopted live PIDs without a reaper, did not re-spawn dead declared managers, and resume rebuilt env from the operator's shell rather than the env the instance was dispatched with.
 
 ## Current state (verified against the code)
 
 | Mechanism | State today |
 |---|---|
-| Session id capture | Claude only: daemon generates a UUID and passes `--session-id` at dispatch (`internal/daemon/instance.go` dispatch path). Codex: none — id enters metadata only via manual `adopt --session-id`. |
-| Managed resume | `agent-team start <instance>` re-spawns `claude --resume <session>`. Hard-gated to Claude by `lifecycleMetadataSupportsManagedResume` (`internal/cli/runtime_lifecycle.go`). `Start` refuses non-Claude. |
+| Session id capture | Claude: daemon generates a UUID and passes `--session-id` at dispatch (`internal/daemon/instance.go` dispatch path). Codex: daemon-managed `codex exec` launches include `--json`, the spawner tails `child.log` for the first `thread.started` JSONL event, and records `thread_id` as `SessionID`. Manual `adopt --session-id` still works for externally started processes. |
+| Managed resume | `agent-team start <instance>` resumes Claude with `claude --resume <session>` and Codex with `codex exec resume <session> -`. The lifecycle gate is now a runtime capability lookup; Codex metadata needs a recorded session id to be managed-resumable. |
 | Direct resume | `claude --resume <id>` / `codex resume <id>` printed by resume plans (`internal/cli/runtime_resume.go`); operator-run, unmanaged. |
-| Daemon restart | Crash-only `Reconcile` (`internal/daemon/reconcile.go`): live PID → adopted (no reaper — exit observed lazily); dead PID → `exited`. **No auto-relaunch by design.** |
-| Launch env | Snapshot exists for the daemon itself (`launch-env.json`, `OPENAI_API_KEY` stripped, reused on `daemon restart`). Nothing per instance: resume uses bare `os.Environ()`, dispatch-time env is lost. |
-| Kickoff | Built once at first spawn (CLI-side, `internal/cli/run.go`). Nothing is re-injected on resume; no brief/state-summary generator exists. |
-| Attach | Shape A handoff (stop child → exec `--resume` in the user's terminal → daemon re-`start`s on exit). Claude only; ephemeral instances rejected. |
+| Daemon restart | Crash-only `Reconcile` (`internal/daemon/reconcile.go`) adopts live PIDs, marks dead PIDs terminal, watches adopted children for later exits, and applies declared restart policy with backoff for persistent instances. |
+| Launch env | Daemon and per-instance launch-env snapshots are persisted with sensitive keys stripped. Managed resume uses the instance snapshot instead of the operator's current shell. |
+| Kickoff | Fresh spawns get the generated brief prepended to the kickoff. Claude managed resume receives the brief as a mailbox message; Codex managed resume receives it as the stdin prompt to `codex exec resume <session> -`. |
+| Attach | Shape A handoff (stop child → exec runtime-native interactive resume in the user's terminal → daemon re-`start`s on exit). Claude uses `claude --resume <session>`; Codex uses `codex resume <session>`. Ephemeral instances are rejected. |
 
 Codex capabilities the design can now rely on (verified against codex-cli 0.142):
 
@@ -72,10 +72,10 @@ Written to `<state-dir>/brief.md` (also printed / `--json`). This institutionali
 
 ## Phase 3 — session reload for Codex managers
 
-- **Capture**: daemon-managed Codex dispatches switch to `codex exec --json`; the spawner tails the child's stdout for the first `thread.started` event and records `thread_id` as `SessionID` in metadata. (Raw log capture is preserved; the JSONL stream lands in `child.log` as today.)
-- **Resume**: `Start` on a Codex instance with a recorded session becomes `codex exec resume <session-id> -` with the brief (Phase 2) as the stdin prompt. `lifecycleMetadataSupportsManagedResume` becomes a runtime-capability lookup instead of a Claude constant; the capability matrix (`runtime ls`) flips `managed_resume` to yes for Codex.
-- **Preflight**: before spawning `--resume`/`exec resume`, validate the workspace still exists and (Codex) the rollout file for the session is present under `~/.codex/sessions`; on failure fall back to fresh-spawn-plus-brief rather than crash-looping.
-- `attach` for Codex follows for free: the Shape A handoff execs `codex resume <session-id>` interactively.
+- **Capture**: landed in SQU-53. Daemon-managed Codex dispatches run `codex exec --json`; the spawner tails `child.log` for the first `thread.started` event and records `thread_id` as `SessionID` in metadata. Raw log capture is preserved; the JSONL stream still lands in `child.log`.
+- **Resume**: landed in SQU-53. `Start` on a Codex instance with a recorded session runs `codex exec resume <session-id> -` with the brief (Phase 2) as the stdin prompt. `lifecycleMetadataSupportsManagedResume` is a runtime-capability lookup, and the capability matrix (`runtime ls`) reports `managed_resume` for Codex.
+- **Preflight**: landed in SQU-53. Before spawning `--resume`/`exec resume`, the daemon validates that the workspace still exists and, for Codex, that the rollout file for the session is present under `~/.codex/sessions` (or `CODEX_HOME/sessions`). On failure it records `resume_fallback` and falls back to fresh-spawn-plus-brief rather than crash-looping.
+- `attach` for Codex is implemented by the same Shape A handoff, execing `codex resume <session-id>` interactively.
 
 ## Phase 4 — supervisor notifications on transitions (folds SQU-37)
 
@@ -102,14 +102,14 @@ No repeated same-state pings, by construction.
 
 - **Daemon crash with live children** → unchanged (adopt on reconcile), plus watcher restores supervision latency and restart policy applies when survivors die.
 - **Child crash-loop** → backoff caps restarts; `restart` policy + `doctor --canary` (SQU-39) separate "runtime env broken" from "agent keeps failing".
-- **Session store gone** (runtime upgrade, pruned rollouts, cleaned `~/.claude`) → preflight detects, falls back to fresh spawn + brief; the event log records `resume_fallback` so the operator can see fidelity loss.
+- **Session store gone** (runtime upgrade, pruned rollouts, cleaned `~/.claude` or `~/.codex`) → preflight detects, falls back to fresh spawn + brief; the event log records `resume_fallback` so the operator can see fidelity loss.
 - **Duplicate-child race** → instance lock + incarnation check; resume loses to a live survivor.
 
 ## Phasing / tickets
 
 1. Phase 1 (restart policy + adopted-child watcher) — new ticket, `internal/daemon/reconcile.go` + `instance.go`.
 2. Phase 2 (brief + per-instance launch-env) — new ticket, CLI + daemon metadata.
-3. Phase 3 (Codex capture + managed resume) — new ticket, spawner + `runtime_lifecycle.go` gate.
+3. Phase 3 (Codex capture + managed resume) — landed in SQU-53, spawner + `runtime_lifecycle.go` gate.
 4. Phase 4 (transition notifications) — re-scope SQU-37 onto this design.
 
 Each phase lands independently and is useful alone; SQU-44 tracks the arc.

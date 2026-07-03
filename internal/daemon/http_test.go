@@ -381,9 +381,8 @@ func TestHTTP_OutboxDrain(t *testing.T) {
 
 func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
 	root := t.TempDir()
-	oldPidLiveCheck := PidLiveCheck
-	PidLiveCheck = func(pid int) bool { return false }
-	defer func() { PidLiveCheck = oldPidLiveCheck }()
+	restorePIDLiveCheck := SetPidLiveCheckForTest(func(pid int) bool { return false })
+	defer restorePIDLiveCheck()
 
 	if err := WriteMetadata(root, &Metadata{
 		Instance:  "orphan",

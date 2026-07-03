@@ -22,7 +22,21 @@ func lifecycleMetadataRuntimeKind(meta *daemon.Metadata) runtimebin.Kind {
 }
 
 func lifecycleMetadataSupportsManagedResume(meta *daemon.Metadata) bool {
-	return lifecycleMetadataRuntimeKind(meta) == runtimebin.KindClaude
+	return runtimeKindSupportsManagedResume(lifecycleMetadataRuntimeKind(meta))
+}
+
+func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
+	return kind == runtimebin.KindClaude || kind == runtimebin.KindCodex
+}
+
+func lifecycleMetadataCanManagedResume(meta *daemon.Metadata) bool {
+	if !lifecycleMetadataSupportsManagedResume(meta) {
+		return false
+	}
+	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
+		return strings.TrimSpace(meta.SessionID) != ""
+	}
+	return true
 }
 
 func lifecycleUnsupportedResumeDetail(meta *daemon.Metadata) string {
@@ -30,12 +44,19 @@ func lifecycleUnsupportedResumeDetail(meta *daemon.Metadata) string {
 }
 
 func lifecycleUnsupportedResumeDetailForInstance(meta *daemon.Metadata, instance string) string {
-	detail := lifecycleUnsupportedResumeDetail(meta)
+	detail := lifecycleManagedResumeUnavailableDetail(meta)
 	hints := lifecycleUnsupportedResumeActionHints(meta, instance)
 	if len(hints) == 0 {
 		return detail
 	}
 	return detail + "; " + strings.Join(hints, "; ")
+}
+
+func lifecycleManagedResumeUnavailableDetail(meta *daemon.Metadata) string {
+	if !lifecycleMetadataSupportsManagedResume(meta) {
+		return lifecycleUnsupportedResumeDetail(meta)
+	}
+	return fmt.Sprintf("runtime %q supports managed resume but no session id is recorded; follow logs or create a new run", lifecycleMetadataRuntimeKind(meta))
 }
 
 func lifecycleUnsupportedResumeActionHints(meta *daemon.Metadata, instance string) []string {

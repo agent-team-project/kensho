@@ -1,11 +1,11 @@
 package daemon
 
 import (
-	crand "crypto/rand"
 	"errors"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,6 +99,54 @@ func lastEnvValue(env []string, key string) string {
 	return value
 }
 
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func writeCodexRollout(t *testing.T, codexHome, sessionID string) {
+	t.Helper()
+	dir := filepath.Join(codexHome, "sessions", "2026", "07", "03")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout-2026-07-03T00-00-00-"+sessionID+".jsonl")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForMetadataSession(t *testing.T, root, instance, sessionID string) *Metadata {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		meta, err := ReadMetadata(root, instance)
+		if err == nil && meta.SessionID == sessionID {
+			return meta
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	meta, _ := ReadMetadata(root, instance)
+	t.Fatalf("metadata session for %s = %+v, want %s", instance, meta, sessionID)
+	return nil
+}
+
+func lifecycleEventsContain(events []*LifecycleEvent, action, instance string) bool {
+	for _, event := range events {
+		if event != nil && event.Action == action && event.Instance == instance {
+			return true
+		}
+	}
+	return false
+}
+
 func ignoreTermSpawner(t *testing.T) Spawner {
 	t.Helper()
 	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
@@ -143,11 +191,7 @@ func TestHelperProcessIgnoreTerm(t *testing.T) {
 }
 
 func TestNewSessionIDFallsBackWhenRandFails(t *testing.T) {
-	originalReader := crand.Reader
-	crand.Reader = failingRandReader{}
-	t.Cleanup(func() {
-		crand.Reader = originalReader
-	})
+	t.Cleanup(setSessionIDRandReaderForTest(failingRandReader{}))
 
 	first := newSessionID()
 	second := newSessionID()
@@ -369,11 +413,14 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 		t.Fatalf("dispatch: %v", err)
 	}
 	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
-		t.Fatalf("metadata = %+v, want codex without Claude session", meta)
+		t.Fatalf("metadata = %+v, want codex without captured session", meta)
 	}
 	args := fake.lastCall()
 	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
 		t.Fatalf("spawn args = %v, want codex exec", args)
+	}
+	if !containsString(args, "--json") {
+		t.Fatalf("codex args = %v, want --json for session capture", args)
 	}
 	if containsString(args, "--session-id") {
 		t.Fatalf("codex args should not include Claude session id: %v", args)
@@ -382,9 +429,68 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
-	if _, err := m.Start("worker-runtime"); err == nil || !strings.Contains(err.Error(), "does not support managed resume") {
-		t.Fatalf("start error = %v, want Codex resume rejection", err)
+	if _, err := m.Start("worker-runtime"); err == nil || !strings.Contains(err.Error(), "has no session_id") {
+		t.Fatalf("start error = %v, want missing session rejection", err)
 	}
+}
+
+func TestInstance_DispatchCodexCapturesThreadIDFromLog(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "codex")
+	root := t.TempDir()
+	workspace := t.TempDir()
+	const sessionID = "019b20fb-3b9d-7bb0-b034-d757cdbf2fd9"
+	spawn := func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		f, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := f.WriteString("codex diagnostic noise\n"); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		if _, err := f.WriteString(`{"type":"thread.started","thread_id":"` + sessionID + `"}` + "\n"); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		_ = f.Close()
+		return newFakeSpawner(30*time.Second).spawn(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	}
+	m := NewInstanceManager(root, spawn)
+
+	meta, err := m.Dispatch(DispatchInput{
+		Agent:     "manager",
+		Name:      "manager",
+		Workspace: workspace,
+		Args:      []string{"exec", "-"},
+		Stdin:     "hello",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if meta.SessionID != sessionID {
+		t.Fatalf("dispatch session = %q, want %q", meta.SessionID, sessionID)
+	}
+	disk := waitForMetadataSession(t, root, "manager", sessionID)
+	if disk.SessionID != sessionID {
+		t.Fatalf("disk session = %q, want %q", disk.SessionID, sessionID)
+	}
+	body, err := os.ReadFile(disk.LogPath)
+	if err != nil {
+		t.Fatalf("read child log: %v", err)
+	}
+	if !strings.Contains(string(body), `"thread.started"`) {
+		t.Fatalf("child log did not preserve json stream:\n%s", string(body))
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if !lifecycleEventsContain(events, "session_capture", "manager") {
+		t.Fatalf("events missing session_capture: %+v", events)
+	}
+
+	_, _ = m.Stop("manager")
+	waitForStatusNot(t, m, "manager", StatusRunning)
 }
 
 func TestInstance_DispatchCodexPromptUsesStdin(t *testing.T) {
@@ -404,9 +510,9 @@ func TestInstance_DispatchCodexPromptUsesStdin(t *testing.T) {
 	args := fake.lastCall()
 	// codex exec runs unsandboxed for autonomous work; the prompt still arrives
 	// over stdin (final arg "-").
-	if len(args) != 4 || args[0] != "codex" || args[1] != "exec" ||
-		args[2] != "--dangerously-bypass-approvals-and-sandbox" || args[3] != "-" {
-		t.Fatalf("spawn args = %v, want codex exec --dangerously-bypass-approvals-and-sandbox -", args)
+	if len(args) != 5 || args[0] != "codex" || args[1] != "exec" ||
+		args[2] != "--json" || args[3] != "--dangerously-bypass-approvals-and-sandbox" || args[4] != "-" {
+		t.Fatalf("spawn args = %v, want codex exec --json --dangerously-bypass-approvals-and-sandbox -", args)
 	}
 	if got := fake.lastStdin(); got != "hello from stdin" {
 		t.Fatalf("stdin = %q, want prompt", got)
@@ -415,6 +521,142 @@ func TestInstance_DispatchCodexPromptUsesStdin(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	waitForStatusNot(t, m, "worker-runtime", StatusRunning)
+}
+
+func TestInstance_StartCodexResumesWithBriefOnStdin(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	root := DaemonRoot(teamDir)
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+description = "Recoverable Codex manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexHome := t.TempDir()
+	sessionID := "019b20fb-3b9d-7bb0-b034-d757cdbf2fd9"
+	writeCodexRollout(t, codexHome, sessionID)
+	workspace := t.TempDir()
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: "codex",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+		Bin:        "codex",
+		Args:       []string{"codex", "exec", "-"},
+		Dir:        workspace,
+		Env:        []string{"CODEX_HOME=" + codexHome, "MARKER=dispatch"},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	resumed, err := m.Start("mgr")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if resumed.Status != StatusRunning || resumed.SessionID != sessionID {
+		t.Fatalf("resumed metadata = %+v", resumed)
+	}
+	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+		t.Fatalf("resume args = %v, want %v", got, want)
+	}
+	if stdin := fake.lastStdin(); !strings.Contains(stdin, "# Instance brief: mgr") || !strings.Contains(stdin, "Recoverable Codex manager.") {
+		t.Fatalf("resume stdin missing brief:\n%s", stdin)
+	}
+	if got := lastEnvValue(fake.lastEnv(), "MARKER"); got != "dispatch" {
+		t.Fatalf("resume env MARKER = %q, want dispatch", got)
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_StartCodexPreflightFallbackLaunchesFresh(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[runtime]\nkind = \"codex\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+description = "Recoverable Codex manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: "codex",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     "missing-rollout-session",
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+		Bin:        "codex",
+		Args:       []string{"codex", "exec", "-"},
+		Dir:        workspace,
+		Env:        []string{"CODEX_HOME=" + t.TempDir()},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	fresh, err := m.Start("mgr")
+	if err != nil {
+		t.Fatalf("start fallback: %v", err)
+	}
+	if fresh.Status != StatusRunning || fresh.PID == 123 {
+		t.Fatalf("fresh metadata = %+v, want new running process", fresh)
+	}
+	args := fake.lastCall()
+	for _, want := range []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "-"} {
+		if !containsString(args, want) {
+			t.Fatalf("fresh args = %v, missing %q", args, want)
+		}
+	}
+	if stdin := fake.lastStdin(); !strings.Contains(stdin, "# Instance brief: mgr") || !strings.Contains(stdin, "--- agent-team runtime ---") {
+		t.Fatalf("fresh stdin missing brief/runtime kickoff:\n%s", stdin)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	if !lifecycleEventsContain(events, "resume_fallback", "mgr") {
+		t.Fatalf("events missing resume_fallback: %+v", events)
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
 func TestInstance_DispatchCodexRejectsClaudeArgs(t *testing.T) {

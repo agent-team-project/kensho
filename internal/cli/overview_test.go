@@ -1060,7 +1060,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if overview.Runtime.Running != 0 || overview.Runtime.Stalled != 0 || overview.Runtime.QueuedOnCapacity != 0 {
 		t.Fatalf("runtime live/queued summary = %+v", overview.Runtime)
 	}
-	if overview.Runtime.ManagedResume != 2 || overview.Runtime.CanManagedResume != 1 || overview.Runtime.DirectResume != 2 {
+	if overview.Runtime.ManagedResume != 4 || overview.Runtime.CanManagedResume != 2 || overview.Runtime.DirectResume != 2 {
 		t.Fatalf("runtime resume capability summary = %+v", overview.Runtime)
 	}
 	if !stringSliceContains(overview.Actions, "agent-team resume-plan --status crashed --sort action --limit 10") {
@@ -1101,7 +1101,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0") {
 		t.Fatalf("overview runtime text missing summary:\n%s", textOut.String())
 	}
-	if !strings.Contains(textOut.String(), "managed_resume=2 can_managed_resume=1 direct_resume=2") {
+	if !strings.Contains(textOut.String(), "managed_resume=4 can_managed_resume=2 direct_resume=2") {
 		t.Fatalf("overview runtime text missing resume capability summary:\n%s", textOut.String())
 	}
 
@@ -1120,7 +1120,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	if teamOverview.Runtime.Total != 3 || teamOverview.Runtime.Crashed != 2 || teamOverview.Runtime.Exited != 1 {
 		t.Fatalf("team runtime summary = %+v", teamOverview.Runtime)
 	}
-	if teamOverview.Runtime.ManagedResume != 1 || teamOverview.Runtime.CanManagedResume != 1 || teamOverview.Runtime.DirectResume != 2 {
+	if teamOverview.Runtime.ManagedResume != 3 || teamOverview.Runtime.CanManagedResume != 2 || teamOverview.Runtime.DirectResume != 2 {
 		t.Fatalf("team runtime resume capability summary = %+v", teamOverview.Runtime)
 	}
 	if !stringSliceContains(teamOverview.Actions, "agent-team team resume-plan delivery --status crashed --sort action --limit 10") {
@@ -1196,13 +1196,10 @@ func TestOverviewReportsPipelineRuntimeResumePlanActions(t *testing.T) {
 func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	root := writeOverviewRuntimeFixture(t)
 	teamDir := filepath.Join(root, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	for _, meta := range []*daemon.Metadata{
 		{Instance: "worker-squ-902", Agent: "worker", Status: daemon.StatusRunning, Runtime: "claude", RuntimeBinary: "claude", PID: 4242, SessionID: "team-stale-session", StartedAt: now.Add(-15 * time.Minute)},
@@ -1340,13 +1337,10 @@ func TestOverviewRuntimeIdleZeroQueuedIsDistinct(t *testing.T) {
 
 func TestOverviewReportsPipelineStaleRuntimeResumePlanActions(t *testing.T) {
 	root := writeOverviewPipelineStaleRuntimeFixture(t)
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}

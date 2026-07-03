@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,11 +20,19 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 var sessionIDFallbackCounter struct {
 	sync.Mutex
 	value uint32
+}
+
+var sessionIDRand = struct {
+	sync.RWMutex
+	reader io.Reader
+}{
+	reader: rand.Reader,
 }
 
 // Spawner abstracts the child-process call so tests can inject a fake.
@@ -152,8 +162,11 @@ type RestartOptions struct {
 }
 
 const (
-	stopForceDefaultTimeout = 10 * time.Second
-	stopKillWaitTimeout     = 5 * time.Second
+	stopForceDefaultTimeout        = 10 * time.Second
+	stopKillWaitTimeout            = 5 * time.Second
+	codexSessionCaptureInitialWait = 50 * time.Millisecond
+	codexSessionCaptureTimeout     = 30 * time.Second
+	codexSessionCapturePoll        = 25 * time.Millisecond
 )
 
 // InstanceManager owns spawn / track / stop for claude children. Concurrency:
@@ -274,9 +287,13 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	m.instances[in.Name] = &tracked{meta: meta, process: proc, reaped: reaped}
 	m.mu.Unlock()
 	m.recordEvent("dispatch", meta, "instance dispatched")
+	capture := m.startCodexSessionCapture(rt.Kind, *meta)
 	go m.reap(in.Name, proc, reaped)
 	if in.Budget > 0 {
 		go m.watchdog(in.Name, proc, reaped, in.Budget)
+	}
+	if captured := waitForCodexSessionCapture(capture); captured != nil {
+		meta = captured
 	}
 	return meta, nil
 }
@@ -338,12 +355,12 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 			if in.Args[0] != "exec" {
 				return nil, errors.New("codex daemon dispatch requires args beginning with exec; use agent-team run --prompt for managed Codex runs")
 			}
-			return append([]string{rt.Binary}, in.Args...), nil
+			return append([]string{rt.Binary}, codexExecArgsWithJSON(in.Args)...), nil
 		}
 		if strings.TrimSpace(in.Prompt) == "" {
 			return nil, errors.New("codex daemon dispatch requires exec args or a prompt")
 		}
-		codexArgs := []string{rt.Binary, "exec"}
+		codexArgs := []string{rt.Binary, "exec", "--json"}
 		codexArgs = append(codexArgs, runtimebin.CodexAutonomousExecArgs()...)
 		codexArgs = append(codexArgs, "-")
 		return codexArgs, nil
@@ -363,6 +380,140 @@ func dispatchStdin(rt runtimebin.Runtime, in DispatchInput) string {
 		return in.Prompt
 	}
 	return ""
+}
+
+func codexExecArgsWithJSON(args []string) []string {
+	out := append([]string(nil), args...)
+	if len(out) == 0 || out[0] != "exec" || hasArg(out[1:], "--json") {
+		return out
+	}
+	return append([]string{"exec", "--json"}, out[1:]...)
+}
+
+func hasArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *InstanceManager) startCodexSessionCapture(kind runtimebin.Kind, meta Metadata) <-chan *Metadata {
+	if kind != runtimebin.KindCodex || strings.TrimSpace(meta.LogPath) == "" {
+		return nil
+	}
+	result := make(chan *Metadata, 1)
+	go func() {
+		defer close(result)
+		sessionID, err := waitForCodexThreadStarted(meta.LogPath, codexSessionCaptureTimeout)
+		if err != nil || strings.TrimSpace(sessionID) == "" {
+			return
+		}
+		updated, ok := m.recordCodexSessionID(meta, sessionID)
+		if !ok {
+			return
+		}
+		result <- updated
+	}()
+	return result
+}
+
+func waitForCodexSessionCapture(capture <-chan *Metadata) *Metadata {
+	if capture == nil {
+		return nil
+	}
+	timer := time.NewTimer(codexSessionCaptureInitialWait)
+	defer timer.Stop()
+	select {
+	case meta := <-capture:
+		return meta
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *InstanceManager) recordCodexSessionID(base Metadata, sessionID string) (*Metadata, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, false
+	}
+	m.mu.Lock()
+	t := m.instances[base.Instance]
+	if t == nil || !sameTrackedIncarnation(t, &base) || t.meta.SessionID != "" {
+		m.mu.Unlock()
+		return nil, false
+	}
+	updated := *t.meta
+	updated.SessionID = sessionID
+	if err := WriteMetadata(m.daemonRoot, &updated); err != nil {
+		m.mu.Unlock()
+		return nil, false
+	}
+	t.meta = &updated
+	m.mu.Unlock()
+	m.recordEvent("session_capture", &updated, "codex thread id captured")
+	return &updated, true
+}
+
+func waitForCodexThreadStarted(logPath string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	var offset int64
+	for {
+		sessionID, nextOffset, err := readCodexThreadStartedFromLog(logPath, offset)
+		offset = nextOffset
+		if sessionID != "" || (err != nil && !errors.Is(err, fs.ErrNotExist)) {
+			return sessionID, err
+		}
+		if timeout <= 0 || !time.Now().Before(deadline) {
+			return "", nil
+		}
+		time.Sleep(codexSessionCapturePoll)
+	}
+}
+
+func readCodexThreadStartedFromLog(logPath string, offset int64) (string, int64, error) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		return "", offset, err
+	}
+	defer f.Close()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return "", offset, err
+	}
+	reader := bufio.NewReader(f)
+	for {
+		line, err := reader.ReadString('\n')
+		complete := err != io.EOF || strings.HasSuffix(line, "\n")
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && (complete || json.Valid([]byte(trimmed))) {
+			offset += int64(len(line))
+			if sessionID := codexThreadIDFromJSONLine(trimmed); sessionID != "" {
+				return sessionID, offset, nil
+			}
+		}
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			return "", offset, nil
+		}
+		return "", offset, err
+	}
+}
+
+func codexThreadIDFromJSONLine(line string) string {
+	var event struct {
+		Type     string `json:"type"`
+		ThreadID string `json:"thread_id"`
+	}
+	if err := json.Unmarshal([]byte(line), &event); err != nil {
+		return ""
+	}
+	if event.Type != "thread.started" {
+		return ""
+	}
+	return strings.TrimSpace(event.ThreadID)
 }
 
 // Stop sends SIGTERM to the instance process group and persists
@@ -645,10 +796,11 @@ func (m *InstanceManager) Remove(instance string, force bool, timeout time.Durat
 	return nil
 }
 
-// Start resumes a previously-stopped persistent instance. It re-spawns claude
-// with `--resume <session-id>`. Ephemeral instances cannot be resumed; the
-// caller is expected not to ask. (We don't track ephemeral-vs-persistent here
-// — the agent's frontmatter gates that, and SQU-29 wires it in.)
+// Start resumes a previously-stopped persistent instance. It re-spawns the
+// recorded runtime with its managed resume command. Ephemeral instances cannot
+// be resumed; the caller is expected not to ask. (We don't track
+// ephemeral-vs-persistent here — the agent's frontmatter gates that, and
+// SQU-29 wires it in.)
 func (m *InstanceManager) Start(instance string) (*Metadata, error) {
 	return m.start(instance, nil)
 }
@@ -699,7 +851,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 
 	base := *t.meta
 	baseRuntime := metadataRuntimeKind(&base)
-	if baseRuntime != runtimebin.KindClaude {
+	if !runtimeKindSupportsManagedResume(baseRuntime) {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: runtime %q does not support managed resume; create a new run instead", baseRuntime)
 	}
@@ -707,14 +859,22 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no session_id; cannot resume", instance)
 	}
-	if base.Workspace == "" {
+	env, err := m.startEnv(instance)
+	if err != nil {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("start: %q has no workspace; cannot resume", instance)
+		return nil, fmt.Errorf("start: launch env: %w", err)
 	}
-	if brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance); err != nil {
+	if err := managedResumePreflight(base, env); err != nil {
+		m.mu.Unlock()
+		return m.resumeFallbackFresh(instance, &base, err)
+	}
+	brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance)
+	if err != nil {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: brief: %w", err)
-	} else if brief != "" {
+	}
+	stdin := ""
+	if brief != "" && baseRuntime == runtimebin.KindClaude {
 		if err := AppendMessage(m.daemonRoot, instance, &Message{
 			From: "agent-team",
 			To:   instance,
@@ -724,6 +884,8 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 			m.mu.Unlock()
 			return nil, fmt.Errorf("start: brief mailbox: %w", err)
 		}
+	} else if baseRuntime == runtimebin.KindCodex {
+		stdin = brief
 	}
 
 	logPath := base.LogPath
@@ -732,20 +894,10 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 	}
 	bin := strings.TrimSpace(base.RuntimeBinary)
 	if bin == "" {
-		var err error
-		bin, err = runtimebin.ClaudeCompatibleBinary()
-		if err != nil {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("start: %w", err)
-		}
+		bin = runtimebin.DefaultBinaryForKind(baseRuntime)
 	}
-	args := []string{bin, "--resume", base.SessionID}
-	env, err := m.startEnv(instance)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("start: launch env: %w", err)
-	}
-	proc, err := m.spawner(args, env, base.Workspace, logPath, logPath, "")
+	args := managedResumeArgs(baseRuntime, bin, base.SessionID)
+	proc, err := m.spawner(args, env, base.Workspace, logPath, logPath, stdin)
 	if err != nil {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: spawn: %w", err)
@@ -782,6 +934,121 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 	go m.reap(instance, proc, reaped)
 	out := meta
 	return &out, nil
+}
+
+func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
+	return kind == runtimebin.KindClaude || kind == runtimebin.KindCodex
+}
+
+func managedResumeArgs(kind runtimebin.Kind, bin, sessionID string) []string {
+	if kind == runtimebin.KindCodex {
+		return []string{bin, "exec", "resume", sessionID, "-"}
+	}
+	return []string{bin, "--resume", sessionID}
+}
+
+func managedResumePreflight(meta Metadata, env []string) error {
+	workspace := strings.TrimSpace(meta.Workspace)
+	if workspace == "" {
+		return errors.New("no workspace recorded for managed resume")
+	}
+	st, err := os.Stat(workspace)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("workspace %s does not exist", workspace)
+		}
+		return fmt.Errorf("stat workspace %s: %w", workspace, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("workspace %s is not a directory", workspace)
+	}
+	if metadataRuntimeKind(&meta) != runtimebin.KindCodex {
+		return nil
+	}
+	ok, root, err := codexSessionRolloutExists(meta.SessionID, env)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("codex session rollout %q not found under %s", meta.SessionID, root)
+	}
+	return nil
+}
+
+func codexSessionRolloutExists(sessionID string, env []string) (bool, string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	root := codexSessionsRoot(env)
+	if sessionID == "" {
+		return false, root, nil
+	}
+	found := false
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fs.SkipDir
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.Contains(filepath.Base(path), sessionID) {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, root, nil
+	}
+	return found, root, err
+}
+
+func codexSessionsRoot(env []string) string {
+	if codexHome := envValue(env, "CODEX_HOME"); codexHome != "" {
+		return filepath.Join(codexHome, "sessions")
+	}
+	if home := envValue(env, "HOME"); home != "" {
+		return filepath.Join(home, ".codex", "sessions")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".codex", "sessions")
+	}
+	return filepath.Join(".codex", "sessions")
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	value := ""
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			value = strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return strings.TrimSpace(value)
+}
+
+func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, cause error) (*Metadata, error) {
+	teamDir := filepath.Dir(m.daemonRoot)
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, fmt.Errorf("start: resume preflight failed (%v); load topology for fallback: %w", cause, err)
+	}
+	if topo == nil {
+		return nil, fmt.Errorf("start: resume preflight failed (%v); topology not configured for fallback", cause)
+	}
+	inst := topo.Find(instance)
+	if inst == nil || inst.Ephemeral {
+		return nil, fmt.Errorf("start: resume preflight failed (%v); %q is not a declared persistent instance", cause, instance)
+	}
+	if base != nil {
+		m.recordEvent("resume_fallback", base, fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause))
+	}
+	meta, _, err := launchDeclaredFresh(teamDir, m, inst, base)
+	if err != nil {
+		return nil, fmt.Errorf("start: resume fallback: %w", err)
+	}
+	return meta, nil
 }
 
 func (m *InstanceManager) ensureTracked(instance string, expected *Metadata) error {
@@ -935,9 +1202,13 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	m.mu.Unlock()
 
 	m.recordEvent("dispatch", meta, "instance dispatched")
+	capture := m.startCodexSessionCapture(rt.Kind, *meta)
 	go m.reap(in.Name, proc, reaped)
 	if in.Budget > 0 {
 		go m.watchdog(in.Name, proc, reaped, in.Budget)
+	}
+	if captured := waitForCodexSessionCapture(capture); captured != nil {
+		meta = captured
 	}
 	return meta, true, nil
 }
@@ -1279,10 +1550,29 @@ func (m *InstanceManager) LoadFromDisk() error {
 // to keep deps minimal — claude's --session-id accepts any UUID-shape value.
 func newSessionID() string {
 	var b [16]byte
-	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+	sessionIDRand.RLock()
+	reader := sessionIDRand.reader
+	_, err := io.ReadFull(reader, b[:])
+	sessionIDRand.RUnlock()
+	if err != nil {
 		return fallbackSessionIDBytes()
 	}
 	return formatSessionIDBytes(b)
+}
+
+func setSessionIDRandReaderForTest(reader io.Reader) func() {
+	if reader == nil {
+		reader = rand.Reader
+	}
+	sessionIDRand.Lock()
+	prev := sessionIDRand.reader
+	sessionIDRand.reader = reader
+	sessionIDRand.Unlock()
+	return func() {
+		sessionIDRand.Lock()
+		sessionIDRand.reader = prev
+		sessionIDRand.Unlock()
+	}
 }
 
 func fallbackSessionIDBytes() string {

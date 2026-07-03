@@ -82,8 +82,8 @@ func TestRuntimeCommand_CodexJSON(t *testing.T) {
 	if info.Runtime != "codex" || info.Binary != "codex" || info.Path != "/opt/homebrew/bin/codex" {
 		t.Fatalf("info = %+v, want codex path", info)
 	}
-	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || info.ManagedResume || info.Resume || info.Subagents {
-		t.Fatalf("codex capabilities = %+v, want direct plus daemon one-shot", info)
+	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || !info.ManagedResume || !info.Resume || info.Subagents {
+		t.Fatalf("codex capabilities = %+v, want direct plus daemon managed resume without subagents", info)
 	}
 	if len(info.Notes) == 0 {
 		t.Fatalf("codex info missing limitation notes: %+v", info)
@@ -108,7 +108,7 @@ func TestRuntimeCommand_Format(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --format failed: %v\nstderr: %s", err, errOut.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "codex codex true true false false" {
+	if got := strings.TrimSpace(out.String()); got != "codex codex true true true true" {
 		t.Fatalf("runtime format = %q", got)
 	}
 }
@@ -157,8 +157,8 @@ func TestRuntimeProfileCommand_CodexJSON(t *testing.T) {
 	if info.Runtime != "codex" || info.Binary != "codex" || info.Path != "/opt/homebrew/bin/codex" {
 		t.Fatalf("info = %+v, want codex path", info)
 	}
-	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || info.ManagedResume || info.Resume || info.Subagents {
-		t.Fatalf("codex capabilities = %+v, want direct plus daemon one-shot", info)
+	if !info.DirectRun || !info.DaemonDispatch || !info.DirectResume || !info.ManagedResume || !info.Resume || info.Subagents {
+		t.Fatalf("codex capabilities = %+v, want direct plus daemon managed resume without subagents", info)
 	}
 }
 
@@ -1262,13 +1262,10 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid == 99
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	if err := job.Write(teamDir, &job.Job{
 		ID:        "squ-55",
@@ -1447,13 +1444,10 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid == 99
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	for _, meta := range []*daemon.Metadata{
 		{
@@ -1617,13 +1611,14 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 		t.Fatalf("plans = %+v, want one", plans)
 	}
 	plan := plans[0]
-	if plan.Instance != "worker-squ-42" || plan.Job != "squ-42" || plan.Runtime != "codex" || plan.ManagedResume || plan.CanManagedResume || !plan.DirectResume {
+	if plan.Instance != "worker-squ-42" || plan.Job != "squ-42" || plan.Runtime != "codex" || !plan.ManagedResume || !plan.CanManagedResume || !plan.DirectResume {
 		t.Fatalf("plan = %+v", plan)
 	}
-	if plan.RecommendedAction != "resume" || plan.RecommendedCommand != "codex resume codex-session" || plan.JobLogsCommand != "agent-team job logs squ-42 --follow" || plan.JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
+	wantStartCommand := "agent-team start worker-squ-42"
+	if plan.RecommendedAction != "start" || plan.RecommendedCommand != wantStartCommand || plan.JobLogsCommand != "agent-team job logs squ-42 --follow" || plan.JobLastMessageCommand != "agent-team job logs squ-42 --last-message" {
 		t.Fatalf("commands = %+v", plan)
 	}
-	if !strings.Contains(plan.Detail, `runtime "codex" does not support managed resume`) {
+	if !strings.Contains(plan.Detail, "managed start can resume") {
 		t.Fatalf("detail = %q", plan.Detail)
 	}
 
@@ -1651,7 +1646,8 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	if err := jobCommands.Execute(); err != nil {
 		t.Fatalf("job resume-plan --commands: %v\nstderr=%s", err, jobCommandsErr.String())
 	}
-	if got, want := strings.TrimSpace(jobCommandsOut.String()), "codex resume codex-session"; got != want {
+	wantJobStartCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "start", "--repo", tmp, "worker-squ-42"}), " ")
+	if got, want := strings.TrimSpace(jobCommandsOut.String()), wantJobStartCommand; got != want {
 		t.Fatalf("job resume-plan commands = %q, want %q", got, want)
 	}
 
@@ -1663,7 +1659,7 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	if err := jobDirect.Execute(); err != nil {
 		t.Fatalf("job resume-plan --direct: %v\nstderr=%s", err, jobDirectErr.String())
 	}
-	if got, want := strings.TrimSpace(jobDirectOut.String()), "worker-squ-42 true resume"; got != want {
+	if got, want := strings.TrimSpace(jobDirectOut.String()), "worker-squ-42 true start"; got != want {
 		t.Fatalf("job direct resume-plan = %q, want %q", got, want)
 	}
 
@@ -1675,8 +1671,8 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	if err := jobManaged.Execute(); err != nil {
 		t.Fatalf("job resume-plan --managed: %v\nstderr=%s", err, jobManagedErr.String())
 	}
-	if got := strings.TrimSpace(jobManagedOut.String()); got != "" {
-		t.Fatalf("job managed resume-plan = %q, want no rows", got)
+	if got, want := strings.TrimSpace(jobManagedOut.String()), "worker-squ-42"; got != want {
+		t.Fatalf("job managed resume-plan = %q, want %q", got, want)
 	}
 }
 
@@ -1756,15 +1752,8 @@ func TestRuntimeResumePlanJobStepFilter(t *testing.T) {
 	if plan.Instance != "worker-squ-43-implement" || plan.Job != "squ-43" || plan.Pipeline != "ticket_to_pr" || plan.StepID != "implement" || plan.JobLastMessageCommand != "agent-team job logs squ-43 --step implement --last-message" {
 		t.Fatalf("plan = %+v", plan)
 	}
-	for _, want := range []string{
-		"agent-team job resume-plan squ-43 --step implement",
-		"agent-team job logs squ-43 --step implement --follow",
-		"agent-team job logs squ-43 --step implement --last-message",
-		"codex resume implement-session",
-	} {
-		if !strings.Contains(plan.Detail, want) {
-			t.Fatalf("step-aware detail = %q, want %q", plan.Detail, want)
-		}
+	if !strings.Contains(plan.Detail, "managed start can resume") {
+		t.Fatalf("step-aware detail = %q, want managed start detail", plan.Detail)
 	}
 
 	text := NewRootCmd()
@@ -1836,7 +1825,7 @@ func TestRuntimeResumePlanFormatAndFilters(t *testing.T) {
 		t.Fatalf("runtime resume-plan --format: %v\nstderr=%s", err, errOut.String())
 	}
 	got := strings.TrimSpace(out.String())
-	if got != "worker codex codex resume sid-worker" {
+	if got != "worker codex agent-team start worker" {
 		t.Fatalf("formatted resume plan = %q", got)
 	}
 }
@@ -1903,7 +1892,6 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	got := strings.TrimSpace(out.String())
 	want := strings.Join([]string{
 		"logs-codex logs agent-team logs logs-codex --follow",
-		"resume-codex resume codex resume sid-resume",
 	}, "\n")
 	if got != want {
 		t.Fatalf("runtime resume-plan --action = %q, want %q", got, want)
@@ -1933,7 +1921,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
 		t.Fatalf("decode resume-plan summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if counts.Total != 4 || counts.Actions["attach"] != 1 || counts.Actions["logs"] != 1 || counts.Actions["resume"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 2 || counts.Runtimes["codex"] != 2 || counts.Statuses["running"] != 1 || counts.Statuses["crashed"] != 1 || counts.Statuses["exited"] != 1 || counts.Statuses["stopped"] != 1 || counts.ManagedResume != 2 || counts.CanManagedResume != 2 || counts.DirectResume != 3 || counts.Unhealthy != 1 {
+	if counts.Total != 4 || counts.Actions["attach"] != 1 || counts.Actions["logs"] != 1 || counts.Actions["resume"] != 0 || counts.Actions["start"] != 2 || counts.Runtimes["claude"] != 2 || counts.Runtimes["codex"] != 2 || counts.Statuses["running"] != 1 || counts.Statuses["crashed"] != 1 || counts.Statuses["exited"] != 1 || counts.Statuses["stopped"] != 1 || counts.ManagedResume != 4 || counts.CanManagedResume != 3 || counts.DirectResume != 3 || counts.Unhealthy != 1 {
 		t.Fatalf("resume-plan summary = %+v", counts)
 	}
 
@@ -1947,6 +1935,8 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
 		"attach-claude true true true",
+		"logs-codex true false false",
+		"resume-codex true true true",
 		"start-claude true true true",
 	}, "\n"); got != want {
 		t.Fatalf("managed resume-plan = %q, want %q", got, want)
@@ -1964,7 +1954,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	if err := json.Unmarshal(canManagedOut.Bytes(), &canManagedCounts); err != nil {
 		t.Fatalf("decode can-managed resume-plan summary: %v\nbody=%s", err, canManagedOut.String())
 	}
-	if canManagedCounts.Total != 2 || canManagedCounts.ManagedResume != 2 || canManagedCounts.CanManagedResume != 2 || canManagedCounts.DirectResume != 2 || canManagedCounts.Actions["attach"] != 1 || canManagedCounts.Actions["start"] != 1 {
+	if canManagedCounts.Total != 3 || canManagedCounts.ManagedResume != 3 || canManagedCounts.CanManagedResume != 3 || canManagedCounts.DirectResume != 3 || canManagedCounts.Actions["attach"] != 1 || canManagedCounts.Actions["start"] != 2 {
 		t.Fatalf("can-managed resume-plan summary = %+v", canManagedCounts)
 	}
 
@@ -1972,11 +1962,11 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	directOut, directErr := &bytes.Buffer{}, &bytes.Buffer{}
 	direct.SetOut(directOut)
 	direct.SetErr(directErr)
-	direct.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--direct", "--action", "resume", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
+	direct.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--runtime", "codex", "--direct", "--action", "start", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
 	if err := direct.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --direct --action resume: %v\nstderr=%s", err, directErr.String())
 	}
-	if got, want := strings.TrimSpace(directOut.String()), "resume-codex true resume"; got != want {
+	if got, want := strings.TrimSpace(directOut.String()), "resume-codex true start"; got != want {
 		t.Fatalf("direct resume-plan = %q, want %q", got, want)
 	}
 }
