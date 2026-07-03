@@ -26,6 +26,41 @@ func TestNormalizeLinearIssueCreated(t *testing.T) {
 	}
 }
 
+func TestNormalizeLinearStatusChangedIncludesActor(t *testing.T) {
+	ev, err := NormalizeLinear([]byte(`{
+  "action": "Issue updated",
+  "actor": {"id": "agent-user", "name": "Agent User", "email": "agent@example.com"},
+  "data": {
+    "id": "issue-id",
+    "identifier": "SQU-101",
+    "title": "Dispatch me",
+    "state": {"name": "Ready for Agent"}
+  }
+}`))
+	if err != nil {
+		t.Fatalf("NormalizeLinear: %v", err)
+	}
+	if ev.Type != "ticket.status_changed" {
+		t.Fatalf("type = %q", ev.Type)
+	}
+	if ev.Payload["status"] != "Ready for Agent" || ev.Payload["actor_id"] != "agent-user" || ev.Payload["actor_name"] != "Agent User" || ev.Payload["actor_email"] != "agent@example.com" {
+		t.Fatalf("payload = %+v", ev.Payload)
+	}
+}
+
+func TestLinearSelfStatusChangeForUser(t *testing.T) {
+	ev := &Event{Type: "ticket.status_changed", Payload: map[string]any{"actor_id": "agent-user"}}
+	if ignored, reason := LinearSelfStatusChangeForUser(ev, "agent-user"); !ignored || reason != LinearSelfStatusChangeReason {
+		t.Fatalf("self status change = %v %q, want ignored reason", ignored, reason)
+	}
+	if ignored, reason := LinearSelfStatusChangeForUser(ev, "other-user"); ignored || reason != "" {
+		t.Fatalf("other actor = %v %q, want not ignored", ignored, reason)
+	}
+	if ignored, reason := LinearSelfStatusChangeForUser(&Event{Type: "ticket.updated", Payload: ev.Payload}, "agent-user"); ignored || reason != "" {
+		t.Fatalf("non-status event = %v %q, want not ignored", ignored, reason)
+	}
+}
+
 func TestNormalizeGitHubPRMerged(t *testing.T) {
 	ev, err := NormalizeGitHub([]byte(`{
   "action": "closed",

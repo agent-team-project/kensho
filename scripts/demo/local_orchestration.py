@@ -73,7 +73,20 @@ def main(argv: list[str]) -> int:
         repo.mkdir(parents=True, exist_ok=True)
 
         step("init bundled team")
-        run(binary, "init", "--target", repo, "--set", "linear.team_id=demo-team", "--set", "linear.ticket_prefix=DEMO")
+        run(
+            binary,
+            "init",
+            "--target",
+            repo,
+            "--set",
+            "linear.team_id=demo-team",
+            "--set",
+            "linear.ticket_prefix=DEMO",
+            "--set",
+            "linear.agent_column=Ready for Agent",
+            "--set",
+            "linear.agent_user_id=demo-agent",
+        )
         enable_demo_schedule(repo)
         prepare_merge_drift_branch(repo)
         if args.real_codex_probe:
@@ -111,6 +124,9 @@ def main(argv: list[str]) -> int:
 
         step("verify event trace diagnostics")
         verify_event_trace(binary, repo)
+
+        step("verify Linear column intake routing")
+        verify_linear_column_intake(binary, repo)
 
         step("verify command-only schedule hints")
         schedule_due_commands = run(binary, "schedule", "due", "--repo", repo, "--commands")
@@ -424,6 +440,98 @@ def verify_event_trace(binary: Path, repo: Path) -> None:
     print("event trace verified: MATCH/MISS and zero-match warning")
 
 
+def verify_linear_column_intake(binary: Path, repo: Path) -> None:
+    entry = run(
+        binary,
+        "intake",
+        "linear",
+        "--payload",
+        linear_status_payload("DEMO-COLUMN", "Ready for Agent", "human-user"),
+        "--target",
+        repo,
+        "--dry-run",
+        "--preview-triggers",
+        "--json",
+        parse_json=True,
+    )
+    require_json_field(entry.get("event") or {}, "type", "ticket.status_changed")
+    preview = entry.get("preview") or {}
+    if preview.get("pipelines") != ["ticket_to_pr"]:
+        raise DemoError(f"entry-column transition did not match ticket_to_pr: {json.dumps(entry, indent=2)}")
+    jobs = preview.get("pipeline_jobs") or []
+    if len(jobs) != 1 or jobs[0].get("action") != "would_create":
+        raise DemoError(f"entry-column transition did not preview job creation: {json.dumps(entry, indent=2)}")
+
+    other = run(
+        binary,
+        "intake",
+        "linear",
+        "--payload",
+        linear_status_payload("DEMO-OTHER", "Todo", "human-user"),
+        "--target",
+        repo,
+        "--dry-run",
+        "--preview-triggers",
+        "--json",
+        parse_json=True,
+    )
+    other_preview = other.get("preview") or {}
+    if other_preview.get("pipelines"):
+        raise DemoError(f"other-column transition unexpectedly matched: {json.dumps(other, indent=2)}")
+
+    self_actor = run(
+        binary,
+        "intake",
+        "linear",
+        "--payload",
+        linear_status_payload("DEMO-SELF", "Ready for Agent", "demo-agent"),
+        "--target",
+        repo,
+        "--dry-run",
+        "--preview-triggers",
+        "--json",
+        parse_json=True,
+    )
+    if not self_actor.get("ignored") or "self-authored Linear status change" not in (self_actor.get("ignore_reason") or ""):
+        raise DemoError(f"self-actor transition was not ignored: {json.dumps(self_actor, indent=2)}")
+
+    run(binary, "pipeline", "run", "ticket_to_pr", "DEMO-REENTRY", "Re-entry demo", "--repo", repo, "--json", parse_json=True)
+    run(binary, "job", "close", "demo-reentry", "--repo", repo, "--status", "done", "--message", "demo terminal", "--json", parse_json=True)
+    reentry = run(
+        binary,
+        "intake",
+        "linear",
+        "--payload",
+        linear_status_payload("DEMO-REENTRY", "Ready for Agent", "human-user"),
+        "--target",
+        repo,
+        "--dry-run",
+        "--preview-triggers",
+        "--json",
+        parse_json=True,
+    )
+    reentry_jobs = ((reentry.get("preview") or {}).get("pipeline_jobs") or [])
+    if len(reentry_jobs) != 1 or reentry_jobs[0].get("action") != "would_noop" or not reentry_jobs[0].get("existing"):
+        raise DemoError(f"terminal re-entry did not preview default no-op: {json.dumps(reentry, indent=2)}")
+    print("Linear intake verified: entry column, other column, self actor, re-entry no-op")
+
+
+def linear_status_payload(ticket: str, status: str, actor_id: str) -> str:
+    return json.dumps(
+        {
+            "action": "Issue updated",
+            "actor": {"id": actor_id, "name": "Demo Actor"},
+            "data": {
+                "identifier": ticket,
+                "title": "Demo board dispatch",
+                "url": f"https://linear.app/demo/issue/{ticket}/demo-board-dispatch",
+                "state": {"name": status},
+            },
+        },
+        separators=(",", ":"),
+    )
+
+
 def verify_gate_classification(binary: Path, repo: Path, job_id: str) -> None:
     gate = run(
         binary,
@@ -703,8 +811,10 @@ def enable_demo_schedule(repo: Path) -> None:
     pipeline_header = textwrap.dedent(
         """\
         [pipelines.ticket_to_pr]
-        trigger.event = "ticket.created"
+        trigger.event = "ticket.status_changed"
+        trigger.match.status = "Ready for Agent"
         auto_advance  = true
+        redispatch_on_reentry = false
         """
     )
     if pipeline_header not in body:

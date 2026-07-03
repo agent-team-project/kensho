@@ -279,22 +279,12 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	j.Steps = pipelineJobSteps(pipeline)
 	pipelineEvent := "pipeline_created"
 	if existing, err := jobstore.Read(r.teamDir, j.ID); err == nil {
-		j = existing
-		j.Pipeline = pipeline.Name
-		if pipeline.ReapWorktree != worktreepolicy.Never && strings.TrimSpace(j.ReapWorktree) == "" {
-			j.ReapWorktree = pipeline.ReapWorktree
+		if canAdoptDirectPipelineDispatch(pipeline, existing, directOutcomes) {
+			return r.adoptDirectPipelineDispatch(pipeline, eventType, payload, directOutcomes, existing)
 		}
-		if j.Merge == nil {
-			j.Merge = jobMergeFromPipeline(pipeline.Merge)
-		}
-		if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
-			j.TicketURL = ticketURL
-		}
-		if len(j.Steps) == 0 {
-			j.Steps = pipelineJobSteps(pipeline)
-		}
-		pipelineEvent = "pipeline_updated"
-		j.UpdatedAt = now
+		return r.actuatePipelineReentry(pipeline, eventType, payload, directOutcomes, existing, now)
+	} else if !os.IsNotExist(err) {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	j.LastEvent = pipelineEvent
 	j.LastStatus = "pipeline " + pipeline.Name
@@ -338,6 +328,163 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		})
 	}
 	return dispatch.eventOutcomes
+}
+
+func canAdoptDirectPipelineDispatch(pipeline *topology.Pipeline, j *jobstore.Job, directOutcomes map[string]EventOutcome) bool {
+	if pipeline == nil || j == nil || strings.TrimSpace(j.Pipeline) != "" || len(directOutcomes) == 0 {
+		return false
+	}
+	step := firstRunnablePipelineStep(pipeline)
+	if step == nil {
+		return false
+	}
+	outcome, ok := directOutcomes[step.Target]
+	return ok && outcome.Action != "rejected"
+}
+
+func (r *EventResolver) adoptDirectPipelineDispatch(pipeline *topology.Pipeline, eventType string, payload map[string]any, directOutcomes map[string]EventOutcome, j *jobstore.Job) []EventOutcome {
+	hydratePipelineJob(j, pipeline, payload)
+	j.LastEvent = "pipeline_created"
+	j.LastStatus = "pipeline " + pipeline.Name
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_created", "daemon", "", pipelineAuditData(pipeline.Name, eventType, j, "")); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	step := firstRunnablePipelineStep(pipeline)
+	if step == nil {
+		return nil
+	}
+	dispatch := r.dispatchPipelineStepWithDirectOutcomes(pipeline, step, j, payload, directOutcomes)
+	outcomes := dispatch.jobOutcomes
+	if latest, err := jobstore.Read(r.teamDir, j.ID); err == nil {
+		j = latest
+	}
+	applyPipelineStepOutcome(j, step.ID, outcomes)
+	if err := jobstore.Write(r.teamDir, j); err == nil {
+		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
+			"pipeline": pipeline.Name,
+			"step":     step.ID,
+		})
+	}
+	return dispatch.eventOutcomes
+}
+
+func (r *EventResolver) actuatePipelineReentry(pipeline *topology.Pipeline, eventType string, payload map[string]any, directOutcomes map[string]EventOutcome, j *jobstore.Job, now time.Time) []EventOutcome {
+	hydratePipelineJob(j, pipeline, payload)
+	if !jobStatusTerminal(j.Status) {
+		return r.pipelineReentryNoop(pipeline, eventType, j, now, "job "+j.ID+" already "+string(j.Status))
+	}
+	if !pipeline.RedispatchOnReentry {
+		return r.pipelineReentryNoop(pipeline, eventType, j, now, "job "+j.ID+" already "+string(j.Status)+"; redispatch_on_reentry=false")
+	}
+	resetPipelineJobForReentry(j, pipeline, eventType, payload, now)
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "reopened", "daemon", j.LastStatus, pipelineAuditData(pipeline.Name, eventType, j, "reopen")); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	step := firstRunnablePipelineStep(pipeline)
+	if step == nil {
+		if blocked := firstBlockedInitialPipelineStep(pipeline); blocked != nil {
+			return []EventOutcome{{
+				Instance: "pipeline:" + pipeline.Name,
+				Action:   "blocked",
+				Reason:   pipelineStepGateBlockedReason(blocked),
+				JobID:    j.ID,
+				Pipeline: pipeline.Name,
+				Step:     blocked.ID,
+			}}
+		}
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: "no runnable step", JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	dispatch := r.dispatchPipelineStepWithDirectOutcomes(pipeline, step, j, payload, directOutcomes)
+	outcomes := dispatch.jobOutcomes
+	if latest, err := jobstore.Read(r.teamDir, j.ID); err == nil {
+		j = latest
+	}
+	applyPipelineStepOutcome(j, step.ID, outcomes)
+	if err := jobstore.Write(r.teamDir, j); err == nil {
+		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
+			"pipeline": pipeline.Name,
+			"step":     step.ID,
+		})
+	}
+	return dispatch.eventOutcomes
+}
+
+func (r *EventResolver) pipelineReentryNoop(pipeline *topology.Pipeline, eventType string, j *jobstore.Job, now time.Time, reason string) []EventOutcome {
+	j.LastEvent = "pipeline_reentry_noop"
+	j.LastStatus = reason
+	j.UpdatedAt = now
+	if err := jobstore.Write(r.teamDir, j); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_reentry_noop", "daemon", reason, pipelineAuditData(pipeline.Name, eventType, j, "noop")); err != nil {
+		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
+	}
+	return []EventOutcome{{
+		Instance: "pipeline:" + pipeline.Name,
+		Action:   "noop",
+		Reason:   reason,
+		JobID:    j.ID,
+		Pipeline: pipeline.Name,
+	}}
+}
+
+func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload map[string]any) {
+	j.Pipeline = pipeline.Name
+	if pipeline.ReapWorktree != worktreepolicy.Never && strings.TrimSpace(j.ReapWorktree) == "" {
+		j.ReapWorktree = pipeline.ReapWorktree
+	}
+	if j.Merge == nil {
+		j.Merge = jobMergeFromPipeline(pipeline.Merge)
+	}
+	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
+		j.TicketURL = ticketURL
+	}
+	if len(j.Steps) == 0 {
+		j.Steps = pipelineJobSteps(pipeline)
+	}
+}
+
+func resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, eventType string, payload map[string]any, now time.Time) {
+	hydratePipelineJob(j, pipeline, payload)
+	j.Target = pipeline.Steps[0].Target
+	j.Kickoff = pipelineKickoff(eventType, payload)
+	j.Status = jobstore.StatusQueued
+	j.Held = false
+	j.HoldReason = ""
+	j.HoldUntil = time.Time{}
+	j.Instance = ""
+	j.Branch = ""
+	j.Worktree = ""
+	j.PR = ""
+	j.Drift = nil
+	j.Steps = pipelineJobSteps(pipeline)
+	j.LastEvent = "reopened"
+	j.LastStatus = "reopened by pipeline re-entry"
+	j.UpdatedAt = now
+}
+
+func jobStatusTerminal(status jobstore.Status) bool {
+	return status == jobstore.StatusDone || status == jobstore.StatusFailed
+}
+
+func pipelineAuditData(pipelineName, eventType string, j *jobstore.Job, reentry string) map[string]string {
+	data := map[string]string{
+		"pipeline": pipelineName,
+		"event":    eventType,
+	}
+	if reentry != "" {
+		data["reentry"] = reentry
+	}
+	if j != nil && j.TicketURL != "" {
+		data["ticket_url"] = j.TicketURL
+	}
+	return data
 }
 
 func (r *EventResolver) dispatchPipelineStep(pipeline *topology.Pipeline, step *topology.PipelineStep, j *jobstore.Job, payload map[string]any) []EventOutcome {

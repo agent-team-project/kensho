@@ -133,6 +133,15 @@ def main(argv: list[str]) -> int:
             tomllib.loads(cfg_text)
         except Exception as e:  # noqa: BLE001
             problems.append(f"config.toml not valid TOML: {e}")
+        instances_text = (target / ".agent_team" / "instances.toml").read_text()
+        if 'trigger.event = "ticket.status_changed"' not in instances_text or 'trigger.match.status = "Ready for Agent"' not in instances_text:
+            problems.append(f"instances.toml missing rendered Linear column trigger: {instances_text}")
+        if "{{" in instances_text or "}}" in instances_text:
+            problems.append(f"instances.toml contains unrendered template delimiters: {instances_text}")
+        try:
+            tomllib.loads(instances_text)
+        except Exception as e:  # noqa: BLE001
+            problems.append(f"instances.toml not valid TOML: {e}")
 
         # Template provenance must be present and parseable for future upgrade.
         lock_path = target / ".agent_team" / ".template.lock"

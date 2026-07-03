@@ -130,6 +130,9 @@ type Pipeline struct {
 	// instead of waiting for an external `agent-team pipeline tick`. Opt-in;
 	// defaults false so existing pipelines keep their manual-advance behavior.
 	AutoAdvance bool
+	// RedispatchOnReentry, when true, lets a matching trigger reopen a terminal
+	// job for the same ticket. Defaults false so board re-entry is idempotent.
+	RedispatchOnReentry bool
 	// ReapWorktree controls opt-in cleanup for jobs created by this pipeline.
 	// Defaults to "never".
 	ReapWorktree string
@@ -443,13 +446,14 @@ type rawLock struct {
 }
 
 type rawPipeline struct {
-	Trigger         map[string]any    `toml:"trigger"`
-	Steps           []map[string]any  `toml:"steps"`
-	Merge           *rawPipelineMerge `toml:"merge"`
-	Land            string            `toml:"land"`
-	InfraSignatures map[string]string `toml:"infra_signatures"`
-	AutoAdvance     bool              `toml:"auto_advance"`
-	ReapWorktree    string            `toml:"reap_worktree"`
+	Trigger             map[string]any    `toml:"trigger"`
+	Steps               []map[string]any  `toml:"steps"`
+	Merge               *rawPipelineMerge `toml:"merge"`
+	Land                string            `toml:"land"`
+	InfraSignatures     map[string]string `toml:"infra_signatures"`
+	AutoAdvance         bool              `toml:"auto_advance"`
+	RedispatchOnReentry bool              `toml:"redispatch_on_reentry"`
+	ReapWorktree        string            `toml:"reap_worktree"`
 }
 
 type rawPipelineMerge struct {
@@ -660,7 +664,7 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree, InfraSignatures: infraSignatures}, nil
+	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, RedispatchOnReentry: rp.RedispatchOnReentry, ReapWorktree: reapWorktree, InfraSignatures: infraSignatures}, nil
 }
 
 func parsePipelineMerge(name string, raw *rawPipelineMerge, pipelineLand string) (*PipelineMerge, error) {

@@ -135,10 +135,12 @@ To back the team with Linear, opt in during init:
 agent-team init \
     --set team.pm_tool=linear \
     --set linear.team_id=<your-team-uuid> \
-    --set linear.ticket_prefix=APP
+    --set linear.ticket_prefix=APP \
+    --set linear.agent_column="Ready for Agent"
 ```
 
 Passing `linear.*` values without `team.pm_tool` also enables Linear for compatibility with older quickstarts. If `team.pm_tool=linear`, missing `linear.team_id` or `linear.ticket_prefix` fails clearly; otherwise Linear stays disabled.
+The bundled Linear pipeline dispatches when a ticket moves into `linear.agent_column`; `ticket.created` remains the documented zero-config alternative in `.agent_team/instances.toml`.
 
 `init` writes a starter `.agent_team/` into the current repo:
 

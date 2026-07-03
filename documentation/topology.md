@@ -44,7 +44,7 @@ Event types in v1.2:
 |---|---|---|
 | `user_invocation` | `agent-team run <name>` from a human session | name, optional kickoff prompt |
 | `agent.dispatch` | One instance dispatching another (e.g. manager → worker) via the orchestrator API | source instance, target name, kickoff |
-| `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | Linear intake | ticket fields (project, label, state, assignee) |
+| `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | Linear intake | ticket fields (project, label, status, assignee) plus actor fields when Linear sends them |
 | `pr.opened`, `pr.review_requested`, `pr.commented`, `pr.merged`, etc. | GitHub intake | PR metadata |
 | `ticket_webhook`, `pr_webhook` | Legacy topology aliases | match the corresponding normalized intake family; `match.event` receives the suffix |
 | `schedule` | Fixed-interval timer in the daemon | schedule name plus optional payload |
@@ -112,9 +112,15 @@ event  = "agent.dispatch"
 match.target = "worker"
 
 [pipelines.ticket_to_pr]
-trigger.event = "ticket.created"
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent"
+redispatch_on_reentry = false
 reap_worktree = "on_merge"
 # land = "merge"                  # optional sibling form: squash, merge, or rebase
+
+# Zero-config alternative:
+# trigger.event = "ticket.created"
+# remove trigger.match.status
 
 [pipelines.ticket_to_pr.merge]
 strategy = "squash"              # squash, rebase, or script
@@ -196,7 +202,8 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | Field | Required | Default | Meaning |
 |---|---|---|---|
 | `trigger.event` | yes | — | Event type that creates or updates a pipeline job. |
-| `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. |
+| `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. The bundled Linear pipeline uses `trigger.match.status = "<linear.agent_column>"`, so dragging a card into that column is the dispatch gesture. |
+| `redispatch_on_reentry` | no | `false` | Controls what happens when a matching trigger arrives for a ticket whose durable job already exists. Non-terminal jobs always no-op with an audit event. Terminal jobs no-op by default; set true to reopen and dispatch the first ready step again. |
 | `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this pipeline. Pipeline policy takes precedence over the target instance policy. |
 | `land` | no | `"squash"` | Final GitHub PR landing mode for jobs created by this pipeline. Supported values: `"squash"`, `"merge"`, or `"rebase"`. This is equivalent to `merge.land`; declare only one form unless both values match. |
 | `merge.strategy` | no | — | Mechanical merge strategy for pipeline jobs. Supported values: `"squash"`, `"rebase"`, or `"script"`. When present, `agent-team job merge <job-id>` applies this strategy and records the outcome on the job. |
@@ -226,6 +233,36 @@ Operators can intentionally bypass a stored step with `agent-team job step <job-
 Use `agent-team signatures test <pipeline> --against <log-file>` before trusting a new `[pipelines.<name>.infra_signatures]` entry. The dry run prints every configured signature as match/no-match and includes the matched excerpt so broad patterns are visible before they start classifying failed gates as infra.
 
 `agent-team job merge <job-id>` is a merge-only operator action. It does not dispatch another agent, rerun gates, or retry failed stages. Jobs with a recorded PR merge through `gh pr merge <pr> --squash`, `--merge`, or `--rebase` according to `merge.land` (or `land` on the pipeline); omitted land defaults to `squash`. Use `agent-team job merge <job-id> --land merge` for a one-off apply override, or `agent-team job update <job-id> --land merge` to persist a per-job override before the merge gate. Jobs without a recorded PR are refused unless the operator passes `--branch <head>`, in which case branch-local squash/rebase mechanics are applied in the selected worktree from `merge.strategy`. Script strategy executes the configured script with `(base, head, worktree)` and records a blocked merge if it exits nonzero or leaves tracked files dirty.
+
+### Linear board dispatch
+
+The bundled Linear-mode default treats the board column as the control plane:
+
+```toml
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent" # usually [linear].agent_column
+redispatch_on_reentry = false
+```
+
+`agent-team intake linear` normalizes Linear state-change webhooks into
+`ticket.status_changed` and stores the destination column in `payload.status`.
+Moving a card into the configured column dispatches the pipeline; moving it to
+any other column does not match.
+
+Loop protection is actor based. If `[linear].agent_user_id` is set, or
+`.agent_team/state/linear/viewer.json` contains a cached `viewer.id`, Linear
+status-change events authored by that user are ignored before topology
+matching. This prevents agent-driven ticket write-backs from dispatching new
+workers.
+
+Re-entry is intentionally idempotent. If a matching status-change arrives for a
+ticket with an existing queued, running, or blocked job, the daemon records a
+`pipeline_reentry_noop` audit event and dispatches nothing. Existing terminal
+jobs also no-op unless `redispatch_on_reentry = true`, in which case the daemon
+records a `reopened` audit event, resets the first step, and dispatches it.
+
+`agent-team job merge <job-id>` is a merge-only operator action. It does not dispatch another agent, rerun gates, or retry failed stages. Jobs with a recorded PR merge through `gh pr merge <pr> --squash` or `--rebase` for the built-in strategies. Jobs without a recorded PR are refused unless the operator passes `--branch <head>`, in which case branch-local squash/rebase mechanics are applied in the selected worktree. Script strategy executes the configured script with `(base, head, worktree)` and records a blocked merge if it exits nonzero or leaves tracked files dirty.
 
 When an advance dispatch targets a persistent instance, `agent-team` only records the step as `running` if the daemon can message a live instance. If the persistent target is stopped or reconciles as stale, the daemon appends the dispatch payload to that instance mailbox and returns a queued outcome; the durable job step stays `queued` with the persistent instance name until the instance is started and drains its inbox. Manual edits that mark a step `running` also require `--instance` unless `--force` is supplied, which keeps ownerless running stages out of the normal operator path.
 
@@ -549,12 +586,14 @@ worker         worker          —         yes (3)    agent.dispatch (target=wor
 ### Event flowing through
 
 A Linear ticket lands in the Platform project. Intake normalizes the provider
-payload and publishes a topology event:
+payload and publishes a topology event. For board-driven dispatch, the event is
+the destination column transition:
 
 ```
 POST /event
-    { "type": "ticket.created",
-      "payload": { "project": "Platform", "ticket": "PLAT-42", ... } }
+    { "type": "ticket.status_changed",
+      "payload": { "project": "Platform", "ticket": "PLAT-42",
+                   "status": "Ready for Agent", ... } }
 
 → { "matched": ["tm-platform"],
     "dispatched": [{ "instance_id": "...", "started_at": "..." }] }

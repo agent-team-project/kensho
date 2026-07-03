@@ -870,7 +870,7 @@ target = "worker"
 	if err := json.Unmarshal(updateOut.Bytes(), &updatePreview); err != nil {
 		t.Fatalf("decode event publish dry-run existing pipeline json: %v\nbody=%s", err, updateOut.String())
 	}
-	if len(updatePreview.PipelineJobs) != 1 || updatePreview.PipelineJobs[0].Action != "would_update" || !updatePreview.PipelineJobs[0].Existing {
+	if len(updatePreview.PipelineJobs) != 1 || updatePreview.PipelineJobs[0].Action != "would_noop" || !updatePreview.PipelineJobs[0].Existing {
 		t.Fatalf("existing pipeline job preview = %+v", updatePreview.PipelineJobs)
 	}
 	unchanged, err := job.Read(teamDir, "squ-130")

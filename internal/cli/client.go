@@ -512,6 +512,7 @@ type eventResponse struct {
 	Dispatched []map[string]interface{} `json:"dispatched"`
 	Queued     []string                 `json:"queued"`
 	Messaged   []string                 `json:"messaged"`
+	Noop       []map[string]interface{} `json:"noop,omitempty"`
 	Blocked    []map[string]interface{} `json:"blocked"`
 	Rejected   []map[string]interface{} `json:"rejected"`
 	Outcomes   []daemon.EventOutcome    `json:"outcomes,omitempty"`

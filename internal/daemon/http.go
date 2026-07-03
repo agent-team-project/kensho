@@ -533,6 +533,19 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if provider == "linear" {
+			if reason := linearIntakeIgnoreReason(teamDir, events, ev); reason != "" {
+				appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason, ev)
+				resp := eventResponseMap([]EventOutcome{{
+					Instance: "intake:linear",
+					Action:   "noop",
+					Reason:   reason,
+				}})
+				resp["event"] = ev
+				writeJSON(w, http.StatusOK, resp)
+				return
+			}
+		}
 		result, err := events.EventWithResult(ev.Type, ev.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -829,11 +842,49 @@ func requestBuildIdentity(r *http.Request) (buildinfo.Info, bool) {
 	return info, true
 }
 
+func linearIntakeIgnoreReason(teamDir string, events *EventResolver, ev *intake.Event) string {
+	if !linearStatusChangeWouldDispatch(events, ev) {
+		return ""
+	}
+	agentUserID, err := intake.ResolveLinearAgentUserID(teamDir)
+	if err != nil || strings.TrimSpace(agentUserID) == "" {
+		return intake.LinearLoopProtectionUnavailableReason
+	}
+	if ignored, reason := intake.LinearSelfStatusChangeForUser(ev, agentUserID); ignored {
+		return reason
+	}
+	return ""
+}
+
+func linearStatusChangeWouldDispatch(events *EventResolver, ev *intake.Event) bool {
+	if ev == nil || ev.Type != "ticket.status_changed" || events == nil || events.topo == nil {
+		return false
+	}
+	if len(events.topo.ResolvePipelines(ev.Type, ev.Payload)) > 0 {
+		return true
+	}
+	return len(events.topo.Resolve(ev.Type, ev.Payload)) > 0
+}
+
+func appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason string, ev *intake.Event) {
+	payload := map[string]any{}
+	if ev != nil && ev.Payload != nil {
+		payload = ev.Payload
+	}
+	_ = AppendLifecycleEvent(DaemonRoot(teamDir), &LifecycleEvent{
+		Action:   "intake_ignored",
+		Instance: "intake:" + provider,
+		Ticket:   payloadString(payload, "ticket"),
+		Message:  reason,
+	})
+}
+
 func eventResponseMap(outcomes []EventOutcome) map[string]any {
 	matched := make([]string, 0, len(outcomes))
 	dispatched := make([]map[string]any, 0)
 	queued := make([]string, 0)
 	messaged := make([]string, 0)
+	noop := make([]map[string]string, 0)
 	blocked := make([]map[string]string, 0)
 	rejected := make([]map[string]string, 0)
 	for _, oc := range outcomes {
@@ -852,6 +903,11 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 			}
 		case "messaged":
 			messaged = append(messaged, oc.Instance)
+		case "noop":
+			noop = append(noop, map[string]string{
+				"instance": oc.Instance,
+				"reason":   oc.Reason,
+			})
 		case "blocked":
 			blocked = append(blocked, map[string]string{
 				"instance": oc.Instance,
@@ -869,6 +925,7 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 		"dispatched": dispatched,
 		"queued":     queued,
 		"messaged":   messaged,
+		"noop":       noop,
 		"blocked":    blocked,
 		"rejected":   rejected,
 		"outcomes":   outcomes,

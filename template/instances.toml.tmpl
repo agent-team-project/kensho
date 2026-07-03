@@ -51,15 +51,22 @@ event        = "agent.dispatch"
 match.target = "reviewer"
 
 # The field-proven pipeline shape (see documentation/operating-model.md):
-# headless implement -> adversarial review chain on process exit; the manual
+# dragging a Linear card into [linear].agent_column ("Ready for Agent" by
+# default) is the dispatch gesture. The zero-config alternative is:
+#   trigger.event = "ticket.created"
+#   # remove trigger.match.status
+#
+# Headless implement -> adversarial review chain on process exit; the manual
 # gate stops exactly where merge judgment is needed. Watchdog timeouts rescue
 # wedged runtimes; implement keeps max_attempts = 1 because a hang can strike
 # after the PR opens and a retry would open a duplicate. Review is read-only, so
 # retry_on_crash allows one automatic retry only when the reviewer crashes before
 # recording a gate/verdict.
 [pipelines.ticket_to_pr]
-trigger.event = "ticket.created"
+trigger.event = "ticket.status_changed"
+trigger.match.status = "{{ .linear.agent_column }}"
 auto_advance  = true
+redispatch_on_reentry = false
 
 [[pipelines.ticket_to_pr.steps]]
 id           = "implement"

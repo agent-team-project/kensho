@@ -629,10 +629,11 @@ func toResponseLike(top *topology.Topology) map[string]any {
 	pipelines := make([]map[string]any, 0, len(top.Pipelines))
 	for _, pipeline := range top.SortedPipelines() {
 		pipelines = append(pipelines, map[string]any{
-			"name":          pipeline.Name,
-			"trigger":       triggerAsMap(pipeline.Trigger),
-			"steps":         pipelineStepsAsMaps(pipeline.Steps),
-			"reap_worktree": pipeline.ReapWorktree,
+			"name":                  pipeline.Name,
+			"trigger":               triggerAsMap(pipeline.Trigger),
+			"steps":                 pipelineStepsAsMaps(pipeline.Steps),
+			"reap_worktree":         pipeline.ReapWorktree,
+			"redispatch_on_reentry": pipeline.RedispatchOnReentry,
 		})
 	}
 	schedules := make([]map[string]any, 0, len(top.Schedules))

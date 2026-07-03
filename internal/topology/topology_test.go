@@ -297,6 +297,9 @@ retry_on_crash = true
 	if p.AutoAdvance {
 		t.Fatalf("AutoAdvance should default to false, got true")
 	}
+	if p.RedispatchOnReentry {
+		t.Fatalf("RedispatchOnReentry should default to false, got true")
+	}
 	if p.ReapWorktree != "on_merge" {
 		t.Fatalf("pipeline ReapWorktree = %q, want on_merge", p.ReapWorktree)
 	}
@@ -484,6 +487,41 @@ target = "worker"
 	}
 	if !p.AutoAdvance {
 		t.Fatalf("AutoAdvance = false, want true when auto_advance = true")
+	}
+}
+
+func TestParse_PipelineRedispatchOnReentry(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent"
+redispatch_on_reentry = true
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p := top.Pipelines["ticket_to_pr"]
+	if p == nil {
+		t.Fatal("pipeline missing")
+	}
+	if !p.RedispatchOnReentry {
+		t.Fatalf("RedispatchOnReentry = false, want true")
+	}
+	matched := top.ResolvePipelines("ticket.status_changed", map[string]any{"status": "Ready for Agent"})
+	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
+		t.Fatalf("matched = %+v", matched)
 	}
 }
 
