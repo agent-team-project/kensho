@@ -9323,7 +9323,7 @@ func TestJobAttachResolvesOwningInstance(t *testing.T) {
 	}
 }
 
-func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
+func TestJobAttachDryRunCodexShowsManagedHandoff(t *testing.T) {
 	env := newAttachTestEnv(t)
 	sleep := exec.Command("sleep", "30")
 	if err := sleep.Start(); err != nil {
@@ -9376,17 +9376,15 @@ func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
 		t.Fatalf("job attach codex dry-run: %v\nstderr=%s", err, stderr.String())
 	}
 	if cap.called {
-		t.Fatal("execClaudeAttach should not run during unsupported dry-run")
+		t.Fatal("execClaudeAttach should not run during dry-run")
 	}
 	body := out.String()
 	for _, want := range []string{
 		"runtime:              codex",
-		"managed_resume:       no",
+		"managed_resume:       yes",
+		"would_stop:           yes",
 		"command:              codex resume codex-job-session",
-		"logs_command:         agent-team logs worker-squ-57 --follow",
-		"last_message_command: agent-team logs worker-squ-57 --last-message",
-		"job_logs_command:      agent-team job logs squ-57 --follow",
-		"job_last_message_command: agent-team job logs squ-57 --last-message",
+		"would_resume_daemon:  yes",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("job attach dry-run missing %q:\n%s", want, body)
@@ -9402,7 +9400,7 @@ func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
 		t.Fatalf("job exec codex dry-run alias: %v\nstderr=%s", err, aliasErr.String())
 	}
 	if cap.called {
-		t.Fatal("execClaudeAttach should not run during unsupported dry-run alias")
+		t.Fatal("execClaudeAttach should not run during dry-run alias")
 	}
 	if !strings.Contains(aliasOut.String(), "command:              codex resume codex-job-session") {
 		t.Fatalf("job exec alias dry-run missing resume command:\n%s", aliasOut.String())
@@ -9416,11 +9414,7 @@ func TestJobAttachDryRunUnsupportedCodexShowsJobFallbacks(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("job attach codex --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommands := strings.Join([]string{
-		"codex resume codex-job-session",
-		strings.Join(shellQuoteArgs([]string{"agent-team", "job", "logs", "--repo", env.target, "squ-57", "--follow"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "job", "logs", "--repo", env.target, "squ-57", "--last-message"}), " "),
-	}, "\n")
+	wantCommands := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "attach", "--repo", env.target, "squ-57"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommands {
 		t.Fatalf("job attach codex --dry-run --commands = %q, want %q", got, wantCommands)
 	}
@@ -9485,15 +9479,13 @@ func TestJobAttachDryRunStepShowsStepFallbacks(t *testing.T) {
 		t.Fatalf("job attach step dry-run: %v\nstderr=%s", err, stderr.String())
 	}
 	if cap.called {
-		t.Fatal("execClaudeAttach should not run during unsupported dry-run")
+		t.Fatal("execClaudeAttach should not run during dry-run")
 	}
 	body := out.String()
 	for _, want := range []string{
+		"managed_resume:       yes",
 		"command:              codex resume codex-step-session",
-		"logs_command:         agent-team logs worker-squ-58-implement --follow",
-		"last_message_command: agent-team logs worker-squ-58-implement --last-message",
-		"job_logs_command:      agent-team job logs squ-58 --step implement --follow",
-		"job_last_message_command: agent-team job logs squ-58 --step implement --last-message",
+		"would_resume_daemon:  yes",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("job attach step dry-run missing %q:\n%s", want, body)
@@ -9508,11 +9500,7 @@ func TestJobAttachDryRunStepShowsStepFallbacks(t *testing.T) {
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("job attach step --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommands := strings.Join([]string{
-		"codex resume codex-step-session",
-		strings.Join(shellQuoteArgs([]string{"agent-team", "job", "logs", "--repo", env.target, "squ-58", "--step", "implement", "--follow"}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "job", "logs", "--repo", env.target, "squ-58", "--step", "implement", "--last-message"}), " "),
-	}, "\n")
+	wantCommands := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "attach", "--repo", env.target, "squ-58", "--step", "implement"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommands {
 		t.Fatalf("job attach step --dry-run --commands = %q, want %q", got, wantCommands)
 	}

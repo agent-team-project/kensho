@@ -826,7 +826,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if snapshot.Runtime.Total != 4 || snapshot.Runtime.Crashed != 3 || snapshot.Runtime.Exited != 1 {
 		t.Fatalf("runtime summary = %+v", snapshot.Runtime)
 	}
-	if snapshot.Runtime.ManagedResume != 2 || snapshot.Runtime.CanManagedResume != 1 || snapshot.Runtime.DirectResume != 2 {
+	if snapshot.Runtime.ManagedResume != 4 || snapshot.Runtime.CanManagedResume != 2 || snapshot.Runtime.DirectResume != 2 {
 		t.Fatalf("runtime resume capability summary = %+v", snapshot.Runtime)
 	}
 
@@ -845,7 +845,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if filteredSnapshot.Runtime.Total != 2 || filteredSnapshot.Runtime.Crashed != 1 || filteredSnapshot.Runtime.Exited != 1 {
 		t.Fatalf("filtered runtime summary = %+v", filteredSnapshot.Runtime)
 	}
-	if filteredSnapshot.Runtime.ManagedResume != 0 || filteredSnapshot.Runtime.CanManagedResume != 0 || filteredSnapshot.Runtime.DirectResume != 1 {
+	if filteredSnapshot.Runtime.ManagedResume != 2 || filteredSnapshot.Runtime.CanManagedResume != 1 || filteredSnapshot.Runtime.DirectResume != 1 {
 		t.Fatalf("filtered runtime resume capability summary = %+v", filteredSnapshot.Runtime)
 	}
 
@@ -861,7 +861,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &summarySnapshot); err != nil {
 		t.Fatalf("decode monitor summary runtime json: %v\nbody=%s", err, summaryOut.String())
 	}
-	if summarySnapshot.Runtime.Total != 2 || summarySnapshot.Runtime.ManagedResume != 0 || summarySnapshot.Runtime.CanManagedResume != 0 || summarySnapshot.Runtime.DirectResume != 1 {
+	if summarySnapshot.Runtime.Total != 2 || summarySnapshot.Runtime.ManagedResume != 2 || summarySnapshot.Runtime.CanManagedResume != 1 || summarySnapshot.Runtime.DirectResume != 1 {
 		t.Fatalf("summary runtime resume capability summary = %+v", summarySnapshot.Runtime)
 	}
 
@@ -873,7 +873,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
-	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=2 can_managed_resume=1 direct_resume=2") {
+	if !strings.Contains(textOut.String(), "runtime: total=4 running=0 stopped=0 exited=1 crashed=3 unknown=0 queued_on_capacity=0 stalled=0 stale_running=0 managed_resume=4 can_managed_resume=2 direct_resume=2") {
 		t.Fatalf("summary text missing runtime capabilities:\n%s", textOut.String())
 	}
 
@@ -892,7 +892,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	if teamSnapshot.Runtime.Total != 3 || teamSnapshot.Runtime.Crashed != 2 || teamSnapshot.Runtime.Exited != 1 {
 		t.Fatalf("team runtime summary = %+v", teamSnapshot.Runtime)
 	}
-	if teamSnapshot.Runtime.ManagedResume != 1 || teamSnapshot.Runtime.CanManagedResume != 1 || teamSnapshot.Runtime.DirectResume != 2 {
+	if teamSnapshot.Runtime.ManagedResume != 3 || teamSnapshot.Runtime.CanManagedResume != 2 || teamSnapshot.Runtime.DirectResume != 2 {
 		t.Fatalf("team runtime resume capability summary = %+v", teamSnapshot.Runtime)
 	}
 }

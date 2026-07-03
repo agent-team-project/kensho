@@ -282,7 +282,7 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 		row.Action = "keep"
 		row.Detail = "already running"
 		if !daemonRunning && (meta.PID == 0 || !daemon.PidLiveCheck(meta.PID)) {
-			if lifecycleMetadataSupportsManagedResume(meta) {
+			if lifecycleMetadataCanManagedResume(meta) {
 				row.Action = "resume"
 				row.Detail = "recorded running pid is not live; daemon start should reconcile"
 			} else {
@@ -302,7 +302,7 @@ func planDeclaredRow(inst *topology.Instance, meta *daemon.Metadata, daemonRunni
 		row.Detail = fmt.Sprintf("restart policy %q would relaunch %s instance", inst.Restart, meta.Status)
 		return row
 	}
-	if !lifecycleMetadataSupportsManagedResume(meta) {
+	if !lifecycleMetadataCanManagedResume(meta) {
 		row.Action = lifecycleActionUnsupported
 		row.Detail = lifecycleUnsupportedResumeDetailForInstance(meta, inst.Name)
 		return row

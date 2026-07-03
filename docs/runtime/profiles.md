@@ -162,8 +162,8 @@ agent-team team advance delivery --runtime codex --dry-run --preview-routes
 | Direct clean one-shot `run --prompt --last-message` | no | yes |
 | Direct CLI resume outside daemon ownership | yes | yes |
 | Native subagent registry | yes | no |
-| Managed resume/start | yes | no |
-| Interactive daemon `attach` resume flow | yes | no; use logs or direct Codex resume outside daemon ownership |
+| Managed resume/start | yes | yes, when metadata has a captured Codex session id |
+| Interactive daemon `attach` resume flow | yes | yes, via `codex resume <session>` |
 | `logs --last-message` sidecar | no | yes for `codex exec` |
 | Worker status, mailbox, channel scripts | yes | yes, through `AGENT_TEAM_*` shell environment policy |
 
@@ -195,7 +195,7 @@ agent-team start manager --wait
 
 ## Codex Profile
 
-The Codex profile is designed for direct launches and daemon-managed one-shot work.
+The Codex profile is designed for direct launches, daemon-managed exec work, and managed resume of sessions captured by the daemon.
 
 Interactive direct run:
 
@@ -220,7 +220,7 @@ AGENT_TEAM_RUNTIME=codex agent-team run worker \
   --json
 ```
 
-For one-shot runs, the adapter uses `codex exec -` and sends the assembled agent prompt over stdin. This avoids placing large prompts in argv. `run --prompt --last-message` bypasses the daemon, waits for Codex to exit, suppresses raw Codex stdout/stderr on success, and prints only the captured final response. If Codex exits nonzero, raw stdout/stderr are replayed for diagnosis.
+For one-shot runs, the adapter uses `codex exec -` and sends the assembled agent prompt over stdin. This avoids placing large prompts in argv. Daemon-managed Codex dispatches add `--json` so the first `thread.started` JSONL event can be captured as the daemon `SessionID`. `run --prompt --last-message` bypasses the daemon, waits for Codex to exit, suppresses raw Codex stdout/stderr on success, and prints only the captured final response. If Codex exits nonzero, raw stdout/stderr are replayed for diagnosis.
 
 Codex daemon runs also capture:
 
@@ -245,19 +245,31 @@ agent-team job logs <job-id> --clean --grep "error"
 agent-team team logs <team> --clean
 ```
 
-Use attach dry-runs to discover the direct resume command without transferring
-daemon ownership:
+Managed `start` for Codex runs `codex exec resume <session-id> -` and sends the
+generated instance brief over stdin. The daemon uses the per-instance launch-env
+snapshot captured at dispatch time, not the operator's current shell, so PATH and
+auth-mode drift after daemon restarts do not silently change the resumed child.
+Before resume, the daemon checks that the recorded workspace exists and that the
+Codex rollout for the captured session exists under `~/.codex/sessions` or
+`CODEX_HOME/sessions`. If either check fails, the daemon records a
+`resume_fallback` lifecycle event and launches a fresh instance with the brief
+instead of crash-looping on a broken resume.
+
+Use attach dry-runs to preview the managed handoff or print the direct
+interactive resume command:
 
 ```sh
 agent-team attach <instance> --dry-run
 agent-team attach <instance> --dry-run --commands
 ```
 
-For Codex metadata, the preview includes the unmanaged `codex resume <session>`
-command plus `logs --follow` and `logs --last-message` fallbacks. Add
-`--commands` when a script should receive only those command lines. Non-dry-run
-`attach` still refuses Codex managed handoff so it does not stop a child it
-cannot later supervise with the same session contract.
+For Codex metadata with a captured session, the preview includes the managed
+handoff and the interactive `codex resume <session>` command plus `logs --follow`
+and `logs --last-message` fallbacks. Add `--commands` when a script should
+receive only those command lines. Non-dry-run `attach` stops the daemon child,
+execs `codex resume <session>` in the user's terminal, and then lets the daemon
+start the managed `codex exec resume <session> -` child again when the handoff
+exits unless `--no-resume` was passed.
 
 Use `resume-plan` when you want the same guidance without contacting the
 daemon:
@@ -324,15 +336,14 @@ The Codex adapter sets `AGENT_TEAM_*` variables through Codex shell-environment 
 
 ## Codex Limitations
 
-Codex does not expose the same `--agents` and `--session-id` contract as the Claude profile.
+Codex does not expose the same `--agents` and caller-supplied `--session-id` contract as the Claude profile.
 
 That means:
 
 - native runtime subagents are not registered
-- direct `codex resume` is available only outside agent-team managed instance ownership; use `agent-team attach <instance> --dry-run` to print the exact command
-- stopped Codex metadata cannot be resumed with `start`
-- Codex metadata cannot be restarted through managed daemon resume; `restart` reports `unsupported` and leaves running Codex children untouched
-- `plan` and `sync` report stopped Codex instances as `unsupported` instead of trying to resume them
+- managed resume only works for Codex metadata with a captured `thread.started` session id; older or manually adopted Codex metadata without `--session-id` remains unsupported for `start`/`restart`
+- direct interactive `codex resume` remains the runtime-native handoff command used by `agent-team attach`; use `agent-team attach <instance> --dry-run` to preview it
+- if the Codex rollout is missing, managed `start` falls back to fresh-spawn-plus-brief and records `resume_fallback`
 - daemon dispatch requires `--prompt`, because Codex one-shot work needs an explicit task for `codex exec`
 
 Use jobs, queue, and pipeline commands for orchestration around Codex runs instead of relying on in-session subagent dispatch.
@@ -344,7 +355,8 @@ Use jobs, queue, and pipeline commands for orchestration around Codex runs inste
 | `available: no` | Runtime binary is not in `PATH` | `agent-team runtime`, then `which codex` or `which claude` |
 | Config binary ignored | `--runtime`, `AGENT_TEAM_RUNTIME`, or `AGENT_TEAM_RUNTIME_BIN` is taking precedence | Check `agent-team runtime --json`, then unset the env override or pass `--runtime-bin` |
 | `codex daemon dispatch requires --prompt` | Codex daemon runs need an explicit one-shot task | Add `--prompt "..."` |
-| `runtime "codex" does not support managed resume` | Codex metadata cannot be started or restarted through managed daemon resume | Run `agent-team attach <instance> --dry-run` to print unmanaged resume/log commands, or re-run with a fresh `--prompt` |
+| `runtime "codex" supports managed resume but no session id is recorded` | Metadata predates Codex session capture, or was adopted without `--session-id` | Run `agent-team attach <instance> --dry-run` for available log/direct commands, or launch a fresh daemon-managed Codex run so `thread.started` can be captured |
+| `resume_fallback` event after Codex start | Workspace or Codex rollout preflight failed before `codex exec resume` | Inspect `agent-team events --action resume_fallback`, confirm the workspace still exists, and check `CODEX_HOME` / `~/.codex/sessions` |
 | Tool scripts cannot find state | Missing `AGENT_TEAM_*` environment in runtime shell | Check `agent-team runtime` and inspect the daemon child log |
 | Codex exits before running any task | Codex auth, provider reachability, sandbox setup, stdin handling, or last-message capture is broken | `agent-team runtime probe --runtime codex --json`, then `agent-team runtime probe --runtime codex --exec --timeout 2m` |
 

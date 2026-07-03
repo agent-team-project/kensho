@@ -86,7 +86,6 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 		Status:        daemon.StatusStopped,
 		Runtime:       string(runtimebin.KindCodex),
 		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
-		SessionID:     "sid-manager",
 		Workspace:     tmp,
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
@@ -115,13 +114,12 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 	if row.Instance != "manager" || row.Action != lifecycleActionUnsupported || row.Status != string(daemon.StatusStopped) {
 		t.Fatalf("row = %+v, want stopped unsupported manager", row)
 	}
-	if !strings.Contains(row.Detail, `runtime "codex" does not support managed resume`) {
-		t.Fatalf("detail = %q, want Codex resume limitation", row.Detail)
+	if !strings.Contains(row.Detail, `supports managed resume but no session id is recorded`) {
+		t.Fatalf("detail = %q, want missing-session Codex limitation", row.Detail)
 	}
 	for _, want := range []string{
 		`agent-team logs manager --follow`,
 		`agent-team logs manager --last-message`,
-		`codex resume sid-manager`,
 	} {
 		if !strings.Contains(row.Detail, want) {
 			t.Fatalf("detail = %q, want %q", row.Detail, want)

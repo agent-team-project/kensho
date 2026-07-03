@@ -118,9 +118,8 @@ func TestTopologyReloadCommandJSONAndFormat(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	oldPidLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool { return pid == os.Getpid() }
-	t.Cleanup(func() { daemon.PidLiveCheck = oldPidLiveCheck })
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return pid == os.Getpid() })
+	t.Cleanup(restorePIDLiveCheck)
 	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()

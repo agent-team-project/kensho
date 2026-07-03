@@ -428,7 +428,6 @@ func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T
 		Status:        daemon.StatusStopped,
 		Runtime:       string(runtimebin.KindCodex),
 		RuntimeBinary: runtimebin.DefaultBinaryForKind(runtimebin.KindCodex),
-		SessionID:     "sid-manager",
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
 	}
@@ -459,13 +458,12 @@ func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T
 	if !strings.HasPrefix(got, "manager:unsupported:stopped:") {
 		t.Fatalf("sync output = %q, want manager unsupported row", got)
 	}
-	if !strings.Contains(got, `runtime "codex" does not support managed resume`) {
-		t.Fatalf("sync output = %q, want Codex resume limitation", got)
+	if !strings.Contains(got, `supports managed resume but no session id is recorded`) {
+		t.Fatalf("sync output = %q, want missing-session Codex limitation", got)
 	}
 	for _, want := range []string{
 		`agent-team logs manager --follow`,
 		`agent-team logs manager --last-message`,
-		`codex resume sid-manager`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("sync output = %q, want %q", got, want)

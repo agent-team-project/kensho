@@ -6368,13 +6368,10 @@ target = "worker"
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	for _, j := range []*job.Job{
 		{
 			ID:        "squ-940",
@@ -6547,6 +6544,7 @@ target = "worker"
 	}
 	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
 		"manager-squ-940 true false false",
+		"worker-squ-940 true false false",
 		"worker-squ-942 true true true",
 	}, "\n"); got != want {
 		t.Fatalf("pipeline managed resume-plan = %q, want %q", got, want)

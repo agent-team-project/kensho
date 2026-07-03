@@ -394,7 +394,7 @@ func runSyncWithStopExtras(cmd *cobra.Command, target, teamDir string, dc *daemo
 			continue
 		}
 		if lt.meta != nil {
-			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+			if !lifecycleMetadataCanManagedResume(lt.meta) {
 				result := lifecycleTargetUnsupportedResumeResult(lt)
 				results = append(results, result)
 				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {

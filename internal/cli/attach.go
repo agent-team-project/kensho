@@ -344,7 +344,7 @@ func runAttach(cmd *cobra.Command, target, instance string, noResume bool, dryRu
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"agent-team: attaching to %s (session=%s)...\n", instance, meta.SessionID)
 
-	resumeErr := execClaudeAttach(cmd, plan.bin, []string{"--resume", meta.SessionID}, target)
+	resumeErr := execClaudeAttach(cmd, plan.bin, attachResumeRuntimeArgs(meta), target)
 
 	if noResume {
 		fmt.Fprintf(cmd.OutOrStdout(),
@@ -433,12 +433,15 @@ func resolveAttachRuntimeBinary(cmd *cobra.Command, teamDir string, meta *daemon
 	if bin := strings.TrimSpace(meta.RuntimeBinary); bin != "" {
 		return bin, nil
 	}
+	if meta != nil && strings.TrimSpace(meta.Runtime) != "" {
+		return runtimebin.DefaultBinaryForKind(lifecycleMetadataRuntimeKind(meta)), nil
+	}
 	rt, err := runtimebin.CurrentFromConfig(filepath.Join(teamDir, "config.toml"))
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: %v\n", err)
 		return "", exitErr(2)
 	}
-	if rt.Kind != runtimebin.KindClaude {
+	if !runtimeKindSupportsManagedResume(rt.Kind) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team attach: runtime %q does not support managed resume; create a new run instead\n", rt.Kind)
 		return "", exitErr(2)
 	}
@@ -524,6 +527,17 @@ func attachResumeCommandArgs(meta *daemon.Metadata, bin string) []string {
 		return []string{bin, "resume", sessionID}
 	}
 	return []string{bin, "--resume", sessionID}
+}
+
+func attachResumeRuntimeArgs(meta *daemon.Metadata) []string {
+	sessionID := ""
+	if meta != nil {
+		sessionID = strings.TrimSpace(meta.SessionID)
+	}
+	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
+		return []string{"resume", sessionID}
+	}
+	return []string{"--resume", sessionID}
 }
 
 // lookupInstanceMeta fetches the daemon's metadata for one instance. Returns a

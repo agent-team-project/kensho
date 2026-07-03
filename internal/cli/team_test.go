@@ -7238,13 +7238,10 @@ func TestTeamPruneCommandsRejectsInvalidRenderModes(t *testing.T) {
 func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	root := writeOverviewRuntimeFixture(t)
 	teamDir := filepath.Join(root, ".agent_team")
-	oldPIDLiveCheck := daemon.PidLiveCheck
-	daemon.PidLiveCheck = func(pid int) bool {
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool {
 		return pid != 4242
-	}
-	t.Cleanup(func() {
-		daemon.PidLiveCheck = oldPIDLiveCheck
 	})
+	t.Cleanup(restorePIDLiveCheck)
 	now := time.Now().UTC()
 	staleJob := mustNewJob(t, "SQU-902", "worker")
 	staleJob.Pipeline = "ticket_to_pr"
@@ -7315,7 +7312,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	if err := json.Unmarshal(summaryOut.Bytes(), &counts); err != nil {
 		t.Fatalf("decode team runtime resume-plan summary: %v\nbody=%s", err, summaryOut.String())
 	}
-	if counts.Total != 2 || counts.Actions["logs"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 1 || counts.Runtimes["codex"] != 1 || counts.Statuses["crashed"] != 2 || counts.ManagedResume != 1 || counts.CanManagedResume != 1 || counts.DirectResume != 1 {
+	if counts.Total != 2 || counts.Actions["logs"] != 1 || counts.Actions["start"] != 1 || counts.Runtimes["claude"] != 1 || counts.Runtimes["codex"] != 1 || counts.Statuses["crashed"] != 2 || counts.ManagedResume != 2 || counts.CanManagedResume != 1 || counts.DirectResume != 1 {
 		t.Fatalf("team resume-plan summary = %+v", counts)
 	}
 
@@ -7329,6 +7326,8 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(managedOut.String()), strings.Join([]string{
 		"manager true true true",
+		"worker-squ-900 true false false",
+		"worker-squ-901 true true true",
 		"worker-squ-902 true true true",
 	}, "\n"); got != want {
 		t.Fatalf("team managed resume-plan = %q, want %q", got, want)
@@ -7344,6 +7343,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(canManagedOut.String()), strings.Join([]string{
 		"manager start",
+		"worker-squ-901 start",
 		"worker-squ-902 start",
 	}, "\n"); got != want {
 		t.Fatalf("team can-managed resume-plan = %q, want %q", got, want)
@@ -7359,7 +7359,7 @@ func TestTeamRuntimeResumePlanScopesMetadata(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(directOut.String()), strings.Join([]string{
 		"manager true start",
-		"worker-squ-901 true resume",
+		"worker-squ-901 true start",
 		"worker-squ-902 true start",
 	}, "\n"); got != want {
 		t.Fatalf("team direct resume-plan = %q, want %q", got, want)

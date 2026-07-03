@@ -1742,7 +1742,7 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 			continue
 		}
 		if lt.meta != nil {
-			if !lifecycleMetadataSupportsManagedResume(lt.meta) {
+			if !lifecycleMetadataCanManagedResume(lt.meta) {
 				result := lifecycleTargetUnsupportedResumeResult(lt)
 				results = append(results, result)
 				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
@@ -2251,7 +2251,7 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 	}
 	if target.meta != nil {
 		result.PID = target.meta.PID
-		if lifecycleMetadataSupportsManagedResume(target.meta) {
+		if lifecycleMetadataCanManagedResume(target.meta) {
 			result.Action = "resume"
 			result.Detail = "would resume"
 		} else {
@@ -2262,7 +2262,7 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 	if target.running() {
 		if !daemonRunning && (target.meta.PID == 0 || !daemon.PidLiveCheck(target.meta.PID)) {
 			result.Status = string(daemon.StatusRunning)
-			if lifecycleMetadataSupportsManagedResume(target.meta) {
+			if lifecycleMetadataCanManagedResume(target.meta) {
 				result.Action = "resume"
 				result.Detail = "would resume; recorded running pid is not live"
 			} else {
@@ -2289,7 +2289,7 @@ func dryRunRestartResult(target lifecycleTarget) lifecycleActionResult {
 	}
 	if target.meta != nil {
 		result.PID = target.meta.PID
-		if lifecycleMetadataSupportsManagedResume(target.meta) {
+		if lifecycleMetadataCanManagedResume(target.meta) {
 			result.Action = "restart"
 			result.Detail = "would restart"
 		} else {

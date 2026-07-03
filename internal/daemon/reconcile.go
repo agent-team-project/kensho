@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -20,9 +20,19 @@ import (
 // is gone. EPERM means alive but owned by another user — for our purposes,
 // alive (the daemon writes the metadata, so EPERM should never apply
 // normally).
-//
-// Variable so tests can stub it.
-var PidLiveCheck = func(pid int) bool {
+func PidLiveCheck(pid int) bool {
+	pidLiveCheckMu.RLock()
+	check := pidLiveCheck
+	pidLiveCheckMu.RUnlock()
+	return check(pid)
+}
+
+var (
+	pidLiveCheckMu sync.RWMutex
+	pidLiveCheck   = defaultPidLiveCheck
+)
+
+func defaultPidLiveCheck(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
@@ -39,6 +49,21 @@ var PidLiveCheck = func(pid int) bool {
 		return true
 	}
 	return false
+}
+
+func SetPidLiveCheckForTest(check func(pid int) bool) func() {
+	if check == nil {
+		check = defaultPidLiveCheck
+	}
+	pidLiveCheckMu.Lock()
+	prev := pidLiveCheck
+	pidLiveCheck = check
+	pidLiveCheckMu.Unlock()
+	return func() {
+		pidLiveCheckMu.Lock()
+		pidLiveCheck = prev
+		pidLiveCheckMu.Unlock()
+	}
 }
 
 const restartBackoffCap = 5 * time.Minute
@@ -216,7 +241,7 @@ func managedResumeSupported(meta *Metadata) bool {
 	if meta == nil {
 		return false
 	}
-	return metadataRuntimeKind(meta) == runtimebin.KindClaude && meta.SessionID != "" && meta.Workspace != ""
+	return runtimeKindSupportsManagedResume(metadataRuntimeKind(meta)) && meta.SessionID != "" && meta.Workspace != ""
 }
 
 func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Instance, expected *Metadata) (*Metadata, bool, error) {

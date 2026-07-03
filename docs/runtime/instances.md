@@ -64,8 +64,8 @@ The daemon stops supervising the child, the CLI execs the runtime in the termina
 `agent-team exec` is a Docker-like alias for `agent-team attach`; it does not
 run arbitrary shell commands inside an agent workspace.
 Use `--dry-run` to preview the session id, runtime binary, stop behavior, command, and daemon resume step without changing daemon state.
-Add `--commands` to that dry-run when scripts need only command lines. Managed runtimes print the matching `agent-team attach` or `agent-team job attach` apply command; Codex-managed daemon metadata prints the unmanaged `codex resume <session>` command plus log fallbacks.
-Interactive daemon attach requires a managed-resume-capable runtime. For Codex-managed daemon runs, non-dry-run attach refuses the handoff, while `attach --dry-run` prints the unmanaged `codex resume <session>` command plus `logs --follow` and `logs --last-message` fallbacks.
+Add `--commands` to that dry-run when scripts need only command lines. Managed runtimes print the matching `agent-team attach` or `agent-team job attach` apply command; Codex-managed daemon metadata also prints the interactive `codex resume <session>` command plus log fallbacks.
+Interactive daemon attach requires a managed-resume-capable runtime and a recorded session id. For Codex-managed daemon runs with captured session metadata, non-dry-run attach stops the child, execs `codex resume <session>` in the terminal, and lets the daemon return to `codex exec resume <session> -` afterward unless `--no-resume` is passed. `attach --dry-run` prints the interactive command plus `logs --follow` and `logs --last-message` fallbacks without stopping anything.
 When the dry-run starts from `job attach`, the output also includes `job logs`
 and `job logs --last-message` fallbacks so operators can remain in the job
 namespace.
