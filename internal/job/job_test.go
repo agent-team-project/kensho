@@ -240,7 +240,11 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err == nil {
 		t.Fatalf("Validate accepted script path for squash merge")
 	}
-	j.Merge = &Merge{Strategy: "script", Script: ".agent_team/scripts/merge.sh", OwnedPaths: []string{"coverage/baselines"}}
+	j.Merge = &Merge{Strategy: "squash", Land: "ff-only"}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid merge land")
+	}
+	j.Merge = &Merge{Strategy: "script", Script: ".agent_team/scripts/merge.sh", Land: "merge", OwnedPaths: []string{"coverage/baselines"}}
 	j.Drift = &Drift{Classification: "mystery"}
 	if err := Validate(j); err == nil {
 		t.Fatalf("Validate accepted invalid drift classification")

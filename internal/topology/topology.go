@@ -122,7 +122,8 @@ type Pipeline struct {
 	Trigger *Trigger
 	Steps   []*PipelineStep
 	// Merge describes the mechanical merge strategy for jobs created by this
-	// pipeline. Nil means no pipeline-specific merge action was declared.
+	// pipeline plus the final PR landing mode. Nil means no pipeline-specific
+	// merge action was declared.
 	Merge *PipelineMerge
 	// AutoAdvance, when true, lets the daemon dispatch the next ready step as
 	// soon as the prior step's instance exits successfully (respecting gates),
@@ -141,6 +142,7 @@ type Pipeline struct {
 type PipelineMerge struct {
 	Strategy   string
 	Script     string
+	Land       string
 	OwnedPaths []string
 }
 
@@ -443,6 +445,7 @@ type rawPipeline struct {
 	Trigger         map[string]any    `toml:"trigger"`
 	Steps           []map[string]any  `toml:"steps"`
 	Merge           *rawPipelineMerge `toml:"merge"`
+	Land            string            `toml:"land"`
 	InfraSignatures map[string]string `toml:"infra_signatures"`
 	AutoAdvance     bool              `toml:"auto_advance"`
 	ReapWorktree    string            `toml:"reap_worktree"`
@@ -451,6 +454,7 @@ type rawPipeline struct {
 type rawPipelineMerge struct {
 	Strategy   string   `toml:"strategy"`
 	Script     string   `toml:"script"`
+	Land       string   `toml:"land"`
 	OwnedPaths []string `toml:"owned_paths"`
 	Owns       []string `toml:"owns"`
 }
@@ -647,7 +651,7 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipeline %q: %w", name, err)
 	}
-	merge, err := parsePipelineMerge(name, rp.Merge)
+	merge, err := parsePipelineMerge(name, rp.Merge, rp.Land)
 	if err != nil {
 		return nil, err
 	}
@@ -658,13 +662,38 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree, InfraSignatures: infraSignatures}, nil
 }
 
-func parsePipelineMerge(name string, raw *rawPipelineMerge) (*PipelineMerge, error) {
+func parsePipelineMerge(name string, raw *rawPipelineMerge, pipelineLand string) (*PipelineMerge, error) {
 	if raw == nil {
-		return nil, nil
+		if strings.TrimSpace(pipelineLand) == "" {
+			return nil, nil
+		}
+		land, err := mergepolicy.NormalizeLand(pipelineLand)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q: %w", name, err)
+		}
+		if land != strings.ToLower(strings.TrimSpace(pipelineLand)) {
+			return nil, fmt.Errorf("pipeline %q: land %q must be normalized as %q", name, pipelineLand, land)
+		}
+		return &PipelineMerge{Strategy: mergepolicy.StrategySquash, Land: land}, nil
 	}
-	strategy, err := mergepolicy.NormalizeStrategy(raw.Strategy)
+	strategyRaw := strings.TrimSpace(raw.Strategy)
+	strategy := mergepolicy.StrategySquash
+	if strategyRaw == "" && strings.TrimSpace(raw.Land) == "" && strings.TrimSpace(pipelineLand) == "" {
+		var err error
+		strategy, err = mergepolicy.NormalizeStrategy(raw.Strategy)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q merge: %w", name, err)
+		}
+	} else if strategyRaw != "" {
+		var err error
+		strategy, err = mergepolicy.NormalizeStrategy(raw.Strategy)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q merge: %w", name, err)
+		}
+	}
+	land, err := parsePipelineLand(name, pipelineLand, raw.Land)
 	if err != nil {
-		return nil, fmt.Errorf("pipeline %q merge: %w", name, err)
+		return nil, err
 	}
 	script := strings.TrimSpace(raw.Script)
 	switch strategy {
@@ -681,7 +710,42 @@ func parsePipelineMerge(name string, raw *rawPipelineMerge) (*PipelineMerge, err
 	if err != nil {
 		return nil, err
 	}
-	return &PipelineMerge{Strategy: strategy, Script: script, OwnedPaths: ownedPaths}, nil
+	return &PipelineMerge{Strategy: strategy, Script: script, Land: land, OwnedPaths: ownedPaths}, nil
+}
+
+func parsePipelineLand(name, pipelineLand, mergeLand string) (string, error) {
+	pipelineLand = strings.TrimSpace(pipelineLand)
+	mergeLand = strings.TrimSpace(mergeLand)
+	if pipelineLand != "" {
+		normalized, err := mergepolicy.NormalizeLand(pipelineLand)
+		if err != nil {
+			return "", fmt.Errorf("pipeline %q: %w", name, err)
+		}
+		if normalized != strings.ToLower(pipelineLand) {
+			return "", fmt.Errorf("pipeline %q: land %q must be normalized as %q", name, pipelineLand, normalized)
+		}
+		pipelineLand = normalized
+	}
+	if mergeLand != "" {
+		normalized, err := mergepolicy.NormalizeLand(mergeLand)
+		if err != nil {
+			return "", fmt.Errorf("pipeline %q merge: %w", name, err)
+		}
+		if normalized != strings.ToLower(mergeLand) {
+			return "", fmt.Errorf("pipeline %q merge: land %q must be normalized as %q", name, mergeLand, normalized)
+		}
+		mergeLand = normalized
+	}
+	if pipelineLand != "" && mergeLand != "" && pipelineLand != mergeLand {
+		return "", fmt.Errorf("pipeline %q merge: land %q conflicts with pipeline land %q", name, mergeLand, pipelineLand)
+	}
+	if mergeLand != "" {
+		return mergeLand, nil
+	}
+	if pipelineLand != "" {
+		return pipelineLand, nil
+	}
+	return "", nil
 }
 
 func parseOwnedMergePaths(name string, raw *rawPipelineMerge) ([]string, error) {

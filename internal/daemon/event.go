@@ -492,6 +492,7 @@ func jobMergeFromPipeline(merge *topology.PipelineMerge) *jobstore.Merge {
 	return &jobstore.Merge{
 		Strategy:   merge.Strategy,
 		Script:     merge.Script,
+		Land:       merge.Land,
 		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
 	}
 }

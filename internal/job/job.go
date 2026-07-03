@@ -61,10 +61,12 @@ type Job struct {
 	Steps        []Step    `toml:"steps,omitempty"`
 }
 
-// Merge stores the mechanical merge strategy captured for a durable job.
+// Merge stores the mechanical merge strategy and final PR landing mode captured
+// for a durable job.
 type Merge struct {
 	Strategy   string   `toml:"strategy"`
 	Script     string   `toml:"script,omitempty"`
+	Land       string   `toml:"land,omitempty"`
 	OwnedPaths []string `toml:"owned_paths,omitempty"`
 }
 
@@ -353,6 +355,13 @@ func validateMerge(merge *Merge) error {
 	}
 	if strategy != merge.Strategy {
 		return fmt.Errorf("merge: strategy %q must be normalized as %q", merge.Strategy, strategy)
+	}
+	land, err := mergepolicy.NormalizeLand(merge.Land)
+	if err != nil {
+		return fmt.Errorf("merge: %w", err)
+	}
+	if strings.TrimSpace(merge.Land) != "" && land != merge.Land {
+		return fmt.Errorf("merge: land %q must be normalized as %q", merge.Land, land)
 	}
 	script := strings.TrimSpace(merge.Script)
 	switch strategy {

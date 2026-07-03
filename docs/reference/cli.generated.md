@@ -2798,6 +2798,7 @@ Flags:
       --branch string     Head branch to merge. Required when the job has no recorded PR.
       --dry-run           Preview the merge strategy and drift classification without mutating git or job state.
       --json              Emit the merge result as JSON.
+      --land string       Override final PR landing mode: squash, merge, or rebase.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --worktree string   Worktree path for local or script merge mechanics. Defaults to the job worktree, then the repo root.
 ```
@@ -4101,7 +4102,7 @@ Flags:
 
 Update job metadata.
 
-Update durable job metadata such as status, owner instance, branch, worktree, and PR URL.
+Update durable job metadata such as status, owner instance, branch, worktree, PR URL, and landing mode.
 
 ```text
 agent-team job update <job-id> [flags]
@@ -4112,7 +4113,7 @@ Flags:
 ```text
       --advance                   After updating metadata, dispatch the next ready pipeline step.
       --branch string             Set branch.
-      --clear strings             Clear metadata fields: ticket-url, instance, branch, worktree, pr, or pipeline. Can repeat or comma-separate.
+      --clear strings             Clear metadata fields: ticket-url, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.
       --commands                  With --dry-run, print the matching job update apply command when the preview has actionable work.
       --dry-run                   Preview metadata updates and optional advance dispatch without writing job or daemon state.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
@@ -4121,6 +4122,7 @@ Flags:
       --json                      Emit the updated job or advance result as JSON.
       --kickoff string            Set kickoff text for future dispatches.
       --kickoff-file string       Read kickoff text from a file, or '-' for stdin.
+      --land string               Set final PR landing mode: squash, merge, or rebase.
       --message string            Status message recorded on the job.
       --pr string                 Set PR URL or number.
       --repo string               Repo root containing .agent_team. (default "<repo>")

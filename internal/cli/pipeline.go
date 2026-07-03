@@ -6038,6 +6038,7 @@ type pipelineInfo struct {
 type pipelineMergeInfo struct {
 	Strategy   string   `json:"strategy"`
 	Script     string   `json:"script,omitempty"`
+	Land       string   `json:"land,omitempty"`
 	OwnedPaths []string `json:"owned_paths,omitempty"`
 }
 
@@ -6987,6 +6988,7 @@ func pipelineMergeInfoFromTopology(merge *topology.PipelineMerge) *pipelineMerge
 	return &pipelineMergeInfo{
 		Strategy:   merge.Strategy,
 		Script:     merge.Script,
+		Land:       merge.Land,
 		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
 	}
 }
@@ -10909,7 +10911,7 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 	fmt.Fprintf(w, "Pipeline: %s\n", info.Name)
 	fmt.Fprintf(w, "Trigger:  %s\n", summariseTriggerMap(info.Trigger))
 	if info.Merge != nil {
-		fmt.Fprintf(w, "Merge:    %s%s%s\n", info.Merge.Strategy, formatMergeScript(info.Merge.Script), formatMergeOwnedPaths(info.Merge.OwnedPaths))
+		fmt.Fprintf(w, "Merge:    %s%s%s%s\n", info.Merge.Strategy, formatMergeScript(info.Merge.Script), formatMergeLand(info.Merge.Land), formatMergeOwnedPaths(info.Merge.OwnedPaths))
 	}
 	if len(info.Steps) == 0 {
 		fmt.Fprintln(w, "Steps:    -")
@@ -10971,6 +10973,13 @@ func formatMergeScript(script string) string {
 		return ""
 	}
 	return " script=" + strings.TrimSpace(script)
+}
+
+func formatMergeLand(land string) string {
+	if strings.TrimSpace(land) == "" {
+		return ""
+	}
+	return " land=" + strings.TrimSpace(land)
 }
 
 func formatMergeOwnedPaths(paths []string) string {

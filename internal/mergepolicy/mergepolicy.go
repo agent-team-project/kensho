@@ -12,6 +12,12 @@ const (
 )
 
 const (
+	LandSquash = "squash"
+	LandMerge  = "merge"
+	LandRebase = "rebase"
+)
+
+const (
 	DriftClean        = "clean"
 	DriftReconcilable = "reconcilable"
 	DriftUnclassified = "unclassified"
@@ -32,6 +38,24 @@ func ValidStrategy(strategy string) bool {
 		return true
 	}
 	_, err := NormalizeStrategy(strategy)
+	return err == nil
+}
+
+func NormalizeLand(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return LandSquash, nil
+	}
+	switch value {
+	case LandSquash, LandMerge, LandRebase:
+		return value, nil
+	default:
+		return "", fmt.Errorf("merge land must be squash, merge, or rebase")
+	}
+}
+
+func ValidLand(land string) bool {
+	_, err := NormalizeLand(land)
 	return err == nil
 }
 

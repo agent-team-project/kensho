@@ -15796,6 +15796,127 @@ func TestJobMergeSquashUsesRecordedPR(t *testing.T) {
 	}
 }
 
+func TestJobMergeLandControlsRecordedPRFlag(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	logPath := installRecordingFakeGHForJobTest(t, 0)
+	j := mustNewJob(t, "SQU-455", "worker")
+	j.PR = "https://github.com/acme/repo/pull/455"
+	j.Branch = "worker-squ-455"
+	j.Merge = &job.Merge{Strategy: "squash", Land: "merge"}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-455", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge: %v\nstderr=%s", err, stderr.String())
+	}
+	logBody, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read gh log: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(logBody)), "pr merge https://github.com/acme/repo/pull/455 --merge"; got != want {
+		t.Fatalf("gh args = %q, want %q", got, want)
+	}
+	updated, err := job.Read(teamDir, "SQU-455")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Merge == nil || updated.Merge.Land != "merge" {
+		t.Fatalf("updated merge = %+v", updated.Merge)
+	}
+	var result jobMergeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.Action != "merged" || result.Strategy != "squash" || result.Land != "merge" || result.PR != j.PR {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestJobMergeLandFlagOverridesRecordedLand(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	logPath := installRecordingFakeGHForJobTest(t, 0)
+	j := mustNewJob(t, "SQU-456", "worker")
+	j.PR = "https://github.com/acme/repo/pull/456"
+	j.Branch = "worker-squ-456"
+	j.Merge = &job.Merge{Strategy: "squash", Land: "squash"}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-456", "--repo", tmp, "--land", "rebase", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge: %v\nstderr=%s", err, stderr.String())
+	}
+	logBody, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read gh log: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(logBody)), "pr merge https://github.com/acme/repo/pull/456 --rebase"; got != want {
+		t.Fatalf("gh args = %q, want %q", got, want)
+	}
+	updated, err := job.Read(teamDir, "SQU-456")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Merge == nil || updated.Merge.Land != "rebase" {
+		t.Fatalf("updated merge = %+v", updated.Merge)
+	}
+	var result jobMergeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.Land != "rebase" {
+		t.Fatalf("result land = %q, want rebase", result.Land)
+	}
+}
+
+func TestJobUpdateLandPersistsOverride(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	j := mustNewJob(t, "SQU-457", "worker")
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "update", "SQU-457", "--repo", tmp, "--land", "merge", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job update --land: %v\nstderr=%s", err, stderr.String())
+	}
+	updated, err := job.Read(teamDir, "SQU-457")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Merge == nil || updated.Merge.Strategy != "squash" || updated.Merge.Land != "merge" {
+		t.Fatalf("updated merge = %+v", updated.Merge)
+	}
+	var rendered job.Job
+	if err := json.Unmarshal(out.Bytes(), &rendered); err != nil {
+		t.Fatalf("decode job: %v\nbody=%s", err, out.String())
+	}
+	if rendered.Merge == nil || rendered.Merge.Land != "merge" {
+		t.Fatalf("rendered merge = %+v", rendered.Merge)
+	}
+}
+
 func TestJobMergeDryRunClassifiesOwnedPathDrift(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

@@ -1028,6 +1028,9 @@ func marshalPipelineMerge(merge *topology.PipelineMerge) map[string]any {
 	if merge.Script != "" {
 		out["script"] = merge.Script
 	}
+	if merge.Land != "" {
+		out["land"] = merge.Land
+	}
 	if len(merge.OwnedPaths) > 0 {
 		out["owned_paths"] = merge.OwnedPaths
 	}

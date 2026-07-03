@@ -385,6 +385,32 @@ owned_paths = ["/absolute"]
 `,
 			want: "must be repo-relative",
 		},
+		{
+			name: "invalid land",
+			body: `
+[pipelines.ticket_to_pr.merge]
+strategy = "squash"
+land = "ff-only"
+`,
+			want: "merge land must be squash, merge, or rebase",
+		},
+		{
+			name: "conflicting land declarations",
+			body: `
+[pipelines.fork_sync]
+trigger.event = "ticket.created"
+land = "merge"
+
+[pipelines.fork_sync.merge]
+strategy = "squash"
+land = "rebase"
+
+[[pipelines.fork_sync.steps]]
+id = "implement"
+target = "worker"
+`,
+			want: "conflicts with pipeline land",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse([]byte(base + tc.body))
@@ -395,6 +421,38 @@ owned_paths = ["/absolute"]
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestParse_PipelineMergeLand(t *testing.T) {
+	top, err := Parse([]byte(`
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[pipelines.ticket_to_pr.merge]
+strategy = "squash"
+land = "merge"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[pipelines.fork_sync]
+trigger.event = "ticket.created"
+land = "rebase"
+
+[[pipelines.fork_sync.steps]]
+id = "implement"
+target = "worker"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := top.Pipelines["ticket_to_pr"].Merge.Land; got != "merge" {
+		t.Fatalf("ticket_to_pr land = %q, want merge", got)
+	}
+	if merge := top.Pipelines["fork_sync"].Merge; merge == nil || merge.Strategy != "squash" || merge.Land != "rebase" {
+		t.Fatalf("fork_sync merge = %+v, want implicit squash strategy with rebase land", merge)
 	}
 }
 

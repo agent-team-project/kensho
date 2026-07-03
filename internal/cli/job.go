@@ -1725,6 +1725,7 @@ func jobMergeFromPipeline(merge *topology.PipelineMerge) *job.Merge {
 	return &job.Merge{
 		Strategy:   merge.Strategy,
 		Script:     merge.Script,
+		Land:       merge.Land,
 		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
 	}
 }
@@ -4881,6 +4882,7 @@ func newJobUpdateCmd() *cobra.Command {
 		branch        string
 		worktree      string
 		pr            string
+		land          string
 		kickoff       string
 		kickoffFile   string
 		message       string
@@ -4906,7 +4908,7 @@ func newJobUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <job-id>",
 		Short: "Update job metadata.",
-		Long:  "Update durable job metadata such as status, owner instance, branch, worktree, and PR URL.",
+		Long:  "Update durable job metadata such as status, owner instance, branch, worktree, PR URL, and landing mode.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
@@ -5022,6 +5024,14 @@ func newJobUpdateCmd() *cobra.Command {
 				j.PR = strings.TrimSpace(pr)
 				changed["pr"] = j.PR
 			}
+			if cmd.Flags().Changed("land") {
+				normalized, err := applyJobLandUpdate(teamDir, j, land)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job update: %v\n", err)
+					return exitErr(2)
+				}
+				changed["merge.land"] = normalized
+			}
 			if cmd.Flags().Changed("kickoff") || cmd.Flags().Changed("kickoff-file") {
 				j.Kickoff = kickoffText
 				changed["kickoff"] = j.Kickoff
@@ -5060,6 +5070,8 @@ func newJobUpdateCmd() *cobra.Command {
 					WorktreeSet:     cmd.Flags().Changed("worktree"),
 					PR:              pr,
 					PRSet:           cmd.Flags().Changed("pr"),
+					Land:            land,
+					LandSet:         cmd.Flags().Changed("land"),
 					Kickoff:         kickoff,
 					KickoffSet:      cmd.Flags().Changed("kickoff"),
 					KickoffFile:     kickoffFile,
@@ -5149,10 +5161,11 @@ func newJobUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Set branch.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Set worktree path.")
 	cmd.Flags().StringVar(&pr, "pr", "", "Set PR URL or number.")
+	cmd.Flags().StringVar(&land, "land", "", "Set final PR landing mode: squash, merge, or rebase.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Set kickoff text for future dispatches.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
-	cmd.Flags().StringSliceVar(&clear, "clear", nil, "Clear metadata fields: ticket-url, instance, branch, worktree, pr, or pipeline. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&clear, "clear", nil, "Clear metadata fields: ticket-url, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&advance, "advance", false, "After updating metadata, dispatch the next ready pipeline step.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
@@ -6449,6 +6462,7 @@ func newJobMergeCmd() *cobra.Command {
 		base     string
 		branch   string
 		worktree string
+		land     string
 		dryRun   bool
 		jsonOut  bool
 	)
@@ -6469,6 +6483,8 @@ func newJobMergeCmd() *cobra.Command {
 				Branch:    branch,
 				BranchSet: cmd.Flags().Changed("branch"),
 				Worktree:  worktree,
+				Land:      land,
+				LandSet:   cmd.Flags().Changed("land"),
 				DryRun:    dryRun,
 			}
 			result, err := prepareJobMerge(cmd.Context(), teamDir, j, opts)
@@ -6503,6 +6519,7 @@ func newJobMergeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&base, "base", "main", "Base branch passed to merge mechanics.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Head branch to merge. Required when the job has no recorded PR.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path for local or script merge mechanics. Defaults to the job worktree, then the repo root.")
+	cmd.Flags().StringVar(&land, "land", "", "Override final PR landing mode: squash, merge, or rebase.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the merge strategy and drift classification without mutating git or job state.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the merge result as JSON.")
 	return cmd
@@ -6513,6 +6530,8 @@ type jobMergeOptions struct {
 	Branch    string
 	BranchSet bool
 	Worktree  string
+	Land      string
+	LandSet   bool
 	DryRun    bool
 }
 
@@ -6522,6 +6541,7 @@ type jobMergeResult struct {
 	Pipeline string     `json:"pipeline,omitempty"`
 	Strategy string     `json:"strategy"`
 	Script   string     `json:"script,omitempty"`
+	Land     string     `json:"land"`
 	Base     string     `json:"base"`
 	Head     string     `json:"head,omitempty"`
 	Worktree string     `json:"worktree"`
@@ -6548,6 +6568,17 @@ func prepareJobMerge(ctx context.Context, teamDir string, j *job.Job, opts jobMe
 		return nil, fmt.Errorf("job %q has no recorded PR; pass --branch to merge a branch directly", j.ID)
 	}
 	merge, err := effectiveJobMerge(teamDir, j)
+	if err != nil {
+		return nil, err
+	}
+	landRaw := merge.Land
+	if opts.LandSet {
+		if strings.TrimSpace(opts.Land) == "" {
+			return nil, errors.New("--land must be non-empty")
+		}
+		landRaw = opts.Land
+	}
+	land, err := mergepolicy.NormalizeLand(landRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -6589,6 +6620,7 @@ func prepareJobMerge(ctx context.Context, teamDir string, j *job.Job, opts jobMe
 		Pipeline: j.Pipeline,
 		Strategy: merge.Strategy,
 		Script:   merge.Script,
+		Land:     land,
 		Base:     base,
 		Head:     head,
 		Worktree: worktree,
@@ -6626,7 +6658,7 @@ func applyJobMerge(ctx context.Context, teamDir string, j *job.Job, result *jobM
 	switch result.Strategy {
 	case mergepolicy.StrategySquash, mergepolicy.StrategyRebase:
 		if strings.TrimSpace(result.PR) != "" {
-			return runGHPRMerge(ctx, filepath.Dir(teamDir), result.PR, result.Strategy)
+			return runGHPRMerge(ctx, filepath.Dir(teamDir), result.PR, result.Land)
 		}
 		if err := ensureMergeWorktreeClean(ctx, result.Worktree); err != nil {
 			return err
@@ -6659,8 +6691,8 @@ func ensureMergeWorktreeClean(ctx context.Context, worktree string) error {
 	return nil
 }
 
-func runGHPRMerge(ctx context.Context, repoRoot, pr, strategy string) error {
-	args := []string{"pr", "merge", pr, "--" + strategy}
+func runGHPRMerge(ctx context.Context, repoRoot, pr, land string) error {
+	args := []string{"pr", "merge", pr, "--" + land}
 	if _, err := runMergeCommand(ctx, repoRoot, "gh", args...); err != nil {
 		return err
 	}
@@ -6807,7 +6839,9 @@ func runMergeCommand(ctx context.Context, dir, name string, args ...string) (str
 func applySuccessfulJobMerge(j *job.Job, result *jobMergeResult) {
 	now := time.Now().UTC()
 	if j.Merge == nil {
-		j.Merge = &job.Merge{Strategy: result.Strategy, Script: result.Script}
+		j.Merge = &job.Merge{Strategy: result.Strategy, Script: result.Script, Land: result.Land}
+	} else {
+		j.Merge.Land = result.Land
 	}
 	if result.Drift != nil {
 		j.Drift = result.Drift
@@ -6820,6 +6854,11 @@ func applySuccessfulJobMerge(j *job.Job, result *jobMergeResult) {
 
 func applyBlockedJobMerge(j *job.Job, result *jobMergeResult, blocked mergeBlockedError) {
 	now := time.Now().UTC()
+	if j.Merge == nil {
+		j.Merge = &job.Merge{Strategy: result.Strategy, Script: result.Script, Land: result.Land}
+	} else {
+		j.Merge.Land = result.Land
+	}
 	if result.Drift != nil {
 		j.Drift = result.Drift
 	}
@@ -6832,6 +6871,7 @@ func applyBlockedJobMerge(j *job.Job, result *jobMergeResult, blocked mergeBlock
 func jobMergeAuditData(result *jobMergeResult) map[string]string {
 	data := map[string]string{
 		"strategy": result.Strategy,
+		"land":     result.Land,
 		"base":     result.Base,
 	}
 	if result.Head != "" {
@@ -6856,6 +6896,7 @@ func renderJobMergeResult(w io.Writer, result *jobMergeResult, jsonOut bool) err
 	fmt.Fprintf(w, "Job:      %s\n", result.JobID)
 	fmt.Fprintf(w, "Action:   %s\n", result.Action)
 	fmt.Fprintf(w, "Strategy: %s\n", result.Strategy)
+	fmt.Fprintf(w, "Land:     %s\n", result.Land)
 	fmt.Fprintf(w, "Base:     %s\n", result.Base)
 	if result.Head != "" {
 		fmt.Fprintf(w, "Head:     %s\n", result.Head)
@@ -11110,10 +11151,10 @@ func parseJobUpdateClear(raw []string) (map[string]bool, error) {
 		switch field {
 		case "ticket-url", "ticket_url":
 			fields["ticket_url"] = true
-		case "instance", "branch", "worktree", "pr", "pipeline":
+		case "instance", "branch", "worktree", "pr", "pipeline", "land":
 			fields[field] = true
 		default:
-			return nil, fmt.Errorf("--clear accepts ticket-url, instance, branch, worktree, pr, or pipeline")
+			return nil, fmt.Errorf("--clear accepts ticket-url, instance, branch, worktree, pr, pipeline, or land")
 		}
 	}
 	return fields, nil
@@ -11134,9 +11175,50 @@ func applyJobUpdateClears(j *job.Job, clearSet map[string]bool, changed map[stri
 			j.PR = ""
 		case "pipeline":
 			j.Pipeline = ""
+		case "land":
+			if j.Merge != nil {
+				j.Merge.Land = ""
+			}
 		}
 		changed[field] = ""
 	}
+}
+
+func applyJobLandUpdate(teamDir string, j *job.Job, raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", errors.New("--land must be non-empty")
+	}
+	land, err := mergepolicy.NormalizeLand(raw)
+	if err != nil {
+		return "", err
+	}
+	if j.Merge == nil {
+		merge, err := defaultJobMergeForLandUpdate(teamDir, j)
+		if err != nil {
+			return "", err
+		}
+		j.Merge = merge
+	}
+	j.Merge.Land = land
+	return land, nil
+}
+
+func defaultJobMergeForLandUpdate(teamDir string, j *job.Job) (*job.Merge, error) {
+	pipelineName := strings.TrimSpace(j.Pipeline)
+	if pipelineName != "" {
+		top, err := topology.LoadFromTeamDir(teamDir)
+		if err != nil {
+			return nil, err
+		}
+		if top != nil {
+			if pipeline := top.Pipelines[pipelineName]; pipeline != nil {
+				if merge := jobMergeFromPipeline(pipeline.Merge); merge != nil {
+					return merge, nil
+				}
+			}
+		}
+	}
+	return &job.Merge{Strategy: mergepolicy.StrategySquash}, nil
 }
 
 func jobUpdateFieldList(changed map[string]string) string {
@@ -15988,6 +16070,8 @@ type jobUpdateApplyCommandOptions struct {
 	WorktreeSet     bool
 	PR              string
 	PRSet           bool
+	Land            string
+	LandSet         bool
 	Kickoff         string
 	KickoffSet      bool
 	KickoffFile     string
@@ -16135,6 +16219,9 @@ func jobUpdateApplyCommandArgs(opts jobUpdateApplyCommandOptions) []string {
 	}
 	if opts.PRSet {
 		args = append(args, "--pr", opts.PR)
+	}
+	if opts.LandSet && strings.TrimSpace(opts.Land) != "" {
+		args = append(args, "--land", opts.Land)
 	}
 	kickoffSet := opts.KickoffSet && strings.TrimSpace(opts.Kickoff) != ""
 	kickoffFileSet := opts.KickoffFileSet && strings.TrimSpace(opts.KickoffFile) != "" && strings.TrimSpace(opts.KickoffFile) != "-"
@@ -17149,7 +17236,7 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 		fmt.Fprintf(w, "PR:          %s\n", j.PR)
 	}
 	if j.Merge != nil {
-		fmt.Fprintf(w, "Merge:       %s%s%s\n", j.Merge.Strategy, formatMergeScript(j.Merge.Script), formatMergeOwnedPaths(j.Merge.OwnedPaths))
+		fmt.Fprintf(w, "Merge:       %s%s%s%s\n", j.Merge.Strategy, formatMergeScript(j.Merge.Script), formatMergeLand(j.Merge.Land), formatMergeOwnedPaths(j.Merge.OwnedPaths))
 	}
 	if j.Drift != nil {
 		fmt.Fprintf(w, "Drift:       %s%s%s\n", j.Drift.Classification, formatDriftBranch("base", j.Drift.Base), formatDriftBranch("head", j.Drift.Head))
