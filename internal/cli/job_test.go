@@ -10355,6 +10355,77 @@ func TestJobKillDryRunDoesNotMutateJob(t *testing.T) {
 	}
 }
 
+func TestJobKillFailureAuditsLinearAttention(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-kill-linear-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	const instance = "worker-squ-69"
+	defer func() {
+		_, _ = mgr.Stop(instance)
+		_ = mgr.WaitForReaper(instance, 2*time.Second)
+	}()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: instance, Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-69",
+		Ticket:    "SQU-69",
+		Target:    "worker",
+		Instance:  instance,
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "kill", "squ-69", "--repo", tmp, "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job kill: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode kill json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != instance || rows[0].Status != "stopped" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-69")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "instance_kill" || updated.LastStatus != "kill "+instance {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-69")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	killEvent, ok := findJobEvent(events, "instance_kill")
+	if !ok || killEvent.Data["instance"] != instance {
+		t.Fatalf("events missing kill audit: %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
+	}
+}
+
 func TestJobKillDryRunUsesExplicitStepInstance(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-kill-step-dry-run-")
 	if err != nil {

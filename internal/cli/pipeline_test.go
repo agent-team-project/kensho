@@ -5716,8 +5716,13 @@ gate = "manual"
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	if len(events) == 0 || events[len(events)-1].Type != "manual_gate_rejected" || events[len(events)-1].Message != "manual review rejected" {
+	rejectedEvent, ok := findJobEvent(events, "manual_gate_rejected")
+	if !ok || rejectedEvent.Message != "manual review rejected" {
 		t.Fatalf("reject events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("reject events missing Linear failure-attention audit: %+v", events)
 	}
 }
 
@@ -5827,8 +5832,13 @@ gate = "manual"
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	if len(events) == 0 || events[len(events)-1].Type != "manual_gate_rejected" || events[len(events)-1].Message != "manual batch rejected from file" {
+	rejectedEvent, ok := findJobEvent(events, "manual_gate_rejected")
+	if !ok || rejectedEvent.Message != "manual batch rejected from file" {
 		t.Fatalf("reject events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("reject events missing Linear failure-attention audit: %+v", events)
 	}
 }
 

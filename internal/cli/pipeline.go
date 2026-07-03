@@ -9761,6 +9761,7 @@ func rejectPipelineManualGates(teamDir, pipeline, stepFilter, message string, li
 		if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": row.StepID}); err != nil {
 			return nil, err
 		}
+		writeLinearFailureAttention(teamDir, j, rejectionMessage)
 		result.Action = "rejected"
 		result.DryRun = false
 		results = append(results, result)

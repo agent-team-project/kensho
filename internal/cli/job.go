@@ -8029,6 +8029,7 @@ func newJobRejectCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": selectedStep}); err != nil {
 				return err
 			}
+			writeLinearFailureAttention(teamDir, j, reason)
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
 			}
@@ -12096,7 +12097,13 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instan
 		return nil
 	}
 	applyJobInstanceDownUpdate(j, selection, downAction(opts), nextStatus)
-	return writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection))
+	if err := writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection)); err != nil {
+		return err
+	}
+	if nextStatus == job.StatusFailed {
+		writeLinearFailureAttention(teamDir, j, j.LastStatus)
+	}
+	return nil
 }
 
 func validateJobLifecycleRenderOptions(cmd *cobra.Command, label string, dryRun, wait, commands, jsonOut, quiet bool, format *template.Template) error {
