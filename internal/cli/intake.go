@@ -167,6 +167,12 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake %s: %v\n", provider, err)
 				return exitErr(2)
 			}
+			if reason := intakeIgnoreReason(cmd, target, provider, ev); reason != "" {
+				if dryRun && commands {
+					return nil
+				}
+				return renderIgnoredIntake(cmd.OutOrStdout(), intakePublishResult{Event: ev, Ignored: true, IgnoreReason: reason, DryRun: dryRun}, jsonOut, tmpl)
+			}
 			var reconcile *job.ReconcileResult
 			var cleanupPreview *jobCleanupPreview
 			var advancePreview *jobAdvancePreview
@@ -1387,6 +1393,9 @@ func linearWebhookTimestamp(body []byte) (time.Time, error) {
 }
 
 func processIntakeServeEvent(teamDir, provider string, ev *intake.Event, opts intakeServeOptions) (*intakePublishResult, int, error) {
+	if reason := intakeIgnoreReasonForTeamDir(teamDir, provider, ev); reason != "" {
+		return &intakePublishResult{Event: ev, Ignored: true, IgnoreReason: reason, DryRun: opts.DryRun}, http.StatusOK, nil
+	}
 	if opts.DryRun {
 		result := &intakePublishResult{Event: ev, DryRun: true}
 		if provider == "github" && opts.GitHubReconcileJob {
@@ -1502,6 +1511,8 @@ type intakePublishResult struct {
 	WaitedJobs     []scheduleWaitJob    `json:"waited_jobs,omitempty"`
 	Preview        *eventPublishPreview `json:"preview,omitempty"`
 	DryRun         bool                 `json:"dry_run,omitempty"`
+	Ignored        bool                 `json:"ignored,omitempty"`
+	IgnoreReason   string               `json:"ignore_reason,omitempty"`
 }
 
 func parseIntakeFormat(format string) (*template.Template, error) {
@@ -1559,6 +1570,41 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *templ
 		}
 	}
 	return nil
+}
+
+func intakeIgnoreReason(cmd *cobra.Command, target, provider string, ev *intake.Event) string {
+	if provider != "linear" {
+		return ""
+	}
+	teamDir, err := resolveTeamDir(cmd, target)
+	if err != nil {
+		return ""
+	}
+	return intakeIgnoreReasonForTeamDir(teamDir, provider, ev)
+}
+
+func intakeIgnoreReasonForTeamDir(teamDir, provider string, ev *intake.Event) string {
+	if provider != "linear" {
+		return ""
+	}
+	if ignored, reason := intake.LinearSelfStatusChange(teamDir, ev); ignored {
+		return reason
+	}
+	return ""
+}
+
+func renderIgnoredIntake(w io.Writer, result intakePublishResult, jsonOut bool, tmpl *template.Template) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	if tmpl != nil {
+		return renderIntakeTemplate(w, result, tmpl)
+	}
+	if result.Event != nil {
+		fmt.Fprintf(w, "Event: %s\n", result.Event.Type)
+	}
+	_, err := fmt.Fprintf(w, "Ignored: %s\n", result.IgnoreReason)
+	return err
 }
 
 type webhookIntakeApplyCommandOptions struct {
@@ -1793,6 +1839,11 @@ func renderIntakeOutcome(w io.Writer, res *eventResponse) error {
 	}
 	for _, n := range res.Messaged {
 		fmt.Fprintf(w, "  messaged %s\n", n)
+	}
+	for _, n := range res.Noop {
+		name, _ := n["instance"].(string)
+		reason, _ := n["reason"].(string)
+		fmt.Fprintf(w, "  noop %s: %s\n", name, reason)
 	}
 	for _, r := range res.Rejected {
 		name, _ := r["instance"].(string)

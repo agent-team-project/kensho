@@ -533,6 +533,18 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if provider == "linear" {
+			if ignored, reason := intake.LinearSelfStatusChange(teamDir, ev); ignored {
+				resp := eventResponseMap([]EventOutcome{{
+					Instance: "intake:linear",
+					Action:   "noop",
+					Reason:   reason,
+				}})
+				resp["event"] = ev
+				writeJSON(w, http.StatusOK, resp)
+				return
+			}
+		}
 		result, err := events.EventWithResult(ev.Type, ev.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -834,6 +846,7 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 	dispatched := make([]map[string]any, 0)
 	queued := make([]string, 0)
 	messaged := make([]string, 0)
+	noop := make([]map[string]string, 0)
 	blocked := make([]map[string]string, 0)
 	rejected := make([]map[string]string, 0)
 	for _, oc := range outcomes {
@@ -852,6 +865,11 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 			}
 		case "messaged":
 			messaged = append(messaged, oc.Instance)
+		case "noop":
+			noop = append(noop, map[string]string{
+				"instance": oc.Instance,
+				"reason":   oc.Reason,
+			})
 		case "blocked":
 			blocked = append(blocked, map[string]string{
 				"instance": oc.Instance,
@@ -869,6 +887,7 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 		"dispatched": dispatched,
 		"queued":     queued,
 		"messaged":   messaged,
+		"noop":       noop,
 		"blocked":    blocked,
 		"rejected":   rejected,
 		"outcomes":   outcomes,

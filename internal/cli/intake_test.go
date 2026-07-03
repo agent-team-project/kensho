@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
@@ -58,6 +59,216 @@ func TestIntakeLinearCreatesPipelineJob(t *testing.T) {
 		t.Fatalf("messages = %+v, want one", messages)
 	}
 	_ = mgr
+}
+
+func TestIntakeLinearColumnTransitionDispatches(t *testing.T) {
+	target, _, cleanup := setupLinearColumnPipelineRepo(t, false, "")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	payload := linearStatusPayload("SQU-301", "Ready for Agent", "human-user")
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake linear column: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake json: %v\nbody=%s", err, out.String())
+	}
+	if result.Event.Type != "ticket.status_changed" || result.Event.Payload["status"] != "Ready for Agent" || result.Event.Payload["actor_id"] != "human-user" {
+		t.Fatalf("event = %+v", result.Event)
+	}
+	if result.Outcome == nil || len(result.Outcome.Queued) != 1 || result.Outcome.Queued[0] != "manager" {
+		t.Fatalf("outcome = %+v", result.Outcome)
+	}
+	j, err := job.Read(teamDir, "squ-301")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Pipeline != "ticket_to_pr" || j.Status != job.StatusQueued || len(j.Steps) != 1 || j.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("job = %+v", j)
+	}
+}
+
+func TestIntakeLinearOtherColumnDoesNotDispatch(t *testing.T) {
+	target, _, cleanup := setupLinearColumnPipelineRepo(t, false, "")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	payload := linearStatusPayload("SQU-302", "Todo", "human-user")
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake linear other column: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake json: %v\nbody=%s", err, out.String())
+	}
+	if result.Event.Type != "ticket.status_changed" || result.Event.Payload["status"] != "Todo" {
+		t.Fatalf("event = %+v", result.Event)
+	}
+	if result.Outcome == nil || len(result.Outcome.Matched) != 0 || len(result.Outcome.Queued) != 0 {
+		t.Fatalf("outcome = %+v", result.Outcome)
+	}
+	if _, err := job.Read(teamDir, "squ-302"); !os.IsNotExist(err) {
+		t.Fatalf("other column wrote job, err=%v", err)
+	}
+}
+
+func TestIntakeLinearSelfActorStatusChangeIgnored(t *testing.T) {
+	target, _, cleanup := setupLinearColumnPipelineRepo(t, false, "agent-user")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	payload := linearStatusPayload("SQU-303", "Ready for Agent", "agent-user")
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake linear self actor: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake json: %v\nbody=%s", err, out.String())
+	}
+	if !result.Ignored || result.IgnoreReason != intake.LinearSelfStatusChangeReason || result.Outcome != nil {
+		t.Fatalf("result = %+v, want ignored self actor without outcome", result)
+	}
+	if _, err := job.Read(teamDir, "squ-303"); !os.IsNotExist(err) {
+		t.Fatalf("self actor wrote job, err=%v", err)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("messages = %+v, want none", messages)
+	}
+}
+
+func TestIntakeLinearReentryDefaultNoopForTerminalJob(t *testing.T) {
+	target, _, cleanup := setupLinearColumnPipelineRepo(t, false, "")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	payload := linearStatusPayload("SQU-304", "Ready for Agent", "human-user")
+
+	first := NewRootCmd()
+	first.SetOut(&bytes.Buffer{})
+	first.SetErr(&bytes.Buffer{})
+	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first intake: %v", err)
+	}
+	j, err := job.Read(teamDir, "squ-304")
+	if err != nil {
+		t.Fatalf("read first job: %v", err)
+	}
+	j.Status = job.StatusDone
+	j.Steps[0].Status = job.StatusDone
+	j.LastEvent = "closed"
+	j.LastStatus = "done"
+	j.UpdatedAt = time.Now().UTC()
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write terminal job: %v", err)
+	}
+
+	second := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	second.SetOut(out)
+	second.SetErr(stderr)
+	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := second.Execute(); err != nil {
+		t.Fatalf("second intake: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode second intake: %v\nbody=%s", err, out.String())
+	}
+	if result.Outcome == nil || len(result.Outcome.Noop) != 1 || len(result.Outcome.Queued) != 0 {
+		t.Fatalf("outcome = %+v, want one noop", result.Outcome)
+	}
+	events, err := job.ListEvents(teamDir, "squ-304")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != "pipeline_reentry_noop" {
+		t.Fatalf("events = %+v, want pipeline_reentry_noop last", events)
+	}
+}
+
+func TestIntakeLinearReentryRedispatchesTerminalJobWhenEnabled(t *testing.T) {
+	target, _, cleanup := setupLinearColumnPipelineRepo(t, true, "")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+	payload := linearStatusPayload("SQU-305", "Ready for Agent", "human-user")
+
+	first := NewRootCmd()
+	first.SetOut(&bytes.Buffer{})
+	first.SetErr(&bytes.Buffer{})
+	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first intake: %v", err)
+	}
+	j, err := job.Read(teamDir, "squ-305")
+	if err != nil {
+		t.Fatalf("read first job: %v", err)
+	}
+	j.Status = job.StatusFailed
+	j.Steps[0].Status = job.StatusFailed
+	j.LastEvent = "closed"
+	j.LastStatus = "failed"
+	j.Instance = "manager"
+	j.UpdatedAt = time.Now().UTC()
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write failed job: %v", err)
+	}
+
+	second := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	second.SetOut(out)
+	second.SetErr(stderr)
+	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	if err := second.Execute(); err != nil {
+		t.Fatalf("second intake: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode second intake: %v\nbody=%s", err, out.String())
+	}
+	if result.Outcome == nil || len(result.Outcome.Queued) != 1 || len(result.Outcome.Noop) != 0 {
+		t.Fatalf("outcome = %+v, want redispatch queued", result.Outcome)
+	}
+	reopened, err := job.Read(teamDir, "squ-305")
+	if err != nil {
+		t.Fatalf("read reopened job: %v", err)
+	}
+	if reopened.Status != job.StatusQueued || reopened.LastEvent != "pipeline_step" || reopened.Instance != "" || len(reopened.Steps) != 1 || reopened.Steps[0].Status != job.StatusQueued || reopened.Steps[0].Attempts != 1 {
+		t.Fatalf("reopened job = %+v", reopened)
+	}
+	events, err := job.ListEvents(teamDir, "squ-305")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	foundReopen := false
+	for _, event := range events {
+		if event.Type == "reopened" && event.Data["reentry"] == "reopen" {
+			foundReopen = true
+			break
+		}
+	}
+	if !foundReopen {
+		t.Fatalf("events = %+v, want reopened reentry event", events)
+	}
 }
 
 func TestIntakeLinearDryRunNormalizesWithoutDaemon(t *testing.T) {
@@ -3356,4 +3567,56 @@ target = "manager"
 		cleanupDaemon()
 		_ = os.RemoveAll(target)
 	}
+}
+
+func setupLinearColumnPipelineRepo(t *testing.T, redispatchOnReentry bool, agentUserID string) (target string, mgr *daemon.InstanceManager, cleanup func()) {
+	t.Helper()
+	target, err := os.MkdirTemp("/tmp", "agent-team-linear-column-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "manager"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "manager", "agent.md"), []byte("---\ndescription: manager\n---\n\nmanager\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(agentUserID) != "" {
+		if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(fmt.Sprintf("[linear]\nagent_user_id = %q\n", agentUserID)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reentryLine := ""
+	if redispatchOnReentry {
+		reentryLine = "redispatch_on_reentry = true\n"
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent"
+`+reentryLine+`
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr = daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
+	return target, mgr, func() {
+		cleanupDaemon()
+		_ = os.RemoveAll(target)
+	}
+}
+
+func linearStatusPayload(ticket, status, actorID string) string {
+	return fmt.Sprintf(`{"action":"Issue updated","actor":{"id":%q,"name":"Actor"},"data":{"identifier":%q,"title":"Board dispatch","url":"https://linear.app/squirtlesquad/issue/%s/board-dispatch","state":{"name":%q}}}`, actorID, ticket, ticket, status)
 }

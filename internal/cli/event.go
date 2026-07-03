@@ -371,9 +371,22 @@ func previewPipelineJob(teamDir, eventType string, payload map[string]any, pipel
 		if len(existing.Steps) == 0 {
 			existing.Steps = jobStepsFromPipeline(pipeline)
 		}
-		preview = previewPipelineJobFromJob(existing, "would_update", true)
+		preview = previewPipelineJobFromJob(existing, previewPipelineReentryAction(existing, pipeline), true)
 	}
 	return preview
+}
+
+func previewPipelineReentryAction(j *job.Job, pipeline *topology.Pipeline) string {
+	if j == nil {
+		return "would_create"
+	}
+	if j.Status != job.StatusDone && j.Status != job.StatusFailed {
+		return "would_noop"
+	}
+	if pipeline != nil && pipeline.RedispatchOnReentry {
+		return "would_reopen"
+	}
+	return "would_noop"
 }
 
 func previewPipelineJobFromJob(j *job.Job, action string, existing bool) eventPipelineJobPreview {

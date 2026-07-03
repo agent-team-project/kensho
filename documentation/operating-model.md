@@ -28,6 +28,12 @@ High-volume automation stays safe because every job funnels through the same man
 ## The pipeline shape that works
 
 ```toml
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent"
+redispatch_on_reentry = false
+auto_advance = true
+
 [[pipelines.<name>.steps]]
 id = "implement"      # ephemeral worker, worktree isolation, watchdog timeout
 [[pipelines.<name>.steps]]
@@ -39,7 +45,10 @@ after = ["review"]
 gate = "manual"
 ```
 
+- **The board is the dispatch control plane.** In Linear-backed repos, moving a card into the configured agent column (`linear.agent_column`, default `Ready for Agent`) is the intentional dispatch gesture. Creation-triggered dispatch remains useful for zero-config demos, but production queues should be column-gated.
 - `auto_advance` chains headless steps on process exit; the manual gate stops exactly where merge judgment is needed.
+- **Re-entry is idempotent by default.** Dragging the same ticket out and back in no-ops while a job is queued/running/blocked, and terminal jobs no-op unless the pipeline sets `redispatch_on_reentry = true`.
+- **Loop protection is actor based.** Set `linear.agent_user_id` or cache the Linear `viewer { id }` response so agent-authored status changes do not dispatch the same ticket again.
 - **Watchdog timeouts on every headless step** (45–60m implement, 30m review). Runtimes can wedge mid-stream with no client-side timeout; force-kill + crash-finalize + freed slot is the correct recovery.
 - **`max_attempts = 1` for implementation.** A hang can strike *after* the PR opens; an auto-retry then opens a duplicate. Let the manager re-dispatch — it knows whether the artifact already exists. Read-only/idempotent review steps can opt into `retry_on_crash = true`, which retries once only after a crash/nonzero exit with no recorded gate/verdict.
 - Run parallel pipelines distinguished by trigger event; distinct events mean zero cross-dispatch.

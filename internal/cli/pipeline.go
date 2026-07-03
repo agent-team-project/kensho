@@ -6028,11 +6028,12 @@ func waitForPipelineRunJob(cmd *cobra.Command, teamDir, id string, filters jobWa
 }
 
 type pipelineInfo struct {
-	Name         string             `json:"name"`
-	Trigger      map[string]any     `json:"trigger"`
-	Steps        []pipelineStepInfo `json:"steps"`
-	Merge        *pipelineMergeInfo `json:"merge,omitempty"`
-	ReapWorktree string             `json:"reap_worktree"`
+	Name                string             `json:"name"`
+	Trigger             map[string]any     `json:"trigger"`
+	Steps               []pipelineStepInfo `json:"steps"`
+	Merge               *pipelineMergeInfo `json:"merge,omitempty"`
+	ReapWorktree        string             `json:"reap_worktree"`
+	RedispatchOnReentry bool               `json:"redispatch_on_reentry,omitempty"`
 }
 
 type pipelineMergeInfo struct {
@@ -6980,11 +6981,12 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 		})
 	}
 	return pipelineInfo{
-		Name:         p.Name,
-		Trigger:      triggerAsMap(p.Trigger),
-		Steps:        steps,
-		Merge:        pipelineMergeInfoFromTopology(p.Merge),
-		ReapWorktree: p.ReapWorktree,
+		Name:                p.Name,
+		Trigger:             triggerAsMap(p.Trigger),
+		Steps:               steps,
+		Merge:               pipelineMergeInfoFromTopology(p.Merge),
+		ReapWorktree:        p.ReapWorktree,
+		RedispatchOnReentry: p.RedispatchOnReentry,
 	}
 }
 

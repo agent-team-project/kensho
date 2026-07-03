@@ -28,6 +28,18 @@ pattern     = "^[A-Z]{2,5}$"
 description = "Linear ticket prefix, e.g. SQU. Required only when team.pm_tool is linear."
 
 [[parameter]]
+key         = "linear.agent_column"
+type        = "string"
+default     = "Ready for Agent"
+description = "Linear workflow column that dispatches the default ticket_to_pr pipeline when a card is moved into it."
+
+[[parameter]]
+key         = "linear.agent_user_id"
+type        = "string"
+default     = ""
+description = "Optional Linear user UUID for the agent API key; status-change webhooks authored by this user are ignored to prevent dispatch loops."
+
+[[parameter]]
 key         = "linear.initiative_id"
 type        = "string"
 required    = false

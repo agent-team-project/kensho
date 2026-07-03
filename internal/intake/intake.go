@@ -36,6 +36,26 @@ func NormalizeLinear(body []byte) (*Event, error) {
 	copyIf(payload, "project", firstNestedString(data, []string{"project", "name"}, []string{"project", "id"}))
 	copyIf(payload, "status", firstNestedString(data, []string{"state", "name"}, []string{"status", "name"}))
 	copyIf(payload, "description", firstNestedString(data, []string{"description"}))
+	copyIf(payload, "actor_id", firstNestedString(raw,
+		[]string{"actor", "id"},
+		[]string{"actorId"},
+		[]string{"actor_id"},
+		[]string{"user", "id"},
+		[]string{"updatedBy", "id"},
+		[]string{"createdBy", "id"},
+	))
+	copyIf(payload, "actor_name", firstNestedString(raw,
+		[]string{"actor", "name"},
+		[]string{"user", "name"},
+		[]string{"updatedBy", "name"},
+		[]string{"createdBy", "name"},
+	))
+	copyIf(payload, "actor_email", firstNestedString(raw,
+		[]string{"actor", "email"},
+		[]string{"user", "email"},
+		[]string{"updatedBy", "email"},
+		[]string{"createdBy", "email"},
+	))
 	return &Event{Type: eventType, Payload: payload}, nil
 }
 

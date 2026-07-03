@@ -10,6 +10,7 @@ pm_tool = "linear"   # only "linear" supported in v1
 [linear]
 team_id       = "72986798-f8b4-4f57-afe2-c76d4868db0f"   # SquirtleSquad team (key: SQU)
 ticket_prefix = "SQU"
+agent_column  = "Ready for Agent"
 initiative_id = "b4266442-de88-4000-82ba-0d24054d827c"   # Version 1.0
 labels        = []                                         # no label conventions yet
 

@@ -45,6 +45,14 @@ team_id       = ""
 # Ticket prefix for this team — e.g. "ENG", "BENCH", "SQU".
 ticket_prefix = ""
 
+# Column name that dispatches the default ticket_to_pr pipeline when a card is
+# moved into it.
+agent_column = "Ready for Agent"
+
+# Optional: Linear user UUID for the agent API key. Status-change webhooks
+# authored by this user are ignored so agent write-backs do not redispatch work.
+# agent_user_id = ""
+
 # Optional: initiative UUID this team rolls up to.
 # initiative_id = ""
 

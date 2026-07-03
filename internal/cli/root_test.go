@@ -291,12 +291,12 @@ func TestRootGraphShortcutRendersGraphScopes(t *testing.T) {
 		{
 			name: "pipeline",
 			args: []string{"graph", "--repo", root, "--pipeline", "ticket_to_pr"},
-			want: []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker"},
+			want: []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.status_changed(status)", "implement target=worker"},
 		},
 		{
 			name: "positional pipeline",
 			args: []string{"graph", "--repo", root, "ticket_to_pr"},
-			want: []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.created", "implement target=worker"},
+			want: []string{"Pipeline: ticket_to_pr", "Trigger:  ticket.status_changed(status)", "implement target=worker"},
 		},
 		{
 			name: "mermaid",
