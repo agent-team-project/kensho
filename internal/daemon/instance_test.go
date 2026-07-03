@@ -88,6 +88,17 @@ func (f *fakeSpawner) lastStdin() string {
 	return f.stdins[len(f.stdins)-1]
 }
 
+func lastEnvValue(env []string, key string) string {
+	value := ""
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			value = strings.TrimPrefix(item, prefix)
+		}
+	}
+	return value
+}
+
 func ignoreTermSpawner(t *testing.T) Spawner {
 	t.Helper()
 	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
@@ -281,6 +292,37 @@ func TestInstance_DispatchPersistsMetadata(t *testing.T) {
 	}
 
 	// Cleanup: stop the child so the reaper finalises.
+	if _, err := m.Stop("worker-squ-1"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-squ-1", StatusRunning)
+}
+
+func TestInstance_DispatchPersistsLaunchEnvSnapshot(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-squ-1",
+		Prompt:    "hello",
+		Workspace: t.TempDir(),
+		Env:       []string{"MARKER=dispatch", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep"},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "worker-squ-1")
+	if err != nil {
+		t.Fatalf("read launch env: %v", err)
+	}
+	if !envHasKey(snapshot.Env, "MARKER") || !envHasKey(snapshot.Env, "OPENAI_API_KEY_EXTRA") {
+		t.Fatalf("snapshot env missing allowed keys: %+v", snapshot.Env)
+	}
+	if envHasKey(snapshot.Env, "OPENAI_API_KEY") {
+		t.Fatalf("snapshot env persisted denied key: %+v", snapshot.Env)
+	}
+
 	if _, err := m.Stop("worker-squ-1"); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -503,6 +545,88 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	}
 
 	// Cleanup.
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_StartUsesPersistedLaunchEnvSnapshot(t *testing.T) {
+	t.Setenv("MARKER", "current-before-dispatch")
+	root := t.TempDir()
+	first := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, first.spawn)
+
+	disp, err := m.Dispatch(DispatchInput{
+		Agent:     "manager",
+		Name:      "mgr",
+		Workspace: t.TempDir(),
+		Env:       []string{"MARKER=dispatch", "OPENAI_API_KEY=must-not-persist"},
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if disp.SessionID == "" {
+		t.Fatalf("dispatch session id missing")
+	}
+	if _, err := m.Stop("mgr"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+	t.Setenv("MARKER", "current-after-dispatch")
+
+	resume := newFakeSpawner(30 * time.Second)
+	restarted := NewInstanceManager(root, resume.spawn)
+	if _, err := restarted.Start("mgr"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	env := resume.lastEnv()
+	if !containsString(env, "MARKER=dispatch") {
+		t.Fatalf("resume env missing dispatch marker: %+v", env)
+	}
+	if containsString(env, "MARKER=current-after-dispatch") {
+		t.Fatalf("resume env used post-dispatch shell marker instead of snapshot: %+v", env)
+	}
+	if got := lastEnvValue(env, "MARKER"); got != "dispatch" {
+		t.Fatalf("effective resume marker = %q, want dispatch in env %+v", got, env)
+	}
+	if envHasKey(env, "OPENAI_API_KEY") {
+		t.Fatalf("resume env included stripped denied key: %+v", env)
+	}
+
+	_, _ = restarted.Stop("mgr")
+	waitForStatusNot(t, restarted, "mgr", StatusRunning)
+}
+
+func TestInstance_StartAppendsBriefMailboxMessage(t *testing.T) {
+	teamDir := t.TempDir()
+	root := DaemonRoot(teamDir)
+	if err := os.WriteFile(teamDir+"/instances.toml", []byte(`
+[instances.mgr]
+agent = "manager"
+description = "Recoverable manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "mgr", Workspace: t.TempDir()}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := m.Stop("mgr"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+	if _, err := m.Start("mgr"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	messages, err := ReadUnacked(root, "mgr")
+	if err != nil {
+		t.Fatalf("read mailbox: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, "# Instance brief: mgr") || messages[0].From != "agent-team" {
+		t.Fatalf("resume brief messages = %+v", messages)
+	}
+
 	_, _ = m.Stop("mgr")
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }

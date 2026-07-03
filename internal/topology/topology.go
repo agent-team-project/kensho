@@ -72,6 +72,10 @@ type Instance struct {
 	// Restart controls daemon reconcile relaunch behavior for declared
 	// persistent instances. Defaults to "never".
 	Restart string
+	// Brief controls generated catch-up brief injection for recoverable
+	// persistent instances. Defaults to true for persistent instances and false
+	// for ephemeral instances.
+	Brief bool
 	// Config holds per-instance overrides for the resolved config tree —
 	// dotted-path keys flattened from `[instances.<name>.config]` in TOML.
 	// Empty when no overrides are declared.
@@ -383,6 +387,7 @@ type rawInstance struct {
 	Replicas     *int             `toml:"replicas"`
 	ReapWorktree string           `toml:"reap_worktree"`
 	Restart      string           `toml:"restart"`
+	Brief        *bool            `toml:"brief"`
 	Config       map[string]any   `toml:"config"`
 	Triggers     []map[string]any `toml:"triggers"`
 }
@@ -495,6 +500,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
 	}
+	brief := !ri.Ephemeral
+	if ri.Brief != nil {
+		brief = *ri.Brief
+	}
 	cfg := template.Tree{}
 	if len(ri.Config) > 0 {
 		// `config` arrives as a free-form map[string]any from BurntSushi/toml.
@@ -514,6 +523,7 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		Replicas:     replicas,
 		ReapWorktree: reapWorktree,
 		Restart:      restart,
+		Brief:        brief,
 		Config:       cfg,
 		Triggers:     triggers,
 	}, nil

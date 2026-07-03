@@ -77,6 +77,7 @@ Topology declaration.
 [instances.manager]
 agent = "manager"
 ephemeral = false
+brief = true
 
 [[instances.manager.triggers]]
 event = "user_invocation"

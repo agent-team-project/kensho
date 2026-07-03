@@ -67,6 +67,9 @@ func TestParse_Sample(t *testing.T) {
 	if mgr.Agent != "manager" || mgr.Ephemeral || mgr.Replicas != 1 {
 		t.Errorf("manager wrong: %+v", mgr)
 	}
+	if !mgr.Brief {
+		t.Errorf("manager brief = false, want default true for persistent instances")
+	}
 	tmPlat := top.Instances["tm-platform"]
 	if tmPlat == nil {
 		t.Fatal("tm-platform missing")
@@ -93,11 +96,42 @@ func TestParse_Sample(t *testing.T) {
 	if !worker.Ephemeral || worker.Replicas != 3 {
 		t.Errorf("worker: %+v", worker)
 	}
+	if worker.Brief {
+		t.Errorf("worker brief = true, want default false for ephemeral instances")
+	}
 	if worker.ReapWorktree != "never" {
 		t.Errorf("worker reap_worktree = %q, want never", worker.ReapWorktree)
 	}
 	if worker.Restart != RestartNever {
 		t.Errorf("worker restart = %q, want never", worker.Restart)
+	}
+}
+
+func TestParse_BriefPolicy(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.manager]
+agent = "manager"
+brief = false
+
+[instances.reviewer]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+brief = true
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if top.Instances["manager"].Brief {
+		t.Fatalf("manager brief = true, want explicit false")
+	}
+	if !top.Instances["reviewer"].Brief {
+		t.Fatalf("reviewer brief = false, want persistent default true")
+	}
+	if !top.Instances["worker"].Brief {
+		t.Fatalf("worker brief = false, want explicit true")
 	}
 }
 

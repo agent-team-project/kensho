@@ -239,10 +239,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
 
-	env := os.Environ()
-	if len(in.Env) > 0 {
-		env = append(env, in.Env...)
-	}
+	env := append(os.Environ(), in.Env...)
 	stdin := dispatchStdin(rt, in)
 	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath, stdin)
 	if err != nil {
@@ -261,6 +258,10 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		StartedAt:     now,
 		Status:        StatusRunning,
 		LogPath:       logPath,
+	}
+	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
+		_ = proc.Kill()
+		return nil, fmt.Errorf("dispatch: persist launch env: %w", err)
 	}
 	if err := WriteMetadata(m.daemonRoot, meta); err != nil {
 		// We've already spawned. Best effort: kill, return error.
@@ -710,6 +711,20 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no workspace; cannot resume", instance)
 	}
+	if brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance); err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("start: brief: %w", err)
+	} else if brief != "" {
+		if err := AppendMessage(m.daemonRoot, instance, &Message{
+			From: "agent-team",
+			To:   instance,
+			Body: brief,
+			TS:   time.Now().UTC(),
+		}); err != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("start: brief mailbox: %w", err)
+		}
+	}
 
 	logPath := base.LogPath
 	if logPath == "" {
@@ -725,7 +740,12 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 		}
 	}
 	args := []string{bin, "--resume", base.SessionID}
-	proc, err := m.spawner(args, os.Environ(), base.Workspace, logPath, logPath, "")
+	env, err := m.startEnv(instance)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("start: launch env: %w", err)
+	}
+	proc, err := m.spawner(args, env, base.Workspace, logPath, logPath, "")
 	if err != nil {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: spawn: %w", err)
@@ -746,6 +766,11 @@ func (m *InstanceManager) start(instance string, expected *Metadata) (*Metadata,
 	next := &tracked{meta: &meta, process: proc, reaped: reaped}
 
 	m.instances[instance] = next
+	if err := m.writeInstanceLaunchEnv(instance, args, env, base.Workspace, proc.Pid, now); err != nil {
+		m.mu.Unlock()
+		_ = proc.Kill()
+		return nil, fmt.Errorf("start: persist launch env: %w", err)
+	}
 	if err := WriteMetadata(m.daemonRoot, &meta); err != nil {
 		m.mu.Unlock()
 		_ = proc.Kill()
@@ -833,9 +858,9 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: %w", err)
 	}
-	env := os.Environ()
-	if len(in.Env) > 0 {
-		env = append(env, in.Env...)
+	env, err := m.launchPreparedEnv(in.Name, in.Env)
+	if err != nil {
+		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
 	stdin := dispatchStdin(rt, in)
 
@@ -895,6 +920,11 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		Status:        StatusRunning,
 		LogPath:       logPath,
 	}
+	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
+		m.mu.Unlock()
+		_ = proc.Kill()
+		return nil, false, fmt.Errorf("dispatch: persist launch env: %w", err)
+	}
 	if err := WriteMetadata(m.daemonRoot, meta); err != nil {
 		m.mu.Unlock()
 		_ = proc.Kill()
@@ -910,6 +940,56 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		go m.watchdog(in.Name, proc, reaped, in.Budget)
 	}
 	return meta, true, nil
+}
+
+func (m *InstanceManager) startEnv(instance string) ([]string, error) {
+	env, ok, err := m.instanceLaunchEnv(instance)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return env, nil
+	}
+	return os.Environ(), nil
+}
+
+func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string) ([]string, error) {
+	env, ok, err := m.instanceLaunchEnv(instance)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return env, nil
+	}
+	return append(os.Environ(), overlay...), nil
+}
+
+func (m *InstanceManager) instanceLaunchEnv(instance string) ([]string, bool, error) {
+	snapshot, err := ReadInstanceLaunchEnv(m.daemonRoot, instance)
+	if err == nil {
+		return append([]string(nil), snapshot.Env...), true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
+
+func (m *InstanceManager) writeInstanceLaunchEnv(instance string, args, env []string, workspace string, pid int, recordedAt time.Time) error {
+	bin := ""
+	if len(args) > 0 {
+		bin = args[0]
+	}
+	snapshot := &LaunchEnv{
+		Bin:        bin,
+		Args:       append([]string(nil), args...),
+		Dir:        workspace,
+		Env:        append([]string(nil), env...),
+		RecordedAt: recordedAt,
+		PID:        pid,
+		Version:    1,
+	}
+	return WriteInstanceLaunchEnv(m.daemonRoot, instance, snapshot)
 }
 
 func (m *InstanceManager) ensureExpectedTrackedLocked(expected *Metadata) error {
