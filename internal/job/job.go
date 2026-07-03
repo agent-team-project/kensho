@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
 
@@ -51,11 +52,29 @@ type Job struct {
 	Worktree     string    `toml:"worktree,omitempty"`
 	ReapWorktree string    `toml:"reap_worktree,omitempty"`
 	PR           string    `toml:"pr,omitempty"`
+	Merge        *Merge    `toml:"merge,omitempty"`
+	Drift        *Drift    `toml:"drift,omitempty"`
 	LastEvent    string    `toml:"last_event,omitempty"`
 	LastStatus   string    `toml:"last_status,omitempty"`
 	CreatedAt    time.Time `toml:"created_at"`
 	UpdatedAt    time.Time `toml:"updated_at"`
 	Steps        []Step    `toml:"steps,omitempty"`
+}
+
+// Merge stores the mechanical merge strategy captured for a durable job.
+type Merge struct {
+	Strategy   string   `toml:"strategy"`
+	Script     string   `toml:"script,omitempty"`
+	OwnedPaths []string `toml:"owned_paths,omitempty"`
+}
+
+// Drift stores the last base-drift classification computed for a job.
+type Drift struct {
+	Classification string    `toml:"classification"`
+	Base           string    `toml:"base,omitempty"`
+	Head           string    `toml:"head,omitempty"`
+	Files          []string  `toml:"files,omitempty"`
+	UpdatedAt      time.Time `toml:"updated_at,omitempty"`
 }
 
 // Step is a pipeline step snapshot recorded on a job.
@@ -241,6 +260,12 @@ func Validate(j *Job) error {
 	if !worktreepolicy.Valid(j.ReapWorktree) {
 		return fmt.Errorf("reap_worktree must be on_close, on_merge, or never")
 	}
+	if err := validateMerge(j.Merge); err != nil {
+		return err
+	}
+	if err := validateDrift(j.Drift); err != nil {
+		return err
+	}
 	if j.CreatedAt.IsZero() {
 		return errors.New("created_at is required")
 	}
@@ -289,6 +314,52 @@ func Validate(j *Job) error {
 		if step.Skipped && step.Status != StatusDone {
 			return fmt.Errorf("steps[%d]: skipped steps must have status %q", i, StatusDone)
 		}
+	}
+	return nil
+}
+
+func validateMerge(merge *Merge) error {
+	if merge == nil {
+		return nil
+	}
+	strategy, err := mergepolicy.NormalizeStrategy(merge.Strategy)
+	if err != nil {
+		return fmt.Errorf("merge: %w", err)
+	}
+	if strategy != merge.Strategy {
+		return fmt.Errorf("merge: strategy %q must be normalized as %q", merge.Strategy, strategy)
+	}
+	script := strings.TrimSpace(merge.Script)
+	switch strategy {
+	case mergepolicy.StrategyScript:
+		if script == "" {
+			return errors.New("merge: script is required when strategy is script")
+		}
+	default:
+		if script != "" {
+			return errors.New("merge: script is only valid when strategy is script")
+		}
+	}
+	for i, p := range merge.OwnedPaths {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("merge: owned_paths[%d] must be non-empty", i)
+		}
+		if strings.HasPrefix(strings.TrimSpace(p), "/") {
+			return fmt.Errorf("merge: owned_paths[%d] must be repo-relative", i)
+		}
+	}
+	return nil
+}
+
+func validateDrift(drift *Drift) error {
+	if drift == nil {
+		return nil
+	}
+	if !mergepolicy.ValidDrift(drift.Classification) {
+		return fmt.Errorf("drift: unknown classification %q", drift.Classification)
+	}
+	if strings.TrimSpace(drift.Classification) == "" {
+		return errors.New("drift: classification is required")
 	}
 	return nil
 }

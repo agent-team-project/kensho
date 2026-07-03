@@ -1996,6 +1996,7 @@ Subcommands:
 - `agent-team job kill` - Force-stop a job&#39;s owning instance.
 - `agent-team job logs` - Show a job&#39;s owning instance log.
 - `agent-team job ls` - List durable jobs.
+- `agent-team job merge` - Apply a pipeline job&#39;s declared merge strategy.
 - `agent-team job next` - Show the next pipeline step for a job without dispatching it.
 - `agent-team job note` - Append an operator note to a job&#39;s audit history.
 - `agent-team job outbox` - List or control outbox events owned by one job.
@@ -2535,6 +2536,27 @@ Flags:
       --ticket string         Filter by ticket id or URL substring.
       --unheld                Only show jobs that are not held.
   -w, --watch                 Refresh the job table until interrupted.
+```
+
+## `agent-team job merge`
+
+Apply a pipeline job&#39;s declared merge strategy.
+
+Apply the merge mechanics declared by `[pipelines.&lt;name&gt;.merge]` for a durable job. The command does not dispatch agents or rerun gates; it only performs the selected squash, rebase, or script merge action.
+
+```text
+agent-team job merge <job-id> [flags]
+```
+
+Flags:
+
+```text
+      --base string       Base branch passed to merge mechanics. (default "main")
+      --branch string     Head branch to merge. Required when the job has no recorded PR.
+      --dry-run           Preview the merge strategy and drift classification without mutating git or job state.
+      --json              Emit the merge result as JSON.
+      --repo string       Repo root containing .agent_team. (default "<repo>")
+      --worktree string   Worktree path for local or script merge mechanics. Defaults to the job worktree, then the repo root.
 ```
 
 ## `agent-team job next`

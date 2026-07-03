@@ -15286,6 +15286,205 @@ func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
 	}
 }
 
+func TestJobMergeRefusesMissingPRWithoutBranch(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	j := mustNewJob(t, "SQU-450", "worker")
+	j.Merge = &job.Merge{Strategy: "squash"}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-450", "--repo", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected merge validation error")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "has no recorded PR; pass --branch") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestJobMergeSquashUsesRecordedPR(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	logPath := installRecordingFakeGHForJobTest(t, 0)
+	j := mustNewJob(t, "SQU-451", "worker")
+	j.PR = "https://github.com/acme/repo/pull/451"
+	j.Branch = "worker-squ-451"
+	j.Merge = &job.Merge{Strategy: "squash", OwnedPaths: []string{"coverage"}}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-451", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge: %v\nstderr=%s", err, stderr.String())
+	}
+	logBody, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read gh log: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(logBody)), "pr merge https://github.com/acme/repo/pull/451 --squash"; got != want {
+		t.Fatalf("gh args = %q, want %q", got, want)
+	}
+	updated, err := job.Read(teamDir, "SQU-451")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastEvent != "merged" || updated.Drift == nil || updated.Drift.Classification != "unclassified" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	var result jobMergeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.Action != "merged" || result.Strategy != "squash" || result.PR != j.PR {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestJobMergeDryRunClassifiesOwnedPathDrift(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	initGitRepoForJobTest(t, tmp)
+	runGitForJobTest(t, tmp, "checkout", "-b", "worker-squ-454")
+	if err := os.MkdirAll(filepath.Join(tmp, "coverage", "baselines"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "coverage", "baselines", "a.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForJobTest(t, tmp, "add", "coverage/baselines/a.json")
+	runGitForJobTest(t, tmp, "commit", "-m", "update baseline")
+	runGitForJobTest(t, tmp, "checkout", "main")
+
+	teamDir := filepath.Join(tmp, ".agent_team")
+	j := mustNewJob(t, "SQU-454", "worker")
+	j.Merge = &job.Merge{Strategy: "squash", OwnedPaths: []string{"coverage/baselines"}}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-454", "--repo", tmp, "--branch", "worker-squ-454", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge dry-run: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobMergeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\nbody=%s", err, out.String())
+	}
+	if result.Drift == nil || result.Drift.Classification != "reconcilable" || strings.Join(result.Drift.Files, ",") != "coverage/baselines/a.json" {
+		t.Fatalf("drift = %+v", result.Drift)
+	}
+	unchanged, err := job.Read(teamDir, "SQU-454")
+	if err != nil {
+		t.Fatalf("read unchanged job: %v", err)
+	}
+	if unchanged.Status != job.StatusQueued || unchanged.Drift != nil {
+		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+}
+
+func TestJobMergeScriptReceivesContractAndBlocks(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	initGitRepoForJobTest(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	scriptsDir := filepath.Join(teamDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "script.log")
+	scriptPath := filepath.Join(scriptsDir, "merge.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nprintf '%s|%s|%s\\n' \"$1\" \"$2\" \"$3\" >> \""+logPath+"\"\n"), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	runGitForJobTest(t, tmp, "add", ".agent_team/scripts/merge.sh")
+	runGitForJobTest(t, tmp, "commit", "-m", "add merge script")
+	j := mustNewJob(t, "SQU-452", "worker")
+	j.Merge = &job.Merge{Strategy: "script", Script: ".agent_team/scripts/merge.sh", OwnedPaths: []string{"coverage"}}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-452", "--repo", tmp, "--branch", "worker-squ-452", "--base", "main"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge script: %v\nstderr=%s", err, stderr.String())
+	}
+	logBody, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read script log: %v", err)
+	}
+	wantWorktree, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatalf("resolve worktree: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(logBody)), "main|worker-squ-452|"+wantWorktree; got != want {
+		t.Fatalf("script args = %q, want %q", got, want)
+	}
+	updated, err := job.Read(teamDir, "SQU-452")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastEvent != "merged" {
+		t.Fatalf("updated = %+v", updated)
+	}
+
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+		t.Fatalf("write blocking script: %v", err)
+	}
+	runGitForJobTest(t, tmp, "add", ".agent_team/scripts/merge.sh")
+	runGitForJobTest(t, tmp, "commit", "-m", "make merge script block")
+	blocked := mustNewJob(t, "SQU-453", "worker")
+	blocked.Merge = &job.Merge{Strategy: "script", Script: ".agent_team/scripts/merge.sh"}
+	if err := job.Write(teamDir, blocked); err != nil {
+		t.Fatalf("write blocked job: %v", err)
+	}
+	blockCmd := NewRootCmd()
+	blockOut, blockErr := &bytes.Buffer{}, &bytes.Buffer{}
+	blockCmd.SetOut(blockOut)
+	blockCmd.SetErr(blockErr)
+	blockCmd.SetArgs([]string{"job", "merge", "SQU-453", "--repo", tmp, "--branch", "worker-squ-453"})
+	err = blockCmd.Execute()
+	if err == nil {
+		t.Fatal("expected blocking script error")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	blockedUpdated, err := job.Read(teamDir, "SQU-453")
+	if err != nil {
+		t.Fatalf("read blocked job: %v", err)
+	}
+	if blockedUpdated.Status != job.StatusBlocked || blockedUpdated.LastEvent != "merge_blocked" {
+		t.Fatalf("blocked job = %+v\nstderr=%s", blockedUpdated, blockErr.String())
+	}
+}
+
 func initGitRepoForJobTest(t *testing.T, dir string) {
 	t.Helper()
 	runGitForJobTest(t, dir, "init", "-b", "main")
@@ -15328,4 +15527,17 @@ func installFakeGHForJobTest(t *testing.T, stdout string, exitCode int) {
 		t.Fatalf("write fake gh: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func installRecordingFakeGHForJobTest(t *testing.T, exitCode int) string {
+	t.Helper()
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "gh.log")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %q\nexit %d\n", logPath, exitCode)
+	path := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return logPath
 }

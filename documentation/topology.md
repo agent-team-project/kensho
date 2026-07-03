@@ -110,6 +110,11 @@ match.target = "worker"
 trigger.event = "ticket.created"
 reap_worktree = "on_merge"
 
+[pipelines.ticket_to_pr.merge]
+strategy = "squash"              # squash, rebase, or script
+# script = ".agent_team/scripts/union-merge.sh"   # required when strategy = "script"
+# owned_paths = ["coverage/baselines", "coverage/counts.json"]
+
 [[pipelines.ticket_to_pr.steps]]
 id     = "implement"
 label  = "Implementation"
@@ -162,6 +167,9 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `trigger.event` | yes | — | Event type that creates or updates a pipeline job. |
 | `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. |
 | `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this pipeline. Pipeline policy takes precedence over the target instance policy. |
+| `merge.strategy` | no | — | Mechanical merge strategy for pipeline jobs. Supported values: `"squash"`, `"rebase"`, or `"script"`. When present, `agent-team job merge <job-id>` applies this strategy and records the outcome on the job. |
+| `merge.script` | for `script` | — | Repo-relative or absolute executable path for custom merge mechanics. The script receives three positional arguments: base branch, head branch, and worktree path. A nonzero exit blocks the merge. |
+| `merge.owned_paths` | no | empty | Repo-relative path prefixes or glob patterns owned by the merge strategy. If every changed file between base and head matches these paths, `job merge --dry-run` and `job merge` surface `drift: reconcilable` on the job/result; otherwise drift is `unclassified`. |
 | `steps[].id` | yes | — | Unique step identifier within the pipeline. |
 | `steps[].label` | no | empty | Human-readable step name for CLI, graph, and job diagnostics. The stable `id` is still used for commands. |
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |
@@ -177,6 +185,8 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].max_attempts` | no | unlimited | Positive integer cap for dispatch attempts. Retry commands skip failed steps once the stored attempt count reaches this value. |
 
 Operators can intentionally bypass a stored step with `agent-team job step <job-id> <step-id> --skip`. The job records `status = "done"` and `skipped = true` on that step, so later `after` dependencies treat it as terminal while `job show` still surfaces the bypass.
+
+`agent-team job merge <job-id>` is a merge-only operator action. It does not dispatch another agent, rerun gates, or retry failed stages. Jobs with a recorded PR merge through `gh pr merge <pr> --squash` or `--rebase` for the built-in strategies. Jobs without a recorded PR are refused unless the operator passes `--branch <head>`, in which case branch-local squash/rebase mechanics are applied in the selected worktree. Script strategy executes the configured script with `(base, head, worktree)` and records a blocked merge if it exits nonzero or leaves tracked files dirty.
 
 When an advance dispatch targets a persistent instance, `agent-team` only records the step as `running` if the daemon can message a live instance. If the persistent target is stopped or reconciles as stale, the daemon appends the dispatch payload to that instance mailbox and returns a queued outcome; the durable job step stays `queued` with the persistent instance name until the instance is started and drains its inbox. Manual edits that mark a step `running` also require `--instance` unless `--force` is supplied, which keeps ownerless running stages out of the normal operator path.
 

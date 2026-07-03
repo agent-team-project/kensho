@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
@@ -104,6 +105,9 @@ type Pipeline struct {
 	Name    string
 	Trigger *Trigger
 	Steps   []*PipelineStep
+	// Merge describes the mechanical merge strategy for jobs created by this
+	// pipeline. Nil means no pipeline-specific merge action was declared.
+	Merge *PipelineMerge
 	// AutoAdvance, when true, lets the daemon dispatch the next ready step as
 	// soon as the prior step's instance exits successfully (respecting gates),
 	// instead of waiting for an external `agent-team pipeline tick`. Opt-in;
@@ -112,6 +116,13 @@ type Pipeline struct {
 	// ReapWorktree controls opt-in cleanup for jobs created by this pipeline.
 	// Defaults to "never".
 	ReapWorktree string
+}
+
+// PipelineMerge describes `[pipelines.<name>.merge]`.
+type PipelineMerge struct {
+	Strategy   string
+	Script     string
+	OwnedPaths []string
 }
 
 // PipelineStep is one target dispatch in a pipeline.
@@ -388,10 +399,18 @@ type rawInstance struct {
 }
 
 type rawPipeline struct {
-	Trigger      map[string]any   `toml:"trigger"`
-	Steps        []map[string]any `toml:"steps"`
-	AutoAdvance  bool             `toml:"auto_advance"`
-	ReapWorktree string           `toml:"reap_worktree"`
+	Trigger      map[string]any    `toml:"trigger"`
+	Steps        []map[string]any  `toml:"steps"`
+	Merge        *rawPipelineMerge `toml:"merge"`
+	AutoAdvance  bool              `toml:"auto_advance"`
+	ReapWorktree string            `toml:"reap_worktree"`
+}
+
+type rawPipelineMerge struct {
+	Strategy   string   `toml:"strategy"`
+	Script     string   `toml:"script"`
+	OwnedPaths []string `toml:"owned_paths"`
+	Owns       []string `toml:"owns"`
 }
 
 type rawSchedule struct {
@@ -545,7 +564,61 @@ func finalisePipeline(name string, rp *rawPipeline) (*Pipeline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipeline %q: %w", name, err)
 	}
-	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree}, nil
+	merge, err := parsePipelineMerge(name, rp.Merge)
+	if err != nil {
+		return nil, err
+	}
+	return &Pipeline{Name: name, Trigger: trigger, Steps: steps, Merge: merge, AutoAdvance: rp.AutoAdvance, ReapWorktree: reapWorktree}, nil
+}
+
+func parsePipelineMerge(name string, raw *rawPipelineMerge) (*PipelineMerge, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	strategy, err := mergepolicy.NormalizeStrategy(raw.Strategy)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline %q merge: %w", name, err)
+	}
+	script := strings.TrimSpace(raw.Script)
+	switch strategy {
+	case mergepolicy.StrategyScript:
+		if script == "" {
+			return nil, fmt.Errorf("pipeline %q merge: script is required when strategy is script", name)
+		}
+	default:
+		if script != "" {
+			return nil, fmt.Errorf("pipeline %q merge: script is only valid when strategy is script", name)
+		}
+	}
+	ownedPaths, err := parseOwnedMergePaths(name, raw)
+	if err != nil {
+		return nil, err
+	}
+	return &PipelineMerge{Strategy: strategy, Script: script, OwnedPaths: ownedPaths}, nil
+}
+
+func parseOwnedMergePaths(name string, raw *rawPipelineMerge) ([]string, error) {
+	paths := append([]string(nil), raw.OwnedPaths...)
+	paths = append(paths, raw.Owns...)
+	out := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for i, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, fmt.Errorf("pipeline %q merge owned_paths[%d]: must be non-empty", name, i)
+		}
+		if strings.HasPrefix(p, "/") {
+			return nil, fmt.Errorf("pipeline %q merge owned_paths[%d]: must be repo-relative", name, i)
+		}
+		p = strings.TrimPrefix(p, "./")
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func finaliseSchedule(name string, rs *rawSchedule) (*Schedule, error) {

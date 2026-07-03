@@ -251,6 +251,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	if pipeline.ReapWorktree != worktreepolicy.Never {
 		j.ReapWorktree = pipeline.ReapWorktree
 	}
+	j.Merge = jobMergeFromPipeline(pipeline.Merge)
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		j.TicketURL = ticketURL
 	}
@@ -261,6 +262,9 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		j.Pipeline = pipeline.Name
 		if pipeline.ReapWorktree != worktreepolicy.Never && strings.TrimSpace(j.ReapWorktree) == "" {
 			j.ReapWorktree = pipeline.ReapWorktree
+		}
+		if j.Merge == nil {
+			j.Merge = jobMergeFromPipeline(pipeline.Merge)
 		}
 		if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 			j.TicketURL = ticketURL
@@ -457,6 +461,17 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 		})
 	}
 	return steps
+}
+
+func jobMergeFromPipeline(merge *topology.PipelineMerge) *jobstore.Merge {
+	if merge == nil {
+		return nil
+	}
+	return &jobstore.Merge{
+		Strategy:   merge.Strategy,
+		Script:     merge.Script,
+		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
+	}
 }
 
 func pipelineStepTimeoutString(timeout time.Duration) string {

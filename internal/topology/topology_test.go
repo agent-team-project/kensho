@@ -185,6 +185,11 @@ trigger.event = "ticket.created"
 trigger.match.project = "Core"
 reap_worktree = "on_merge"
 
+[pipelines.ticket_to_pr.merge]
+strategy = "script"
+script = ".agent_team/scripts/union-merge.sh"
+owned_paths = ["coverage/baselines", "coverage/counts.json"]
+
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
@@ -220,6 +225,9 @@ max_attempts = 2
 	if p.ReapWorktree != "on_merge" {
 		t.Fatalf("pipeline ReapWorktree = %q, want on_merge", p.ReapWorktree)
 	}
+	if p.Merge == nil || p.Merge.Strategy != "script" || p.Merge.Script != ".agent_team/scripts/union-merge.sh" || strings.Join(p.Merge.OwnedPaths, ",") != "coverage/baselines,coverage/counts.json" {
+		t.Fatalf("pipeline merge = %+v", p.Merge)
+	}
 	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
@@ -229,6 +237,67 @@ max_attempts = 2
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
 		t.Fatalf("matched = %+v", matched)
+	}
+}
+
+func TestParse_PipelineMergeValidation(t *testing.T) {
+	base := `
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "invalid strategy",
+			body: `
+[pipelines.ticket_to_pr.merge]
+strategy = "merge-commit"
+`,
+			want: "merge strategy must be squash, rebase, or script",
+		},
+		{
+			name: "script requires script path",
+			body: `
+[pipelines.ticket_to_pr.merge]
+strategy = "script"
+`,
+			want: "script is required",
+		},
+		{
+			name: "script rejected for squash",
+			body: `
+[pipelines.ticket_to_pr.merge]
+strategy = "squash"
+script = "merge.sh"
+`,
+			want: "script is only valid",
+		},
+		{
+			name: "owned paths repo relative",
+			body: `
+[pipelines.ticket_to_pr.merge]
+strategy = "squash"
+owned_paths = ["/absolute"]
+`,
+			want: "must be repo-relative",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(base + tc.body))
+			if err == nil {
+				t.Fatal("expected parse error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

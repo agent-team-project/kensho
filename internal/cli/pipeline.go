@@ -6016,7 +6016,14 @@ type pipelineInfo struct {
 	Name         string             `json:"name"`
 	Trigger      map[string]any     `json:"trigger"`
 	Steps        []pipelineStepInfo `json:"steps"`
+	Merge        *pipelineMergeInfo `json:"merge,omitempty"`
 	ReapWorktree string             `json:"reap_worktree"`
+}
+
+type pipelineMergeInfo struct {
+	Strategy   string   `json:"strategy"`
+	Script     string   `json:"script,omitempty"`
+	OwnedPaths []string `json:"owned_paths,omitempty"`
 }
 
 type pipelineStepInfo struct {
@@ -6947,7 +6954,19 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 		Name:         p.Name,
 		Trigger:      triggerAsMap(p.Trigger),
 		Steps:        steps,
+		Merge:        pipelineMergeInfoFromTopology(p.Merge),
 		ReapWorktree: p.ReapWorktree,
+	}
+}
+
+func pipelineMergeInfoFromTopology(merge *topology.PipelineMerge) *pipelineMergeInfo {
+	if merge == nil {
+		return nil
+	}
+	return &pipelineMergeInfo{
+		Strategy:   merge.Strategy,
+		Script:     merge.Script,
+		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
 	}
 }
 
@@ -10868,6 +10887,9 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 	}
 	fmt.Fprintf(w, "Pipeline: %s\n", info.Name)
 	fmt.Fprintf(w, "Trigger:  %s\n", summariseTriggerMap(info.Trigger))
+	if info.Merge != nil {
+		fmt.Fprintf(w, "Merge:    %s%s%s\n", info.Merge.Strategy, formatMergeScript(info.Merge.Script), formatMergeOwnedPaths(info.Merge.OwnedPaths))
+	}
 	if len(info.Steps) == 0 {
 		fmt.Fprintln(w, "Steps:    -")
 		return nil
@@ -10917,6 +10939,20 @@ func renderPipelineDetail(w io.Writer, info pipelineInfo, jsonOut bool, tmpl *te
 		fmt.Fprintf(w, "  %s target=%s after=%s%s%s%s%s%s%s%s%s%s\n", step.ID, step.Target, after, workspace, runtime, label, description, instructions, gate, optional, timeout, maxAttempts)
 	}
 	return nil
+}
+
+func formatMergeScript(script string) string {
+	if strings.TrimSpace(script) == "" {
+		return ""
+	}
+	return " script=" + strings.TrimSpace(script)
+}
+
+func formatMergeOwnedPaths(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return " owned_paths=" + strings.Join(paths, ",")
 }
 
 type pipelineGraphFormat string

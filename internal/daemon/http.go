@@ -888,12 +888,16 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 	}
 	pipelines := make([]map[string]any, 0, len(topo.Pipelines))
 	for _, pipeline := range topo.SortedPipelines() {
-		pipelines = append(pipelines, map[string]any{
+		entry := map[string]any{
 			"name":          pipeline.Name,
 			"trigger":       marshalTrigger(pipeline.Trigger),
 			"steps":         marshalPipelineSteps(pipeline.Steps),
 			"reap_worktree": pipeline.ReapWorktree,
-		})
+		}
+		if merge := marshalPipelineMerge(pipeline.Merge); merge != nil {
+			entry["merge"] = merge
+		}
+		pipelines = append(pipelines, entry)
 	}
 	schedules := make([]map[string]any, 0, len(topo.Schedules))
 	for _, schedule := range topo.SortedSchedules() {
@@ -905,6 +909,20 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 		})
 	}
 	return map[string]any{"instances": out, "pipelines": pipelines, "schedules": schedules}
+}
+
+func marshalPipelineMerge(merge *topology.PipelineMerge) map[string]any {
+	if merge == nil {
+		return nil
+	}
+	out := map[string]any{"strategy": merge.Strategy}
+	if merge.Script != "" {
+		out["script"] = merge.Script
+	}
+	if len(merge.OwnedPaths) > 0 {
+		out["owned_paths"] = merge.OwnedPaths
+	}
+	return out
 }
 
 func marshalTriggers(triggers []*topology.Trigger) []map[string]any {

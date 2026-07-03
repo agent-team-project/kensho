@@ -228,6 +228,27 @@ func TestJobValidation(t *testing.T) {
 	if err := Validate(j); err != nil {
 		t.Fatalf("Validate rejected valid step runtime: %v", err)
 	}
+	j.Merge = &Merge{Strategy: "merge-commit"}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid merge strategy")
+	}
+	j.Merge = &Merge{Strategy: "script"}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted script merge without script")
+	}
+	j.Merge = &Merge{Strategy: "squash", Script: "merge.sh"}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted script path for squash merge")
+	}
+	j.Merge = &Merge{Strategy: "script", Script: ".agent_team/scripts/merge.sh", OwnedPaths: []string{"coverage/baselines"}}
+	j.Drift = &Drift{Classification: "mystery"}
+	if err := Validate(j); err == nil {
+		t.Fatalf("Validate accepted invalid drift classification")
+	}
+	j.Drift = &Drift{Classification: "reconcilable", Base: "main", Head: "feature", Files: []string{"coverage/baselines/a.json"}}
+	if err := Validate(j); err != nil {
+		t.Fatalf("Validate rejected valid merge and drift metadata: %v", err)
+	}
 }
 
 func TestReadMissingJob(t *testing.T) {

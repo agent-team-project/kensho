@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
@@ -70,6 +72,7 @@ func newJobCmd() *cobra.Command {
 	cmd.AddCommand(newJobReleaseCmd())
 	cmd.AddCommand(newJobReopenCmd())
 	cmd.AddCommand(newJobCleanupCmd())
+	cmd.AddCommand(newJobMergeCmd())
 	cmd.AddCommand(newJobKeepWorktreeCmd())
 	cmd.AddCommand(newJobRmCmd())
 	cmd.AddCommand(newJobPruneCmd())
@@ -1426,6 +1429,7 @@ func newJobCreateCmd() *cobra.Command {
 			if pipelineDef != nil {
 				j.Pipeline = pipelineDef.Name
 				j.Steps = jobStepsFromPipeline(pipelineDef)
+				j.Merge = jobMergeFromPipeline(pipelineDef.Merge)
 				if pipelineDef.ReapWorktree != worktreepolicy.Never {
 					j.ReapWorktree = pipelineDef.ReapWorktree
 				}
@@ -1708,6 +1712,17 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 		})
 	}
 	return steps
+}
+
+func jobMergeFromPipeline(merge *topology.PipelineMerge) *job.Merge {
+	if merge == nil {
+		return nil
+	}
+	return &job.Merge{
+		Strategy:   merge.Strategy,
+		Script:     merge.Script,
+		OwnedPaths: append([]string(nil), merge.OwnedPaths...),
+	}
 }
 
 func newJobLsCmd() *cobra.Command {
@@ -6173,6 +6188,436 @@ func newJobCleanupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the updated job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the cleanup result with a Go template, e.g. '{{.ID}} {{.LastStatus}}' or '{{.Total}} {{.Cleaned}}'.")
 	return cmd
+}
+
+func newJobMergeCmd() *cobra.Command {
+	var (
+		repo     string
+		base     string
+		branch   string
+		worktree string
+		dryRun   bool
+		jsonOut  bool
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "merge <job-id>",
+		Short: "Apply a pipeline job's declared merge strategy.",
+		Long: "Apply the merge mechanics declared by `[pipelines.<name>.merge]` for a durable job. " +
+			"The command does not dispatch agents or rerun gates; it only performs the selected squash, rebase, or script merge action.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, j, err := readJobAndTeamDir(cmd, repo, args[0])
+			if err != nil {
+				return err
+			}
+			opts := jobMergeOptions{
+				Base:      base,
+				Branch:    branch,
+				BranchSet: cmd.Flags().Changed("branch"),
+				Worktree:  worktree,
+				DryRun:    dryRun,
+			}
+			result, err := prepareJobMerge(cmd.Context(), teamDir, j, opts)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job merge: %v\n", err)
+				return exitErr(2)
+			}
+			if dryRun {
+				return renderJobMergeResult(cmd.OutOrStdout(), result, jsonOut)
+			}
+			if err := applyJobMerge(cmd.Context(), teamDir, j, result); err != nil {
+				var blocked mergeBlockedError
+				if errors.As(err, &blocked) {
+					applyBlockedJobMerge(j, result, blocked)
+					if writeErr := writeJobWithAudit(teamDir, j, "merge_blocked", "cli", blocked.Error(), jobMergeAuditData(result)); writeErr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job merge: failed to record blocked merge: %v\n", writeErr)
+					}
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job merge: %v\n", err)
+				return exitErr(1)
+			}
+			applySuccessfulJobMerge(j, result)
+			if err := writeJobWithAudit(teamDir, j, "merged", "cli", "", jobMergeAuditData(result)); err != nil {
+				return err
+			}
+			result.Action = "merged"
+			result.Job = j
+			return renderJobMergeResult(cmd.OutOrStdout(), result, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&base, "base", "main", "Base branch passed to merge mechanics.")
+	cmd.Flags().StringVar(&branch, "branch", "", "Head branch to merge. Required when the job has no recorded PR.")
+	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path for local or script merge mechanics. Defaults to the job worktree, then the repo root.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the merge strategy and drift classification without mutating git or job state.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the merge result as JSON.")
+	return cmd
+}
+
+type jobMergeOptions struct {
+	Base      string
+	Branch    string
+	BranchSet bool
+	Worktree  string
+	DryRun    bool
+}
+
+type jobMergeResult struct {
+	JobID    string     `json:"job_id"`
+	Ticket   string     `json:"ticket"`
+	Pipeline string     `json:"pipeline,omitempty"`
+	Strategy string     `json:"strategy"`
+	Script   string     `json:"script,omitempty"`
+	Base     string     `json:"base"`
+	Head     string     `json:"head,omitempty"`
+	Worktree string     `json:"worktree"`
+	PR       string     `json:"pr,omitempty"`
+	Drift    *job.Drift `json:"drift,omitempty"`
+	Action   string     `json:"action"`
+	DryRun   bool       `json:"dry_run,omitempty"`
+	Job      *job.Job   `json:"job,omitempty"`
+}
+
+type mergeBlockedError struct {
+	err error
+}
+
+func (e mergeBlockedError) Error() string {
+	return e.err.Error()
+}
+
+func prepareJobMerge(ctx context.Context, teamDir string, j *job.Job, opts jobMergeOptions) (*jobMergeResult, error) {
+	if j == nil {
+		return nil, errors.New("job is nil")
+	}
+	if strings.TrimSpace(j.PR) == "" && !opts.BranchSet {
+		return nil, fmt.Errorf("job %q has no recorded PR; pass --branch to merge a branch directly", j.ID)
+	}
+	merge, err := effectiveJobMerge(teamDir, j)
+	if err != nil {
+		return nil, err
+	}
+	base := strings.TrimSpace(opts.Base)
+	if base == "" {
+		return nil, errors.New("--base must be non-empty")
+	}
+	head := strings.TrimSpace(opts.Branch)
+	if head == "" && opts.BranchSet {
+		return nil, errors.New("--branch must be non-empty")
+	}
+	if head == "" {
+		head = strings.TrimSpace(j.Branch)
+	}
+	worktree := strings.TrimSpace(opts.Worktree)
+	if worktree == "" {
+		worktree = strings.TrimSpace(j.Worktree)
+	}
+	if worktree == "" {
+		worktree = filepath.Dir(teamDir)
+	}
+	if !filepath.IsAbs(worktree) {
+		abs, err := filepath.Abs(worktree)
+		if err != nil {
+			return nil, err
+		}
+		worktree = abs
+	}
+	if merge.Strategy == mergepolicy.StrategyScript && head == "" {
+		return nil, errors.New("script merge requires --branch or a recorded job branch")
+	}
+	if strings.TrimSpace(j.PR) == "" && head == "" {
+		return nil, errors.New("--branch is required when the job has no recorded PR")
+	}
+	drift := classifyJobMergeDrift(ctx, worktree, base, head, merge.OwnedPaths)
+	return &jobMergeResult{
+		JobID:    j.ID,
+		Ticket:   j.Ticket,
+		Pipeline: j.Pipeline,
+		Strategy: merge.Strategy,
+		Script:   merge.Script,
+		Base:     base,
+		Head:     head,
+		Worktree: worktree,
+		PR:       strings.TrimSpace(j.PR),
+		Drift:    drift,
+		Action:   "would_merge",
+		DryRun:   opts.DryRun,
+	}, nil
+}
+
+func effectiveJobMerge(teamDir string, j *job.Job) (*job.Merge, error) {
+	if j.Merge != nil {
+		return j.Merge, nil
+	}
+	pipelineName := strings.TrimSpace(j.Pipeline)
+	if pipelineName == "" {
+		return nil, fmt.Errorf("job %q has no recorded merge strategy and is not pipeline-owned", j.ID)
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	if top == nil || top.Pipelines[pipelineName] == nil {
+		return nil, fmt.Errorf("pipeline %q not found for job %q", pipelineName, j.ID)
+	}
+	merge := jobMergeFromPipeline(top.Pipelines[pipelineName].Merge)
+	if merge == nil {
+		return nil, fmt.Errorf("pipeline %q has no merge strategy", pipelineName)
+	}
+	j.Merge = merge
+	return merge, nil
+}
+
+func applyJobMerge(ctx context.Context, teamDir string, j *job.Job, result *jobMergeResult) error {
+	switch result.Strategy {
+	case mergepolicy.StrategySquash, mergepolicy.StrategyRebase:
+		if strings.TrimSpace(result.PR) != "" {
+			return runGHPRMerge(ctx, filepath.Dir(teamDir), result.PR, result.Strategy)
+		}
+		if err := ensureMergeWorktreeClean(ctx, result.Worktree); err != nil {
+			return err
+		}
+		return runLocalBranchMerge(ctx, result.Worktree, result.Base, result.Head, result.Strategy)
+	case mergepolicy.StrategyScript:
+		if err := ensureMergeWorktreeClean(ctx, result.Worktree); err != nil {
+			return err
+		}
+		if err := runScriptMerge(ctx, filepath.Dir(teamDir), result); err != nil {
+			return mergeBlockedError{err: err}
+		}
+		if err := ensureMergeWorktreeClean(ctx, result.Worktree); err != nil {
+			return mergeBlockedError{err: fmt.Errorf("script completed but left uncommitted tracked changes: %w", err)}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown merge strategy %q", result.Strategy)
+	}
+}
+
+func ensureMergeWorktreeClean(ctx context.Context, worktree string) error {
+	out, err := runGit(ctx, worktree, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("worktree %s has uncommitted changes", worktree)
+	}
+	return nil
+}
+
+func runGHPRMerge(ctx context.Context, repoRoot, pr, strategy string) error {
+	args := []string{"pr", "merge", pr, "--" + strategy}
+	if _, err := runMergeCommand(ctx, repoRoot, "gh", args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runLocalBranchMerge(ctx context.Context, worktree, base, head, strategy string) error {
+	if strings.TrimSpace(head) == "" {
+		return errors.New("head branch is required for branch merge")
+	}
+	switch strategy {
+	case mergepolicy.StrategySquash:
+		if _, err := runGit(ctx, worktree, "checkout", base); err != nil {
+			return err
+		}
+		if _, err := runGit(ctx, worktree, "merge", "--squash", head); err != nil {
+			return err
+		}
+		_, err := runGit(ctx, worktree, "commit", "-m", fmt.Sprintf("Squash merge %s into %s", head, base))
+		return err
+	case mergepolicy.StrategyRebase:
+		if _, err := runGit(ctx, worktree, "checkout", head); err != nil {
+			return err
+		}
+		if _, err := runGit(ctx, worktree, "rebase", base); err != nil {
+			return err
+		}
+		if _, err := runGit(ctx, worktree, "checkout", base); err != nil {
+			return err
+		}
+		_, err := runGit(ctx, worktree, "merge", "--ff-only", head)
+		return err
+	default:
+		return fmt.Errorf("unknown local merge strategy %q", strategy)
+	}
+}
+
+func runScriptMerge(ctx context.Context, repoRoot string, result *jobMergeResult) error {
+	script := strings.TrimSpace(result.Script)
+	if script == "" {
+		return errors.New("script merge strategy has no script")
+	}
+	if !filepath.IsAbs(script) {
+		script = filepath.Join(repoRoot, filepath.FromSlash(script))
+	}
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("script merge %s: %w", script, err)
+	}
+	_, err := runMergeCommand(ctx, result.Worktree, script, result.Base, result.Head, result.Worktree)
+	return err
+}
+
+func classifyJobMergeDrift(ctx context.Context, worktree, base, head string, ownedPaths []string) *job.Drift {
+	now := time.Now().UTC()
+	drift := &job.Drift{
+		Classification: mergepolicy.DriftUnclassified,
+		Base:           base,
+		Head:           head,
+		UpdatedAt:      now,
+	}
+	if strings.TrimSpace(head) == "" {
+		return drift
+	}
+	files, err := mergeDriftFiles(ctx, worktree, base, head)
+	if err != nil {
+		return drift
+	}
+	sort.Strings(files)
+	drift.Files = files
+	if len(files) == 0 {
+		drift.Classification = mergepolicy.DriftClean
+		return drift
+	}
+	if len(ownedPaths) == 0 {
+		return drift
+	}
+	for _, file := range files {
+		if !mergePathOwned(file, ownedPaths) {
+			return drift
+		}
+	}
+	drift.Classification = mergepolicy.DriftReconcilable
+	return drift
+}
+
+func mergeDriftFiles(ctx context.Context, worktree, base, head string) ([]string, error) {
+	out, err := runGit(ctx, worktree, "diff", "--name-only", base+"..."+head)
+	if err != nil {
+		out, err = runGit(ctx, worktree, "diff", "--name-only", base+".."+head)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, filepath.ToSlash(line))
+		}
+	}
+	return files, nil
+}
+
+func mergePathOwned(file string, ownedPaths []string) bool {
+	file = filepath.ToSlash(strings.TrimSpace(file))
+	for _, pattern := range ownedPaths {
+		pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+		pattern = strings.TrimPrefix(pattern, "./")
+		pattern = strings.TrimSuffix(pattern, "/")
+		if pattern == "" {
+			continue
+		}
+		if strings.ContainsAny(pattern, "*?[") {
+			if ok, _ := path.Match(pattern, file); ok {
+				return true
+			}
+			continue
+		}
+		if file == pattern || strings.HasPrefix(file, pattern+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	return runMergeCommand(ctx, dir, "git", args...)
+}
+
+func runMergeCommand(ctx context.Context, dir, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return string(out), fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+	}
+	return string(out), nil
+}
+
+func applySuccessfulJobMerge(j *job.Job, result *jobMergeResult) {
+	now := time.Now().UTC()
+	if j.Merge == nil {
+		j.Merge = &job.Merge{Strategy: result.Strategy, Script: result.Script}
+	}
+	if result.Drift != nil {
+		j.Drift = result.Drift
+	}
+	j.Status = job.StatusDone
+	j.LastEvent = "merged"
+	j.LastStatus = "merge " + result.Strategy
+	j.UpdatedAt = now
+}
+
+func applyBlockedJobMerge(j *job.Job, result *jobMergeResult, blocked mergeBlockedError) {
+	now := time.Now().UTC()
+	if result.Drift != nil {
+		j.Drift = result.Drift
+	}
+	j.Status = job.StatusBlocked
+	j.LastEvent = "merge_blocked"
+	j.LastStatus = blocked.Error()
+	j.UpdatedAt = now
+}
+
+func jobMergeAuditData(result *jobMergeResult) map[string]string {
+	data := map[string]string{
+		"strategy": result.Strategy,
+		"base":     result.Base,
+	}
+	if result.Head != "" {
+		data["head"] = result.Head
+	}
+	if result.PR != "" {
+		data["pr"] = result.PR
+	}
+	if result.Worktree != "" {
+		data["worktree"] = result.Worktree
+	}
+	if result.Drift != nil {
+		data["drift"] = result.Drift.Classification
+	}
+	return data
+}
+
+func renderJobMergeResult(w io.Writer, result *jobMergeResult, jsonOut bool) error {
+	if jsonOut {
+		return json.NewEncoder(w).Encode(result)
+	}
+	fmt.Fprintf(w, "Job:      %s\n", result.JobID)
+	fmt.Fprintf(w, "Action:   %s\n", result.Action)
+	fmt.Fprintf(w, "Strategy: %s\n", result.Strategy)
+	fmt.Fprintf(w, "Base:     %s\n", result.Base)
+	if result.Head != "" {
+		fmt.Fprintf(w, "Head:     %s\n", result.Head)
+	}
+	if result.PR != "" {
+		fmt.Fprintf(w, "PR:       %s\n", result.PR)
+	}
+	fmt.Fprintf(w, "Worktree: %s\n", result.Worktree)
+	if result.Drift != nil {
+		fmt.Fprintf(w, "Drift:    %s\n", result.Drift.Classification)
+		if len(result.Drift.Files) > 0 {
+			fmt.Fprintf(w, "Files:    %s\n", strings.Join(result.Drift.Files, ","))
+		}
+	}
+	return nil
 }
 
 func newJobRmCmd() *cobra.Command {
@@ -16033,6 +16478,15 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	if j.PR != "" {
 		fmt.Fprintf(w, "PR:          %s\n", j.PR)
 	}
+	if j.Merge != nil {
+		fmt.Fprintf(w, "Merge:       %s%s%s\n", j.Merge.Strategy, formatMergeScript(j.Merge.Script), formatMergeOwnedPaths(j.Merge.OwnedPaths))
+	}
+	if j.Drift != nil {
+		fmt.Fprintf(w, "Drift:       %s%s%s\n", j.Drift.Classification, formatDriftBranch("base", j.Drift.Base), formatDriftBranch("head", j.Drift.Head))
+		if len(j.Drift.Files) > 0 {
+			fmt.Fprintf(w, "Drift Files: %s\n", strings.Join(j.Drift.Files, ","))
+		}
+	}
 	if j.LastEvent != "" {
 		fmt.Fprintf(w, "Last Event:  %s\n", j.LastEvent)
 	}
@@ -16168,6 +16622,14 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	}
 	fmt.Fprintf(w, "Created:     %s\n", j.CreatedAt.Format(time.RFC3339))
 	fmt.Fprintf(w, "Updated:     %s\n", j.UpdatedAt.Format(time.RFC3339))
+}
+
+func formatDriftBranch(label, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return " " + label + "=" + value
 }
 
 func jobRuntimeMetadataForDetail(teamDir string, j *job.Job) map[string]*daemon.Metadata {
