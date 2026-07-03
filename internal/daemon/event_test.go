@@ -1054,8 +1054,21 @@ func TestEvent_EphemeralDispatchPayloadRuntimeOverridesEnv(t *testing.T) {
 }
 
 func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[team]
+pm_tool = "linear"
+
+[linear]
+team_id = "team-1"
+ticket_prefix = "SQU"
+in_progress_state = "In Progress"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
@@ -1073,6 +1086,23 @@ func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
 	}
 	if j.Status != jobstore.StatusRunning || j.Instance != "worker-squ-95" || j.Target != "worker" || j.Kickoff != "implement SQU-95" || j.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-95/context" {
 		t.Fatalf("job = %+v", j)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-95")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	foundLinearDispatch := false
+	for _, ev := range events {
+		if ev.Type == "linear_writeback_skipped" &&
+			ev.Message == "no Linear API key found" &&
+			ev.Data["action"] == string(linearwriteback.ActionDispatchInProgress) &&
+			ev.Data["state"] == "In Progress" {
+			foundLinearDispatch = true
+			break
+		}
+	}
+	if !foundLinearDispatch {
+		t.Fatalf("events missing dispatch in-progress write-back attempt: %+v", events)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-95")
 	if err != nil {

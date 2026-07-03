@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/linearwriteback"
@@ -39,6 +40,24 @@ func WriteWithAudit(teamDir string, j *job.Job, opts Options) error {
 	return nil
 }
 
+func ReconcilePR(teamDir string, input job.ReconcileInput, now time.Time) (*job.ReconcileResult, error) {
+	result, err := job.PreviewReconcilePR(teamDir, input, now)
+	if err != nil {
+		return nil, err
+	}
+	actor := strings.TrimSpace(input.Source)
+	if actor == "" {
+		actor = "reconcile"
+	}
+	if err := WriteWithAudit(teamDir, result.Job, Options{
+		Actor: actor,
+		Data:  reconcileEventData(input, result.MatchedBy),
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func shouldWriteFailureAttention(teamDir string, j *job.Job) bool {
 	if j == nil || j.Status != job.StatusFailed || j.LinearAttentionWritten {
 		return false
@@ -61,4 +80,21 @@ func attentionMessage(j *job.Job, message string) string {
 		return ""
 	}
 	return strings.TrimSpace(j.LastStatus)
+}
+
+func reconcileEventData(input job.ReconcileInput, matchedBy string) map[string]string {
+	data := map[string]string{"matched_by": matchedBy}
+	if input.PR != "" {
+		data["pr"] = input.PR
+	}
+	if input.PRURL != "" {
+		data["pr_url"] = input.PRURL
+	}
+	if input.Branch != "" {
+		data["branch"] = input.Branch
+	}
+	if input.Source != "" {
+		data["source"] = input.Source
+	}
+	return data
 }

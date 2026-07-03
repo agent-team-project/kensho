@@ -8,11 +8,22 @@ import (
 	"github.com/jamesaud/agent-team/internal/linearwriteback"
 )
 
-func (r *EventResolver) writeLinearPipelineDispatch(j *jobstore.Job, stepID string) {
-	if !linearDispatchStarted(j) || !jobFirstStep(j, stepID) {
+func (r *EventResolver) writeLinearDispatchInProgress(j *jobstore.Job, stepID string) {
+	if !linearDispatchStarted(j) {
+		return
+	}
+	if stepID != "" && !jobFirstStep(j, stepID) {
 		return
 	}
 	_ = linearwriteback.DispatchInProgress(context.Background(), r.teamDir, j)
+}
+
+func linearDispatchStepFromPayload(payload map[string]any) (string, bool) {
+	stepID := payloadString(payload, "pipeline_step")
+	if stepID == "" && firstPayloadString(payload, "job_id", "job") != "" {
+		return "", false
+	}
+	return stepID, true
 }
 
 func linearDispatchStarted(j *jobstore.Job) bool {

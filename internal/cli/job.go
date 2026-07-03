@@ -8558,7 +8558,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			if dryRun {
 				result, err = job.PreviewReconcilePR(teamDir, input, time.Now().UTC())
 			} else {
-				result, err = job.ReconcilePR(teamDir, input, time.Now().UTC())
+				result, err = jobwrite.ReconcilePR(teamDir, input, time.Now().UTC())
 			}
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)

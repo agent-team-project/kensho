@@ -247,7 +247,7 @@ func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any)
 	if strings.TrimSpace(r.teamDir) == "" {
 		return nil
 	}
-	result, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
+	result, err := jobwrite.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
 	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
 		if err == nil && result != nil && result.Job != nil {
 			r.autoReapJob(result.Job.ID, worktreepolicy.OnMerge)
@@ -332,7 +332,6 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		"pipeline": pipeline.Name,
 		"step":     step.ID,
 	})
-	r.writeLinearPipelineDispatch(j, step.ID)
 	return dispatch.eventOutcomes
 }
 
@@ -1415,6 +1414,9 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 		meta.Job = j.ID
 		meta.Ticket = j.Ticket
 		meta.PR = j.PR
+		if stepID, ok := linearDispatchStepFromPayload(payload); ok {
+			r.writeLinearDispatchInProgress(j, stepID)
+		}
 	}
 	if err := WriteMetadata(r.mgr.daemonRoot, meta); err != nil {
 		return

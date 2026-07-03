@@ -26,6 +26,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -1802,7 +1803,7 @@ func reconcileGitHubIntakeJob(cmd *cobra.Command, teamDir string, ev *intake.Eve
 	if cmd == nil {
 		cmd = &cobra.Command{}
 	}
-	result, err := job.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
+	result, err := jobwrite.ReconcilePR(teamDir, job.ReconcileInputFromPayload(ev.Type, ev.Payload), time.Now().UTC())
 	if err != nil {
 		return nil, "", nil, err
 	}

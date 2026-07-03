@@ -81,6 +81,99 @@ func TestWriteWithAuditFailureAttentionOnceForFailedTransitions(t *testing.T) {
 	}
 }
 
+func TestReconcilePRMarksMergedJobDone(t *testing.T) {
+	teamDir := testTeamDir(t)
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-77", "worker", "ship the change", now)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/77"
+	j.Branch = "worktree-worker-squ-77"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	merged := true
+	result, err := ReconcilePR(teamDir, job.ReconcileInput{
+		EventType: "pr.merged",
+		Source:    "github",
+		Action:    "closed",
+		PR:        "77",
+		PRURL:     "https://github.com/acme/repo/pull/77/",
+		Branch:    "worktree-worker-squ-77",
+		Merged:    &merged,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ReconcilePR: %v", err)
+	}
+	if result.MatchedBy != "pr_url" || result.Job.Status != job.StatusDone || result.Job.LastEvent != "pr.merged" {
+		t.Fatalf("result = %+v", result)
+	}
+	updated, err := job.Read(teamDir, "squ-77")
+	if err != nil {
+		t.Fatalf("Read updated: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastStatus != "pull request merged" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-77")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "pr.merged" || events[0].Actor != "github" || events[0].Data["matched_by"] != "pr_url" || events[0].Data["source"] != "github" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestReconcilePRClosedFailureWritesLinearAttention(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
+	teamDir := testTeamDir(t)
+	now := time.Date(2026, 7, 3, 12, 30, 0, 0, time.UTC)
+	j, err := job.New("SQU-88", "worker", "ship the change", now)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/88"
+	j.Branch = "worker-squ-88"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	merged := false
+	result, err := ReconcilePR(teamDir, job.ReconcileInput{
+		EventType: "pr.closed",
+		Source:    "github",
+		Action:    "closed",
+		PR:        "88",
+		PRURL:     "https://github.com/acme/repo/pull/88",
+		Branch:    "worker-squ-88",
+		Merged:    &merged,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ReconcilePR: %v", err)
+	}
+	if result.Job.Status != job.StatusFailed || result.Job.LastEvent != "pr.closed" {
+		t.Fatalf("result = %+v, want failed pr.closed", result)
+	}
+	updated, err := job.Read(teamDir, "squ-88")
+	if err != nil {
+		t.Fatalf("Read updated: %v", err)
+	}
+	if updated.Status != job.StatusFailed || !updated.LinearAttentionWritten {
+		t.Fatalf("updated = %+v, want failed with LinearAttentionWritten", updated)
+	}
+	assertFailureAttentionAuditCount(t, teamDir, "squ-88", 1)
+	events, err := job.ListEvents(teamDir, "squ-88")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if events[0].Type != "pr.closed" || events[0].Actor != "github" || events[0].Data["matched_by"] != "pr_url" {
+		t.Fatalf("first event = %+v, want pr.closed snapshot", events[0])
+	}
+}
+
 func testTeamDir(t *testing.T) string {
 	t.Helper()
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")

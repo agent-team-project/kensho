@@ -17,6 +17,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/linearwriteback"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
@@ -12733,6 +12734,96 @@ gate = "pr"
 	}
 	if unchanged.PR != "" {
 		t.Fatalf("dry-run wrote PR: %+v", unchanged)
+	}
+}
+
+func TestJobReconcileGitHubClosedWritesLinearFailureAttention(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
+	target := t.TempDir()
+	initInto(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[team]
+pm_tool = "linear"
+
+[linear]
+team_id = "team-1"
+ticket_prefix = "SQU"
+attention_state = "Todo"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	now := time.Date(2026, 7, 3, 13, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-146", "worker", "finish pr reconciliation", now)
+	if err != nil {
+		t.Fatalf("job new: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/146"
+	j.Branch = "worker-squ-146"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"action": "closed",
+		"repository": map[string]any{
+			"full_name": "acme/repo",
+		},
+		"pull_request": map[string]any{
+			"number":   146,
+			"merged":   false,
+			"html_url": "https://github.com/acme/repo/pull/146",
+			"head": map[string]any{
+				"ref": "worker-squ-146",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", string(payload),
+		"--repo", target,
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile github: %v\nstderr=%s", err, stderr.String())
+	}
+	var result struct {
+		Result struct {
+			Job job.Job `json:"job"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if result.Result.Job.Status != job.StatusFailed || !result.Result.Job.LinearAttentionWritten {
+		t.Fatalf("reconciled job = %+v, want failed with LinearAttentionWritten", result.Result.Job)
+	}
+	updated, err := job.Read(teamDir, "squ-146")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || !updated.LinearAttentionWritten {
+		t.Fatalf("updated job = %+v, want failed with LinearAttentionWritten", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-146")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	reconcileEvent, ok := findJobEvent(events, "pr.closed")
+	if !ok || reconcileEvent.Data["matched_by"] != "pr_url" {
+		t.Fatalf("events missing pr.closed reconcile event: %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != string(linearwriteback.ActionFailureAttention) || linearEvent.Data["state"] != "Todo" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
 
