@@ -4142,6 +4142,9 @@ func newJobCloseCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "closed", closeActor, closeMessage, map[string]string{"status": status}); err != nil {
 				return err
 			}
+			if j.Status == job.StatusFailed {
+				writeLinearFailureAttention(teamDir, j, closeMessage)
+			}
 			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, closeActor); err != nil {
 				return err
 			}
@@ -4335,6 +4338,7 @@ func newJobCancelCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "cancelled", cancelActor, reason, data); err != nil {
 				return err
 			}
+			writeLinearFailureAttention(teamDir, j, reason)
 			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, cancelActor); err != nil {
 				return err
 			}
@@ -4791,6 +4795,7 @@ func timeoutJobLifecycle(teamDir string, j *job.Job, targetFilter, message strin
 	if err := writeJobWithAudit(teamDir, j, "job_timeout", "cli", result.Message, data); err != nil {
 		return nil, err
 	}
+	writeLinearFailureAttention(teamDir, j, result.Message)
 	result.Action = "failed"
 	result.DryRun = false
 	result.StepStatus = j.Status
@@ -5339,6 +5344,7 @@ func newJobBounceCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "bounced", "cli", j.LastStatus, data); err != nil {
 				return err
 			}
+			writeLinearBounceBack(teamDir, j, selectedStep, findingsText)
 			if advance {
 				res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 				if err != nil {
@@ -12341,6 +12347,8 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	}); err != nil {
 		return nil, "", err
 	}
+	writeLinearDispatchInProgress(teamDir, j)
+	writeLinearFailureAttention(teamDir, j, j.LastStatus)
 	return &jobDispatchResult{Job: j, Event: res}, requestedName, nil
 }
 
@@ -13886,6 +13894,8 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 	if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": stepID}); err != nil {
 		return nil, err
 	}
+	writeLinearStepDispatchInProgress(teamDir, j, stepID)
+	writeLinearFailureAttention(teamDir, j, j.LastStatus)
 	if idx := jobStepIndex(j, stepID); idx >= 0 {
 		return &jobAdvanceResult{Job: j, Step: &j.Steps[idx], Event: res}, nil
 	}

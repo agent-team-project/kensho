@@ -327,6 +327,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 			"step":     step.ID,
 		})
 	}
+	r.writeLinearPipelineDispatch(j, step.ID)
 	return dispatch.eventOutcomes
 }
 
