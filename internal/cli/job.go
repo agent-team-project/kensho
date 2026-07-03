@@ -3268,6 +3268,7 @@ func newJobLogsCmd() *cobra.Command {
 		grep   string
 		last   bool
 		clean  bool
+		raw    bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -3310,7 +3311,15 @@ func newJobLogsCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job logs: --last-message cannot be combined with --clean.")
 					return exitErr(2)
 				}
+				if raw {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job logs: --last-message cannot be combined with --raw.")
+					return exitErr(2)
+				}
 				return streamSelectedLastMessageWithPrefix(cmd, teamDir, logListRow{Instance: instance}, "agent-team job logs")
+			}
+			if raw && clean {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job logs: --raw cannot be combined with --clean.")
+				return exitErr(2)
 			}
 			tailLines, err := parseLogTail(tail)
 			if err != nil {
@@ -3334,6 +3343,7 @@ func newJobLogsCmd() *cobra.Command {
 				Since:   sinceCutoff,
 				Grep:    grepPattern,
 				Clean:   clean,
+				Raw:     raw,
 			})
 		},
 	}
@@ -3344,7 +3354,8 @@ func newJobLogsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&since, "since", "", "Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
 	cmd.Flags().BoolVar(&last, "last-message", false, "Show the clean final Codex response sidecar for the owning instance.")
-	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise when printing the raw owning instance log.")
+	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise before printing the owning instance log.")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Print the unprocessed owning instance log without Codex JSONL rendering.")
 	return cmd
 }
 

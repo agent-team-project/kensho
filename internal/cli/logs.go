@@ -46,6 +46,7 @@ func newLogsCmd() *cobra.Command {
 		jsonOut          bool
 		noPrefix         bool
 		clean            bool
+		raw              bool
 		statuses         []string
 		runtimes         []string
 		agents           []string
@@ -104,6 +105,7 @@ func newLogsCmd() *cobra.Command {
 				JSON:           jsonOut,
 				NoPrefix:       noPrefix,
 				Clean:          clean,
+				Raw:            raw,
 				StatusFilters:  statuses,
 				RuntimeFilters: runtimes,
 				AgentFilters:   agents,
@@ -130,7 +132,8 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&list, "list", false, "List daemon-known instance log streams instead of printing log content.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with --list.")
 	cmd.Flags().BoolVar(&noPrefix, "no-prefix", false, "Do not prefix lines when streaming multiple instance logs.")
-	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise when printing raw logs.")
+	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise before printing logs.")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Print the unprocessed runtime log stream without Codex JSONL rendering.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for this runtime: claude or codex. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show logs for this agent. Can repeat or comma-separate.")
@@ -157,6 +160,7 @@ type logsOptions struct {
 	JSON           bool
 	NoPrefix       bool
 	Clean          bool
+	Raw            bool
 	StatusFilters  []string
 	RuntimeFilters []string
 	AgentFilters   []string
@@ -293,6 +297,14 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --clean cannot be combined with --list or --daemon.")
 		return exitErr(2)
 	}
+	if opts.Raw && opts.List {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --raw cannot be combined with --list.")
+		return exitErr(2)
+	}
+	if opts.Raw && opts.Clean {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --raw cannot be combined with --clean.")
+		return exitErr(2)
+	}
 	if opts.LastMessage {
 		switch {
 		case opts.Daemon:
@@ -321,6 +333,9 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 			return exitErr(2)
 		case opts.Clean:
 			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --clean.")
+			return exitErr(2)
+		case opts.Raw:
+			fmt.Fprintln(cmd.ErrOrStderr(), "agent-team logs: --last-message cannot be combined with --raw.")
 			return exitErr(2)
 		}
 	}
@@ -411,7 +426,7 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 			}
 			return streamLogRowOnce(ctx, cmd.OutOrStdout(), row, opts)
 		}
-		return client.LogsStream(ctx, cmd.OutOrStdout(), args[0], opts.Follow, opts.Tail)
+		return streamDaemonLog(ctx, cmd.OutOrStdout(), client, args[0], opts.Follow, opts.Tail, opts.Raw)
 	}
 
 	names, err := logInstanceNamesWithOptions(teamDir, client, listOpts, opts.Limit)
@@ -438,12 +453,12 @@ func runLogs(cmd *cobra.Command, target string, args []string, opts logsOptions)
 			fmt.Fprintln(cmd.OutOrStdout(), "(no matching logs)")
 			return nil
 		}
-		return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean)
+		return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean, opts.Raw)
 	}
 	if opts.Follow {
-		return streamAllLogsFollow(ctx, cmd.OutOrStdout(), client, names, opts.Tail, !opts.NoPrefix)
+		return streamAllLogsFollow(ctx, cmd.OutOrStdout(), client, names, opts.Tail, !opts.NoPrefix, opts.Raw)
 	}
-	return streamAllLogsOnce(ctx, cmd.OutOrStdout(), client, names, opts.Tail, !opts.NoPrefix)
+	return streamAllLogsOnce(ctx, cmd.OutOrStdout(), client, names, opts.Tail, !opts.NoPrefix, opts.Raw)
 }
 
 type logListRow struct {
@@ -632,7 +647,7 @@ func runLogsLocal(cmd *cobra.Command, teamDir string, args []string, opts logsOp
 			}
 			return streamLogRowOnce(ctx, cmd.OutOrStdout(), row, opts)
 		}
-		if err := streamLocalLog(ctx, cmd.OutOrStdout(), row.path, opts.Follow, opts.Tail, nil, opts.Clean); err != nil {
+		if err := streamLocalLog(ctx, cmd.OutOrStdout(), row.path, opts.Follow, opts.Tail, nil, opts.Clean, opts.Raw); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: log not found at %s.\n", row.LogPath)
 				return exitErr(1)
@@ -656,9 +671,9 @@ func runLogsLocal(cmd *cobra.Command, teamDir string, args []string, opts logsOp
 		return nil
 	}
 	if opts.Follow {
-		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Clean)
+		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Clean, opts.Raw)
 	}
-	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean)
+	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean, opts.Raw)
 }
 
 func runLogsLastMessage(cmd *cobra.Command, target string, args []string, opts logsOptions, listOpts logListOptions, hasFilters bool) error {
@@ -769,7 +784,7 @@ func runLatestLogWithClient(ctx context.Context, cmd *cobra.Command, teamDir str
 	if opts.Since != nil || opts.Grep != nil || opts.Clean {
 		return streamSelectedLocalLogRow(ctx, cmd, row, opts)
 	}
-	return client.LogsStream(ctx, cmd.OutOrStdout(), row.Instance, opts.Follow, opts.Tail)
+	return streamDaemonLog(ctx, cmd.OutOrStdout(), client, row.Instance, opts.Follow, opts.Tail, opts.Raw)
 }
 
 func streamSelectedLocalLogRow(ctx context.Context, cmd *cobra.Command, row logListRow, opts logsOptions) error {
@@ -787,7 +802,7 @@ func streamSelectedLocalLogRow(ctx context.Context, cmd *cobra.Command, row logL
 		}
 		return nil
 	}
-	if err := streamLocalLog(ctx, cmd.OutOrStdout(), row.path, opts.Follow, opts.Tail, nil, opts.Clean); err != nil {
+	if err := streamLocalLog(ctx, cmd.OutOrStdout(), row.path, opts.Follow, opts.Tail, nil, opts.Clean, opts.Raw); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: log not found at %s.\n", row.LogPath)
 			return exitErr(1)
@@ -1330,7 +1345,7 @@ func runDaemonLog(cmd *cobra.Command, target string, opts logsOptions) error {
 			return err
 		}
 	}
-	if err := streamLocalLog(ctx, cmd.OutOrStdout(), logPath, opts.Follow, opts.Tail, opts.Grep, false); err != nil {
+	if err := streamLocalLog(ctx, cmd.OutOrStdout(), logPath, opts.Follow, opts.Tail, opts.Grep, false, true); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team logs: daemon log not found at %s.\n", daemon.LogPath(teamDir))
 			fmt.Fprintln(cmd.ErrOrStderr(), "  Start the daemon with `agent-team start` or `agent-team daemon start --detach` first.")
@@ -1386,18 +1401,18 @@ func logInstanceNamesWithOptions(teamDir string, client *daemonClient, opts logL
 	return names, nil
 }
 
-func streamAllLogsOnce(ctx context.Context, w io.Writer, client *daemonClient, names []string, tail int, prefix bool) error {
+func streamAllLogsOnce(ctx context.Context, w io.Writer, client *daemonClient, names []string, tail int, prefix bool, raw bool) error {
 	var mu sync.Mutex
 	for _, name := range names {
 		pw := multiLogWriter(w, name, &mu, prefix)
-		if err := client.LogsStream(ctx, pw, name, false, tail); err != nil {
+		if err := streamDaemonLog(ctx, pw, client, name, false, tail, raw); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func streamAllLogsFollow(ctx context.Context, w io.Writer, client *daemonClient, names []string, tail int, prefix bool) error {
+func streamAllLogsFollow(ctx context.Context, w io.Writer, client *daemonClient, names []string, tail int, prefix bool, raw bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -1410,7 +1425,7 @@ func streamAllLogsFollow(ctx context.Context, w io.Writer, client *daemonClient,
 		go func() {
 			defer wg.Done()
 			pw := multiLogWriter(w, name, &mu, prefix)
-			if err := client.LogsStream(ctx, pw, name, true, tail); err != nil {
+			if err := streamDaemonLog(ctx, pw, client, name, true, tail, raw); err != nil {
 				errCh <- fmt.Errorf("%s: %w", name, err)
 				cancel()
 			}
@@ -1436,11 +1451,11 @@ func streamAllLogsFollow(ctx context.Context, w io.Writer, client *daemonClient,
 	}
 }
 
-func streamLocalLogRowsOnce(ctx context.Context, w io.Writer, rows []logListRow, tail int, prefix bool, grep *regexp.Regexp, clean bool) error {
+func streamLocalLogRowsOnce(ctx context.Context, w io.Writer, rows []logListRow, tail int, prefix bool, grep *regexp.Regexp, clean bool, raw bool) error {
 	var mu sync.Mutex
 	for _, row := range rows {
 		pw := multiLogWriter(w, row.Instance, &mu, prefix)
-		if err := streamLocalLog(ctx, pw, row.path, false, tail, grep, clean); err != nil {
+		if err := streamLocalLog(ctx, pw, row.path, false, tail, grep, clean, raw); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("%s: log not found at %s", row.Instance, row.LogPath)
 			}
@@ -1458,14 +1473,14 @@ func streamLogRowOnce(ctx context.Context, w io.Writer, row logListRow, opts log
 		fmt.Fprintln(w, "(no matching logs)")
 		return nil
 	}
-	return streamLocalLog(ctx, w, row.path, false, opts.Tail, opts.Grep, opts.Clean)
+	return streamLocalLog(ctx, w, row.path, false, opts.Tail, opts.Grep, opts.Clean, opts.Raw)
 }
 
 func streamLogRowOnceSince(ctx context.Context, w io.Writer, row logListRow, opts logsOptions) error {
 	return streamLogRowOnce(ctx, w, row, opts)
 }
 
-func streamLocalLogRowsFollow(ctx context.Context, w io.Writer, rows []logListRow, tail int, prefix bool, clean bool) error {
+func streamLocalLogRowsFollow(ctx context.Context, w io.Writer, rows []logListRow, tail int, prefix bool, clean bool, raw bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -1478,7 +1493,7 @@ func streamLocalLogRowsFollow(ctx context.Context, w io.Writer, rows []logListRo
 		go func() {
 			defer wg.Done()
 			pw := multiLogWriter(w, row.Instance, &mu, prefix)
-			if err := streamLocalLog(ctx, pw, row.path, true, tail, nil, clean); err != nil {
+			if err := streamLocalLog(ctx, pw, row.path, true, tail, nil, clean, raw); err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					errCh <- fmt.Errorf("%s: log not found at %s", row.Instance, row.LogPath)
 				} else {
@@ -1508,7 +1523,19 @@ func streamLocalLogRowsFollow(ctx context.Context, w io.Writer, rows []logListRo
 	}
 }
 
-func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, tail int, grep *regexp.Regexp, clean bool) error {
+func streamDaemonLog(ctx context.Context, w io.Writer, client *daemonClient, instance string, follow bool, tail int, raw bool) error {
+	if raw {
+		return client.LogsStream(ctx, w, instance, follow, tail)
+	}
+	lw := newCodexLogWriter(w)
+	err := client.LogsStream(ctx, lw, instance, follow, tail)
+	if flushErr := lw.Flush(); err == nil {
+		err = flushErr
+	}
+	return err
+}
+
+func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, tail int, grep *regexp.Regexp, clean bool, raw bool) error {
 	if grep != nil && follow {
 		return errors.New("logs: grep cannot be combined with follow")
 	}
@@ -1518,8 +1545,8 @@ func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, 
 	}
 	defer f.Close()
 
-	if clean || grep != nil {
-		if err := copyFilteredLinesLocal(w, f, tail, grep, clean); err != nil {
+	if clean || grep != nil || !raw {
+		if err := copyFilteredLinesLocal(w, f, tail, grep, clean, raw); err != nil {
 			return err
 		}
 	} else if tail > 0 {
@@ -1532,8 +1559,8 @@ func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, 
 	if !follow {
 		return nil
 	}
-	if clean {
-		return followCleanLogLines(ctx, w, f)
+	if clean || !raw {
+		return followLogLines(ctx, w, f, clean, raw)
 	}
 
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -1558,6 +1585,257 @@ func streamLocalLog(ctx context.Context, w io.Writer, path string, follow bool, 
 			}
 		}
 	}
+}
+
+const (
+	ansiDim   = "\x1b[2m"
+	ansiReset = "\x1b[0m"
+)
+
+type codexLogWriter struct {
+	w        io.Writer
+	renderer *codexLogLineRenderer
+	pending  []byte
+}
+
+func newCodexLogWriter(w io.Writer) *codexLogWriter {
+	return &codexLogWriter{
+		w:        w,
+		renderer: newCodexLogLineRenderer(),
+	}
+}
+
+func (w *codexLogWriter) Write(p []byte) (int, error) {
+	w.pending = append(w.pending, p...)
+	for {
+		idx := bytes.IndexByte(w.pending, '\n')
+		if idx < 0 {
+			break
+		}
+		line := string(w.pending[:idx+1])
+		if _, err := io.WriteString(w.w, w.renderer.RenderLine(line)); err != nil {
+			return 0, err
+		}
+		w.pending = w.pending[idx+1:]
+	}
+	return len(p), nil
+}
+
+func (w *codexLogWriter) Flush() error {
+	if len(w.pending) == 0 {
+		return nil
+	}
+	line := string(w.pending)
+	w.pending = nil
+	_, err := io.WriteString(w.w, w.renderer.RenderLine(line))
+	return err
+}
+
+type codexLogLineRenderer struct {
+	startedCommands map[string]bool
+}
+
+func newCodexLogLineRenderer() *codexLogLineRenderer {
+	return &codexLogLineRenderer{startedCommands: map[string]bool{}}
+}
+
+func (r *codexLogLineRenderer) RenderLine(line string) string {
+	body, newline := splitLogLineEnding(line)
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return line
+	}
+	var event map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &event); err != nil {
+		return line
+	}
+	if rendered, ok := r.renderCodexEvent(event, ""); ok {
+		return ensureLogLineEnding(rendered, newline)
+	}
+	return line
+}
+
+func (r *codexLogLineRenderer) renderCodexEvent(event map[string]json.RawMessage, wrapper string) (string, bool) {
+	eventType := strings.TrimSpace(jsonStringField(event, "type"))
+	if eventType == "" {
+		return "", false
+	}
+	if eventType == "event_msg" {
+		payload := jsonObjectField(event, "payload")
+		if payload == nil {
+			return "", false
+		}
+		return r.renderCodexEvent(payload, eventType)
+	}
+	if strings.HasPrefix(eventType, "thread.") || strings.HasPrefix(eventType, "turn.") {
+		return renderCodexMarker(eventType, event), true
+	}
+	if strings.HasPrefix(eventType, "item.") {
+		item := jsonObjectField(event, "item")
+		if item == nil {
+			return renderCodexMarker(eventType, event), true
+		}
+		return r.renderCodexItem(item, eventType)
+	}
+	switch eventType {
+	case "agent_message":
+		return renderCodexAgentMessage(event)
+	case "command_execution":
+		return r.renderCodexCommandExecution(event, wrapper)
+	default:
+		if wrapper == "event_msg" && (strings.HasPrefix(eventType, "thread.") || strings.HasPrefix(eventType, "turn.")) {
+			return renderCodexMarker(eventType, event), true
+		}
+		return "", false
+	}
+}
+
+func (r *codexLogLineRenderer) renderCodexItem(item map[string]json.RawMessage, itemEventType string) (string, bool) {
+	itemType := strings.TrimSpace(jsonStringField(item, "type"))
+	switch itemType {
+	case "agent_message":
+		return renderCodexAgentMessage(item)
+	case "command_execution":
+		return r.renderCodexCommandExecution(item, itemEventType)
+	default:
+		if itemType != "" {
+			return renderCodexMarker(itemEventType+" "+itemType, item), true
+		}
+		return renderCodexMarker(itemEventType, item), true
+	}
+}
+
+func renderCodexAgentMessage(event map[string]json.RawMessage) (string, bool) {
+	for _, field := range []string{"text", "message"} {
+		if text := jsonStringField(event, field); text != "" {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+func (r *codexLogLineRenderer) renderCodexCommandExecution(event map[string]json.RawMessage, wrapper string) (string, bool) {
+	command := jsonStringField(event, "command")
+	if command == "" {
+		command = jsonStringField(event, "cmd")
+	}
+	if strings.TrimSpace(command) == "" {
+		return dimLogLine("command_execution"), true
+	}
+	id := strings.TrimSpace(jsonStringField(event, "id"))
+	exitCode, hasExitCode := jsonIntField(event, "exit_code")
+	status := strings.TrimSpace(jsonStringField(event, "status"))
+	completed := wrapper == "item.completed" || status == "completed" || hasExitCode
+	if !completed {
+		if id != "" {
+			r.startedCommands[id] = true
+		}
+		return "$ " + command, true
+	}
+	exit := "completed"
+	if hasExitCode {
+		exit = fmt.Sprintf("exit %d", exitCode)
+	}
+	output := jsonStringField(event, "aggregated_output")
+	if id != "" && r.startedCommands[id] {
+		delete(r.startedCommands, id)
+		return renderCodexCommandCompletion("", output, exit, false), true
+	}
+	if output != "" {
+		return renderCodexCommandCompletion(command, output, exit, true), true
+	}
+	return "$ " + command + " (" + exit + ")", true
+}
+
+func renderCodexCommandCompletion(command, output, exit string, includeCommand bool) string {
+	var b strings.Builder
+	if includeCommand {
+		b.WriteString("$ ")
+		b.WriteString(command)
+		b.WriteByte('\n')
+	}
+	if output != "" {
+		b.WriteString(output)
+		if !strings.HasSuffix(output, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString(dimLogLine(exit))
+	return b.String()
+}
+
+func renderCodexMarker(eventType string, event map[string]json.RawMessage) string {
+	fields := []string{eventType}
+	for _, name := range []string{"thread_id", "turn_id", "id", "status"} {
+		if value := strings.TrimSpace(jsonStringField(event, name)); value != "" {
+			fields = append(fields, value)
+		}
+	}
+	return dimLogLine(strings.Join(fields, " "))
+}
+
+func dimLogLine(line string) string {
+	return ansiDim + line + ansiReset
+}
+
+func splitLogLineEnding(line string) (string, string) {
+	if strings.HasSuffix(line, "\r\n") {
+		return strings.TrimSuffix(line, "\r\n"), "\r\n"
+	}
+	if strings.HasSuffix(line, "\n") {
+		return strings.TrimSuffix(line, "\n"), "\n"
+	}
+	return line, ""
+}
+
+func ensureLogLineEnding(line, newline string) string {
+	if newline == "" {
+		return line
+	}
+	if strings.HasSuffix(line, "\n") {
+		return line
+	}
+	return line + newline
+}
+
+func jsonObjectField(obj map[string]json.RawMessage, name string) map[string]json.RawMessage {
+	raw, ok := obj[name]
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func jsonStringField(obj map[string]json.RawMessage, name string) string {
+	raw, ok := obj[name]
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return ""
+}
+
+func jsonIntField(obj map[string]json.RawMessage, name string) (int, bool) {
+	raw, ok := obj[name]
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n, true
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int(f), true
+	}
+	return 0, false
 }
 
 func copyTailLinesLocal(w io.Writer, f *os.File, lines int) error {
@@ -1588,12 +1866,12 @@ func copyTailLinesLocal(w io.Writer, f *os.File, lines int) error {
 	return err
 }
 
-func copyFilteredLinesLocal(w io.Writer, f *os.File, tail int, grep *regexp.Regexp, clean bool) error {
+func copyFilteredLinesLocal(w io.Writer, f *os.File, tail int, grep *regexp.Regexp, clean bool, raw bool) error {
 	body, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
-	lines := filteredLogLines(body, grep, clean)
+	lines := filteredLogLines(body, grep, clean, raw)
 	if tail > 0 && tail < len(lines) {
 		lines = lines[len(lines)-tail:]
 	}
@@ -1605,37 +1883,44 @@ func copyFilteredLinesLocal(w io.Writer, f *os.File, tail int, grep *regexp.Rege
 	return nil
 }
 
-func filteredLogLines(body []byte, grep *regexp.Regexp, clean bool) [][]byte {
+func filteredLogLines(body []byte, grep *regexp.Regexp, clean bool, raw bool) [][]byte {
 	parts := bytes.SplitAfter(body, []byte("\n"))
 	out := make([][]byte, 0, len(parts))
+	renderer := newCodexLogLineRenderer()
 	for _, part := range parts {
 		if len(part) == 0 {
 			continue
 		}
 		line := string(part)
-		normalized := lineForGrep(line)
-		if clean && isCleanLogNoiseLine(normalized) {
+		if clean && isCleanLogNoiseLine(lineForGrep(line)) {
 			continue
 		}
-		if grep != nil && !grep.MatchString(normalized) {
+		if !raw {
+			line = renderer.RenderLine(line)
+		}
+		if grep != nil && !grep.MatchString(lineForGrep(line)) {
 			continue
 		}
-		out = append(out, part)
+		out = append(out, []byte(line))
 	}
 	return out
 }
 
-func followCleanLogLines(ctx context.Context, w io.Writer, f *os.File) error {
+func followLogLines(ctx context.Context, w io.Writer, f *os.File, clean bool, raw bool) error {
 	reader := bufio.NewReader(f)
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
+	renderer := newCodexLogLineRenderer()
 	for {
 		if !waitForWatchTick(ctx, ticker.C) {
 			return nil
 		}
 		for {
 			line, err := reader.ReadString('\n')
-			if line != "" && !isCleanLogNoiseLine(lineForGrep(line)) {
+			if line != "" && (!clean || !isCleanLogNoiseLine(lineForGrep(line))) {
+				if !raw {
+					line = renderer.RenderLine(line)
+				}
 				if _, werr := io.WriteString(w, line); werr != nil {
 					return werr
 				}

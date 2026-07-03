@@ -141,6 +141,127 @@ func TestLogsCleanFiltersCodexNoiseBeforeTail(t *testing.T) {
 	}
 }
 
+func TestLogsRendersCodexJSONLByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "worker",
+		Agent:    "worker",
+		Runtime:  string(runtimebin.KindCodex),
+		Status:   daemon.StatusExited,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "worker", strings.Join([]string{
+		`{"type":"thread.started","thread_id":"thread-1"}`,
+		`{"type":"turn.started","turn_id":"turn-1"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ready"}}`,
+		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"echo hi","exit_code":null,"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo hi","aggregated_output":"hello\n","exit_code":7,"status":"completed"}}`,
+		"",
+	}, "\n"))
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"logs", "worker", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("logs render: %v\nstderr=%s", err, stderr.String())
+	}
+	want := strings.Join([]string{
+		ansiDim + "thread.started thread-1" + ansiReset,
+		ansiDim + "turn.started turn-1" + ansiReset,
+		"ready",
+		"$ echo hi",
+		"hello",
+		ansiDim + "exit 7" + ansiReset,
+		"",
+	}, "\n")
+	if got := out.String(); got != want {
+		t.Fatalf("logs render = %q, want %q", got, want)
+	}
+}
+
+func TestLogsRawPreservesCodexJSONL(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "worker",
+		Agent:    "worker",
+		Runtime:  string(runtimebin.KindCodex),
+		Status:   daemon.StatusExited,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	raw := `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ready"}}` + "\n"
+	writeChildLogForTest(t, root, "worker", raw)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"logs", "worker", "--raw", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("logs raw: %v\nstderr=%s", err, stderr.String())
+	}
+	if got := out.String(); got != raw {
+		t.Fatalf("logs raw = %q, want raw JSONL %q", got, raw)
+	}
+}
+
+func TestStreamDaemonLogRendersCodexJSONL(t *testing.T) {
+	root := t.TempDir()
+	m := daemon.NewInstanceManager(root, nil)
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "worker",
+		Agent:    "worker",
+		Runtime:  string(runtimebin.KindCodex),
+		Status:   daemon.StatusStopped,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if err := m.LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	writeChildLogForTest(t, root, "worker", `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"daemon hello"}}`+"\n")
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil, nil, ""))
+	defer cleanup()
+
+	var buf bytes.Buffer
+	if err := streamDaemonLog(context.Background(), &buf, c, "worker", false, 0, false); err != nil {
+		t.Fatalf("stream daemon log: %v", err)
+	}
+	if got, want := buf.String(), "daemon hello\n"; got != want {
+		t.Fatalf("daemon log render = %q, want %q", got, want)
+	}
+}
+
+func TestCodexLogWriterRendersCompleteLinesIncrementally(t *testing.T) {
+	var buf bytes.Buffer
+	w := newCodexLogWriter(&buf)
+	line := `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"chunked"}}` + "\n"
+	if _, err := w.Write([]byte(line[:20])); err != nil {
+		t.Fatalf("write first chunk: %v", err)
+	}
+	if got := buf.String(); got != "" {
+		t.Fatalf("partial line rendered early: %q", got)
+	}
+	if _, err := w.Write([]byte(line[20:])); err != nil {
+		t.Fatalf("write second chunk: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if got, want := buf.String(), "chunked\n"; got != want {
+		t.Fatalf("chunked render = %q, want %q", got, want)
+	}
+}
+
 func TestLogsLastMessageUsesStateSidecarWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -2130,7 +2251,7 @@ func TestStreamLocalLogFollowStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	var buf bytes.Buffer
-	if err := streamLocalLog(ctx, &buf, path, true, 0, nil, false); err != nil {
+	if err := streamLocalLog(ctx, &buf, path, true, 0, nil, false, false); err != nil {
 		t.Fatalf("streamLocalLog: %v", err)
 	}
 	if got := buf.String(); got != "seed\n" {
@@ -2277,7 +2398,7 @@ func TestLogsAllStreamsSortedPrefixedLogs(t *testing.T) {
 		t.Fatalf("logInstanceNames: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := streamAllLogsOnce(context.Background(), &buf, c, names, 1, true); err != nil {
+	if err := streamAllLogsOnce(context.Background(), &buf, c, names, 1, true, false); err != nil {
 		t.Fatalf("streamAllLogsOnce: %v", err)
 	}
 	want := "manager              | manager last\nworker               | worker last\n"
@@ -2311,7 +2432,7 @@ func TestLogsAllNoPrefixStreamsSortedRawLogs(t *testing.T) {
 		t.Fatalf("logInstanceNames: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := streamAllLogsOnce(context.Background(), &buf, c, names, 1, false); err != nil {
+	if err := streamAllLogsOnce(context.Background(), &buf, c, names, 1, false, false); err != nil {
 		t.Fatalf("streamAllLogsOnce: %v", err)
 	}
 	want := "manager last\nworker last\n"
@@ -2340,7 +2461,7 @@ func TestLogsAllFollowStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	var buf bytes.Buffer
-	if err := streamAllLogsFollow(ctx, &buf, c, []string{"manager"}, 0, true); err != nil {
+	if err := streamAllLogsFollow(ctx, &buf, c, []string{"manager"}, 0, true, false); err != nil {
 		t.Fatalf("streamAllLogsFollow: %v", err)
 	}
 	if got := buf.String(); !strings.Contains(got, "manager              | seed\n") {

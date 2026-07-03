@@ -2699,10 +2699,11 @@ agent-team job logs <job-id> [flags]
 Flags:
 
 ```text
-      --clean          Hide known Codex runtime diagnostic noise when printing the raw owning instance log.
+      --clean          Hide known Codex runtime diagnostic noise before printing the owning instance log.
   -f, --follow         Tail the owning instance log; print new bytes as they appear.
       --grep string    Only print log lines matching this regular expression. One-shot reads only.
       --last-message   Show the clean final Codex response sidecar for the owning instance.
+      --raw            Print the unprocessed owning instance log without Codex JSONL rendering.
       --repo string    Repo root containing .agent_team. (default "<repo>")
       --since string   Only print the log if it was modified since a duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --step string    Use this pipeline step's owning instance.
@@ -4202,7 +4203,7 @@ Flags:
 ```text
       --agent strings     Only show logs for this agent. Can repeat or comma-separate.
   -a, --all               Show logs for every daemon-known instance, prefixed by instance name.
-      --clean             Hide known Codex runtime diagnostic noise when printing raw logs.
+      --clean             Hide known Codex runtime diagnostic noise before printing logs.
       --daemon            Show the agent-teamd daemon log instead of instance logs.
   -f, --follow            Tail the log; print new bytes as they appear.
       --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
@@ -4215,6 +4216,7 @@ Flags:
       --list              List daemon-known instance log streams instead of printing log content.
       --no-prefix         Do not prefix lines when streaming multiple instance logs.
       --phase strings     Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --raw               Print the unprocessed runtime log stream without Codex JSONL rendering.
       --runtime strings   Only show logs for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only show logs for running instances whose recorded runtime PID is no longer live.
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
@@ -5209,7 +5211,7 @@ Flags:
 
 ```text
       --all               Show logs across all pipelines. This is the default when no pipeline is passed.
-      --clean             Hide known Codex runtime diagnostic noise when printing raw pipeline logs.
+      --clean             Hide known Codex runtime diagnostic noise before printing pipeline logs.
   -f, --follow            Tail selected pipeline logs.
       --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
       --grep string       Only print log lines matching this regular expression. One-shot reads only.
@@ -5221,6 +5223,7 @@ Flags:
       --list              List pipeline log streams instead of printing log content.
       --no-prefix         Do not prefix lines when streaming multiple pipeline logs.
       --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --raw               Print unprocessed pipeline logs without Codex JSONL rendering.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show logs for pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only show logs for pipeline instances whose recorded runtime PID is no longer live.
@@ -8550,7 +8553,7 @@ agent-team team logs <team> [flags]
 Flags:
 
 ```text
-      --clean             Hide known Codex runtime diagnostic noise when printing raw team logs.
+      --clean             Hide known Codex runtime diagnostic noise before printing team logs.
   -f, --follow            Tail selected team logs.
       --format string     With --list, render each log stream with a Go template, e.g. '{{.Instance}} {{.LogPath}}'.
       --grep string       Only print log lines matching this regular expression. One-shot reads only.
@@ -8562,6 +8565,7 @@ Flags:
       --list              List team log streams instead of printing log content.
       --no-prefix         Do not prefix lines when streaming multiple team logs.
       --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --raw               Print unprocessed team logs without Codex JSONL rendering.
       --repo string       Repo root containing .agent_team. (default "<repo>")
       --runtime strings   Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
       --runtime-stale     Only show logs for team instances whose recorded runtime PID is no longer live.

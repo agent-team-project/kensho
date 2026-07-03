@@ -4855,6 +4855,7 @@ func newTeamLogsCmd() *cobra.Command {
 		unhealthy        bool
 		lastMsg          bool
 		clean            bool
+		raw              bool
 		step             string
 		tail             string
 		since            string
@@ -4929,6 +4930,18 @@ func newTeamLogsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --clean cannot be combined with --list.")
 				return exitErr(2)
 			}
+			if raw && list {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --raw cannot be combined with --list.")
+				return exitErr(2)
+			}
+			if raw && clean {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --raw cannot be combined with --clean.")
+				return exitErr(2)
+			}
+			if raw && lastMsg {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team logs: --last-message cannot be combined with --raw.")
+				return exitErr(2)
+			}
 			formatTemplate, err := parseLogListFormat(format)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: %v\n", err)
@@ -4993,6 +5006,7 @@ func newTeamLogsCmd() *cobra.Command {
 				Unhealthy:    unhealthy,
 				LastMessage:  lastMsg,
 				Clean:        clean,
+				Raw:          raw,
 			}
 			return runTeamLogs(cmd, teamDir, args[0], opts, listOpts)
 		},
@@ -5013,7 +5027,8 @@ func newTeamLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show logs for team instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthy, "unhealthy", false, "Only show logs for crashed, status-stale, or runtime-stale team instances.")
 	cmd.Flags().BoolVar(&lastMsg, "last-message", false, "Show clean final Codex response sidecars instead of raw runtime logs.")
-	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise when printing raw team logs.")
+	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise before printing team logs.")
+	cmd.Flags().BoolVar(&raw, "raw", false, "Print unprocessed team logs without Codex JSONL rendering.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&grep, "grep", "", "Only print log lines matching this regular expression. One-shot reads only.")
@@ -10029,7 +10044,7 @@ func runTeamLogs(cmd *cobra.Command, teamDir, name string, opts logsOptions, lis
 	defer cancel()
 	if len(rows) == 1 {
 		if opts.Follow {
-			if err := streamLocalLog(ctx, cmd.OutOrStdout(), rows[0].path, true, opts.Tail, nil, opts.Clean); err != nil {
+			if err := streamLocalLog(ctx, cmd.OutOrStdout(), rows[0].path, true, opts.Tail, nil, opts.Clean, opts.Raw); err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team logs: log not found at %s.\n", rows[0].LogPath)
 					return exitErr(1)
@@ -10048,9 +10063,9 @@ func runTeamLogs(cmd *cobra.Command, teamDir, name string, opts logsOptions, lis
 		return nil
 	}
 	if opts.Follow {
-		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Clean)
+		return streamLocalLogRowsFollow(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Clean, opts.Raw)
 	}
-	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean)
+	return streamLocalLogRowsOnce(ctx, cmd.OutOrStdout(), rows, opts.Tail, !opts.NoPrefix, opts.Grep, opts.Clean, opts.Raw)
 }
 
 func collectTeamLogRows(teamDir, name string, opts logListOptions, since *time.Time, limit int) ([]logListRow, error) {
