@@ -27,3 +27,4 @@ bin/
 .agent_team/daemon.sock
 .agent_team/daemon/
 .agent_team/state/
+.agent_team/jobs/
