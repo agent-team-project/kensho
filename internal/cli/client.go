@@ -64,10 +64,37 @@ func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonC
 		DisableKeepAlives: true,
 	}
 	return &daemonClient{
-		hc:      &http.Client{Transport: transport, Timeout: timeout},
+		hc:      newDaemonHTTPClient(transport, timeout),
 		baseURL: "http://daemon", // host name is irrelevant — DialContext fixes the socket.
 		teamDir: teamDir,
 	}, nil
+}
+
+func newDaemonHTTPClient(base http.RoundTripper, timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: daemonBuildHeaderTransport{
+			base:  base,
+			build: BuildInfo(),
+		},
+		Timeout: timeout,
+	}
+}
+
+type daemonBuildHeaderTransport struct {
+	base  http.RoundTripper
+	build buildinfo.Info
+}
+
+func (t daemonBuildHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if value := t.build.HeaderValue(); value != "" && req.Header.Get(buildinfo.HeaderName) == "" {
+		req = req.Clone(req.Context())
+		req.Header.Set(buildinfo.HeaderName, value)
+	}
+	return base.RoundTrip(req)
 }
 
 // dispatchPayload mirrors POST /v1/dispatch's body.

@@ -239,7 +239,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("daemon: listen %s: %w", socket, err)
 	}
 	srv := &http.Server{
-		Handler:           Handler(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.Build),
+		Handler:           HandlerWithLog(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.LogOut, d.cfg.Build),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	d.mu.Lock()

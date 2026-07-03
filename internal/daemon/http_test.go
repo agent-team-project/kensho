@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -312,6 +313,106 @@ func TestHTTP_StatusIncludesBuildIdentity(t *testing.T) {
 	resp = mustPost(t, srv.URL+"/v1/status", `{}`)
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status POST: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestHTTP_BuildHandshakeMatchedIdentityLogsNothing(t *testing.T) {
+	root := t.TempDir()
+	build := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Time:     "2026-07-03T00:00:00Z",
+	}
+	logs := &bytes.Buffer{}
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+	srv := httptest.NewServer(HandlerWithLog(m, nil, nil, "", logs, build))
+	defer srv.Close()
+
+	resp := mustGetWithBuild(t, srv.URL+"/v1/status", build)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+	if logs.Len() != 0 {
+		t.Fatalf("logs = %q, want no build skew warning", logs.String())
+	}
+}
+
+func TestHTTP_BuildHandshakeSkewLogsOncePerClientIdentity(t *testing.T) {
+	root := t.TempDir()
+	daemonBuild := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Time:     "2026-07-03T00:00:00Z",
+	}
+	clientBuild := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Time:     "2026-07-03T00:05:00Z",
+	}
+	logs := &bytes.Buffer{}
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+	srv := httptest.NewServer(HandlerWithLog(m, nil, nil, "", logs, daemonBuild))
+	defer srv.Close()
+
+	for i := 0; i < 3; i++ {
+		resp := mustGetWithBuild(t, srv.URL+"/v1/status", clientBuild)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status %d: got %d body=%s", i, resp.StatusCode, readBody(t, resp))
+		}
+		resp.Body.Close()
+	}
+	if count := strings.Count(logs.String(), "daemon build skew"); count != 1 {
+		t.Fatalf("skew warning count = %d, want 1; logs=%q", count, logs.String())
+	}
+	if !strings.Contains(logs.String(), clientBuild.Display()) || !strings.Contains(logs.String(), daemonBuild.Display()) {
+		t.Fatalf("logs = %q, want client and daemon identities", logs.String())
+	}
+
+	otherClientBuild := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "cccccccccccccccccccccccccccccccccccccccc",
+		Time:     "2026-07-03T00:10:00Z",
+	}
+	resp := mustGetWithBuild(t, srv.URL+"/v1/status", otherClientBuild)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second client status: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+	if count := strings.Count(logs.String(), "daemon build skew"); count != 2 {
+		t.Fatalf("skew warning count after second identity = %d, want 2; logs=%q", count, logs.String())
+	}
+}
+
+func TestHTTP_ErrorBodyIncludesDaemonBuild(t *testing.T) {
+	root := t.TempDir()
+	build := buildinfo.Info{
+		Version:  "0.1.0",
+		Revision: "dddddddddddddddddddddddddddddddddddddddd",
+		Time:     "2026-07-03T00:15:00Z",
+		Modified: true,
+	}
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+	srv := httptest.NewServer(HandlerWithLog(m, nil, nil, "", io.Discard, build))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event", `{}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("event status: got %d want 503", resp.StatusCode)
+	}
+	var body struct {
+		Error       string         `json:"error"`
+		DaemonBuild buildinfo.Info `json:"daemon_build"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.Error != "topology not configured" {
+		t.Fatalf("error = %q, want topology not configured", body.Error)
+	}
+	if body.DaemonBuild != build {
+		t.Fatalf("daemon_build = %+v, want %+v", body.DaemonBuild, build)
 	}
 }
 
@@ -749,6 +850,20 @@ func mustPost(t *testing.T, url, body string) *http.Response {
 func mustGet(t *testing.T, url string) *http.Response {
 	t.Helper()
 	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+func mustGetWithBuild(t *testing.T, url string, build buildinfo.Info) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	req.Header.Set(buildinfo.HeaderName, build.HeaderValue())
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}

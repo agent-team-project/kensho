@@ -3,9 +3,14 @@ package buildinfo
 
 import (
 	"fmt"
+	"net/url"
 	"runtime/debug"
+	"strconv"
 	"strings"
 )
+
+// HeaderName is the daemon request header carrying a CLI build identity.
+const HeaderName = "X-Agent-Team-Build"
 
 // Info is the stable build identity shared by the CLI and daemon API.
 type Info struct {
@@ -87,6 +92,45 @@ func (i Info) VersionLine() string {
 		line += " modified"
 	}
 	return line
+}
+
+// HeaderValue serializes the identity for HeaderName.
+func (i Info) HeaderValue() string {
+	values := url.Values{}
+	if v := strings.TrimSpace(i.Version); v != "" {
+		values.Set("version", v)
+	}
+	if rev := strings.TrimSpace(i.Revision); rev != "" {
+		values.Set("revision", rev)
+	}
+	if t := strings.TrimSpace(i.Time); t != "" {
+		values.Set("time", t)
+	}
+	if i.Modified {
+		values.Set("modified", "true")
+	}
+	return values.Encode()
+}
+
+// ParseHeaderValue parses a HeaderName value into a build identity.
+func ParseHeaderValue(raw string) (Info, error) {
+	values, err := url.ParseQuery(strings.TrimSpace(raw))
+	if err != nil {
+		return Info{}, err
+	}
+	out := Info{
+		Version:  strings.TrimSpace(values.Get("version")),
+		Revision: strings.TrimSpace(values.Get("revision")),
+		Time:     strings.TrimSpace(values.Get("time")),
+	}
+	if rawModified := strings.TrimSpace(values.Get("modified")); rawModified != "" {
+		modified, err := strconv.ParseBool(rawModified)
+		if err != nil {
+			return Info{}, err
+		}
+		out.Modified = modified
+	}
+	return out, nil
 }
 
 // ComparisonKey is stable for equality checks. Revision-bearing builds compare

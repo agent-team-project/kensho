@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
@@ -34,12 +36,21 @@ import (
 // teamDir is the consumer's `.agent_team/` path, used by `/v1/topology/reload`
 // to re-read `instances.toml` from disk.
 func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string, builds ...buildinfo.Info) http.Handler {
+	return HandlerWithLog(m, channels, events, teamDir, nil, builds...)
+}
+
+// HandlerWithLog builds the daemon HTTP handler and writes daemon diagnostics
+// such as build-skew warnings to logOut. nil logOut discards diagnostics.
+func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string, logOut io.Writer, builds ...buildinfo.Info) http.Handler {
 	if channels == nil {
 		channels = NewChannelStore(m.daemonRoot)
 	}
 	build := buildinfo.Current("0.1.0")
 	if len(builds) > 0 && !builds[0].Empty() {
 		build = builds[0]
+	}
+	writeError := func(w http.ResponseWriter, code int, msg string) {
+		writeErrorWithBuild(w, code, msg, build)
 	}
 	mux := http.NewServeMux()
 
@@ -402,7 +413,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 			writeError(w, http.StatusBadRequest, "expected /v1/channel/{name}/{verb}")
 			return
 		}
-		dispatchChannelRoute(w, r, channels, name, verb)
+		dispatchChannelRoute(w, r, channels, name, verb, build)
 	})
 
 	// `POST /v1/event` — public trigger entry point. Resolves the inbound
@@ -722,7 +733,7 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 		writeJSON(w, http.StatusOK, marshalTopology(topo, events))
 	})
 
-	return mux
+	return buildHandshakeHandler(mux, build, logOut)
 }
 
 func daemonStartedAt(teamDir string) time.Time {
@@ -734,6 +745,36 @@ func daemonStartedAt(teamDir string) time.Time {
 		return time.Time{}
 	}
 	return le.RecordedAt
+}
+
+func buildHandshakeHandler(next http.Handler, daemonBuild buildinfo.Info, logOut io.Writer) http.Handler {
+	if logOut == nil {
+		logOut = io.Discard
+	}
+	var seen sync.Map
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientBuild, ok := requestBuildIdentity(r)
+		if ok && !buildinfo.Equivalent(clientBuild, daemonBuild) {
+			key := clientBuild.ComparisonKey()
+			if _, loaded := seen.LoadOrStore(key, struct{}{}); !loaded {
+				fmt.Fprintf(logOut, "%s daemon build skew: client=%s daemon=%s\n",
+					time.Now().UTC().Format(time.RFC3339), clientBuild.Display(), daemonBuild.Display())
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requestBuildIdentity(r *http.Request) (buildinfo.Info, bool) {
+	raw := strings.TrimSpace(r.Header.Get(buildinfo.HeaderName))
+	if raw == "" {
+		return buildinfo.Info{}, false
+	}
+	info, err := buildinfo.ParseHeaderValue(raw)
+	if err != nil || info.Empty() {
+		return buildinfo.Info{}, false
+	}
+	return info, true
 }
 
 func eventResponseMap(outcomes []EventOutcome) map[string]any {
@@ -1050,7 +1091,10 @@ func splitChannelPath(path string) (name, verb string, ok bool) {
 // dispatchChannelRoute handles every channel-scoped endpoint. Centralising
 // the dispatch keeps the route registrations small and lets us share JSON
 // decoding + name validation.
-func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *ChannelStore, name, verb string) {
+func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *ChannelStore, name, verb string, build buildinfo.Info) {
+	writeError := func(w http.ResponseWriter, code int, msg string) {
+		writeErrorWithBuild(w, code, msg, build)
+	}
 	switch verb {
 	case "publish":
 		if r.Method != http.MethodPost {
@@ -1233,5 +1277,12 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
+	writeErrorWithBuild(w, code, msg, buildinfo.Current("0.1.0"))
+}
+
+func writeErrorWithBuild(w http.ResponseWriter, code int, msg string, build buildinfo.Info) {
+	writeJSON(w, code, map[string]any{
+		"error":        msg,
+		"daemon_build": build,
+	})
 }

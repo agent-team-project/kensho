@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 )
 
@@ -21,11 +22,42 @@ func newTestClient(t *testing.T, h http.Handler) (*daemonClient, func()) {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	c := &daemonClient{
-		hc:      &http.Client{Timeout: 0},
+		hc:      newDaemonHTTPClient(srv.Client().Transport, 0),
 		baseURL: srv.URL,
 		teamDir: t.TempDir(),
 	}
 	return c, srv.Close
+}
+
+func TestClient_AttachesBuildHeader(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get(buildinfo.HeaderName)
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"ready": true, "instances": 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer srv.Close()
+	c := &daemonClient{
+		hc:      newDaemonHTTPClient(srv.Client().Transport, 0),
+		baseURL: srv.URL,
+		teamDir: t.TempDir(),
+	}
+
+	if _, err := c.Status(); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if got == "" {
+		t.Fatal("missing build header")
+	}
+	parsed, err := buildinfo.ParseHeaderValue(got)
+	if err != nil {
+		t.Fatalf("parse build header: %v", err)
+	}
+	if !buildinfo.Equivalent(parsed, BuildInfo()) {
+		t.Fatalf("header build = %+v, want current CLI build %+v", parsed, BuildInfo())
+	}
 }
 
 func TestClient_Dispatch(t *testing.T) {
