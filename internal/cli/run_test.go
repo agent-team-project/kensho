@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -30,17 +32,19 @@ import (
 // cleans up via defer, so the recorder snapshots filesystem state synchronously
 // while the dir is still alive.
 type runCapture struct {
-	bin         string
-	args        []string
-	env         []string
-	cwd         string
-	rc          error
-	skillsDirOK bool
-	promptBody  string
-	stdin       string
-	addDir      string
-	promptFile  string
-	agentsJSON  string
+	bin          string
+	args         []string
+	env          []string
+	cwd          string
+	rc           error
+	skillsDirOK  bool
+	promptBody   string
+	stdin        string
+	addDir       string
+	promptFile   string
+	agentsJSON   string
+	settings     string
+	settingsBody string
 }
 
 type runtimeCapture struct {
@@ -80,6 +84,11 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 				}
 			case "--agents":
 				cap.agentsJSON = args[i+1]
+			case "--settings":
+				cap.settings = args[i+1]
+				if b, err := os.ReadFile(cap.settings); err == nil {
+					cap.settingsBody = string(b)
+				}
 			}
 		}
 		return cap.rc
@@ -192,6 +201,64 @@ func containsEnvPrefix(env []string, prefix string) bool {
 	return false
 }
 
+func TestMailboxHookCommandDrainsUnreadMessages(t *testing.T) {
+	repo := t.TempDir()
+	teamDir := filepath.Join(repo, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	if err := daemon.AppendMessage(root, "worker", &daemon.Message{ID: "msg-1", From: "manager", Body: "first"}); err != nil {
+		t.Fatalf("append first: %v", err)
+	}
+	if err := daemon.AppendMessage(root, "worker", &daemon.Message{ID: "msg-2", From: "reviewer", Body: "second"}); err != nil {
+		t.Fatalf("append second: %v", err)
+	}
+	hook, err := runtimehooks.PrepareMailboxHook(t.TempDir())
+	if err != nil {
+		t.Fatalf("prepare hook: %v", err)
+	}
+
+	cmd := exec.Command("sh", "-c", hook.Command)
+	cmd.Env = append(os.Environ(),
+		"AGENT_TEAM_ROOT="+teamDir,
+		"AGENT_TEAM_INSTANCE=worker",
+	)
+	cmd.Stdin = strings.NewReader(`{"hook_event_name":"UserPromptSubmit"}`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("hook command: %v\n%s", err, out)
+	}
+	var body struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &body); err != nil {
+		t.Fatalf("decode hook output: %v\n%s", err, out)
+	}
+	if body.HookSpecificOutput.HookEventName != "UserPromptSubmit" {
+		t.Fatalf("hook event = %q", body.HookSpecificOutput.HookEventName)
+	}
+	for _, want := range []string{"New daemon mailbox messages", "first", "second", "From: manager", "From: reviewer"} {
+		if !strings.Contains(body.HookSpecificOutput.AdditionalContext, want) {
+			t.Fatalf("hook context missing %q:\n%s", want, body.HookSpecificOutput.AdditionalContext)
+		}
+	}
+	unread, err := daemon.ReadUnacked(root, "worker")
+	if err != nil {
+		t.Fatalf("read unacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("unread after hook = %+v, want none", unread)
+	}
+	cursor, err := daemon.ReadCursor(root, "worker")
+	if err != nil {
+		t.Fatalf("read cursor: %v", err)
+	}
+	if cursor != "msg-2" {
+		t.Fatalf("cursor = %q, want msg-2", cursor)
+	}
+}
+
 // initInto runs `init` against a tmp dir to produce a real .agent_team/ tree.
 // Required template parameters are passed via --set so the call doesn't block
 // on a prompt — tests that exercise the prompt path build their own init args.
@@ -297,6 +364,33 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	if !foundPromptFlag {
 		t.Errorf("-p prompt not forwarded: %v", cap.args)
 	}
+	if cap.settings == "" {
+		t.Fatalf("missing --settings for mailbox hooks: %v", cap.args)
+	}
+	for _, want := range []string{"UserPromptSubmit", "PreToolUse", "agent-team-mailbox-inject.py"} {
+		if !strings.Contains(cap.settingsBody, want) {
+			t.Fatalf("mailbox hook settings missing %q:\n%s", want, cap.settingsBody)
+		}
+	}
+}
+
+func TestRun_MailboxHookOptOutSuppressesClaudeSettings(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--set", "runtime.hooks.mailbox_injection=false", "--no-daemon"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cap.settings != "" || containsString(cap.args, "--settings") {
+		t.Fatalf("mailbox hook opt-out still added settings: settings=%q args=%v", cap.settings, cap.args)
+	}
 }
 
 func TestRunPromptFileFromStdin(t *testing.T) {
@@ -386,6 +480,12 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 	if len(cap.args) == 0 || cap.args[0] != "exec" {
 		t.Fatalf("codex args = %v, want exec subcommand", cap.args)
 	}
+	if !containsString(cap.args, "--dangerously-bypass-hook-trust") {
+		t.Fatalf("codex args missing hook trust bypass for generated mailbox hook: %v", cap.args)
+	}
+	if !argsContainSubstring(cap.args, "hooks.UserPromptSubmit") || !argsContainSubstring(cap.args, "hooks.PreToolUse") || !argsContainSubstring(cap.args, "agent-team-mailbox-inject.py") {
+		t.Fatalf("codex args missing mailbox hook config: %v", cap.args)
+	}
 	for _, forbidden := range []string{"--agents", "--append-system-prompt-file"} {
 		if containsString(cap.args, forbidden) {
 			t.Fatalf("codex args should not include %s: %v", forbidden, cap.args)
@@ -438,6 +538,15 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 			t.Fatalf("codex stdin prompt missing %q:\n%s", want, cap.stdin)
 		}
 	}
+}
+
+func argsContainSubstring(args []string, want string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRun_CodexLastMessagePrintsCleanSidecar(t *testing.T) {

@@ -122,6 +122,15 @@ func argValue(items []string, flag string) (string, bool) {
 	return "", false
 }
 
+func containsArgSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestEvent_PersistentMessages(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
@@ -559,6 +568,121 @@ func TestEvent_EphemeralDispatchDeliversUnreadMailboxInKickoff(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("job events missing kickoff_mail_delivered: %+v", jobEvents)
+	}
+}
+
+func TestEvent_EphemeralDispatchWiresMailboxHookForClaude(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-hooks",
+		"kickoff": "implement with hooks",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-hooks")
+		_ = m.WaitForReaper("worker-hooks", 5*time.Second)
+	})
+
+	call := fake.lastCall()
+	settingsPath, ok := argValue(call, "--settings")
+	if !ok {
+		t.Fatalf("spawn call missing --settings mailbox hook: %#v", call)
+	}
+	body, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	for _, want := range []string{"UserPromptSubmit", "PreToolUse", "agent-team-mailbox-inject.py"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("settings missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestEvent_EphemeralDispatchMailboxHookOptOut(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent     = "worker"
+ephemeral = true
+
+[instances.worker.config.runtime.hooks]
+mailbox_injection = false
+
+[[instances.worker.triggers]]
+event        = "agent.dispatch"
+match.target = "worker"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-no-hooks",
+		"kickoff": "implement without hooks",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-no-hooks")
+		_ = m.WaitForReaper("worker-no-hooks", 5*time.Second)
+	})
+	if _, ok := argValue(fake.lastCall(), "--settings"); ok {
+		t.Fatalf("spawn call unexpectedly includes --settings after opt-out: %#v", fake.lastCall())
+	}
+}
+
+func TestEvent_EphemeralCodexDispatchWiresMailboxHook(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-codex-hooks",
+		"runtime": "codex",
+		"kickoff": "implement with codex hooks",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-codex-hooks")
+		_ = m.WaitForReaper("worker-codex-hooks", 5*time.Second)
+	})
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want codex exec", call)
+	}
+	if !containsString(call, "--dangerously-bypass-hook-trust") {
+		t.Fatalf("codex spawn missing hook trust bypass: %#v", call)
+	}
+	for _, want := range []string{"hooks.UserPromptSubmit", "hooks.PreToolUse", "agent-team-mailbox-inject.py"} {
+		if !containsArgSubstring(call, want) {
+			t.Fatalf("codex spawn missing %q: %#v", want, call)
+		}
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
@@ -306,6 +307,14 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			return fmt.Errorf("symlink skill %s: %w", sname, err)
 		}
 	}
+	var mailboxHook *runtimehooks.MailboxHook
+	if runtimehooks.MailboxInjectionEnabled(resolved) {
+		hook, err := runtimehooks.PrepareMailboxHook(filepath.Join(stateDir, "runtime"))
+		if err != nil {
+			return err
+		}
+		mailboxHook = hook
+	}
 
 	stateRel, err := filepath.Rel(target, stateDir)
 	if err != nil {
@@ -345,7 +354,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
 	}
-	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath)
+	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath, mailboxHook)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
@@ -440,13 +449,20 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	return execClaude(cmd, rt.Binary, runtimeArgs, env, target, runtimeStdin)
 }
 
-func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string) ([]string, string, error) {
+func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook) ([]string, string, error) {
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		args := []string{
 			"--agents", agentsJSON,
 			"--add-dir", addDir,
 			"--append-system-prompt-file", promptFile,
+		}
+		if mailboxHook != nil {
+			settingsPath, err := runtimehooks.WriteClaudeSettings(mailboxHook.RuntimeDir, mailboxHook)
+			if err != nil {
+				return nil, "", err
+			}
+			args = append(args, "--settings", settingsPath)
 		}
 		if prompt != "" {
 			args = append(args, "-p", prompt)
@@ -456,6 +472,12 @@ func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptF
 		args := []string{}
 		if prompt != "" {
 			args = append(args, "exec")
+		}
+		if mailboxHook != nil {
+			if !hasForwardedRuntimeFlag(forwarded, "--dangerously-bypass-hook-trust") {
+				args = append(args, "--dangerously-bypass-hook-trust")
+			}
+			args = append(args, runtimehooks.CodexConfigArgs(mailboxHook)...)
 		}
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args, "-C", target, "--add-dir", addDir)
