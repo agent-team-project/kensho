@@ -255,7 +255,7 @@ func prepareDoctorCanaryDispatch(repo, teamDir, stateDir, tmpdir, instance, agen
 	if rt.Kind == runtimebin.KindCodex {
 		forwarded = append(forwarded, "--skip-git-repo-check")
 	}
-	args, stdin, err := buildRuntimeArgs(rt, repo, tmpdir, agentsJSON, promptFile, kickoff, doctorCanaryPrompt(), forwarded, agents, doctorCanaryTeamEnv(teamDir, instance, stateDir), lastMessagePath)
+	args, stdin, err := buildRuntimeArgs(rt, repo, tmpdir, agentsJSON, promptFile, kickoff, doctorCanaryPrompt(), forwarded, agents, doctorCanaryTeamEnv(teamDir, instance, stateDir), lastMessagePath, nil)
 	if err != nil {
 		return nil, "", "", err
 	}

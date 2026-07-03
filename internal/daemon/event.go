@@ -18,6 +18,7 @@ import (
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
@@ -1099,7 +1100,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	}
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, payload)
+	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -1427,8 +1428,9 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 }
 
 type ephemeralRuntime struct {
-	stateDir string
-	env      []string
+	stateDir         string
+	env              []string
+	mailboxInjection bool
 }
 
 func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) (*ephemeralRuntime, error) {
@@ -1468,8 +1470,9 @@ func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name st
 		env = append(env, "AGENT_TEAM_DAEMON_URL="+DaemonHTTPURL(httpAddr))
 	}
 	return &ephemeralRuntime{
-		stateDir: stateDir,
-		env:      env,
+		stateDir:         stateDir,
+		env:              env,
+		mailboxInjection: runtimehooks.MailboxInjectionEnabled(resolved),
 	}, nil
 }
 
@@ -1525,7 +1528,7 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: load agents: %w", err)
@@ -1562,6 +1565,14 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
+	var mailboxHook *runtimehooks.MailboxHook
+	if mailboxInjection {
+		hook, err := runtimehooks.PrepareMailboxHook(runtimeDir)
+		if err != nil {
+			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: prepare mailbox hook: %w", err)
+		}
+		mailboxHook = hook
+	}
 
 	workspace := r.teamDirParent()
 	stateRel, err := filepath.Rel(workspace, stateDir)
@@ -1589,12 +1600,20 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	}
 	switch rt.Kind {
 	case runtimebin.KindClaude:
-		return []string{
+		args := []string{
 			"--agents", agentsJSON,
 			"--add-dir", runtimeDir,
 			"--append-system-prompt-file", promptFile,
-			"-p", prompt,
-		}, "", rt, nil
+		}
+		if mailboxHook != nil {
+			settingsPath, err := runtimehooks.WriteClaudeSettings(runtimeDir, mailboxHook)
+			if err != nil {
+				return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
+			}
+			args = append(args, "--settings", settingsPath)
+		}
+		args = append(args, "-p", prompt)
+		return args, "", rt, nil
 	case runtimebin.KindCodex:
 		lastMessagePath := filepath.Join(stateDir, runtimebin.CodexLastMessageFile)
 		if err := os.Remove(lastMessagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -1610,6 +1629,10 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			codexCwd = r.teamDirParent()
 		}
 		args := []string{"exec"}
+		if mailboxHook != nil {
+			args = append(args, "--dangerously-bypass-hook-trust")
+			args = append(args, runtimehooks.CodexConfigArgs(mailboxHook)...)
+		}
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args,

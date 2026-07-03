@@ -261,7 +261,7 @@ func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Inst
 	} else if ok {
 		env = snapshotEnv
 	}
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, nil)
+	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil)
 	if err != nil {
 		return nil, false, err
 	}
