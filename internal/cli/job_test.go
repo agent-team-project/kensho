@@ -2386,7 +2386,7 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(setInfraOut.Bytes(), &infraResult); err != nil {
 		t.Fatalf("decode gate set json: %v\nbody=%s", err, setInfraOut.String())
 	}
-	if infraResult.Class != jobGateClassInfra || infraResult.MatchedSignature != "missing_binary" || infraResult.LogRef != "logs/rust.txt" {
+	if infraResult.Class != jobGateClassInfra || infraResult.MatchedSignature != "missing_binary" || infraResult.MatchedPattern != "missing-binary:.*" || infraResult.LogRef != "logs/rust.txt" {
 		t.Fatalf("infra gate result = %+v", infraResult)
 	}
 	setPass := NewRootCmd()
@@ -2416,7 +2416,7 @@ pipelines = ["ticket_to_pr"]
 	if err := json.Unmarshal(gatesOut.Bytes(), &gates); err != nil {
 		t.Fatalf("decode gates json: %v\nbody=%s", err, gatesOut.String())
 	}
-	if len(gates) != 2 || gates[0].Name != "rust-checks" || gates[0].Class != jobGateClassInfra || gates[1].Name != "unit-tests" || gates[1].Class != "" {
+	if len(gates) != 2 || gates[0].Name != "rust-checks" || gates[0].Class != jobGateClassInfra || gates[0].MatchedPattern != "missing-binary:.*" || gates[1].Name != "unit-tests" || gates[1].Class != "" {
 		t.Fatalf("gates = %+v", gates)
 	}
 
@@ -2428,7 +2428,7 @@ pipelines = ["ticket_to_pr"]
 	if err := show.Execute(); err != nil {
 		t.Fatalf("job show gates: %v\nstderr=%s", err, showErr.String())
 	}
-	for _, want := range []string{"Gates:", "rust-checks", "infra", "logs/rust.txt"} {
+	for _, want := range []string{"Gates:", "rust-checks", "infra", "missing_binary", "missing-binary:.*", "logs/rust.txt"} {
 		if !strings.Contains(showOut.String(), want) {
 			t.Fatalf("job show missing %q:\n%s", want, showOut.String())
 		}
@@ -2464,6 +2464,23 @@ pipelines = ["ticket_to_pr"]
 	}
 	if len(infraSnapshot.Attention) != 1 || infraSnapshot.Attention[0].JobID != "squ-300" || infraSnapshot.Attention[0].GateInfra != 1 || !containsString(infraSnapshot.Attention[0].Reasons, "gate_infra_failed") {
 		t.Fatalf("infra triage = %+v", infraSnapshot.Attention)
+	}
+	if len(infraSnapshot.Attention[0].GateFailures) != 1 || infraSnapshot.Attention[0].GateFailures[0].MatchedPattern != "missing-binary:.*" {
+		t.Fatalf("infra triage gate failures = %+v", infraSnapshot.Attention[0].GateFailures)
+	}
+
+	infraTriageText := NewRootCmd()
+	infraTriageTextOut, infraTriageTextErr := &bytes.Buffer{}, &bytes.Buffer{}
+	infraTriageText.SetOut(infraTriageTextOut)
+	infraTriageText.SetErr(infraTriageTextErr)
+	infraTriageText.SetArgs([]string{"job", "triage", "--repo", root, "--infra-only"})
+	if err := infraTriageText.Execute(); err != nil {
+		t.Fatalf("job triage infra-only text: %v\nstderr=%s", err, infraTriageTextErr.String())
+	}
+	for _, want := range []string{"matches=rust-checks:missing_binary=missing-binary:.*", "gate_infra_failed"} {
+		if !strings.Contains(infraTriageTextOut.String(), want) {
+			t.Fatalf("triage text missing %q:\n%s", want, infraTriageTextOut.String())
+		}
 	}
 
 	teamContent := NewRootCmd()

@@ -129,8 +129,8 @@ Pipelines define job steps:
 trigger.event = "ticket.created"
 
 [pipelines.ticket_to_pr.infra_signatures]
-disk_exhaustion = "No space left on device"
-missing_binary = "error: test binary .* not found"
+fixture_reaped = 'Os \{ code: 2, kind: NotFound'
+missing_deps = 'deps/[^ ]*: No such file'
 
 [[pipelines.ticket_to_pr.steps]]
 id = "triage"
@@ -159,7 +159,13 @@ Use `optional = true` when a stage is useful but should not block the workflow i
 Use `[pipelines.<name>.infra_signatures]` to classify failed gate signatures
 reported with `agent-team job gate set`. These regexes only classify explicit
 failed results as `infra`; unmatched failed gates are `content`, and pass/fail
-is always decided by the reporting agent.
+is always decided by the reporting agent. Anchor signatures to observed error
+shapes, not broad keywords: `fixture_reaped = 'NotFound'` is too broad, while
+`fixture_reaped = 'Os \{ code: 2, kind: NotFound'` and
+`missing_deps = 'deps/[^ ]*: No such file'` point at concrete failure shapes.
+Use `agent-team signatures test <pipeline> --against <log-file>` to dry-run all
+configured signatures and inspect the matching excerpts before classifying real
+failed gates.
 
 ## Teams
 

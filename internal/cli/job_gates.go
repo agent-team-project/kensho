@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,8 +16,8 @@ import (
 )
 
 const (
-	jobGateClassInfra   = "infra"
-	jobGateClassContent = "content"
+	jobGateClassInfra   = job.GateClassInfra
+	jobGateClassContent = job.GateClassContent
 )
 
 type jobGateResult struct {
@@ -29,13 +28,9 @@ type jobGateResult struct {
 	Class            string         `json:"class,omitempty"`
 	Signature        string         `json:"signature,omitempty"`
 	MatchedSignature string         `json:"matched_signature,omitempty"`
+	MatchedPattern   string         `json:"matched_pattern,omitempty"`
 	LogRef           string         `json:"log_ref,omitempty"`
 	Actor            string         `json:"actor,omitempty"`
-}
-
-type jobGateSignatureMatcher struct {
-	Name string
-	Re   *regexp.Regexp
 }
 
 func newJobGateCmd() *cobra.Command {
@@ -102,7 +97,7 @@ func newJobGateSetCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job gate set: %v\n", err)
 				return exitErr(1)
 			}
-			result := gateResultFromRecord(*record, "", "")
+			result := gateResultFromRecord(*record, job.GateClassification{})
 			if len(results) == 1 {
 				result = results[0]
 			}
@@ -194,6 +189,12 @@ func renderJobGateSetResult(w io.Writer, result jobGateResult, jsonOut bool) err
 	if result.Class != "" {
 		fmt.Fprintf(w, " class=%s", result.Class)
 	}
+	if result.MatchedSignature != "" {
+		fmt.Fprintf(w, " matched_signature=%s", result.MatchedSignature)
+	}
+	if result.MatchedPattern != "" {
+		fmt.Fprintf(w, " matched_pattern=%q", result.MatchedPattern)
+	}
 	if result.Signature != "" {
 		fmt.Fprintf(w, " signature=%q", result.Signature)
 	}
@@ -213,12 +214,14 @@ func renderJobGateResults(w io.Writer, gates []jobGateResult, jsonOut bool) erro
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "GATE\tSTATUS\tCLASS\tSIGNATURE\tLOG_REF\tACTOR\tUPDATED")
+	fmt.Fprintln(tw, "GATE\tSTATUS\tCLASS\tMATCHED_SIGNATURE\tMATCHED_PATTERN\tSIGNATURE\tLOG_REF\tACTOR\tUPDATED")
 	for _, gate := range gates {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			gate.Name,
 			gate.Status,
 			emptyDash(gate.Class),
+			emptyDash(gate.MatchedSignature),
+			emptyDash(gate.MatchedPattern),
 			emptyDash(gate.Signature),
 			emptyDash(gate.LogRef),
 			emptyDash(gate.Actor),
@@ -249,8 +252,7 @@ func classifyJobGateRecords(teamDir string, j *job.Job, records []job.GateRecord
 	}
 	out := make([]jobGateResult, 0, len(records))
 	for _, record := range records {
-		class, matched := classifyJobGateRecord(matchers, record)
-		out = append(out, gateResultFromRecord(record, class, matched))
+		out = append(out, gateResultFromRecord(record, job.ClassifyGateRecord(matchers, record)))
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Name < out[j].Name
@@ -258,7 +260,7 @@ func classifyJobGateRecords(teamDir string, j *job.Job, records []job.GateRecord
 	return out, nil
 }
 
-func jobGateSignatureMatchers(teamDir string, j *job.Job) ([]jobGateSignatureMatcher, error) {
+func jobGateSignatureMatchers(teamDir string, j *job.Job) ([]job.GateSignatureMatcher, error) {
 	if j == nil || strings.TrimSpace(j.Pipeline) == "" {
 		return nil, nil
 	}
@@ -273,47 +275,23 @@ func jobGateSignatureMatchers(teamDir string, j *job.Job) ([]jobGateSignatureMat
 	if pipeline == nil || len(pipeline.InfraSignatures) == 0 {
 		return nil, nil
 	}
-	names := make([]string, 0, len(pipeline.InfraSignatures))
-	for name := range pipeline.InfraSignatures {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	matchers := make([]jobGateSignatureMatcher, 0, len(names))
-	for _, name := range names {
-		re, err := regexp.Compile(pipeline.InfraSignatures[name])
-		if err != nil {
-			return nil, fmt.Errorf("pipeline %q infra_signatures.%s: invalid regex: %w", pipeline.Name, name, err)
-		}
-		matchers = append(matchers, jobGateSignatureMatcher{Name: name, Re: re})
+	matchers, err := job.CompileGateSignatureMatchers(pipeline.InfraSignatures)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline %q %w", pipeline.Name, err)
 	}
 	return matchers, nil
 }
 
-func classifyJobGateRecord(matchers []jobGateSignatureMatcher, record job.GateRecord) (class, matched string) {
-	if record.Status != job.GateStatusFail {
-		return "", ""
-	}
-	signature := strings.TrimSpace(record.Signature)
-	if signature == "" {
-		return jobGateClassContent, ""
-	}
-	for _, matcher := range matchers {
-		if matcher.Re.MatchString(signature) {
-			return jobGateClassInfra, matcher.Name
-		}
-	}
-	return jobGateClassContent, ""
-}
-
-func gateResultFromRecord(record job.GateRecord, class, matched string) jobGateResult {
+func gateResultFromRecord(record job.GateRecord, classification job.GateClassification) jobGateResult {
 	return jobGateResult{
 		TS:               record.TS,
 		JobID:            record.JobID,
 		Name:             record.Name,
 		Status:           record.Status,
-		Class:            class,
+		Class:            classification.Class,
 		Signature:        record.Signature,
-		MatchedSignature: matched,
+		MatchedSignature: classification.MatchedSignature,
+		MatchedPattern:   classification.MatchedPattern,
 		LogRef:           record.LogRef,
 		Actor:            record.Actor,
 	}
@@ -369,6 +347,9 @@ func jobGateTriageMessage(gates []jobGateResult) string {
 		if label == "" {
 			label = string(gate.Status)
 		}
+		if match := jobGateMatchedSignatureText(gate); match != "" {
+			label = label + "(" + match + ")"
+		}
 		parts = append(parts, fmt.Sprintf("%s=%s", gate.Name, label))
 	}
 	sort.Strings(parts)
@@ -396,5 +377,33 @@ func jobGateSummaryText(gates []jobGateResult) string {
 	if content > 0 {
 		parts = append(parts, fmt.Sprintf("content=%d", content))
 	}
+	if matches := jobGateMatchedSignatureSummaries(gates); len(matches) > 0 {
+		parts = append(parts, "matches="+strings.Join(matches, "|"))
+	}
 	return strings.Join(parts, ",")
+}
+
+func jobGateMatchedSignatureSummaries(gates []jobGateResult) []string {
+	var out []string
+	for _, gate := range gates {
+		match := jobGateMatchedSignatureText(gate)
+		if match == "" {
+			continue
+		}
+		out = append(out, gate.Name+":"+match)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func jobGateMatchedSignatureText(gate jobGateResult) string {
+	name := strings.TrimSpace(gate.MatchedSignature)
+	if name == "" {
+		return ""
+	}
+	pattern := strings.TrimSpace(gate.MatchedPattern)
+	if pattern == "" {
+		return name
+	}
+	return name + "=" + pattern
 }

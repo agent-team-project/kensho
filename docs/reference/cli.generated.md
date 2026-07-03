@@ -72,6 +72,7 @@ Subcommands:
 - `agent-team schedule` - Inspect and run declared schedule events.
 - `agent-team send` - Send a mailbox message to a daemon-managed instance.
 - `agent-team shortcuts` - List command aliases and Docker-like shortcuts.
+- `agent-team signatures` - Inspect pipeline infra signatures.
 - `agent-team snapshot` - Capture a read-only orchestration diagnostic report.
 - `agent-team start` - Start agent-teamd if needed, then start or resume instances.
 - `agent-team stats` - Show CPU and memory usage for daemon-managed instances.
@@ -7788,6 +7789,44 @@ Inherited Flags:
 
 ```text
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team signatures`
+
+Inspect pipeline infra signatures.
+
+Inspect pipeline infra_signatures without writing job state.
+
+```text
+agent-team signatures
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team signatures test` - Dry-run a pipeline&#39;s infra signatures against a log file.
+
+## `agent-team signatures test`
+
+Dry-run a pipeline&#39;s infra signatures against a log file.
+
+Dry-run a pipeline&#39;s infra_signatures against a log file. Each signature is reported as match or no-match, and matches include the matched excerpt.
+
+```text
+agent-team signatures test <pipeline> [flags]
+```
+
+Flags:
+
+```text
+      --against string   Log file to test against the pipeline infra signatures.
+      --json             Emit signature test results as JSON.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team snapshot`

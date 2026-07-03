@@ -23,7 +23,7 @@ High-volume automation stays safe because every job funnels through the same man
 
 - Encode gates as the same commands for every worker (`make` targets, `go test ./...`, whatever your repo's truth is). Workers, reviewers, and CI must run the same thing.
 - Floors ratchet: a count that can silently decrease is not a gate.
-- Structured per-gate results (infra-red vs content-red classification) are tracked in SQU-36; until then, teach reviewers explicitly which failures are not theirs to judge.
+- Structured per-gate results classify infra-red vs content-red with pipeline `infra_signatures`. Keep those regexes anchored to observed error shapes, not keywords. For example, `fixture_reaped = 'NotFound'` is too broad because content tests can mention that string; `fixture_reaped = 'Os \{ code: 2, kind: NotFound'` and `missing_deps = 'deps/[^ ]*: No such file'` point at the failure shape. Before adding or widening a signature, run `agent-team signatures test <pipeline> --against <log-file>` and inspect the matching excerpt.
 
 ## The pipeline shape that works
 

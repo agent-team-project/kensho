@@ -129,8 +129,8 @@ match.target = "worker"
 trigger.event = "ticket.created"
 
 [pipelines.ticket_to_pr.infra_signatures]
-disk_exhaustion = "No space left on device"
-missing_binary = "error: test binary .* not found"
+fixture_reaped = 'Os \{ code: 2, kind: NotFound'
+missing_deps = 'deps/[^ ]*: No such file'
 
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
@@ -161,7 +161,9 @@ normalized events, with the suffix available as `match.event`.
 Pipeline `infra_signatures` entries are regexes used to classify failed gate
 signatures reported by `agent-team job gate set`. They classify an explicit
 `pass`/`fail` result as `infra` or `content`; they do not decide whether the
-gate passed.
+gate passed. Anchor them to error shapes rather than keywords: `NotFound` alone
+is too broad, while `Os \{ code: 2, kind: NotFound` points at a concrete missing
+fixture shape.
 
 Named `[locks.<name>]` entries serialize ephemeral dispatches around shared
 resources. `slots = 1` is a mutex; higher values are counting semaphores. Locks
@@ -281,7 +283,11 @@ Use `agent-team job gate set <job-id> <gate-name> --status pass|fail` to append
 records and `agent-team job gates <job-id> [--json]` to read the latest folded
 results. Failed results are classified as `infra` when their signature matches
 the job pipeline's `[pipelines.<name>.infra_signatures]`; otherwise they are
-`content`.
+`content`. CLI views surface the matched signature name and pattern alongside
+the class so broad infra regexes are visible during triage. Use
+`agent-team signatures test <pipeline> --against <log-file>` to dry-run the
+configured regexes against a log and print match/no-match with the matching
+excerpt.
 
 ## Runtime Metadata
 

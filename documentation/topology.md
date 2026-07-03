@@ -123,8 +123,8 @@ land = "merge"                   # optional final PR landing mode; default squas
 # owned_paths = ["coverage/baselines", "coverage/counts.json"]
 
 [pipelines.ticket_to_pr.infra_signatures]
-disk_exhaustion = "No space left on device"
-missing_binary = "error: test binary .* not found"
+fixture_reaped = 'Os \{ code: 2, kind: NotFound'
+missing_deps = 'deps/[^ ]*: No such file'
 
 [[pipelines.ticket_to_pr.steps]]
 id     = "implement"
@@ -202,7 +202,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `merge.land` | no | `"squash"` | Final GitHub PR landing mode used by `agent-team job merge <job-id>` when the job has a recorded PR. Supported values: `"squash"`, `"merge"`, or `"rebase"`. This controls the final `gh pr merge` flag and is orthogonal to `merge.strategy`. |
 | `merge.script` | for `script` | — | Repo-relative or absolute executable path for custom merge mechanics. The script receives three positional arguments: base branch, head branch, and worktree path. A nonzero exit blocks the merge. |
 | `merge.owned_paths` | no | empty | Repo-relative path prefixes or glob patterns owned by the merge strategy. If every changed file between base and head matches these paths, `job merge --dry-run` and `job merge` surface `drift: reconcilable` on the job/result; otherwise drift is `unclassified`. |
-| `infra_signatures.<name>` | no | empty | Regex used to classify explicit failed job gate signatures as infrastructure failures. Failed gates that do not match are classified as content failures. Signatures classify only; agents still report pass/fail explicitly with `agent-team job gate set`. |
+| `infra_signatures.<name>` | no | empty | Regex used to classify explicit failed job gate signatures as infrastructure failures. Failed gates that do not match are classified as content failures. Signatures classify only; agents still report pass/fail explicitly with `agent-team job gate set`. Anchor these to stable error shapes, not broad keywords: `fixture_reaped = 'Os \{ code: 2, kind: NotFound'` is useful evidence; `fixture_reaped = 'NotFound'` is too broad and can hide content failures that merely assert an error string. |
 | `steps[].id` | yes | — | Unique step identifier within the pipeline. |
 | `steps[].label` | no | empty | Human-readable step name for CLI, graph, and job diagnostics. The stable `id` is still used for commands. |
 | `steps[].description` | no | empty | Longer human-readable step note copied into durable job step snapshots. |
@@ -220,6 +220,8 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].max_attempts` | no | unlimited | Positive integer cap for dispatch attempts. Retry commands skip failed steps once the stored attempt count reaches this value. |
 
 Operators can intentionally bypass a stored step with `agent-team job step <job-id> <step-id> --skip`. The job records `status = "done"` and `skipped = true` on that step, so later `after` dependencies treat it as terminal while `job show` still surfaces the bypass.
+
+Use `agent-team signatures test <pipeline> --against <log-file>` before trusting a new `[pipelines.<name>.infra_signatures]` entry. The dry run prints every configured signature as match/no-match and includes the matched excerpt so broad patterns are visible before they start classifying failed gates as infra.
 
 `agent-team job merge <job-id>` is a merge-only operator action. It does not dispatch another agent, rerun gates, or retry failed stages. Jobs with a recorded PR merge through `gh pr merge <pr> --squash`, `--merge`, or `--rebase` according to `merge.land` (or `land` on the pipeline); omitted land defaults to `squash`. Use `agent-team job merge <job-id> --land merge` for a one-off apply override, or `agent-team job update <job-id> --land merge` to persist a per-job override before the merge gate. Jobs without a recorded PR are refused unless the operator passes `--branch <head>`, in which case branch-local squash/rebase mechanics are applied in the selected worktree from `merge.strategy`. Script strategy executes the configured script with `(base, head, worktree)` and records a blocked merge if it exits nonzero or leaves tracked files dirty.
 

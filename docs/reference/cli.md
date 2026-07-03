@@ -91,6 +91,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | `agent-team topology summary` | Summarize topology health |
 | `agent-team topology reload` | Reload daemon topology, with JSON/template output for scripts |
 | `agent-team locks` | Inspect declared dispatch lock slots and active holders; add `--json` or `--format` for scripts |
+| `agent-team signatures test <pipeline> --against <log-file>` | Dry-run a pipeline's infra_signatures against a log file, showing match/no-match and matching excerpts before gate triage trusts them |
 | `agent-team plan` | Preview desired instance state; add `--commands` to print the matching dry-run sync command when the selected plan has actionable work |
 | `agent-team sync` | Reload, reconcile, start/resume desired instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team tick` | Run one maintenance cycle or loop; add `--dry-run --commands` to print the matching one-cycle apply command when work is ready, use `--runtime` for advanced steps, and use `--wait-next-state`/`--wait-step` for one-shot stage-aware handoff; `team tick <team>` supports the same scoped handoff |

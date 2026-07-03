@@ -72,6 +72,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newWatchCmd())
 	root.AddCommand(newSnapshotCmd())
 	root.AddCommand(newGraphCmd())
+	root.AddCommand(newSignaturesCmd())
 	root.AddCommand(newInspectCmd())
 	root.AddCommand(newRmCmd())
 	root.AddCommand(newPruneCmd())

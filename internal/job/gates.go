@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,11 @@ const (
 	GateStatusFail GateStatus = "fail"
 )
 
+const (
+	GateClassInfra   = "infra"
+	GateClassContent = "content"
+)
+
 // GateRecord is one append-only per-job gate result.
 type GateRecord struct {
 	TS        time.Time  `json:"ts"`
@@ -31,6 +37,28 @@ type GateRecord struct {
 	Signature string     `json:"signature,omitempty"`
 	LogRef    string     `json:"log_ref,omitempty"`
 	Actor     string     `json:"actor,omitempty"`
+}
+
+// GateSignatureMatcher is one compiled pipeline infra signature.
+type GateSignatureMatcher struct {
+	Name    string
+	Pattern string
+	Re      *regexp.Regexp
+}
+
+// GateClassification is the infra/content classification for a gate result.
+type GateClassification struct {
+	Class            string
+	MatchedSignature string
+	MatchedPattern   string
+}
+
+// GateSignatureTestResult is one dry-run match result for a log file.
+type GateSignatureTestResult struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
+	Matched bool   `json:"matched"`
+	Excerpt string `json:"excerpt,omitempty"`
 }
 
 // GatePath returns the JSONL gate-result path for a job id.
@@ -56,6 +84,90 @@ func ParseGateStatus(raw string) (GateStatus, error) {
 		return "", fmt.Errorf("unknown gate status %q", raw)
 	}
 	return status, nil
+}
+
+// CompileGateSignatureMatchers compiles named infra signature regexes in a
+// stable order so classification is deterministic.
+func CompileGateSignatureMatchers(signatures map[string]string) ([]GateSignatureMatcher, error) {
+	if len(signatures) == 0 {
+		return nil, nil
+	}
+	names := make([]string, 0, len(signatures))
+	for name := range signatures {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	matchers := make([]GateSignatureMatcher, 0, len(names))
+	for _, name := range names {
+		cleanName := strings.TrimSpace(name)
+		if cleanName == "" {
+			return nil, errors.New("infra_signatures: name must be non-empty")
+		}
+		pattern := strings.TrimSpace(signatures[name])
+		if pattern == "" {
+			return nil, fmt.Errorf("infra_signatures.%s: pattern must be non-empty", cleanName)
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("infra_signatures.%s: invalid regex: %w", cleanName, err)
+		}
+		matchers = append(matchers, GateSignatureMatcher{Name: cleanName, Pattern: pattern, Re: re})
+	}
+	return matchers, nil
+}
+
+// ClassifyGateRecord classifies explicit failed gate signatures. Passing gates
+// have no class; failed gates with no matching infra signature are content.
+func ClassifyGateRecord(matchers []GateSignatureMatcher, record GateRecord) GateClassification {
+	if record.Status != GateStatusFail {
+		return GateClassification{}
+	}
+	signature := strings.TrimSpace(record.Signature)
+	if signature == "" {
+		return GateClassification{Class: GateClassContent}
+	}
+	for _, matcher := range matchers {
+		if matcher.Re != nil && matcher.Re.MatchString(signature) {
+			return GateClassification{
+				Class:            GateClassInfra,
+				MatchedSignature: matcher.Name,
+				MatchedPattern:   matcher.Pattern,
+			}
+		}
+	}
+	return GateClassification{Class: GateClassContent}
+}
+
+// TestGateSignatureMatchers dry-runs infra signatures against a log body.
+func TestGateSignatureMatchers(matchers []GateSignatureMatcher, log string) []GateSignatureTestResult {
+	if len(matchers) == 0 {
+		return nil
+	}
+	out := make([]GateSignatureTestResult, 0, len(matchers))
+	for _, matcher := range matchers {
+		result := GateSignatureTestResult{Name: matcher.Name, Pattern: matcher.Pattern}
+		if matcher.Re != nil {
+			if loc := matcher.Re.FindStringIndex(log); len(loc) == 2 {
+				result.Matched = true
+				result.Excerpt = gateSignatureExcerpt(log, loc[0], loc[1])
+			}
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func gateSignatureExcerpt(log string, start, end int) string {
+	if start < 0 || end < start || end > len(log) {
+		return ""
+	}
+	excerpt := strings.TrimSpace(log[start:end])
+	const maxExcerpt = 180
+	if len(excerpt) <= maxExcerpt {
+		return excerpt
+	}
+	return excerpt[:maxExcerpt] + "..."
 }
 
 // AppendGateRecord appends one JSONL gate result for a job.
