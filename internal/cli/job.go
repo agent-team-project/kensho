@@ -22,6 +22,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -4142,9 +4143,6 @@ func newJobCloseCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "closed", closeActor, closeMessage, map[string]string{"status": status}); err != nil {
 				return err
 			}
-			if j.Status == job.StatusFailed {
-				writeLinearFailureAttention(teamDir, j, closeMessage)
-			}
 			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, closeActor); err != nil {
 				return err
 			}
@@ -4338,7 +4336,6 @@ func newJobCancelCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "cancelled", cancelActor, reason, data); err != nil {
 				return err
 			}
-			writeLinearFailureAttention(teamDir, j, reason)
 			if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, cancelActor); err != nil {
 				return err
 			}
@@ -4795,7 +4792,6 @@ func timeoutJobLifecycle(teamDir string, j *job.Job, targetFilter, message strin
 	if err := writeJobWithAudit(teamDir, j, "job_timeout", "cli", result.Message, data); err != nil {
 		return nil, err
 	}
-	writeLinearFailureAttention(teamDir, j, result.Message)
 	result.Action = "failed"
 	result.DryRun = false
 	result.StepStatus = j.Status
@@ -8029,7 +8025,6 @@ func newJobRejectCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": selectedStep}); err != nil {
 				return err
 			}
-			writeLinearFailureAttention(teamDir, j, reason)
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(j)
 			}
@@ -8755,10 +8750,12 @@ func readJobAndTeamDir(cmd *cobra.Command, repo, id string) (string, *job.Job, e
 }
 
 func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message string, data map[string]string) error {
-	if err := job.Write(teamDir, j); err != nil {
-		return err
-	}
-	return job.AppendSnapshotEvent(teamDir, j, eventType, actor, message, data)
+	return jobwrite.WriteWithAudit(teamDir, j, jobwrite.Options{
+		EventType: eventType,
+		Actor:     actor,
+		Message:   message,
+		Data:      data,
+	})
 }
 
 func runJobEvents(w io.Writer, teamDir, id string, tail int, filters jobEventFilters, sortMode string, jsonOut, summary bool, tmpl *template.Template) error {
@@ -12100,9 +12097,6 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instan
 	if err := writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection)); err != nil {
 		return err
 	}
-	if nextStatus == job.StatusFailed {
-		writeLinearFailureAttention(teamDir, j, j.LastStatus)
-	}
 	return nil
 }
 
@@ -12355,7 +12349,6 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 		return nil, "", err
 	}
 	writeLinearDispatchInProgress(teamDir, j)
-	writeLinearFailureAttention(teamDir, j, j.LastStatus)
 	return &jobDispatchResult{Job: j, Event: res}, requestedName, nil
 }
 
@@ -13902,7 +13895,6 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 		return nil, err
 	}
 	writeLinearStepDispatchInProgress(teamDir, j, stepID)
-	writeLinearFailureAttention(teamDir, j, j.LastStatus)
 	if idx := jobStepIndex(j, stepID); idx >= 0 {
 		return &jobAdvanceResult{Job: j, Step: &j.Steps[idx], Event: res}, nil
 	}

@@ -34,13 +34,6 @@ func writeLinearBounceBack(teamDir string, j *job.Job, stepID, findings string) 
 	_ = linearwriteback.BounceBack(context.Background(), teamDir, j, stepID, findings, "cli")
 }
 
-func writeLinearFailureAttention(teamDir string, j *job.Job, message string) {
-	if j == nil || j.Status != job.StatusFailed {
-		return
-	}
-	_ = linearwriteback.FailureAttention(context.Background(), teamDir, j, message, "cli")
-}
-
 func linearJobDispatchStarted(j *job.Job) bool {
 	return j != nil && (j.Status == job.StatusRunning || j.Status == job.StatusQueued)
 }

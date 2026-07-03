@@ -6259,8 +6259,13 @@ target = "worker"
 	if err != nil {
 		t.Fatalf("list cancel events: %v", err)
 	}
-	if len(events) == 0 || events[len(events)-1].Type != "cancelled" || events[len(events)-1].Message != "duplicate ticket from file" || events[len(events)-1].Data["instance"] != "worker-squ-907" {
+	cancelledEvent, ok := findJobEvent(events, "cancelled")
+	if !ok || cancelledEvent.Message != "duplicate ticket from file" || cancelledEvent.Data["instance"] != "worker-squ-907" {
 		t.Fatalf("cancel events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("cancel events missing Linear failure-attention audit: %+v", events)
 	}
 }
 

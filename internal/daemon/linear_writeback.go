@@ -15,13 +15,6 @@ func (r *EventResolver) writeLinearPipelineDispatch(j *jobstore.Job, stepID stri
 	_ = linearwriteback.DispatchInProgress(context.Background(), r.teamDir, j)
 }
 
-func (r *EventResolver) writeLinearFinalFailure(j *jobstore.Job, message string) {
-	if j == nil || j.Status != jobstore.StatusFailed {
-		return
-	}
-	_ = linearwriteback.FailureAttention(context.Background(), r.teamDir, j, message, "daemon")
-}
-
 func linearDispatchStarted(j *jobstore.Job) bool {
 	return j != nil && (j.Status == jobstore.StatusRunning || j.Status == jobstore.StatusQueued)
 }

@@ -5499,8 +5499,13 @@ func TestJobReconcileQueueUpdatesDeadJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "queue_reconcile" || events[0].Data["queue_id"] != "q-job-reconcile" {
+	reconcileEvent, ok := findJobEvent(events, "queue_reconcile")
+	if !ok || reconcileEvent.Data["queue_id"] != "q-job-reconcile" {
 		t.Fatalf("events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
 

@@ -9761,7 +9761,6 @@ func rejectPipelineManualGates(teamDir, pipeline, stepFilter, message string, li
 		if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": row.StepID}); err != nil {
 			return nil, err
 		}
-		writeLinearFailureAttention(teamDir, j, rejectionMessage)
 		result.Action = "rejected"
 		result.DryRun = false
 		results = append(results, result)
@@ -10823,7 +10822,6 @@ func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, targetFilter
 		if err := writeJobWithAudit(teamDir, j, "step_timeout", "cli", result.Message, data); err != nil {
 			return nil, err
 		}
-		writeLinearFailureAttention(teamDir, j, result.Message)
 		result.Action = "failed"
 		result.DryRun = false
 		result.Job = j
