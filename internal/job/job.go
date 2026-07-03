@@ -37,28 +37,29 @@ const (
 
 // Job is one durable work unit under `.agent_team/jobs/<id>.toml`.
 type Job struct {
-	ID           string    `toml:"id"`
-	Ticket       string    `toml:"ticket"`
-	TicketURL    string    `toml:"ticket_url,omitempty"`
-	Target       string    `toml:"target"`
-	Kickoff      string    `toml:"kickoff,omitempty"`
-	Instance     string    `toml:"instance,omitempty"`
-	Pipeline     string    `toml:"pipeline,omitempty"`
-	Status       Status    `toml:"status"`
-	Held         bool      `toml:"held,omitempty"`
-	HoldReason   string    `toml:"hold_reason,omitempty"`
-	HoldUntil    time.Time `toml:"hold_until,omitempty"`
-	Branch       string    `toml:"branch,omitempty"`
-	Worktree     string    `toml:"worktree,omitempty"`
-	ReapWorktree string    `toml:"reap_worktree,omitempty"`
-	PR           string    `toml:"pr,omitempty"`
-	Merge        *Merge    `toml:"merge,omitempty"`
-	Drift        *Drift    `toml:"drift,omitempty"`
-	LastEvent    string    `toml:"last_event,omitempty"`
-	LastStatus   string    `toml:"last_status,omitempty"`
-	CreatedAt    time.Time `toml:"created_at"`
-	UpdatedAt    time.Time `toml:"updated_at"`
-	Steps        []Step    `toml:"steps,omitempty"`
+	ID                     string    `toml:"id"`
+	Ticket                 string    `toml:"ticket"`
+	TicketURL              string    `toml:"ticket_url,omitempty"`
+	Target                 string    `toml:"target"`
+	Kickoff                string    `toml:"kickoff,omitempty"`
+	Instance               string    `toml:"instance,omitempty"`
+	Pipeline               string    `toml:"pipeline,omitempty"`
+	Status                 Status    `toml:"status"`
+	Held                   bool      `toml:"held,omitempty"`
+	HoldReason             string    `toml:"hold_reason,omitempty"`
+	HoldUntil              time.Time `toml:"hold_until,omitempty"`
+	Branch                 string    `toml:"branch,omitempty"`
+	Worktree               string    `toml:"worktree,omitempty"`
+	ReapWorktree           string    `toml:"reap_worktree,omitempty"`
+	PR                     string    `toml:"pr,omitempty"`
+	LinearAttentionWritten bool      `toml:"linear_attention_written,omitempty"`
+	Merge                  *Merge    `toml:"merge,omitempty"`
+	Drift                  *Drift    `toml:"drift,omitempty"`
+	LastEvent              string    `toml:"last_event,omitempty"`
+	LastStatus             string    `toml:"last_status,omitempty"`
+	CreatedAt              time.Time `toml:"created_at"`
+	UpdatedAt              time.Time `toml:"updated_at"`
+	Steps                  []Step    `toml:"steps,omitempty"`
 }
 
 // Merge stores the mechanical merge strategy and final PR landing mode captured

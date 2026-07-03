@@ -63,39 +63,6 @@ func PreviewReconcilePR(teamDir string, input ReconcileInput, now time.Time) (*R
 	return &ReconcileResult{Job: j, MatchedBy: match.MatchedBy, Message: message}, nil
 }
 
-// ReconcilePR finds the job that owns a PR/branch and updates its lifecycle.
-func ReconcilePR(teamDir string, input ReconcileInput, now time.Time) (*ReconcileResult, error) {
-	result, err := PreviewReconcilePR(teamDir, input, now)
-	if err != nil {
-		return nil, err
-	}
-	j := result.Job
-	if err := Write(teamDir, j); err != nil {
-		return nil, err
-	}
-	data := map[string]string{"matched_by": result.MatchedBy}
-	if input.PR != "" {
-		data["pr"] = input.PR
-	}
-	if input.PRURL != "" {
-		data["pr_url"] = input.PRURL
-	}
-	if input.Branch != "" {
-		data["branch"] = input.Branch
-	}
-	if input.Source != "" {
-		data["source"] = input.Source
-	}
-	actor := strings.TrimSpace(input.Source)
-	if actor == "" {
-		actor = "reconcile"
-	}
-	if err := AppendSnapshotEvent(teamDir, j, "", actor, "", data); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
 func applyPRReconcile(j *Job, input ReconcileInput, now time.Time) string {
 	if strings.TrimSpace(input.PRURL) != "" {
 		j.PR = strings.TrimSpace(input.PRURL)

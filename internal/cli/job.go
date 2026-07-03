@@ -22,6 +22,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -5339,6 +5340,7 @@ func newJobBounceCmd() *cobra.Command {
 			if err := writeJobWithAudit(teamDir, j, "bounced", "cli", j.LastStatus, data); err != nil {
 				return err
 			}
+			writeLinearBounceBack(teamDir, j, selectedStep, findingsText)
 			if advance {
 				res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 				if err != nil {
@@ -8556,7 +8558,7 @@ func newJobReconcileGitHubCmd() *cobra.Command {
 			if dryRun {
 				result, err = job.PreviewReconcilePR(teamDir, input, time.Now().UTC())
 			} else {
-				result, err = job.ReconcilePR(teamDir, input, time.Now().UTC())
+				result, err = jobwrite.ReconcilePR(teamDir, input, time.Now().UTC())
 			}
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reconcile github: %v\n", err)
@@ -8748,10 +8750,12 @@ func readJobAndTeamDir(cmd *cobra.Command, repo, id string) (string, *job.Job, e
 }
 
 func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message string, data map[string]string) error {
-	if err := job.Write(teamDir, j); err != nil {
-		return err
-	}
-	return job.AppendSnapshotEvent(teamDir, j, eventType, actor, message, data)
+	return jobwrite.WriteWithAudit(teamDir, j, jobwrite.Options{
+		EventType: eventType,
+		Actor:     actor,
+		Message:   message,
+		Data:      data,
+	})
 }
 
 func runJobEvents(w io.Writer, teamDir, id string, tail int, filters jobEventFilters, sortMode string, jsonOut, summary bool, tmpl *template.Template) error {
@@ -12090,7 +12094,10 @@ func runJobInstanceDown(cmd *cobra.Command, repo, id, stepID string, opts instan
 		return nil
 	}
 	applyJobInstanceDownUpdate(j, selection, downAction(opts), nextStatus)
-	return writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection))
+	if err := writeJobWithAudit(teamDir, j, "", "cli", "", jobInstanceSelectionAuditData(selection)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateJobLifecycleRenderOptions(cmd *cobra.Command, label string, dryRun, wait, commands, jsonOut, quiet bool, format *template.Template) error {
@@ -12341,6 +12348,7 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	}); err != nil {
 		return nil, "", err
 	}
+	writeLinearDispatchInProgress(teamDir, j)
 	return &jobDispatchResult{Job: j, Event: res}, requestedName, nil
 }
 
@@ -13886,6 +13894,7 @@ func advanceJobStep(cmd *cobra.Command, teamDir string, j *job.Job, step *job.St
 	if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": stepID}); err != nil {
 		return nil, err
 	}
+	writeLinearStepDispatchInProgress(teamDir, j, stepID)
 	if idx := jobStepIndex(j, stepID); idx >= 0 {
 		return &jobAdvanceResult{Job: j, Step: &j.Steps[idx], Event: res}, nil
 	}

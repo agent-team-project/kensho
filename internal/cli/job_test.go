@@ -17,6 +17,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/linearwriteback"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
@@ -47,6 +48,15 @@ func jobDoctorHasCode(findings []jobDoctorFinding, code string) bool {
 		}
 	}
 	return false
+}
+
+func findJobEvent(events []job.Event, eventType string) (job.Event, bool) {
+	for _, event := range events {
+		if event.Type == eventType {
+			return event, true
+		}
+	}
+	return job.Event{}, false
 }
 
 func TestJobDoctorValidAndFormat(t *testing.T) {
@@ -954,8 +964,13 @@ func TestJobCloseRecordsMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "closed" || events[0].Actor != "github" || events[0].Message != "superseded by SQU-71" || events[0].Data["status"] != "failed" {
+	closedEvent, ok := findJobEvent(events, "closed")
+	if !ok || closedEvent.Actor != "github" || closedEvent.Message != "superseded by SQU-71" || closedEvent.Data["status"] != "failed" {
 		t.Fatalf("events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear skip audit: %+v", events)
 	}
 }
 
@@ -1282,8 +1297,13 @@ func TestJobCancelStopsOwningInstanceAndFailsJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "cancelled" || events[0].Actor != "ops" || events[0].Data["instance_action"] != "stop" {
+	cancelledEvent, ok := findJobEvent(events, "cancelled")
+	if !ok || cancelledEvent.Actor != "ops" || cancelledEvent.Data["instance_action"] != "stop" {
 		t.Fatalf("events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear skip audit: %+v", events)
 	}
 }
 
@@ -1352,8 +1372,13 @@ func TestJobCancelStopsExplicitStepInstanceAndFailsStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "cancelled" || events[0].Actor != "ops" || events[0].Data["instance_action"] != "stop" || events[0].Data["instance"] != "worker-squ-165-implement" || events[0].Data["step"] != "implement" {
+	cancelledEvent, ok := findJobEvent(events, "cancelled")
+	if !ok || cancelledEvent.Actor != "ops" || cancelledEvent.Data["instance_action"] != "stop" || cancelledEvent.Data["instance"] != "worker-squ-165-implement" || cancelledEvent.Data["step"] != "implement" {
 		t.Fatalf("events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear skip audit: %+v", events)
 	}
 }
 
@@ -4748,8 +4773,13 @@ func TestJobTimeoutMarksStaleRunningStepsAndJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list lifecycle events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "job_timeout" || events[0].Message != "job lifecycle timed out" {
+	timeoutEvent, ok := findJobEvent(events, "job_timeout")
+	if !ok || timeoutEvent.Message != "job lifecycle timed out" {
 		t.Fatalf("lifecycle events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("lifecycle events missing Linear skip audit: %+v", events)
 	}
 }
 
@@ -5470,8 +5500,13 @@ func TestJobReconcileQueueUpdatesDeadJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "queue_reconcile" || events[0].Data["queue_id"] != "q-job-reconcile" {
+	reconcileEvent, ok := findJobEvent(events, "queue_reconcile")
+	if !ok || reconcileEvent.Data["queue_id"] != "q-job-reconcile" {
 		t.Fatalf("events = %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
 
@@ -7714,12 +7749,19 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 3 ||
+	// Both the daemon and CLI dispatch records now attempt the in-progress
+	// write-back (direct job_id dispatches included — SQU-68 round 5), so the
+	// sequence carries a linear_writeback event after each dispatched event.
+	if len(events) != 5 ||
 		events[0].Type != "reopened" ||
 		events[1].Type != "dispatched" ||
 		events[1].Actor != "daemon" ||
-		events[2].Type != "dispatched" ||
-		events[2].Actor != "cli" {
+		events[2].Type != "linear_writeback_skipped" ||
+		events[2].Data["action"] != "dispatch_in_progress" ||
+		events[3].Type != "dispatched" ||
+		events[3].Actor != "cli" ||
+		events[4].Type != "linear_writeback_skipped" ||
+		events[4].Data["action"] != "dispatch_in_progress" {
 		t.Fatalf("events = %+v", events)
 	}
 	stopAndWaitForTest(t, mgr, "worker-squ-80")
@@ -8113,7 +8155,12 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "bounced" || events[0].Data["step"] != "implement" || events[0].Data["bounce"] != "1" {
+	if len(events) != 2 ||
+		events[0].Type != "bounced" ||
+		events[0].Data["step"] != "implement" ||
+		events[0].Data["bounce"] != "1" ||
+		events[1].Type != "linear_writeback_skipped" ||
+		events[1].Data["action"] != "bounce_back" {
 		t.Fatalf("events = %+v", events)
 	}
 }
@@ -10316,6 +10363,77 @@ func TestJobKillDryRunDoesNotMutateJob(t *testing.T) {
 	}
 	if updated.Status != job.StatusRunning || updated.LastEvent != "" || !updated.UpdatedAt.Equal(original.UpdatedAt) {
 		t.Fatalf("dry-run mutated job = %+v", updated)
+	}
+}
+
+func TestJobKillFailureAuditsLinearAttention(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-kill-linear-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	const instance = "worker-squ-69"
+	defer func() {
+		_, _ = mgr.Stop(instance)
+		_ = mgr.WaitForReaper(instance, 2*time.Second)
+	}()
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: instance, Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch worker: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-69",
+		Ticket:    "SQU-69",
+		Target:    "worker",
+		Instance:  instance,
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "kill", "squ-69", "--repo", tmp, "--wait", "--timeout", "2s", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job kill: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var rows []instanceDownResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode kill json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "kill" || rows[0].Instance != instance || rows[0].Status != "stopped" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	updated, err := job.Read(teamDir, "squ-69")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "instance_kill" || updated.LastStatus != "kill "+instance {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-69")
+	if err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	killEvent, ok := findJobEvent(events, "instance_kill")
+	if !ok || killEvent.Data["instance"] != instance {
+		t.Fatalf("events missing kill audit: %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != "failure_attention" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
 
@@ -12621,6 +12739,96 @@ gate = "pr"
 	}
 	if unchanged.PR != "" {
 		t.Fatalf("dry-run wrote PR: %+v", unchanged)
+	}
+}
+
+func TestJobReconcileGitHubClosedWritesLinearFailureAttention(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("LINEAR_USER_API_KEY", "")
+	target := t.TempDir()
+	initInto(t, target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[team]
+pm_tool = "linear"
+
+[linear]
+team_id = "team-1"
+ticket_prefix = "SQU"
+attention_state = "Todo"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	now := time.Date(2026, 7, 3, 13, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-146", "worker", "finish pr reconciliation", now)
+	if err != nil {
+		t.Fatalf("job new: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.PR = "https://github.com/acme/repo/pull/146"
+	j.Branch = "worker-squ-146"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"action": "closed",
+		"repository": map[string]any{
+			"full_name": "acme/repo",
+		},
+		"pull_request": map[string]any{
+			"number":   146,
+			"merged":   false,
+			"html_url": "https://github.com/acme/repo/pull/146",
+			"head": map[string]any{
+				"ref": "worker-squ-146",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"job", "reconcile", "github",
+		"--payload", string(payload),
+		"--repo", target,
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile github: %v\nstderr=%s", err, stderr.String())
+	}
+	var result struct {
+		Result struct {
+			Job job.Job `json:"job"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if result.Result.Job.Status != job.StatusFailed || !result.Result.Job.LinearAttentionWritten {
+		t.Fatalf("reconciled job = %+v, want failed with LinearAttentionWritten", result.Result.Job)
+	}
+	updated, err := job.Read(teamDir, "squ-146")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || !updated.LinearAttentionWritten {
+		t.Fatalf("updated job = %+v, want failed with LinearAttentionWritten", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-146")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	reconcileEvent, ok := findJobEvent(events, "pr.closed")
+	if !ok || reconcileEvent.Data["matched_by"] != "pr_url" {
+		t.Fatalf("events missing pr.closed reconcile event: %+v", events)
+	}
+	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
+	if !ok || linearEvent.Data["action"] != string(linearwriteback.ActionFailureAttention) || linearEvent.Data["state"] != "Todo" {
+		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
 

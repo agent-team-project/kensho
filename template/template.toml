@@ -40,6 +40,18 @@ default     = ""
 description = "Optional Linear user UUID for the agent API key; status-change webhooks authored by this user are ignored to prevent dispatch loops."
 
 [[parameter]]
+key         = "linear.in_progress_state"
+type        = "string"
+default     = "In Progress"
+description = "Linear workflow state name used when a job is dispatched or bounced back to implementation."
+
+[[parameter]]
+key         = "linear.attention_state"
+type        = "string"
+default     = ""
+description = "Optional Linear workflow state name used when a job fails and needs attention."
+
+[[parameter]]
 key         = "linear.initiative_id"
 type        = "string"
 required    = false

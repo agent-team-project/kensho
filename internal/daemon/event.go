@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
@@ -24,6 +25,15 @@ import (
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
+
+func (r *EventResolver) writeJobWithAudit(j *jobstore.Job, eventType, actor, message string, data map[string]string) error {
+	return jobwrite.WriteWithAudit(r.teamDir, j, jobwrite.Options{
+		EventType: eventType,
+		Actor:     actor,
+		Message:   message,
+		Data:      data,
+	})
+}
 
 // DefaultQueueCap is the maximum number of events queued per declared
 // ephemeral instance once its replica capacity is exhausted. Excess events
@@ -237,7 +247,7 @@ func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any)
 	if strings.TrimSpace(r.teamDir) == "" {
 		return nil
 	}
-	result, err := jobstore.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
+	result, err := jobwrite.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
 	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
 		if err == nil && result != nil && result.Job != nil {
 			r.autoReapJob(result.Job.ID, worktreepolicy.OnMerge)
@@ -288,9 +298,6 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	}
 	j.LastEvent = pipelineEvent
 	j.LastStatus = "pipeline " + pipeline.Name
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
-	}
 	data := map[string]string{
 		"pipeline": pipeline.Name,
 		"event":    eventType,
@@ -298,7 +305,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	if j.TicketURL != "" {
 		data["ticket_url"] = j.TicketURL
 	}
-	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, pipelineEvent, "daemon", "", data); err != nil {
+	if err := r.writeJobWithAudit(j, pipelineEvent, "daemon", "", data); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	step := firstRunnablePipelineStep(pipeline)
@@ -321,12 +328,10 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		j = latest
 	}
 	applyPipelineStepOutcome(j, step.ID, outcomes)
-	if err := jobstore.Write(r.teamDir, j); err == nil {
-		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
-			"pipeline": pipeline.Name,
-			"step":     step.ID,
-		})
-	}
+	_ = r.writeJobWithAudit(j, "", "daemon", "", map[string]string{
+		"pipeline": pipeline.Name,
+		"step":     step.ID,
+	})
 	return dispatch.eventOutcomes
 }
 
@@ -346,10 +351,7 @@ func (r *EventResolver) adoptDirectPipelineDispatch(pipeline *topology.Pipeline,
 	hydratePipelineJob(j, pipeline, payload)
 	j.LastEvent = "pipeline_created"
 	j.LastStatus = "pipeline " + pipeline.Name
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
-	}
-	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_created", "daemon", "", pipelineAuditData(pipeline.Name, eventType, j, "")); err != nil {
+	if err := r.writeJobWithAudit(j, "pipeline_created", "daemon", "", pipelineAuditData(pipeline.Name, eventType, j, "")); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	step := firstRunnablePipelineStep(pipeline)
@@ -362,12 +364,10 @@ func (r *EventResolver) adoptDirectPipelineDispatch(pipeline *topology.Pipeline,
 		j = latest
 	}
 	applyPipelineStepOutcome(j, step.ID, outcomes)
-	if err := jobstore.Write(r.teamDir, j); err == nil {
-		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
-			"pipeline": pipeline.Name,
-			"step":     step.ID,
-		})
-	}
+	_ = r.writeJobWithAudit(j, "", "daemon", "", map[string]string{
+		"pipeline": pipeline.Name,
+		"step":     step.ID,
+	})
 	return dispatch.eventOutcomes
 }
 
@@ -380,10 +380,7 @@ func (r *EventResolver) actuatePipelineReentry(pipeline *topology.Pipeline, even
 		return r.pipelineReentryNoop(pipeline, eventType, j, now, "job "+j.ID+" already "+string(j.Status)+"; redispatch_on_reentry=false")
 	}
 	resetPipelineJobForReentry(j, pipeline, eventType, payload, now)
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
-	}
-	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "reopened", "daemon", j.LastStatus, pipelineAuditData(pipeline.Name, eventType, j, "reopen")); err != nil {
+	if err := r.writeJobWithAudit(j, "reopened", "daemon", j.LastStatus, pipelineAuditData(pipeline.Name, eventType, j, "reopen")); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	step := firstRunnablePipelineStep(pipeline)
@@ -406,12 +403,10 @@ func (r *EventResolver) actuatePipelineReentry(pipeline *topology.Pipeline, even
 		j = latest
 	}
 	applyPipelineStepOutcome(j, step.ID, outcomes)
-	if err := jobstore.Write(r.teamDir, j); err == nil {
-		_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", map[string]string{
-			"pipeline": pipeline.Name,
-			"step":     step.ID,
-		})
-	}
+	_ = r.writeJobWithAudit(j, "", "daemon", "", map[string]string{
+		"pipeline": pipeline.Name,
+		"step":     step.ID,
+	})
 	return dispatch.eventOutcomes
 }
 
@@ -419,10 +414,7 @@ func (r *EventResolver) pipelineReentryNoop(pipeline *topology.Pipeline, eventTy
 	j.LastEvent = "pipeline_reentry_noop"
 	j.LastStatus = reason
 	j.UpdatedAt = now
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
-	}
-	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_reentry_noop", "daemon", reason, pipelineAuditData(pipeline.Name, eventType, j, "noop")); err != nil {
+	if err := r.writeJobWithAudit(j, "pipeline_reentry_noop", "daemon", reason, pipelineAuditData(pipeline.Name, eventType, j, "noop")); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
 	return []EventOutcome{{
@@ -1429,6 +1421,9 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 		meta.Job = j.ID
 		meta.Ticket = j.Ticket
 		meta.PR = j.PR
+		if stepID, ok := linearDispatchStepFromPayload(payload); ok {
+			r.writeLinearDispatchInProgress(j, stepID)
+		}
 	}
 	if err := WriteMetadata(r.mgr.daemonRoot, meta); err != nil {
 		return
@@ -1508,10 +1503,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 		j.LastStatus = lastStatus
 	}
 	j.UpdatedAt = now
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return nil
-	}
-	if err := jobstore.AppendSnapshotEvent(r.teamDir, j, "", "daemon", "", dispatchJobEventData(payload, branch, worktreePath)); err != nil {
+	if err := r.writeJobWithAudit(j, "", "daemon", "", dispatchJobEventData(payload, branch, worktreePath)); err != nil {
 		return nil
 	}
 	return j
@@ -2055,9 +2047,6 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	j.LastEvent = eventType
 	j.LastStatus = message
 	j.UpdatedAt = now
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return
-	}
 	data := map[string]string{"instance": meta.Instance}
 	if meta.Branch != "" {
 		data["branch"] = meta.Branch
@@ -2068,7 +2057,9 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if meta.ExitCode != nil {
 		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
 	}
-	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, eventType, "daemon", message, data)
+	if err := r.writeJobWithAudit(j, eventType, "daemon", message, data); err != nil {
+		return
+	}
 
 	// Opt-in: dispatch the next ready step without waiting for a manual
 	// `agent-team pipeline tick`. Safe to call here — onReap has already released
@@ -2109,10 +2100,7 @@ func (r *EventResolver) autoReapJob(id, trigger string) {
 	j.LastEvent = "cleanup"
 	j.LastStatus = summary
 	j.UpdatedAt = time.Now().UTC()
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return
-	}
-	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "cleanup", "daemon", summary, map[string]string{
+	_ = r.writeJobWithAudit(j, "cleanup", "daemon", summary, map[string]string{
 		"trigger":       trigger,
 		"reap_worktree": policy,
 	})
@@ -2290,10 +2278,7 @@ func (r *EventResolver) dispatchAndRecord(pipeline *topology.Pipeline, step *top
 	outcomes := r.dispatchPipelineStep(pipeline, step, j, payload)
 	applyPipelineStepOutcome(j, step.ID, outcomes)
 	j.UpdatedAt = time.Now().UTC()
-	if err := jobstore.Write(r.teamDir, j); err != nil {
-		return
-	}
-	_ = jobstore.AppendSnapshotEvent(r.teamDir, j, "pipeline_advanced", "daemon", message, map[string]string{"step": step.ID})
+	_ = r.writeJobWithAudit(j, "pipeline_advanced", "daemon", message, map[string]string{"step": step.ID})
 }
 
 func pipelineTopologyStep(pipeline *topology.Pipeline, id string) *topology.PipelineStep {

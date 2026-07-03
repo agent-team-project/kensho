@@ -400,51 +400,6 @@ func TestJobGateRecordsMissingAndInvalid(t *testing.T) {
 	}
 }
 
-func TestReconcilePRMarksMergedJobDone(t *testing.T) {
-	teamDir := filepath.Join(t.TempDir(), ".agent_team")
-	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
-	j, err := New("SQU-77", "worker", "ship the change", now)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	j.Status = StatusRunning
-	j.PR = "https://github.com/acme/repo/pull/77"
-	j.Branch = "worktree-worker-squ-77"
-	if err := Write(teamDir, j); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	merged := true
-	result, err := ReconcilePR(teamDir, ReconcileInput{
-		EventType: "pr.merged",
-		Source:    "github",
-		Action:    "closed",
-		PR:        "77",
-		PRURL:     "https://github.com/acme/repo/pull/77/",
-		Branch:    "worktree-worker-squ-77",
-		Merged:    &merged,
-	}, now.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("ReconcilePR: %v", err)
-	}
-	if result.MatchedBy != "pr_url" || result.Job.Status != StatusDone || result.Job.LastEvent != "pr.merged" {
-		t.Fatalf("result = %+v", result)
-	}
-	updated, err := Read(teamDir, "squ-77")
-	if err != nil {
-		t.Fatalf("Read updated: %v", err)
-	}
-	if updated.Status != StatusDone || updated.LastStatus != "pull request merged" {
-		t.Fatalf("updated = %+v", updated)
-	}
-	events, err := ListEvents(teamDir, "squ-77")
-	if err != nil {
-		t.Fatalf("ListEvents: %v", err)
-	}
-	if len(events) != 1 || events[0].Type != "pr.merged" || events[0].Actor != "github" || events[0].Data["matched_by"] != "pr_url" || events[0].Data["source"] != "github" {
-		t.Fatalf("events = %+v", events)
-	}
-}
-
 func TestPreviewReconcilePRDoesNotWrite(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	now := time.Date(2026, 6, 18, 13, 0, 0, 0, time.UTC)

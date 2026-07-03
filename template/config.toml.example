@@ -53,6 +53,13 @@ agent_column = "Ready for Agent"
 # authored by this user are ignored so agent write-backs do not redispatch work.
 # agent_user_id = ""
 
+# Workflow state name used when a job is dispatched or bounced back.
+in_progress_state = "In Progress"
+
+# Optional workflow state name used when a job fails and needs attention.
+# If unset, failures leave a Linear comment and apply configured labels when present.
+# attention_state = "Todo"
+
 # Optional: initiative UUID this team rolls up to.
 # initiative_id = ""
 
