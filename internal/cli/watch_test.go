@@ -542,7 +542,7 @@ func TestWatchSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	if snapshot.Health == nil || snapshot.Health.Healthy {
 		t.Fatalf("health = %+v, want daemon-down health", snapshot.Health)
 	}
-	if snapshot.Plan == nil || snapshot.Plan.Summary.Total != 2 || snapshot.Plan.Summary.Actions["start"] != 1 || snapshot.Plan.Summary.Actions["on-demand"] != 1 {
+	if snapshot.Plan == nil || snapshot.Plan.Summary.Total != 3 || snapshot.Plan.Summary.Actions["start"] != 1 || snapshot.Plan.Summary.Actions["on-demand"] != 2 {
 		t.Fatalf("plan summary = %+v, want one manager start", snapshot.Plan)
 	}
 }

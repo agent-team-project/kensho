@@ -993,7 +993,7 @@ func TestMonitorSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("plan summary missing: %+v", body)
 	}
-	if body.Plan.Summary.Total != 2 || body.Plan.Summary.Actions["start"] != 1 || body.Plan.Summary.Actions["on-demand"] != 1 || !body.Plan.Summary.DryRun {
+	if body.Plan.Summary.Total != 3 || body.Plan.Summary.Actions["start"] != 1 || body.Plan.Summary.Actions["on-demand"] != 2 || !body.Plan.Summary.DryRun {
 		t.Fatalf("plan summary = %+v, want one dry-run manager start", body.Plan.Summary)
 	}
 }
@@ -1385,15 +1385,15 @@ func TestMonitorPlanJSONUsesFilters(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("monitor --plan should include plan: %+v", body)
 	}
-	if body.Plan.Summary.Total != 2 || body.Plan.Summary.Start != 1 || body.Plan.Summary.OnDemand != 1 {
-		t.Fatalf("plan summary = %+v, want manager start + feedback-triage on-demand", body.Plan.Summary)
+	if body.Plan.Summary.Total != 3 || body.Plan.Summary.Start != 1 || body.Plan.Summary.OnDemand != 2 {
+		t.Fatalf("plan summary = %+v, want manager start + two manager-agent on-demand rows", body.Plan.Summary)
 	}
 	names := map[string]bool{}
 	for _, row := range body.Plan.Instances {
 		names[row.Instance] = true
 	}
-	if len(body.Plan.Instances) != 2 || !names["manager"] || !names["feedback-triage"] {
-		t.Fatalf("plan rows = %+v, want manager and feedback-triage", body.Plan.Instances)
+	if len(body.Plan.Instances) != 3 || !names["manager"] || !names["feedback-triage"] || !names["harness-reviewer"] {
+		t.Fatalf("plan rows = %+v, want manager, feedback-triage, harness-reviewer", body.Plan.Instances)
 	}
 }
 
@@ -1417,8 +1417,8 @@ func TestMonitorPlanJSONFiltersByAction(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("monitor --plan should include plan: %+v", body)
 	}
-	if body.Plan.Summary.Total != 6 || body.Plan.Summary.OnDemand != 6 {
-		t.Fatalf("plan summary = %+v, want six on-demand rows", body.Plan.Summary)
+	if body.Plan.Summary.Total != 7 || body.Plan.Summary.OnDemand != 7 {
+		t.Fatalf("plan summary = %+v, want seven on-demand rows", body.Plan.Summary)
 	}
 	byName := map[string]planRow{}
 	for _, row := range body.Plan.Instances {

@@ -3623,7 +3623,7 @@ func TestStatusSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("plan summary missing: %+v", body)
 	}
-	if body.Plan.Summary.Total != 2 || body.Plan.Summary.Actions["start"] != 1 || body.Plan.Summary.Actions["on-demand"] != 1 || !body.Plan.Summary.DryRun {
+	if body.Plan.Summary.Total != 3 || body.Plan.Summary.Actions["start"] != 1 || body.Plan.Summary.Actions["on-demand"] != 2 || !body.Plan.Summary.DryRun {
 		t.Fatalf("plan summary = %+v, want one dry-run manager start", body.Plan.Summary)
 	}
 }
@@ -3641,7 +3641,7 @@ func TestStatusSummaryPlanTextIncludesPlanSummary(t *testing.T) {
 		t.Fatalf("status --summary --plan: %v\nstderr: %s", err, errOut.String())
 	}
 	body := out.String()
-	for _, want := range []string{"health:", "plan:", "summary: total=2 dry_run=true"} {
+	for _, want := range []string{"health:", "plan:", "summary: total=3 dry_run=true"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("status summary plan output missing %q:\n%s", want, body)
 		}

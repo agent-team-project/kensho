@@ -53,7 +53,7 @@ func TestPlanJSONShowsTopologyAndDaemonMetadata(t *testing.T) {
 	if body.Daemon.Running {
 		t.Fatalf("daemon should be reported down: %+v", body.Daemon)
 	}
-	if body.Summary.Total != 9 || body.Summary.Start != 1 || body.Summary.Resume != 1 || body.Summary.OnDemand != 6 || body.Summary.Extra != 1 {
+	if body.Summary.Total != 10 || body.Summary.Start != 1 || body.Summary.Resume != 1 || body.Summary.OnDemand != 7 || body.Summary.Extra != 1 {
 		t.Fatalf("summary = %+v, want start/resume/on-demand/extra counts", body.Summary)
 	}
 	byName := map[string]planRow{}
@@ -261,11 +261,11 @@ func TestPlanSummaryJSONShowsAggregateCounts(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode plan summary json: %v\nbody=%s", err, out.String())
 	}
-	if body.Summary.Total != 8 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 6 || !body.Summary.DryRun {
+	if body.Summary.Total != 9 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 7 || !body.Summary.DryRun {
 		t.Fatalf("summary = %+v, want two starts and two on-demand previews", body.Summary)
 	}
-	if body.Summary.Statuses["unknown"] != 8 {
-		t.Fatalf("statuses = %+v, want unknown=8", body.Summary.Statuses)
+	if body.Summary.Statuses["unknown"] != 9 {
+		t.Fatalf("statuses = %+v, want unknown=9", body.Summary.Statuses)
 	}
 }
 
@@ -307,7 +307,7 @@ func TestPlanStopExtrasMarksOnlyRunningExtras(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode plan json: %v\nbody=%s", err, out.String())
 	}
-	if body.Summary.Total != 10 || body.Summary.Stop != 1 || body.Summary.Extra != 1 {
+	if body.Summary.Total != 11 || body.Summary.Stop != 1 || body.Summary.Extra != 1 {
 		t.Fatalf("summary = %+v, want one stop preview and one remaining extra", body.Summary)
 	}
 	byName := map[string]planRow{}
@@ -694,7 +694,7 @@ func TestPlanTextRendersTableAndSummary(t *testing.T) {
 		"worker",
 		"start",
 		"on-demand",
-		"summary: total=8 start=2 resume=0 keep=0 on-demand=6 extra=0",
+		"summary: total=9 start=2 resume=0 keep=0 on-demand=7 extra=0",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("plan output missing %q:\n%s", want, body)

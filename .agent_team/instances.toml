@@ -223,10 +223,32 @@ description = "Framework infrastructure: provider seams, provenance, scoping, re
 instances   = ["platform-worker", "platform-reviewer", "manager"]
 pipelines   = ["platform_ticket_to_pr"]
 
+
+# The harness-review loop: a weekly sweep of the team's own steering surfaces
+# (agent prompts, skills, pipeline instructions) driven by operational
+# evidence — bounce-finding classes, attention events, feedback, failure
+# patterns. Proposes improvement tickets (label `harness`, Backlog only);
+# never edits prompts directly. See the review-harness skill.
+[schedules.harness-review]
+every = "168h" # weekly
+
+[schedules.harness-review.payload]
+kind = "harness_review"
+
+[instances.harness-reviewer]
+agent       = "manager"
+ephemeral   = true
+description = "Scheduled harness review: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
+
+[[instances.harness-reviewer.triggers]]
+event      = "schedule"
+match.name = "harness-review"
+match.kind = "harness_review"
+
 [teams.quality]
-description = "Proactive architecture and tech-debt auditing."
-instances   = ["debt-auditor"]
-schedules   = ["debt-sweep"]
+description = "Proactive architecture, tech-debt, and harness auditing."
+instances   = ["debt-auditor", "harness-reviewer"]
+schedules   = ["debt-sweep", "harness-review"]
 
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."

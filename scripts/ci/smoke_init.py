@@ -463,7 +463,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         plan_before_summary = plan_before_start.get("summary") or {}
         if r.returncode != 0:
             problems.append(f"plan --json before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-        elif plan_before_summary.get("start") != 2 or plan_before_summary.get("on_demand") != 6:
+        elif plan_before_summary.get("start") != 2 or plan_before_summary.get("on_demand") != 7:
             problems.append(f"plan --json before start returned unexpected summary: {plan_before_start}")
         elif any((plan_before_rows.get(name) or {}).get("action") != "start" for name in ("manager", "ticket-manager")):
             problems.append(f"plan --json before start missing start actions: {plan_before_start}")
@@ -475,7 +475,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
             capture_output=True, text=True,
         )
         formatted_plan_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
-        if r.returncode != 0 or formatted_plan_rows != ["feedback-triage:on-demand", "manager:start"]:
+        if r.returncode != 0 or formatted_plan_rows != ["feedback-triage:on-demand", "harness-reviewer:on-demand", "manager:start"]:
             problems.append(f"plan --format before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
         worker_state_dir = team_dir / "state" / "worker"
@@ -506,7 +506,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
             capture_output=True, text=True,
         )
         formatted_action_plan_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
-        if r.returncode != 0 or set(formatted_action_plan_rows) != {"debt-auditor:on-demand", "feedback-triage:on-demand", "platform-reviewer:on-demand", "platform-worker:on-demand", "reviewer:on-demand", "worker:on-demand"}:
+        if r.returncode != 0 or set(formatted_action_plan_rows) != {"debt-auditor:on-demand", "feedback-triage:on-demand", "harness-reviewer:on-demand", "platform-reviewer:on-demand", "platform-worker:on-demand", "reviewer:on-demand", "worker:on-demand"}:
             problems.append(f"plan --action on_demand before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
         r = subprocess.run(
@@ -538,7 +538,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
             capture_output=True, text=True,
         )
         formatted_filtered_sync_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
-        if r.returncode != 0 or formatted_filtered_sync_rows != ["feedback-triage:on-demand:unknown", "manager:start:unknown"]:
+        if r.returncode != 0 or formatted_filtered_sync_rows != ["feedback-triage:on-demand:unknown", "harness-reviewer:on-demand:unknown", "manager:start:unknown"]:
             problems.append(f"sync --dry-run filtered before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
         r = subprocess.run(
@@ -612,9 +612,9 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         filtered_plan_before_summary = filtered_plan_before_start.get("summary") or {}
         if r.returncode != 0:
             problems.append(f"filtered plan --json before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-        elif filtered_plan_before_summary.get("total") != 2 or filtered_plan_before_summary.get("start") != 1 or filtered_plan_before_summary.get("on_demand") != 1:
+        elif filtered_plan_before_summary.get("total") != 3 or filtered_plan_before_summary.get("start") != 1 or filtered_plan_before_summary.get("on_demand") != 2:
             problems.append(f"filtered plan --json before start returned unexpected summary: {filtered_plan_before_start}")
-        elif [row.get("instance") for row in filtered_plan_before_rows] != ["feedback-triage", "manager"]:
+        elif [row.get("instance") for row in filtered_plan_before_rows] != ["feedback-triage", "harness-reviewer", "manager"]:
             problems.append(f"filtered plan --json before start returned unexpected rows: {filtered_plan_before_start}")
 
         r = subprocess.run(
@@ -703,7 +703,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         plan_after_summary = plan_after_start.get("summary") or {}
         if r.returncode != 0:
             problems.append(f"plan --json after start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-        elif plan_after_summary.get("keep") != 2 or plan_after_summary.get("on_demand") != 6:
+        elif plan_after_summary.get("keep") != 2 or plan_after_summary.get("on_demand") != 7:
             problems.append(f"plan --json after start returned unexpected summary: {plan_after_start}")
         elif any((plan_after_rows.get(name) or {}).get("action") != "keep" for name in ("manager", "ticket-manager")):
             problems.append(f"plan --json after start missing keep actions: {plan_after_start}")
@@ -1473,7 +1473,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         monitor_plan_summary = monitor_plan.get("summary") or {}
         if r.returncode != 0:
             problems.append(f"monitor --plan --json failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-        elif monitor_plan_summary.get("keep") != 2 or monitor_plan_summary.get("on_demand") != 6:
+        elif monitor_plan_summary.get("keep") != 2 or monitor_plan_summary.get("on_demand") != 7:
             problems.append(f"monitor --plan --json returned unexpected plan summary: {monitor_plan_body}")
         elif any((monitor_plan_rows.get(name) or {}).get("action") != "keep" for name in ("manager", "ticket-manager")):
             problems.append(f"monitor --plan --json missing keep actions: {monitor_plan_body}")
@@ -1493,7 +1493,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         monitor_action_rows = monitor_action_plan.get("instances") or []
         if r.returncode != 0:
             problems.append(f"monitor --plan --action on_demand --json failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-        elif {row.get("instance") for row in monitor_action_rows} != {"debt-auditor", "feedback-triage", "platform-reviewer", "platform-worker", "reviewer", "worker"}:
+        elif {row.get("instance") for row in monitor_action_rows} != {"debt-auditor", "feedback-triage", "harness-reviewer", "platform-reviewer", "platform-worker", "reviewer", "worker"}:
             problems.append(f"monitor --plan --action on_demand returned unexpected rows: {monitor_action_body}")
         elif any(row.get("action") != "on-demand" for row in monitor_action_rows):
             problems.append(f"monitor --plan --action on_demand returned unexpected action: {monitor_action_body}")
