@@ -5929,8 +5929,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	j.LastEvent = "created"
 	j.LastStatus = "created"
 	if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: job %q already exists.\n", prefix, j.ID)
-		return exitErr(2)
+		return renderDuplicateJobIDConflict(cmd, prefix, teamDir, j.ID, opts.JSON)
 	}
 	if opts.DryRun {
 		commandOptions := opts.ApplyCommand

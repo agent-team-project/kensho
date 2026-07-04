@@ -1128,8 +1128,10 @@ Subcommands:
 
 Publish an event of the given type. The daemon resolves it against declared triggers.
 
+Payload entries may be passed as positional key=value pairs; values are strings. When --payload or --payload-file is also used, JSON object keys override matching shorthand keys.
+
 ```text
-agent-team event publish <type> [flags]
+agent-team event publish <type> [key=value...] [flags]
 ```
 
 Flags:
@@ -1139,7 +1141,7 @@ Flags:
       --dry-run               Preview matching triggers without publishing to the daemon.
       --format string         Render the event outcome or dry-run preview with a Go template, e.g. '{{len .Matched}} {{len .Dispatched}}'.
       --json                  Emit the daemon event outcome as JSON.
-      --payload string        JSON object passed as the event payload (e.g. '{"target":"worker"}').
+      --payload string        JSON object passed as the event payload; keys override matching key=value args (e.g. '{"target":"worker"}').
       --payload-file string   Read event payload JSON from a file, or '-' for stdin.
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --trace                 Include per-trigger match and rejection trace output.

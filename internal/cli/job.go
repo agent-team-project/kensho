@@ -1456,8 +1456,7 @@ func newJobCreateCmd() *cobra.Command {
 			j.LastEvent = "created"
 			j.LastStatus = "created"
 			if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: job %q already exists.\n", j.ID)
-				return exitErr(2)
+				return renderDuplicateJobIDConflict(cmd, "agent-team job create", teamDir, j.ID, jsonOut)
 			}
 			if dryRun {
 				commandOptions := jobCreateApplyCommandOptions{
@@ -15743,6 +15742,37 @@ func renderJobResult(w io.Writer, j *job.Job, jsonOut bool, tmpl *template.Templ
 type jobCreatePreview struct {
 	Job    *job.Job `json:"job"`
 	DryRun bool     `json:"dry_run"`
+}
+
+type jobConflictError struct {
+	Error      string `json:"error"`
+	Message    string `json:"message"`
+	JobID      string `json:"job_id"`
+	Status     string `json:"status"`
+	Suggestion string `json:"suggestion"`
+}
+
+func renderDuplicateJobIDConflict(cmd *cobra.Command, prefix, teamDir, id string, jsonOut bool) error {
+	status := "unknown"
+	if existing, err := job.Read(teamDir, id); err == nil {
+		status = string(existing.Status)
+	}
+	message := fmt.Sprintf("job %q already exists with status %q", id, status)
+	suggestion := "choose a different job id with --id or clean up the existing job before retrying"
+	if jsonOut {
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(jobConflictError{
+			Error:      "job_conflict",
+			Message:    message,
+			JobID:      id,
+			Status:     status,
+			Suggestion: suggestion,
+		}); err != nil {
+			return err
+		}
+		return exitErr(1)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s; %s.\n", prefix, message, suggestion)
+	return exitErr(1)
 }
 
 func renderJobCreatePreview(w io.Writer, j *job.Job, jsonOut bool, tmpl *template.Template) error {
