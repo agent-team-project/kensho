@@ -6,9 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"text/tabwriter"
 	"text/template"
 	"time"
 
@@ -113,6 +111,100 @@ type queueQuarantineShowResult struct {
 	Pipeline  string            `json:"pipeline,omitempty"`
 	ScopeJob  string            `json:"scope_job,omitempty"`
 	QueueItem *daemon.QueueItem `json:"queue_item,omitempty"`
+}
+
+var queueQuarantineSortModes = []string{
+	"path",
+	"state",
+	"id",
+	"event",
+	"instance",
+	"job",
+	"queued",
+	"updated",
+	"modified",
+	"attempts",
+	"restorable",
+	"size",
+}
+
+var queueQuarantineSortLessers = map[string]quarantineSortLess[queueQuarantineItem]{
+	"state":      quarantineStringLess(func(item queueQuarantineItem) string { return item.State }),
+	"id":         quarantineStringLess(func(item queueQuarantineItem) string { return item.ID }),
+	"event":      quarantineStringLess(func(item queueQuarantineItem) string { return item.EventType }),
+	"instance":   quarantineStringLess(func(item queueQuarantineItem) string { return item.Instance }),
+	"job":        quarantineStringLess(func(item queueQuarantineItem) string { return item.Job }),
+	"queued":     quarantineTimeDescLess(func(item queueQuarantineItem) time.Time { return item.QueuedAt }),
+	"updated":    quarantineTimeDescLess(func(item queueQuarantineItem) time.Time { return item.UpdatedAt }),
+	"modified":   quarantineTimeDescLess(func(item queueQuarantineItem) time.Time { return item.ModTime }),
+	"attempts":   quarantineIntDescLess(func(item queueQuarantineItem) int { return item.Attempts }),
+	"restorable": quarantineBoolTrueFirstLess(func(item queueQuarantineItem) bool { return item.Restorable }),
+	"size":       quarantineInt64DescLess(func(item queueQuarantineItem) int64 { return item.Size }),
+}
+
+var queueQuarantineListColumns = []quarantineListColumn[queueQuarantineItem]{
+	{Header: "PATH", Value: func(item queueQuarantineItem) string { return item.Path }},
+	{Header: "STATE", Value: func(item queueQuarantineItem) string { return emptyDash(item.State) }},
+	{Header: "ID", Value: func(item queueQuarantineItem) string { return emptyDash(item.ID) }},
+	{Header: "INSTANCE", Value: func(item queueQuarantineItem) string { return emptyDash(item.Instance) }},
+	{Header: "EVENT", Value: func(item queueQuarantineItem) string { return emptyDash(item.EventType) }},
+	{Header: "JOB", Value: func(item queueQuarantineItem) string { return emptyDash(item.Job) }},
+	{Header: "RESTORABLE", Value: func(item queueQuarantineItem) string { return queueQuarantineRestorableText(item.Restorable) }},
+	{Header: "PROBLEM", Value: func(item queueQuarantineItem) string { return emptyDash(item.Problem) }},
+}
+
+var queueQuarantineRestoreConfig = quarantineRestoreConfig[queueQuarantineItem, queueQuarantineRestoreResult]{
+	Root: func(teamDir string) string {
+		return daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	},
+	Normalize:   normalizeQueueQuarantinePath,
+	Inspect:     inspectQueueQuarantineFile,
+	SafePath:    queueDoctorSafeQueuePath,
+	Path:        func(item queueQuarantineItem) string { return item.Path },
+	RestorePath: func(item queueQuarantineItem) string { return item.RestorePath },
+	Restorable:  func(item queueQuarantineItem) bool { return item.Restorable },
+	Problem:     func(item queueQuarantineItem) string { return item.Problem },
+	NewResult: func(item queueQuarantineItem, dryRun, force bool) queueQuarantineRestoreResult {
+		return queueQuarantineRestoreResult{
+			Path:        item.Path,
+			Destination: item.RestorePath,
+			State:       item.State,
+			ID:          item.ID,
+			Action:      "would_restore",
+			DryRun:      dryRun,
+			Overwrite:   force,
+		}
+	},
+	MarkRestored: func(result *queueQuarantineRestoreResult) {
+		result.Action = "restored"
+		result.DryRun = false
+	},
+}
+
+var queueQuarantineDropConfig = quarantineDropConfig[queueQuarantineItem, queueQuarantineDropResult]{
+	Root: func(teamDir string) string {
+		return daemon.QueueRoot(daemon.DaemonRoot(teamDir))
+	},
+	Normalize: normalizeQueueQuarantinePath,
+	Inspect:   inspectQueueQuarantineFile,
+	SafePath:  queueDoctorSafeQueuePath,
+	Path:      func(item queueQuarantineItem) string { return item.Path },
+	NewResult: func(item queueQuarantineItem, dryRun bool) queueQuarantineDropResult {
+		return queueQuarantineDropResult{
+			Path:       item.Path,
+			State:      item.State,
+			ID:         item.ID,
+			Restorable: item.Restorable,
+			Action:     "would_drop",
+			DryRun:     dryRun,
+		}
+	},
+	MarkDropped: func(result *queueQuarantineDropResult) {
+		result.Action = "dropped"
+		result.Dropped = true
+		result.DryRun = false
+	},
+	Prune: pruneEmptyQueueQuarantineDirs,
 }
 
 func newQueueQuarantineCmd() *cobra.Command {
@@ -546,43 +638,9 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 
 func listQueueQuarantine(teamDir string) ([]queueQuarantineItem, error) {
 	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
-	root := filepath.Join(queueRoot, queueQuarantineDir)
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if len(entries) == 0 {
-		return nil, nil
-	}
-	var items []queueQuarantineItem
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			return nil
-		}
-		rel, err := filepath.Rel(queueRoot, path)
-		if err != nil {
-			return err
-		}
-		item, err := inspectQueueQuarantineFile(queueRoot, rel)
-		if err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
+	return listQuarantineItems(queueRoot, queueQuarantineDir, ".json", inspectQueueQuarantineFile, func(item queueQuarantineItem) string {
+		return item.Path
 	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Path < items[j].Path
-	})
-	return items, nil
 }
 
 func inspectQueueQuarantineFile(queueRoot, rel string) (queueQuarantineItem, error) {
@@ -678,20 +736,9 @@ func filterQueueQuarantineItems(items []queueQuarantineItem, filters queueListFi
 }
 
 func filterQueueQuarantineRestorable(items []queueQuarantineItem, restorableOnly, unrestorableOnly bool) []queueQuarantineItem {
-	if !restorableOnly && !unrestorableOnly {
-		return items
-	}
-	out := make([]queueQuarantineItem, 0, len(items))
-	for _, item := range items {
-		if restorableOnly && !item.Restorable {
-			continue
-		}
-		if unrestorableOnly && item.Restorable {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
+	return filterQuarantineRestorable(items, restorableOnly, unrestorableOnly, func(item queueQuarantineItem) bool {
+		return item.Restorable
+	})
 }
 
 func queueQuarantineJob(payload map[string]any) string {
@@ -762,55 +809,7 @@ func showQueueQuarantine(teamDir, rawPath string) (queueQuarantineShowResult, er
 }
 
 func restoreQueueQuarantine(teamDir, rawPath string, dryRun, force bool) (queueQuarantineRestoreResult, error) {
-	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
-	rel, err := normalizeQueueQuarantinePath(rawPath)
-	if err != nil {
-		return queueQuarantineRestoreResult{}, err
-	}
-	item, err := inspectQueueQuarantineFile(queueRoot, rel)
-	if err != nil {
-		return queueQuarantineRestoreResult{}, err
-	}
-	if !item.Restorable {
-		return queueQuarantineRestoreResult{}, fmt.Errorf("%s is not restorable: %s", item.Path, item.Problem)
-	}
-	source, err := queueDoctorSafeQueuePath(queueRoot, item.Path)
-	if err != nil {
-		return queueQuarantineRestoreResult{}, err
-	}
-	destination, err := queueDoctorSafeQueuePath(queueRoot, item.RestorePath)
-	if err != nil {
-		return queueQuarantineRestoreResult{}, err
-	}
-	if _, err := os.Stat(destination); err == nil && !force {
-		return queueQuarantineRestoreResult{}, fmt.Errorf("%s already exists; pass --force to overwrite it", item.RestorePath)
-	} else if err != nil && !os.IsNotExist(err) {
-		return queueQuarantineRestoreResult{}, err
-	}
-	result := queueQuarantineRestoreResult{
-		Path:        item.Path,
-		Destination: item.RestorePath,
-		State:       item.State,
-		ID:          item.ID,
-		Action:      "would_restore",
-		DryRun:      dryRun,
-		Overwrite:   force,
-	}
-	if dryRun {
-		return result, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return result, err
-	}
-	if force {
-		_ = os.Remove(destination)
-	}
-	if err := os.Rename(source, destination); err != nil {
-		return result, err
-	}
-	result.Action = "restored"
-	result.DryRun = false
-	return result, nil
+	return restoreQuarantineItem(teamDir, rawPath, dryRun, force, queueQuarantineRestoreConfig)
 }
 
 func restoreQueueQuarantineAll(teamDir string, dryRun, force bool, filters queueListFilters, sortMode string, limit int) ([]queueQuarantineRestoreResult, error) {
@@ -824,29 +823,13 @@ func restoreQueueQuarantineAll(teamDir string, dryRun, force bool, filters queue
 }
 
 func restoreQueueQuarantineItems(teamDir string, items []queueQuarantineItem, dryRun, force bool, sortMode string, limit int) ([]queueQuarantineRestoreResult, error) {
-	items = prepareQueueQuarantineItems(items, sortMode, limit)
-	results := make([]queueQuarantineRestoreResult, 0, len(items))
-	for _, item := range items {
-		result, err := restoreQueueQuarantine(teamDir, item.Path, dryRun, force)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
+	return restoreQuarantineItemBatch(teamDir, items, dryRun, force, sortMode, limit, prepareQueueQuarantineItems, func(item queueQuarantineItem) string {
+		return item.Path
+	}, restoreQueueQuarantine)
 }
 
 func dropQueueQuarantine(teamDir, rawPath string, dryRun bool) (queueQuarantineDropResult, error) {
-	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
-	rel, err := normalizeQueueQuarantinePath(rawPath)
-	if err != nil {
-		return queueQuarantineDropResult{}, err
-	}
-	item, err := inspectQueueQuarantineFile(queueRoot, rel)
-	if err != nil {
-		return queueQuarantineDropResult{}, err
-	}
-	return dropQueueQuarantineItem(queueRoot, item, dryRun)
+	return dropQuarantinePath(teamDir, rawPath, dryRun, queueQuarantineDropConfig)
 }
 
 func dropQueueQuarantineAll(teamDir string, dryRun bool, olderThan time.Duration, restorable, unrestorable bool, filters queueListFilters, sortMode string, limit int, now time.Time) ([]queueQuarantineDropResult, error) {
@@ -861,279 +844,66 @@ func dropQueueQuarantineAll(teamDir string, dryRun bool, olderThan time.Duration
 
 func dropQueueQuarantineItems(teamDir string, items []queueQuarantineItem, dryRun bool, olderThan time.Duration, unrestorable bool, sortMode string, limit int, now time.Time) ([]queueQuarantineDropResult, error) {
 	queueRoot := daemon.QueueRoot(daemon.DaemonRoot(teamDir))
-	sortQueueQuarantineItems(items, sortMode)
-	matches := make([]queueQuarantineItem, 0, len(items))
-	for _, item := range items {
-		if unrestorable && item.Restorable {
-			continue
-		}
-		if olderThan > 0 && item.ModTime.After(now.Add(-olderThan)) {
-			continue
-		}
-		matches = append(matches, item)
-		if limit > 0 && len(matches) >= limit {
-			break
-		}
+	if unrestorable {
+		items = filterQueueQuarantineRestorable(items, false, true)
 	}
-	results := make([]queueQuarantineDropResult, 0, len(matches))
-	for _, item := range matches {
-		result, err := dropQueueQuarantineItem(queueRoot, item, dryRun)
-		if err != nil {
-			return results, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
+	return dropQuarantineItemBatch(queueRoot, items, dryRun, olderThan, sortMode, limit, now, sortQueueQuarantineItems, func(item queueQuarantineItem) time.Time {
+		return item.ModTime
+	}, dropQueueQuarantineItem)
 }
 
 func prepareQueueQuarantineItems(items []queueQuarantineItem, sortMode string, limit int) []queueQuarantineItem {
-	sortQueueQuarantineItems(items, sortMode)
-	return limitQueueQuarantineItems(items, limit)
-}
-
-func limitQueueQuarantineItems(items []queueQuarantineItem, limit int) []queueQuarantineItem {
-	if limit <= 0 || limit >= len(items) {
-		return items
-	}
-	return items[:limit]
+	return prepareQuarantineItems(items, sortMode, limit, sortQueueQuarantineItems)
 }
 
 func parseQueueQuarantineSort(raw string) (string, error) {
-	sortMode := strings.ToLower(strings.TrimSpace(raw))
-	switch sortMode {
-	case "", "path", "state", "id", "event", "instance", "job", "queued", "updated", "modified", "attempts", "restorable", "size":
-		if sortMode == "" {
-			return "path", nil
-		}
-		return sortMode, nil
-	default:
-		return "", fmt.Errorf("--sort must be path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size")
-	}
+	return parseQuarantineSort(raw, queueQuarantineSortModes, "--sort must be path, state, id, event, instance, job, queued, updated, modified, attempts, restorable, or size")
 }
 
 func sortQueueQuarantineItems(items []queueQuarantineItem, sortMode string) {
-	sortMode = strings.ToLower(strings.TrimSpace(sortMode))
-	if sortMode == "" {
-		sortMode = "path"
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := items[i], items[j]
-		switch sortMode {
-		case "state":
-			if left.State != right.State {
-				return left.State < right.State
-			}
-		case "id":
-			if left.ID != right.ID {
-				return left.ID < right.ID
-			}
-		case "event":
-			if left.EventType != right.EventType {
-				return left.EventType < right.EventType
-			}
-		case "instance":
-			if left.Instance != right.Instance {
-				return left.Instance < right.Instance
-			}
-		case "job":
-			if left.Job != right.Job {
-				return left.Job < right.Job
-			}
-		case "queued":
-			if !left.QueuedAt.Equal(right.QueuedAt) {
-				return left.QueuedAt.After(right.QueuedAt)
-			}
-		case "updated":
-			if !left.UpdatedAt.Equal(right.UpdatedAt) {
-				return left.UpdatedAt.After(right.UpdatedAt)
-			}
-		case "modified":
-			if !left.ModTime.Equal(right.ModTime) {
-				return left.ModTime.After(right.ModTime)
-			}
-		case "attempts":
-			if left.Attempts != right.Attempts {
-				return left.Attempts > right.Attempts
-			}
-		case "restorable":
-			if left.Restorable != right.Restorable {
-				return left.Restorable && !right.Restorable
-			}
-		case "size":
-			if left.Size != right.Size {
-				return left.Size > right.Size
-			}
-		case "path":
-			if left.Path != right.Path {
-				return left.Path < right.Path
-			}
-		}
-		return left.Path < right.Path
-	})
+	sortQuarantineItems(items, sortMode, func(item queueQuarantineItem) string {
+		return item.Path
+	}, queueQuarantineSortLessers)
 }
 
 func dropQueueQuarantineItem(queueRoot string, item queueQuarantineItem, dryRun bool) (queueQuarantineDropResult, error) {
-	result := queueQuarantineDropResult{
-		Path:       item.Path,
-		State:      item.State,
-		ID:         item.ID,
-		Restorable: item.Restorable,
-		Action:     "would_drop",
-		DryRun:     dryRun,
-	}
-	if dryRun {
-		return result, nil
-	}
-	source, err := queueDoctorSafeQueuePath(queueRoot, item.Path)
-	if err != nil {
-		return result, err
-	}
-	if err := os.Remove(source); err != nil {
-		return result, err
-	}
-	pruneEmptyQueueQuarantineDirs(queueRoot, filepath.Dir(source))
-	result.Action = "dropped"
-	result.Dropped = true
-	result.DryRun = false
-	return result, nil
+	return dropQuarantineItem(queueRoot, item, dryRun, queueQuarantineDropConfig)
 }
 
 func pruneEmptyQueueQuarantineDirs(queueRoot, dir string) {
-	stop := filepath.Join(queueRoot, queueQuarantineDir)
-	for {
-		if dir == "" || dir == "." || dir == stop || !strings.HasPrefix(dir, stop) {
-			return
-		}
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
+	pruneEmptyQuarantineDirs(queueRoot, dir, queueQuarantineDir)
 }
 
 func normalizeQueueQuarantinePath(raw string) (string, error) {
-	clean := filepath.Clean(strings.TrimSpace(raw))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("unsafe quarantine path %q", raw)
-	}
-	slash := filepath.ToSlash(clean)
-	if !strings.HasPrefix(slash, queueQuarantineDir+"/") {
-		slash = queueQuarantineDir + "/" + slash
-	}
-	if queueQuarantineState(filepath.FromSlash(slash)) == "" {
-		return "", fmt.Errorf("quarantine path must look like quarantine/<timestamp>/pending/<file>.json or quarantine/<timestamp>/dead/<file>.json")
-	}
-	if !strings.HasSuffix(slash, ".json") {
-		return "", fmt.Errorf("quarantine path must name a .json file")
-	}
-	return filepath.FromSlash(slash), nil
+	return normalizeQuarantinePath(raw, queueQuarantineDir, ".json", "quarantine path must look like quarantine/<timestamp>/pending/<file>.json or quarantine/<timestamp>/dead/<file>.json", queueQuarantineState)
 }
 
 func parseQueueQuarantineCommandFormat(cmd *cobra.Command, command, format string, jsonOut bool) (*template.Template, error) {
-	if format != "" && jsonOut {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", command)
-		return nil, exitErr(2)
-	}
-	tmpl, err := parseQueueQuarantineFormat(format)
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", command, err)
-		return nil, exitErr(2)
-	}
-	return tmpl, nil
+	return parseQuarantineCommandFormat(cmd, command, format, "queue-quarantine-format", jsonOut)
 }
 
 func parseQueueQuarantineFormat(format string) (*template.Template, error) {
-	if strings.TrimSpace(format) == "" {
-		return nil, nil
-	}
-	tmpl, err := template.New("queue-quarantine-format").Parse(format)
-	if err != nil {
-		return nil, fmt.Errorf("invalid --format template: %w", err)
-	}
-	return tmpl, nil
+	return parseQuarantineFormat(format, "queue-quarantine-format")
 }
 
 func renderQueueQuarantineList(w io.Writer, items []queueQuarantineItem, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		if items == nil {
-			items = []queueQuarantineItem{}
-		}
-		return json.NewEncoder(w).Encode(items)
-	}
-	if tmpl != nil {
-		for _, item := range items {
-			if err := renderQueueQuarantineTemplate(w, item, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(items) == 0 {
-		fmt.Fprintln(w, "(no quarantined queue files)")
-		return nil
-	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PATH\tSTATE\tID\tINSTANCE\tEVENT\tJOB\tRESTORABLE\tPROBLEM")
-	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			item.Path,
-			emptyDash(item.State),
-			emptyDash(item.ID),
-			emptyDash(item.Instance),
-			emptyDash(item.EventType),
-			emptyDash(item.Job),
-			queueQuarantineRestorableText(item.Restorable),
-			emptyDash(item.Problem))
-	}
-	return tw.Flush()
+	return renderQuarantineList(w, items, jsonOut, tmpl, "(no quarantined queue files)", queueQuarantineListColumns)
 }
 
 func renderQueueQuarantineSummary(w io.Writer, summary queueQuarantineSummary, jsonOut bool) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(summary)
-	}
-	fmt.Fprintln(w, queueQuarantineSummaryLine(summary))
-	return nil
+	return renderQuarantineSummary(w, summary, jsonOut, queueQuarantineSummaryLine)
 }
 
 func queueQuarantineRestorableText(restorable bool) string {
-	if restorable {
-		return "yes"
-	}
-	return "no"
+	return quarantineRestorableText(restorable)
 }
 
 func renderQueueQuarantineRestore(w io.Writer, result queueQuarantineRestoreResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(result)
-	}
-	if tmpl != nil {
-		return renderQueueQuarantineTemplate(w, result, tmpl)
-	}
-	renderQueueQuarantineRestoreLine(w, result)
-	return nil
+	return renderQuarantineResult(w, result, jsonOut, tmpl, renderQueueQuarantineRestoreLine)
 }
 
 func renderQueueQuarantineRestoreMany(w io.Writer, results []queueQuarantineRestoreResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(results)
-	}
-	if tmpl != nil {
-		for _, result := range results {
-			if err := renderQueueQuarantineTemplate(w, result, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(results) == 0 {
-		fmt.Fprintln(w, "(no restorable quarantined queue files matched)")
-		return nil
-	}
-	for _, result := range results {
-		renderQueueQuarantineRestoreLine(w, result)
-	}
-	return nil
+	return renderQuarantineResults(w, results, jsonOut, tmpl, "(no restorable quarantined queue files matched)", renderQueueQuarantineRestoreLine)
 }
 
 func renderQueueQuarantineRestoreLine(w io.Writer, result queueQuarantineRestoreResult) {
@@ -1146,12 +916,9 @@ func renderQueueQuarantineRestoreLine(w io.Writer, result queueQuarantineRestore
 }
 
 func queueQuarantineRestoreResultsHaveDryRunAction(results []queueQuarantineRestoreResult, action string) bool {
-	for _, result := range results {
-		if result.DryRun && result.Action == action {
-			return true
-		}
-	}
-	return false
+	return quarantineResultsHaveDryRunAction(results, action, func(result queueQuarantineRestoreResult, action string) bool {
+		return result.DryRun && result.Action == action
+	})
 }
 
 func renderQueueQuarantineShow(w io.Writer, result queueQuarantineShowResult, jsonOut bool, tmpl *template.Template) error {
@@ -1159,7 +926,7 @@ func renderQueueQuarantineShow(w io.Writer, result queueQuarantineShowResult, js
 		return json.NewEncoder(w).Encode(result)
 	}
 	if tmpl != nil {
-		return renderQueueQuarantineTemplate(w, result, tmpl)
+		return renderQuarantineTemplate(w, result, tmpl)
 	}
 	fmt.Fprintf(w, "Path:        %s\n", result.Path)
 	fmt.Fprintf(w, "State:       %s\n", emptyDash(result.State))
@@ -1197,18 +964,7 @@ func renderQueueQuarantineCommands(w io.Writer, result queueQuarantineShowResult
 type queueQuarantineActionResolver func(queueQuarantineItem) []string
 
 func renderQueueQuarantineListCommands(w io.Writer, items []queueQuarantineItem, actions queueQuarantineActionResolver, scope operatorCommandScope) error {
-	out := make([]string, 0, len(items)*2)
-	for _, item := range items {
-		out = append(out, queueQuarantineItemResolvedActions(item, actions)...)
-	}
-	return renderOperatorActionCommands(w, out, scope)
-}
-
-func queueQuarantineItemResolvedActions(item queueQuarantineItem, actions queueQuarantineActionResolver) []string {
-	if actions != nil {
-		return actions(item)
-	}
-	return queueQuarantineItemActions(item)
+	return renderQuarantineListCommands(w, items, actions, queueQuarantineItemActions, scope)
 }
 
 func queueQuarantineItemActions(item queueQuarantineItem) []string {
@@ -1227,67 +983,22 @@ func scopedQueueQuarantineActionResolver(scopeJob, pipeline, team string) queueQ
 }
 
 func queueQuarantineShowActions(result queueQuarantineShowResult) []string {
-	if result.Path == "" {
-		return nil
-	}
-	var prefix string
-	if result.ScopeJob != "" {
-		prefix = fmt.Sprintf("agent-team job queue quarantine %%s %s %s", result.ScopeJob, result.Path)
-	} else if result.Pipeline != "" {
-		prefix = fmt.Sprintf("agent-team pipeline queue quarantine %%s %s %s", result.Pipeline, result.Path)
-	} else if result.Team != "" {
-		prefix = fmt.Sprintf("agent-team team queue quarantine %%s %s %s", result.Team, result.Path)
-	} else {
-		prefix = fmt.Sprintf("agent-team queue quarantine %%s %s", result.Path)
-	}
-	actions := []string{}
-	if result.Restorable {
-		actions = append(actions, fmt.Sprintf(prefix, "restore"))
-	}
-	actions = append(actions, fmt.Sprintf(prefix, "drop"))
-	return actions
+	return quarantineShowActions("queue", result.Path, result.Restorable, result.ScopeJob, result.Pipeline, result.Team)
 }
 
 func queueQuarantineDropResultsHaveDryRunAction(results []queueQuarantineDropResult, action string) bool {
-	for _, result := range results {
-		if result.DryRun && result.Action == action {
-			return true
-		}
-	}
-	return false
+	return quarantineResultsHaveDryRunAction(results, action, func(result queueQuarantineDropResult, action string) bool {
+		return result.DryRun && result.Action == action
+	})
 }
 
 func renderQueueQuarantineDrop(w io.Writer, results []queueQuarantineDropResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(results)
-	}
-	if tmpl != nil {
-		for _, result := range results {
-			if err := renderQueueQuarantineTemplate(w, result, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(results) == 0 {
-		fmt.Fprintln(w, "(no quarantined queue files matched)")
-		return nil
-	}
-	for _, result := range results {
+	return renderQuarantineResults(w, results, jsonOut, tmpl, "(no quarantined queue files matched)", func(w io.Writer, result queueQuarantineDropResult) {
 		switch result.Action {
 		case "would_drop":
 			fmt.Fprintf(w, "Would drop %s\n", result.Path)
 		default:
 			fmt.Fprintf(w, "Dropped %s\n", result.Path)
 		}
-	}
-	return nil
-}
-
-func renderQueueQuarantineTemplate(w io.Writer, value any, tmpl *template.Template) error {
-	if err := tmpl.Execute(w, value); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintln(w)
-	return err
+	})
 }
