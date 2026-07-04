@@ -78,7 +78,10 @@ agents should see. Team skills are shared capabilities that must not disappear
 when one instance or agent role is retired, such as the status, inbox, or PM-tool
 integration skills a whole deployment depends on.
 
-Team skills must be names under `.agent_team/skills/`:
+Team skills must be names under `.agent_team/skills/`. Fresh `init` output
+includes an empty root config setting, and the copied agent config files carry a
+commented reminder because generated `.agent_team/config.toml` cannot preserve
+explanatory comments:
 
 ```toml
 [skills]

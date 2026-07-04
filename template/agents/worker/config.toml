@@ -2,6 +2,9 @@
 #
 # Local skills under ./skills/ are auto-included.
 # Pull in shared skills (under ../../skills/) by name, or anywhere by path:
+# Team-wide shared skills belong in .agent_team/config.toml, not this file:
+#   [skills]
+#   team = ["linear", "status"]
 [skills]
 extra = ["linear", "pull-request", "status", "inbox", "channel"]
 # disable = []   # opt-out from local defaults if needed

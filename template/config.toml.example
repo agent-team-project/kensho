@@ -9,11 +9,6 @@
 pm_tool   = "none"
 local_dir = ".agent_team"
 
-# Team-level shared skills are registered for every launched agent. Use this
-# for capabilities that should survive retiring any one instance.
-# [skills]
-# team = []
-
 # Optional: default LLM runtime for this repo. Environment variables still win:
 # AGENT_TEAM_RUNTIME and AGENT_TEAM_RUNTIME_BIN.
 # [runtime]

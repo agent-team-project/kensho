@@ -42,8 +42,9 @@ instance `status.toml` phase transitions are published to `#supervisor`.
 transitions. `idle_renotify` is a duration string such as `"30m"`; `"0"` disables
 repeat idle notifications.
 
-`[skills].team` is optional. Each entry names a shared skill under
-`.agent_team/skills/` that should be registered for every launched agent.
+`[skills].team` defaults to an empty list in the bundled template. Each entry
+names a shared skill under `.agent_team/skills/` that should be registered for
+every launched agent.
 
 ## `.agent_team/.template.lock`
 

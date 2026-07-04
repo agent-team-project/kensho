@@ -1,3 +1,7 @@
 # Skills available to the `auditor` agent at runtime.
+#
+# Team-wide shared skills belong in .agent_team/config.toml, not this file:
+#   [skills]
+#   team = ["linear", "status"]
 [skills]
 extra = ["linear", "status", "inbox"]

@@ -422,17 +422,7 @@ func TestRun_StagesTeamLevelSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(teamDir, "skills", "team-only", "SKILL.md"), []byte("team skill"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := os.OpenFile(filepath.Join(teamDir, "config.toml"), os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cfg.WriteString("\n[skills]\nteam = [\"team-only\"]\n"); err != nil {
-		_ = cfg.Close()
-		t.Fatal(err)
-	}
-	if err := cfg.Close(); err != nil {
-		t.Fatal(err)
-	}
+	setTeamSkillsForTest(t, teamDir, "team-only")
 
 	cap, restore := captureRun(t, nil)
 	defer restore()
