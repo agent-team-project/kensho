@@ -416,7 +416,7 @@ restart = "always"
 	}
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
-	meta, launched, err := launchDeclaredFresh(teamDir, m, topo.Find("manager"), nil)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo, topo.Find("manager"), nil)
 	if err != nil {
 		t.Fatalf("launch declared fresh: %v", err)
 	}
@@ -482,7 +482,7 @@ restart = "always"
 	}
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
-	meta, launched, err := launchDeclaredFresh(teamDir, m, topo.Find("manager"), nil)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo, topo.Find("manager"), nil)
 	if err != nil {
 		t.Fatalf("launch declared fresh: %v", err)
 	}
@@ -498,6 +498,84 @@ restart = "always"
 	}
 	if envHasKey(env, "OPENAI_API_KEY") {
 		t.Fatalf("relaunch env included stripped denied key: %+v", env)
+	}
+
+	_, _ = m.Stop("manager")
+	waitForStatusNot(t, m, "manager", StatusRunning)
+}
+
+func TestLaunchDeclaredFreshStripsStaleOTelSnapshotWhenDisabled(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "always"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[otel]
+enabled = false
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(teamDir, "state", "manager")
+	root := DaemonRoot(teamDir)
+	if err := WriteInstanceLaunchEnv(root, "manager", &LaunchEnv{
+		Bin:  "claude",
+		Args: []string{"claude", "--session-id", "old"},
+		Dir:  filepath.Dir(teamDir),
+		Env: []string{
+			"MARKER=dispatch",
+			"AGENT_TEAM_ROOT=" + teamDir,
+			"AGENT_TEAM_INSTANCE=manager",
+			"AGENT_TEAM_STATE_DIR=" + stateDir,
+			"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+			"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+			"OTEL_EXPORTER_OTLP_ENDPOINT=http://old-collector:4318",
+			"OTEL_TRACES_EXPORTER=otlp",
+			"OTEL_RESOURCE_ATTRIBUTES=old=true",
+			"TRACEPARENT=00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+			"TRACESTATE=old",
+			"AGENTTEAM_OTEL_HEADER_0=old-secret",
+		},
+		RecordedAt: time.Now().UTC(),
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("write instance launch env: %v", err)
+	}
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo, topo.Find("manager"), nil)
+	if err != nil {
+		t.Fatalf("launch declared fresh: %v", err)
+	}
+	if !launched || meta == nil {
+		t.Fatalf("launch result meta=%+v launched=%t", meta, launched)
+	}
+	env := fake.lastEnv()
+	if !containsString(env, "MARKER=dispatch") {
+		t.Fatalf("relaunch env missing dispatch marker: %+v", env)
+	}
+	for _, key := range []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_TRACES_EXPORTER",
+		"OTEL_RESOURCE_ATTRIBUTES",
+		"TRACEPARENT",
+		"TRACESTATE",
+		"AGENTTEAM_OTEL_HEADER_0",
+	} {
+		if envHasKey(env, key) {
+			t.Fatalf("relaunch env kept stale %s: %+v", key, env)
+		}
 	}
 
 	_, _ = m.Stop("manager")

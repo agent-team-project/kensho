@@ -15,11 +15,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
@@ -1248,7 +1250,19 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	}
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload)
+	otelCtx := runtimeotel.Context{
+		Agent:        inst.Agent,
+		Instance:     name,
+		JobID:        eventJobID(payload),
+		Ticket:       payloadString(payload, "ticket"),
+		Pipeline:     payloadString(payload, "pipeline"),
+		PipelineStep: payloadString(payload, "pipeline_step"),
+		Team:         r.teamForInstance(inst.Name, payload),
+		Branch:       branch,
+		Worktree:     worktreePath,
+		Build:        buildinfo.Current(""),
+	}
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -1265,6 +1279,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
 		Budget:        ephemeralRuntimeBudget(payload),
 	})
@@ -1511,7 +1526,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "runtime", "runtime_binary"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "team", "runtime", "runtime_binary"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -1541,6 +1556,23 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value := payloadString(payload, key); value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+func (r *EventResolver) teamForInstance(instance string, payload map[string]any) string {
+	if team := payloadString(payload, "team"); team != "" {
+		return team
+	}
+	if r == nil || r.topo == nil {
+		return ""
+	}
+	for _, team := range r.topo.SortedTeams() {
+		for _, name := range team.Instances {
+			if name == instance {
+				return team.Name
+			}
 		}
 	}
 	return ""
@@ -1579,6 +1611,7 @@ type ephemeralRuntime struct {
 	stateDir         string
 	env              []string
 	mailboxInjection bool
+	otelConfig       runtimeotel.Config
 }
 
 func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) (*ephemeralRuntime, error) {
@@ -1608,6 +1641,10 @@ func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name st
 	if err := r.rerenderTmplFiles(stateDir, resolved); err != nil {
 		return nil, fmt.Errorf("event runtime: re-render .tmpl files: %w", err)
 	}
+	otelCfg, err := runtimeotel.FromTree(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("event runtime: %w", err)
+	}
 	env := []string{
 		"AGENT_TEAM_ROOT=" + r.teamDir,
 		"AGENT_TEAM_INSTANCE=" + name,
@@ -1621,6 +1658,7 @@ func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name st
 		stateDir:         stateDir,
 		env:              env,
 		mailboxInjection: runtimehooks.MailboxInjectionEnabled(resolved),
+		otelConfig:       otelCfg,
 	}, nil
 }
 
@@ -1676,10 +1714,10 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any) ([]string, string, runtimebin.Runtime, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context) ([]string, string, runtimebin.Runtime, []string, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: load agents: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: load agents: %w", err)
 	}
 	var chosen *loader.Agent
 	for _, agent := range agents {
@@ -1689,35 +1727,44 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		}
 	}
 	if chosen == nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: agent %q not found", agentName)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: agent %q not found", agentName)
 	}
 	rt, err := r.runtimeForAgent(chosen, payload)
 	if err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	}
+	if otelCfg.Configured() {
+		env = runtimeotel.StripOwnedEnv(env)
 	}
 	skillPaths, err := loader.UnionSkills(agents)
 	if err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: resolve skills: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: resolve skills: %w", err)
 	}
+	otelCtx.Runtime = string(rt.Kind)
+	otelLaunch, err := runtimeotel.BuildLaunch(otelCfg, rt.Kind, otelCtx)
+	if err != nil {
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	}
+	env = append(env, otelLaunch.Env...)
 
 	runtimeDir := filepath.Join(stateDir, "runtime")
 	if err := os.RemoveAll(runtimeDir); err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: reset runtime dir: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: reset runtime dir: %w", err)
 	}
 	skillsRoot := filepath.Join(runtimeDir, ".claude", "skills")
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: create skills root: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: create skills root: %w", err)
 	}
 	for name, path := range skillPaths {
 		if err := os.Symlink(path, filepath.Join(skillsRoot, name)); err != nil {
-			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
+			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
 	var mailboxHook *runtimehooks.MailboxHook
 	if mailboxInjection {
 		hook, err := runtimehooks.PrepareMailboxHook(runtimeDir)
 		if err != nil {
-			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: prepare mailbox hook: %w", err)
+			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: prepare mailbox hook: %w", err)
 		}
 		mailboxHook = hook
 	}
@@ -1734,17 +1781,17 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		instance, agentName, filepath.ToSlash(stateRel), stateDir, chosen.Prompt,
 	)
 	if brief, err := InstanceBriefLaunchText(r.teamDir, instance); err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: generate instance brief: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: generate instance brief: %w", err)
 	} else if brief != "" {
 		kickoff = brief + "\n\n--- runtime kickoff ---\n\n" + kickoff
 	}
 	promptFile := filepath.Join(runtimeDir, "system_prompt.md")
 	if err := os.WriteFile(promptFile, []byte(kickoff), 0o644); err != nil {
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: write prompt file: %w", err)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: write prompt file: %w", err)
 	}
 	agentsJSON, err := buildAgentsJSON(agents)
 	if err != nil {
-		return nil, "", runtimebin.Runtime{}, err
+		return nil, "", runtimebin.Runtime{}, nil, err
 	}
 	switch rt.Kind {
 	case runtimebin.KindClaude:
@@ -1756,16 +1803,16 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		if mailboxHook != nil {
 			settingsPath, err := runtimehooks.WriteClaudeSettings(runtimeDir, mailboxHook)
 			if err != nil {
-				return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: %w", err)
+				return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
 			}
 			args = append(args, "--settings", settingsPath)
 		}
 		args = append(args, "-p", prompt)
-		return args, "", rt, nil
+		return args, "", rt, env, nil
 	case runtimebin.KindCodex:
 		lastMessagePath := filepath.Join(stateDir, runtimebin.CodexLastMessageFile)
 		if err := os.Remove(lastMessagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, "", runtimebin.Runtime{}, fmt.Errorf("event runtime: remove stale Codex last message: %w", err)
+			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: remove stale Codex last message: %w", err)
 		}
 		// Run codex IN the dispatch workspace — the per-worker git worktree when
 		// isolation was requested — so its file edits, branch, and commits stay
@@ -1781,6 +1828,7 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			args = append(args, "--dangerously-bypass-hook-trust")
 			args = append(args, runtimehooks.CodexConfigArgs(mailboxHook)...)
 		}
+		args = append(args, otelLaunch.CodexArgs...)
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args,
@@ -1789,9 +1837,9 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			"--output-last-message", lastMessagePath,
 			"-",
 		)
-		return args, codexEventPrompt(kickoff, prompt, agents), rt, nil
+		return args, codexEventPrompt(kickoff, prompt, agents), rt, env, nil
 	default:
-		return nil, "", runtimebin.Runtime{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
 }
 

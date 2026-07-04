@@ -71,6 +71,18 @@ pattern     = "^(none|linear)$"
 description = "Which PM tool the team talks to. Use none for ticketless jobs or linear for Linear-backed tickets."
 
 [[parameter]]
+key         = "otel.enabled"
+type        = "bool"
+default     = false
+description = "Enable runtime-owned OpenTelemetry export propagation. Disabled means no OTEL env vars, Codex config args, or TRACEPARENT are injected."
+
+[[parameter]]
+key         = "otel.endpoint"
+type        = "string"
+default     = ""
+description = "OTLP/HTTP collector endpoint used when otel.enabled is true."
+
+[[parameter]]
 key         = "health.status_stale_after"
 type        = "string"
 default     = "10m"

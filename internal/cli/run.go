@@ -20,6 +20,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
@@ -354,13 +355,40 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
 	}
-	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath, mailboxHook)
+	otelCfg, err := runtimeotel.FromTree(resolved)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
+		return exitErr(2)
+	}
+	otelLaunch, err := runtimeotel.BuildLaunch(otelCfg, rt.Kind, runtimeotel.Context{
+		Agent:        agentName,
+		Instance:     instance,
+		JobID:        os.Getenv("AGENT_TEAM_JOB_ID"),
+		Ticket:       os.Getenv("AGENT_TEAM_TICKET"),
+		Pipeline:     os.Getenv("AGENT_TEAM_PIPELINE"),
+		PipelineStep: os.Getenv("AGENT_TEAM_PIPELINE_STEP"),
+		Team:         topologyTeamForInstance(teamDir, instance),
+		Runtime:      string(rt.Kind),
+		Branch:       os.Getenv("AGENT_TEAM_BRANCH"),
+		Worktree:     firstNonEmpty(os.Getenv("AGENT_TEAM_WORKTREE"), target),
+		Build:        BuildInfo(),
+	})
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
+		return exitErr(2)
+	}
+	teamEnv = append(teamEnv, otelLaunch.Env...)
+	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath, mailboxHook, otelLaunch)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
 	}
 
-	env := append(os.Environ(), teamEnv...)
+	baseEnv := os.Environ()
+	if otelCfg.Configured() {
+		baseEnv = runtimeotel.StripOwnedEnv(baseEnv)
+	}
+	env := append(baseEnv, teamEnv...)
 
 	// Daemon-aware routing: one-shot dispatches (--prompt given) route
 	// through the daemon when one is running, and --detach opts into daemon
@@ -449,7 +477,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	return execClaude(cmd, rt.Binary, runtimeArgs, env, target, runtimeStdin)
 }
 
-func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook) ([]string, string, error) {
+func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook, otelLaunch runtimeotel.Launch) ([]string, string, error) {
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		args := []string{
@@ -479,6 +507,7 @@ func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptF
 			}
 			args = append(args, runtimehooks.CodexConfigArgs(mailboxHook)...)
 		}
+		args = append(args, otelLaunch.CodexArgs...)
 		args = append(args, runtimebin.CodexAgentTeamEnvConfigArgs(env)...)
 		args = append(args, "-C", target, "--add-dir", addDir)
 		args = append(args, forwarded...)
@@ -752,6 +781,21 @@ func loadDeclaredOverrides(teamDir, instance string) (template.Tree, error) {
 		return template.Tree{}, nil
 	}
 	return decl.Config, nil
+}
+
+func topologyTeamForInstance(teamDir, instance string) string {
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || topo == nil {
+		return ""
+	}
+	for _, team := range topo.SortedTeams() {
+		for _, name := range team.Instances {
+			if name == instance {
+				return team.Name
+			}
+		}
+	}
+	return ""
 }
 
 // writeStateConfig writes the resolved tree to <stateDir>/config.toml.

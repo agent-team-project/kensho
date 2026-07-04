@@ -15,6 +15,25 @@ local_dir = ".agent_team"
 # kind = "claude" # or "codex"
 # binary = "claude"
 
+[otel]
+# Opt-in runtime telemetry propagation. Disabled means no OTEL env vars,
+# Codex config args, or TRACEPARENT are injected into child runtimes.
+enabled = false
+
+# OTLP/HTTP collector endpoint used for runtime-owned telemetry when enabled.
+# endpoint = "http://localhost:4318"
+
+# Optional static headers for collector requests. Do not commit literal secrets;
+# prefer environment substitutions supported by the runtime where possible.
+# [otel.headers]
+# "x-otlp-api-key" = "${OTLP_TOKEN}"
+
+# Optional custom resource attributes. agent-team-owned attributes such as
+# service.name, instance, job, ticket, pipeline, team, runtime, and build
+# identity are injected automatically and take precedence on key conflicts.
+# [otel.resource]
+# "deployment.environment" = "dev"
+
 [health]
 # Non-idle/non-done status.toml files older than this are shown as stale.
 status_stale_after = "10m"

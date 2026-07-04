@@ -76,9 +76,9 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	recordedAt := time.Now().UTC().Truncate(time.Second)
 	le := &LaunchEnv{
 		Bin:        "claude",
-		Args:       []string{"claude", "--resume", "session-1"},
+		Args:       []string{"codex", "exec", "-c", `otel.exporter={ otlp-http = { endpoint = "http://collector", headers = { "authorization" = "header-secret" } } }`},
 		Dir:        "/repo",
-		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "MARKER=dispatch"},
+		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "OTEL_EXPORTER_OTLP_HEADERS=authorization=header-secret", "AGENTTEAM_OTEL_HEADER_0=header-secret", "MARKER=dispatch"},
 		RecordedAt: recordedAt,
 		PID:        4321,
 		Version:    1,
@@ -100,11 +100,20 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	if !envHasKey(got.Env, "OPENAI_API_KEY_EXTRA") || !envHasKey(got.Env, "MARKER") {
 		t.Fatalf("allowed keys missing from env: %+v", got.Env)
 	}
+	if envHasKey(got.Env, "OTEL_EXPORTER_OTLP_HEADERS") {
+		t.Fatalf("otel header key persisted in env: %+v", got.Env)
+	}
+	if envHasKey(got.Env, "AGENTTEAM_OTEL_HEADER_0") {
+		t.Fatalf("generated otel header key persisted in env: %+v", got.Env)
+	}
+	if strings.Contains(strings.Join(got.Args, " "), "header-secret") {
+		t.Fatalf("otel header secret persisted in args: %+v", got.Args)
+	}
 	body, err := os.ReadFile(InstanceLaunchEnvPath(root, "manager"))
 	if err != nil {
 		t.Fatalf("read raw instance snapshot: %v", err)
 	}
-	if strings.Contains(string(body), "must-not-persist") {
+	if strings.Contains(string(body), "must-not-persist") || strings.Contains(string(body), "header-secret") {
 		t.Fatalf("denied value persisted in instance snapshot: %s", string(body))
 	}
 	st, err := os.Stat(InstanceLaunchEnvPath(root, "manager"))

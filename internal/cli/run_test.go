@@ -277,6 +277,36 @@ func initInto(t *testing.T, dir string) {
 	}
 }
 
+func writeOTelRunConfig(t *testing.T, dir string) {
+	t.Helper()
+	body := `[team]
+pm_tool = "none"
+
+[otel]
+enabled = true
+endpoint = "http://collector:4318"
+
+[otel.headers]
+authorization = "Bearer secret"
+
+[otel.resource]
+"deployment.environment" = "test"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".agent_team", "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write otel config: %v", err)
+	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
+}
+
 func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -390,6 +420,93 @@ func TestRun_MailboxHookOptOutSuppressesClaudeSettings(t *testing.T) {
 	}
 	if cap.settings != "" || containsString(cap.args, "--settings") {
 		t.Fatalf("mailbox hook opt-out still added settings: settings=%q args=%v", cap.settings, cap.args)
+	}
+}
+
+func TestRun_ClaudeOTelInjectionFromConfig(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeOTelRunConfig(t, tmp)
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--no-daemon"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, want := range []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318",
+		"OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer secret",
+	} {
+		if !containsString(cap.env, want) {
+			t.Fatalf("env missing %q: %#v", want, cap.env)
+		}
+	}
+	if !containsEnvPrefix(cap.env, "TRACEPARENT=00-") {
+		t.Fatalf("env missing TRACEPARENT: %#v", cap.env)
+	}
+	resource := envValue(cap.env, "OTEL_RESOURCE_ATTRIBUTES")
+	for _, want := range []string{
+		"service.name=agent-team/manager",
+		"agent_team.instance=manager",
+		"agent_team.team=delivery",
+		"agent_team.runtime=claude",
+		"deployment.environment=test",
+	} {
+		if !strings.Contains(resource, want) {
+			t.Fatalf("resource attrs missing %q in %q", want, resource)
+		}
+	}
+}
+
+func TestRun_CodexOTelInjectionFromConfig(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeOTelRunConfig(t, tmp)
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--no-daemon"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !containsEnvPrefix(cap.env, "TRACEPARENT=00-") {
+		t.Fatalf("codex env missing TRACEPARENT: %#v", cap.env)
+	}
+	if !containsString(cap.env, "AGENTTEAM_OTEL_HEADER_0=Bearer secret") {
+		t.Fatalf("codex env missing header indirection: %#v", cap.env)
+	}
+	joined := strings.Join(cap.args, "\n")
+	if strings.Contains(joined, "Bearer secret") {
+		t.Fatalf("codex args leaked header secret:\n%s", joined)
+	}
+	for _, want := range []string{
+		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
+		"otel.trace_exporter=\"otlp-http\"",
+		"otel.trace_exporter.\"otlp-http\".endpoint=\"http://collector:4318\"",
+		"otel.trace_exporter.\"otlp-http\".protocol=\"binary\"",
+		"otel.trace_exporter.\"otlp-http\".headers={ \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" }",
+		"otel.log_user_prompt=false",
+		"otel.span_attributes={",
+		"\"service.name\" = \"agent-team/manager\"",
+		"shell_environment_policy.set.TRACEPARENT=",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("codex args missing %q:\n%s", want, joined)
+		}
 	}
 }
 

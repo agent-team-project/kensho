@@ -680,6 +680,45 @@ func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 	}
 }
 
+func TestHTTP_DirectDispatchOTelDisabledStripsInheritedEnv(t *testing.T) {
+	// SQU-74 round-3 finding: the /v1/dispatch path must derive the OTel
+	// strip decision from the repo config; with [otel] enabled=false, stale
+	// telemetry env inherited by the daemon must not reach the child.
+	t.Setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://stale")
+	t.Setenv("TRACEPARENT", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
+	t.Setenv("AGENTTEAM_OTEL_HEADER_0", "stale-secret")
+
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureOTelConfig(t, teamDir, false)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/dispatch",
+		`{"agent":"worker","name":"direct-otel-disabled","workspace":"/tmp","prompt":"noop"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dispatch: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("direct-otel-disabled")
+		_ = m.WaitForReaper("direct-otel-disabled", 5*time.Second)
+	})
+	env := fake.lastEnv()
+	for _, forbidden := range []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=",
+		"TRACEPARENT=",
+		"AGENTTEAM_OTEL_HEADER_",
+	} {
+		if containsEnvPrefix(env, forbidden) {
+			t.Fatalf("direct dispatch with disabled otel leaked %q: %#v", forbidden, env)
+		}
+	}
+}
+
 func TestHTTP_Message_Validation(t *testing.T) {
 	m := NewInstanceManager(t.TempDir(), nil)
 	srv := httptest.NewServer(Handler(m, nil, nil, ""))

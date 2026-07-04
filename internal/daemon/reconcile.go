@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -262,7 +264,7 @@ func relaunchDeclaredInstance(teamDir string, m *InstanceManager, topo *topology
 		installWatcherForRevivedAdoption(m, out, teamDir, topo)
 		return out, err == nil, err
 	}
-	out, launched, err := launchDeclaredFresh(teamDir, m, inst, meta)
+	out, launched, err := launchDeclaredFresh(teamDir, m, topo, inst, meta)
 	installWatcherForRevivedAdoption(m, out, teamDir, topo)
 	return out, launched, err
 }
@@ -274,15 +276,15 @@ func managedResumeSupported(meta *Metadata) bool {
 	return runtimeKindSupportsManagedResume(metadataRuntimeKind(meta)) && meta.SessionID != "" && meta.Workspace != ""
 }
 
-func launchDeclaredFresh(teamDir string, m *InstanceManager, inst *topology.Instance, expected *Metadata) (*Metadata, bool, error) {
-	return launchDeclaredFreshWithPrompt(teamDir, m, inst, expected, "")
+func launchDeclaredFresh(teamDir string, m *InstanceManager, topo *topology.Topology, inst *topology.Instance, expected *Metadata) (*Metadata, bool, error) {
+	return launchDeclaredFreshWithPrompt(teamDir, m, topo, inst, expected, "")
 }
 
-func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, inst *topology.Instance, expected *Metadata, extraPrompt string) (*Metadata, bool, error) {
+func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *topology.Topology, inst *topology.Instance, expected *Metadata, extraPrompt string) (*Metadata, bool, error) {
 	if inst == nil {
 		return nil, false, errors.New("restart: declared instance is required")
 	}
-	r := &EventResolver{mgr: m, teamDir: teamDir}
+	r := &EventResolver{mgr: m, teamDir: teamDir, topo: topo}
 	runtime, err := r.prepareEphemeralRuntime(inst, inst.Name)
 	if err != nil {
 		return nil, false, err
@@ -293,12 +295,21 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, inst *top
 		prompt += "\n\n" + extraPrompt
 	}
 	env := append([]string(nil), runtime.env...)
+	envComplete := false
 	if snapshotEnv, ok, err := m.instanceLaunchEnv(inst.Name); err != nil {
 		return nil, false, fmt.Errorf("restart: launch env: %w", err)
 	} else if ok {
 		env = snapshotEnv
+		envComplete = true
 	}
-	args, stdin, rt, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil)
+	otelCtx := runtimeotel.Context{
+		Agent:    inst.Agent,
+		Instance: inst.Name,
+		Team:     r.teamForInstance(inst.Name, nil),
+		Worktree: workspace,
+		Build:    buildinfo.Current(""),
+	}
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -310,6 +321,8 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, inst *top
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		EnvComplete:   envComplete,
+		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
 	}, expected)
 }

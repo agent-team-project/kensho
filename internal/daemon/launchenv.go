@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 )
 
 // LaunchEnv is the daemon's boot-time process snapshot. Restart uses this to
@@ -26,7 +27,13 @@ type LaunchEnv struct {
 	Build      buildinfo.Info `json:"build,omitempty"`
 }
 
-var DefaultStrippedEnvKeys = []string{"OPENAI_API_KEY"}
+var DefaultStrippedEnvKeys = []string{
+	"OPENAI_API_KEY",
+	"OTEL_EXPORTER_OTLP_HEADERS",
+	"OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+	"OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+	"OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+}
 
 // LaunchEnvPath returns the active launch-env snapshot path for teamDir.
 func LaunchEnvPath(teamDir string) string {
@@ -124,9 +131,11 @@ func WriteInstanceLaunchEnv(daemonRoot, instance string, le *LaunchEnv) error {
 
 func sanitizedLaunchEnvSnapshot(le *LaunchEnv) LaunchEnv {
 	snapshot := *le
-	snapshot.Args = append([]string(nil), le.Args...)
+	snapshot.Args = runtimeotel.SanitizeArgs(le.Args)
 	snapshot.Env = stripEnv(le.Env, DefaultStrippedEnvKeys)
+	snapshot.Env = runtimeotel.StripGeneratedHeaderEnv(snapshot.Env)
 	snapshot.Stripped = append([]string(nil), DefaultStrippedEnvKeys...)
+	snapshot.Stripped = append(snapshot.Stripped, runtimeotel.CodexHeaderEnvPrefix+"*")
 	return snapshot
 }
 

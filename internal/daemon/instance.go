@@ -18,8 +18,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -136,7 +139,12 @@ type DispatchInput struct {
 	RuntimeBinary string
 	Args          []string
 	Env           []string
-	Stdin         string
+	// EnvComplete means Env is already the full process environment. The
+	// normal dispatch path treats Env as an overlay on top of a persisted
+	// launch snapshot or os.Environ.
+	EnvComplete  bool
+	StripOTelEnv bool
+	Stdin        string
 	// Budget, if > 0, is a hard wall-clock runtime budget for the dispatched
 	// instance. When it elapses before the process exits on its own, a watchdog
 	// finalises the instance as Crashed and force-kills its process group (see
@@ -285,7 +293,10 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
 
-	env := append(os.Environ(), in.Env...)
+	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: launch env: %w", err)
+	}
 	stdin := dispatchStdin(rt, in)
 	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath, stdin)
 	if err != nil {
@@ -1119,7 +1130,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: %q has no session_id; cannot resume", instance)
 	}
-	env, err := m.startEnv(instance)
+	env, otelCodexArgs, err := m.startEnvWithOTelArgs(instance)
 	if err != nil {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: launch env: %w", err)
@@ -1162,6 +1173,11 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 		bin = runtimebin.DefaultBinaryForKind(baseRuntime)
 	}
 	args := managedResumeArgs(baseRuntime, bin, base.SessionID)
+	if baseRuntime == runtimebin.KindCodex && len(otelCodexArgs) > 0 {
+		// Codex exporter selection/config live in argv, not env — a resumed
+		// child needs the CURRENT config's -c otel.* args like a dispatch does.
+		args = append(append([]string(nil), args[:2]...), append(append([]string(nil), otelCodexArgs...), args[2:]...)...)
+	}
 	proc, err := m.spawner(args, env, base.Workspace, logPath, logPath, stdin)
 	if err != nil {
 		m.mu.Unlock()
@@ -1325,7 +1341,7 @@ func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, c
 	if base != nil {
 		m.recordEvent("resume_fallback", base, fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause))
 	}
-	meta, _, err := launchDeclaredFreshWithPrompt(teamDir, m, inst, base, extraPrompt)
+	meta, _, err := launchDeclaredFreshWithPrompt(teamDir, m, topo, inst, base, extraPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("start: resume fallback: %w", err)
 	}
@@ -1406,7 +1422,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: %w", err)
 	}
-	env, err := m.launchPreparedEnv(in.Name, in.Env)
+	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv)
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
@@ -1497,25 +1513,91 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 }
 
 func (m *InstanceManager) startEnv(instance string) ([]string, error) {
-	env, ok, err := m.instanceLaunchEnv(instance)
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return env, nil
-	}
-	return os.Environ(), nil
+	env, _, err := m.startEnvWithOTelArgs(instance)
+	return env, err
 }
 
-func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string) ([]string, error) {
+func (m *InstanceManager) startEnvWithOTelArgs(instance string) ([]string, []string, error) {
+	env, ok, err := m.instanceLaunchEnv(instance)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ok {
+		out, codexArgs := m.applyCurrentOTelConfigWithArgs(instance, env)
+		return out, codexArgs, nil
+	}
+	return os.Environ(), nil, nil
+}
+
+// applyCurrentOTelConfig reconciles a persisted launch env with the repo's
+// CURRENT [otel] config before a managed resume. A snapshot from an earlier
+// enabled launch must not replay telemetry vars after [otel] is disabled or
+// changed — the current config alone decides what the resumed child sees. No
+// [otel] table keeps legacy passthrough, mirroring dispatch semantics.
+func (m *InstanceManager) applyCurrentOTelConfig(instance string, env []string) []string {
+	out, _ := m.applyCurrentOTelConfigWithArgs(instance, env)
+	return out
+}
+
+// applyCurrentOTelConfigWithArgs additionally returns the Codex `-c otel.*`
+// args the current config requires, so managed Codex resume can attach the
+// exporter configuration that lives in argv rather than env.
+func (m *InstanceManager) applyCurrentOTelConfigWithArgs(instance string, env []string) ([]string, []string) {
+	teamDir := filepath.Dir(m.daemonRoot)
+	tree, err := teamtemplate.LoadTOMLFile(filepath.Join(teamDir, "config.toml"))
+	if err != nil {
+		return env, nil
+	}
+	cfg, err := runtimeotel.FromTree(tree)
+	if err != nil || !cfg.Configured() {
+		return env, nil
+	}
+	env = runtimeotel.StripOwnedEnv(env)
+	if !cfg.Enabled {
+		return env, nil
+	}
+	meta, err := ReadMetadata(m.daemonRoot, instance)
+	if err != nil {
+		return env, nil
+	}
+	launch, err := runtimeotel.BuildLaunch(cfg, metadataRuntimeKind(meta), runtimeotel.Context{
+		Agent:    meta.Agent,
+		Instance: meta.Instance,
+		JobID:    meta.Job,
+		Ticket:   meta.Ticket,
+		Branch:   meta.Branch,
+		Runtime:  meta.Runtime,
+		Build:    buildinfo.Current(""),
+	})
+	if err != nil {
+		return env, nil
+	}
+	return append(env, launch.Env...), launch.CodexArgs
+}
+
+func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, complete, stripOTel bool) ([]string, error) {
+	if complete {
+		return append([]string(nil), overlay...), nil
+	}
 	env, ok, err := m.instanceLaunchEnv(instance)
 	if err != nil {
 		return nil, err
 	}
 	if ok {
-		return env, nil
+		if stripOTel {
+			env = runtimeotel.StripOwnedEnv(env)
+		}
+		// The snapshot is the base, never the whole story: the caller's
+		// overlay carries the freshly generated dispatch context (current
+		// AGENT_TEAM_*, TRACEPARENT, exporter env). Appending after the
+		// snapshot lets current values win on duplicate keys.
+		return append(env, overlay...), nil
 	}
-	return append(os.Environ(), overlay...), nil
+	env = os.Environ()
+	if stripOTel {
+		env = runtimeotel.StripOwnedEnv(env)
+	}
+	return append(env, overlay...), nil
 }
 
 func (m *InstanceManager) instanceLaunchEnv(instance string) ([]string, bool, error) {

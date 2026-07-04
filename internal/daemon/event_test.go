@@ -70,6 +70,23 @@ func fixtureTeamDir(t *testing.T) string {
 	return teamDir
 }
 
+func writeFixtureOTelConfig(t *testing.T, teamDir string, enabled bool) {
+	t.Helper()
+	body := fmt.Sprintf(`[otel]
+enabled = %t
+endpoint = "http://collector:4318"
+
+[otel.headers]
+authorization = "Bearer secret"
+
+[otel.resource]
+"deployment.environment" = "test"
+`, enabled)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write otel config: %v", err)
+	}
+}
+
 func writeFixtureAgent(t *testing.T, teamDir, name string) {
 	t.Helper()
 	agentDir := filepath.Join(teamDir, "agents", name)
@@ -108,6 +125,15 @@ func (f *fakeSpawner) callCount() int {
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvPrefix(items []string, prefix string) bool {
+	for _, item := range items {
+		if strings.HasPrefix(item, prefix) {
 			return true
 		}
 	}
@@ -650,6 +676,66 @@ match.target = "worker"
 	}
 }
 
+func TestEvent_EphemeralDispatchInjectsClaudeOTel(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureOTelConfig(t, teamDir, true)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":        "worker",
+		"name":          "worker-otel",
+		"job_id":        "squ-74",
+		"ticket":        "SQU-74",
+		"pipeline":      "ticket_to_pr",
+		"pipeline_step": "implement",
+		"team":          "delivery",
+		"kickoff":       "implement otel",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-otel")
+		_ = m.WaitForReaper("worker-otel", 5*time.Second)
+	})
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318",
+		"OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer secret",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q: %#v", want, env)
+		}
+	}
+	if !containsEnvPrefix(env, "TRACEPARENT=00-") {
+		t.Fatalf("env missing TRACEPARENT: %#v", env)
+	}
+	resource := envValue(env, "OTEL_RESOURCE_ATTRIBUTES")
+	for _, want := range []string{
+		"service.name=agent-team/worker",
+		"agent_team.instance=worker-otel",
+		"agent_team.job_id=squ-74",
+		"agent_team.ticket=SQU-74",
+		"agent_team.pipeline=ticket_to_pr",
+		"agent_team.pipeline_step=implement",
+		"agent_team.team=delivery",
+		"agent_team.runtime=claude",
+		"deployment.environment=test",
+	} {
+		if !strings.Contains(resource, want) {
+			t.Fatalf("resource attrs missing %q in %q", want, resource)
+		}
+	}
+}
+
 func TestEvent_EphemeralCodexDispatchWiresMailboxHook(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
@@ -684,6 +770,113 @@ func TestEvent_EphemeralCodexDispatchWiresMailboxHook(t *testing.T) {
 		if !containsArgSubstring(call, want) {
 			t.Fatalf("codex spawn missing %q: %#v", want, call)
 		}
+	}
+}
+
+func TestEvent_EphemeralCodexDispatchInjectsOTel(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureOTelConfig(t, teamDir, true)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-codex-otel",
+		"runtime": "codex",
+		"job_id":  "squ-74",
+		"ticket":  "SQU-74",
+		"team":    "delivery",
+		"kickoff": "implement with codex otel",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-codex-otel")
+		_ = m.WaitForReaper("worker-codex-otel", 5*time.Second)
+	})
+	env := fake.lastEnv()
+	if !containsEnvPrefix(env, "TRACEPARENT=00-") {
+		t.Fatalf("codex env missing TRACEPARENT: %#v", env)
+	}
+	if !containsString(env, "AGENTTEAM_OTEL_HEADER_0=Bearer secret") {
+		t.Fatalf("codex env missing header indirection: %#v", env)
+	}
+	call := fake.lastCall()
+	joined := strings.Join(call, "\n")
+	if strings.Contains(joined, "Bearer secret") {
+		t.Fatalf("codex spawn leaked header secret in argv:\n%s", joined)
+	}
+	for _, want := range []string{
+		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
+		"otel.trace_exporter=\"otlp-http\"",
+		"otel.trace_exporter.\"otlp-http\".endpoint=\"http://collector:4318\"",
+		"otel.trace_exporter.\"otlp-http\".protocol=\"binary\"",
+		"otel.trace_exporter.\"otlp-http\".headers={ \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" }",
+		"otel.log_user_prompt=false",
+		"otel.span_attributes={",
+		"\"service.name\" = \"agent-team/worker\"",
+		"shell_environment_policy.set.TRACEPARENT=",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("codex spawn missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestEvent_EphemeralDispatchOTelDisabledNoOp(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+	t.Setenv("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://stale")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "stale=true")
+	t.Setenv("TRACEPARENT", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
+	t.Setenv("TRACESTATE", "stale")
+	t.Setenv("AGENTTEAM_OTEL_HEADER_0", "stale-secret")
+
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureOTelConfig(t, teamDir, false)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-otel-disabled",
+		"runtime": "codex",
+		"kickoff": "disabled otel",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-otel-disabled")
+		_ = m.WaitForReaper("worker-otel-disabled", 5*time.Second)
+	})
+	env := fake.lastEnv()
+	for _, forbidden := range []string{
+		"CLAUDE_CODE_ENABLE_TELEMETRY=",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=",
+		"OTEL_RESOURCE_ATTRIBUTES=",
+		"TRACEPARENT=",
+		"TRACESTATE=",
+		"AGENTTEAM_OTEL_HEADER_",
+	} {
+		if containsEnvPrefix(env, forbidden) {
+			t.Fatalf("disabled otel env included %q: %#v", forbidden, env)
+		}
+	}
+	if containsArgSubstring(fake.lastCall(), "otel.exporter") || containsArgSubstring(fake.lastCall(), "otel.trace_exporter") {
+		t.Fatalf("disabled otel args included otel config: %#v", fake.lastCall())
 	}
 }
 

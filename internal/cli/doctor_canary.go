@@ -15,6 +15,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	"github.com/spf13/cobra"
 )
 
@@ -255,7 +256,7 @@ func prepareDoctorCanaryDispatch(repo, teamDir, stateDir, tmpdir, instance, agen
 	if rt.Kind == runtimebin.KindCodex {
 		forwarded = append(forwarded, "--skip-git-repo-check")
 	}
-	args, stdin, err := buildRuntimeArgs(rt, repo, tmpdir, agentsJSON, promptFile, kickoff, doctorCanaryPrompt(), forwarded, agents, doctorCanaryTeamEnv(teamDir, instance, stateDir), lastMessagePath, nil)
+	args, stdin, err := buildRuntimeArgs(rt, repo, tmpdir, agentsJSON, promptFile, kickoff, doctorCanaryPrompt(), forwarded, agents, doctorCanaryTeamEnv(teamDir, instance, stateDir), lastMessagePath, nil, runtimeotel.Launch{})
 	if err != nil {
 		return nil, "", "", err
 	}

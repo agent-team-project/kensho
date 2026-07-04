@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -87,6 +90,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			Name:          body.Name,
 			Prompt:        body.Prompt,
 			Workspace:     body.Workspace,
+			StripOTelEnv:  stripOTelForTeamDir(teamDir),
 			Runtime:       body.Runtime,
 			RuntimeBinary: body.RuntimeBinary,
 			Args:          body.Args,
@@ -1415,6 +1419,26 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 // that may be newer than this daemon, and rejecting additive fields turns
 // every CLI upgrade into a breaking change for running daemons (SQU-55).
 // Strict validation belongs to config/topology parsing, not the wire.
+// stripOTelForTeamDir mirrors the topology-dispatch rule for the direct
+// /v1/dispatch path: whenever the repo declares an [otel] table (enabled or
+// not), inherited OTel env is stripped so the current config alone decides
+// what the child sees. No table keeps legacy passthrough. Errors fail open to
+// passthrough — identical to a repo without the table.
+func stripOTelForTeamDir(teamDir string) bool {
+	if strings.TrimSpace(teamDir) == "" {
+		return false
+	}
+	tree, err := teamtemplate.LoadTOMLFile(filepath.Join(teamDir, "config.toml"))
+	if err != nil {
+		return false
+	}
+	cfg, err := runtimeotel.FromTree(tree)
+	if err != nil {
+		return false
+	}
+	return cfg.Configured()
+}
+
 func decodeJSON(r *http.Request, v any) error {
 	if r.Body == nil {
 		return errors.New("empty body")
