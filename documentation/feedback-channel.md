@@ -35,6 +35,22 @@ The tiers above are for humans and supervising sessions. Individual agents insid
 
 Net effect: an observation a worker had at 3am inside a worktree becomes, at most a week later, either a well-formed ticket on the right board or a recorded dismissal — instead of evaporating at reap.
 
+### Quickstart for operating teams: route your agents' framework feedback here
+
+Add to your repo's `.agent_team/config.toml` (requires Linear access to the SQU workspace; a GitHub-issues route arrives with the provider seam, SQU-86):
+
+```toml
+[feedback]
+upstream = "agent-team"
+
+[feedback.routes.agent-team]
+kind     = "linear"
+team_key = "SQU"
+label    = "feedback"
+```
+
+Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` ticket — the triage loop is weekly by design, and incidents should not wait for it.
+
 ## What you can expect back
 
 - A comment with a disposition (fixed-in-commit, ticketed-as, needs-more-info, or won't-do with reasoning) — not silence.
