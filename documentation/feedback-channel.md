@@ -30,7 +30,7 @@ One ticket per observation. The maintainer side watches the workspace continuous
 The tiers above are for humans and supervising sessions. Individual agents inside a deployment have their own zero-friction path (SQU-79/SQU-80):
 
 - **Capture** — any agent, mid-job: `agent-team feedback submit "<one sentence>"`. The harness stamps instance, agent, job, ticket, pipeline step, runtime, and build identity automatically; a fingerprint groups near-duplicate reports so frequency data accrues without anyone counting. The store is local (`.agent_team/feedback/`) and PM-tool-free — no credentials, works in worktrees, works in `pm_tool = "none"` repos.
-- **Triage** — the `feedback-triage` schedule (weekly by default) spawns an ephemeral manager running the `triage-feedback` skill: it clusters new feedback plus system pain signals (repeated bounces, infra-signature repeats, watchdog kills), then materializes tickets, folds evidence into existing ones, or dismisses with a recorded reason — and resolves every store item so nothing is re-litigated.
+- **Triage** — the `feedback-triage` schedule (every 12 hours by default) spawns an ephemeral manager running the `triage-feedback` skill: it clusters new feedback plus system pain signals (repeated bounces, infra-signature repeats, watchdog kills), then materializes tickets, folds evidence into existing ones, or dismisses with a recorded reason — and resolves every store item so nothing is re-litigated.
 - **Routing** — `[feedback]` in `config.toml` declares named destinations (`[feedback.routes.<name>]` with `kind`/`team_key`/`label`). Deployment-local issues go to the deployment's own board; framework issues go to the `upstream` route (this workspace); other projects' issues go to their named route. Materialized tickets land in Backlog — never any team's agent-dispatch column — and non-local routes are capped per sweep.
 
 Net effect: an observation a worker had at 3am inside a worktree becomes, at most a week later, either a well-formed ticket on the right board or a recorded dismissal — instead of evaporating at reap.
@@ -49,7 +49,7 @@ team_key = "SQU"
 label    = "feedback"
 ```
 
-Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` ticket — the triage loop is weekly by design, and incidents should not wait for it.
+Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` ticket — the triage loop is periodic by design (12h default), and incidents should not wait for it.
 
 ## What you can expect back
 

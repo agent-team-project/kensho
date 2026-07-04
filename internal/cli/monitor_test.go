@@ -1112,7 +1112,14 @@ branch = "worker-squ-702"
 	if len(summaryBody.JobStatus) != 1 || summaryBody.JobStatus[0].JobID != "squ-702" || summaryBody.JobStatus[0].After != job.StatusBlocked || !summaryBody.JobStatus[0].Changed {
 		t.Fatalf("summary job status = %+v", summaryBody.JobStatus)
 	}
-	if len(summaryBody.PipelineStatus) == 0 || summaryBody.PipelineStatus[0].Pipeline != "ticket_to_pr" || summaryBody.PipelineStatus[0].ReadySteps != 1 {
+	var ticketPipeline *pipelineStatusRow
+	for i := range summaryBody.PipelineStatus {
+		if summaryBody.PipelineStatus[i].Pipeline == "ticket_to_pr" {
+			ticketPipeline = &summaryBody.PipelineStatus[i]
+			break
+		}
+	}
+	if ticketPipeline == nil || ticketPipeline.ReadySteps != 1 {
 		t.Fatalf("summary pipeline status = %+v", summaryBody.PipelineStatus)
 	}
 
@@ -1153,7 +1160,14 @@ branch = "worker-squ-702"
 	if len(fullBody.JobStatus) != 1 || fullBody.JobStatus[0].JobID != "squ-702" || fullBody.JobStatus[0].After != job.StatusBlocked {
 		t.Fatalf("full job status = %+v", fullBody.JobStatus)
 	}
-	if len(fullBody.PipelineStatus) == 0 || fullBody.PipelineStatus[0].ReadySteps != 1 {
+	var fullTicketPipeline *pipelineStatusRow
+	for i := range fullBody.PipelineStatus {
+		if fullBody.PipelineStatus[i].Pipeline == "ticket_to_pr" {
+			fullTicketPipeline = &fullBody.PipelineStatus[i]
+			break
+		}
+	}
+	if fullTicketPipeline == nil || fullTicketPipeline.ReadySteps != 1 {
 		t.Fatalf("full pipeline status = %+v", fullBody.PipelineStatus)
 	}
 
@@ -1403,8 +1417,8 @@ func TestMonitorPlanJSONFiltersByAction(t *testing.T) {
 	if body.Plan == nil {
 		t.Fatalf("monitor --plan should include plan: %+v", body)
 	}
-	if body.Plan.Summary.Total != 3 || body.Plan.Summary.OnDemand != 3 {
-		t.Fatalf("plan summary = %+v, want three on-demand rows", body.Plan.Summary)
+	if body.Plan.Summary.Total != 6 || body.Plan.Summary.OnDemand != 6 {
+		t.Fatalf("plan summary = %+v, want six on-demand rows", body.Plan.Summary)
 	}
 	byName := map[string]planRow{}
 	for _, row := range body.Plan.Instances {

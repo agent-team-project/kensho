@@ -1190,11 +1190,14 @@ func doctorTeam(top *topology.Topology, team *topology.Team, teamDir string) *te
 			Message: fmt.Sprintf("team %q declares no instances", team.Name),
 		})
 	}
-	if len(team.Pipelines) == 0 {
+	// Schedule-driven teams (e.g. a scheduled auditor) legitimately declare no
+	// pipelines — only warn when a team has neither, since that team can never
+	// be driven by anything.
+	if len(team.Pipelines) == 0 && len(team.Schedules) == 0 {
 		result.Warnings = append(result.Warnings, teamDoctorFinding{
 			Code:    "no_pipelines",
 			Team:    teamName,
-			Message: fmt.Sprintf("team %q declares no pipelines; team run is unavailable", team.Name),
+			Message: fmt.Sprintf("team %q declares no pipelines or schedules; team run is unavailable", team.Name),
 		})
 	}
 	for _, name := range team.Pipelines {

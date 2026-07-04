@@ -28,3 +28,4 @@ bin/
 .agent_team/daemon/
 .agent_team/state/
 .agent_team/jobs/
+.agent_team/feedback/

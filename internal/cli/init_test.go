@@ -403,8 +403,8 @@ func TestInit_LoaderReadsBundledTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAllAgents on bundled template: %v", err)
 	}
-	if len(agents) != 4 {
-		t.Errorf("expected 4 bundled agents, got %d", len(agents))
+	if len(agents) != 5 {
+		t.Errorf("expected 5 bundled agents, got %d", len(agents))
 	}
 	if _, err := loader.UnionSkills(agents); err != nil {
 		t.Errorf("UnionSkills: %v", err)

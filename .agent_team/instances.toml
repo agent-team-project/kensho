@@ -113,7 +113,7 @@ kickoff — do not amend the branch yourself.
 # tickets, folds evidence into existing ones, or dismisses with a reason.
 # Filed tickets land in Backlog — never the agent-dispatch column.
 [schedules.feedback-triage]
-every = "168h" # weekly
+every = "12h"
 
 [schedules.feedback-triage.payload]
 kind = "feedback_triage"
@@ -127,6 +127,106 @@ description = "Scheduled feedback triage: local store + system signals -> ticket
 event      = "schedule"
 match.name = "feedback-triage"
 match.kind = "feedback_triage"
+
+
+# The quality team: a scheduled auditor that sweeps one subsystem per run and
+# files evidence-backed tech-debt tickets (at most three, Backlog only). The
+# counterweight to delivery velocity — see template/agents/auditor/agent.md.
+[schedules.debt-sweep]
+every = "168h" # weekly
+
+[schedules.debt-sweep.payload]
+kind = "debt_sweep"
+
+[instances.debt-auditor]
+agent       = "auditor"
+ephemeral   = true
+description = "Scheduled architecture/tech-debt audit: one subsystem per run, evidence-backed tickets."
+
+[[instances.debt-auditor.triggers]]
+event      = "schedule"
+match.name = "debt-sweep"
+match.kind = "debt_sweep"
+
+[[instances.debt-auditor.triggers]]
+event        = "agent.dispatch"
+match.target = "debt-auditor"
+
+
+# The platform team: framework-infrastructure arcs (provider seams, provenance,
+# scoping) run through their own worker/reviewer pool so product delivery and
+# platform work scale independently.
+[instances.platform-worker]
+agent         = "worker"
+ephemeral     = true
+replicas      = 2
+reap_worktree = "on_merge"
+description   = "Platform-team code writer for framework-infrastructure jobs."
+
+[[instances.platform-worker.triggers]]
+event        = "agent.dispatch"
+match.target = "platform-worker"
+
+[instances.platform-reviewer]
+agent       = "reviewer"
+ephemeral   = true
+replicas    = 1
+description = "Platform-team adversarial reviewer."
+
+[[instances.platform-reviewer.triggers]]
+event        = "agent.dispatch"
+match.target = "platform-reviewer"
+
+[pipelines.platform_ticket_to_pr]
+# Distinct trigger event: platform work is dispatched explicitly (`agent-team
+# pipeline run platform_ticket_to_pr ...` or `event publish platform.ticket`),
+# never by the delivery team's board column.
+trigger.event = "platform.ticket"
+auto_advance = true
+
+[[pipelines.platform_ticket_to_pr.steps]]
+id        = "implement"
+target    = "platform-worker"
+workspace = "worktree"
+timeout   = "45m"
+max_attempts = 1
+
+[[pipelines.platform_ticket_to_pr.steps]]
+id           = "review"
+target       = "platform-reviewer"
+after        = ["implement"]
+timeout      = "30m"
+retry_on_crash = true
+instructions = """
+Adversarial content review of the platform job PR. Same checklist as the
+delivery pipeline: verify acceptance criteria against the ticket, run the
+full test suite and both demo variants, hand-verify the changed behavior,
+judge content only (infra state and base drift are not content bounces).
+Report gates with `agent-team job gate set`, then post `REVIEW: APPROVE`
+or `REVIEW: BOUNCE` with findings as a PR comment.
+"""
+
+[[pipelines.platform_ticket_to_pr.steps]]
+id           = "approve"
+target       = "manager"
+after        = ["review"]
+gate         = "manual"
+instructions = """
+Read the reviewer's verdict and the diff. APPROVE + green gates: merge via
+`agent-team job merge <job-id>` (or `gh pr merge`), close the ticket, mark
+the job done. BOUNCE: `agent-team job bounce <job-id> --findings-file <path>
+--advance`. Do not amend the branch yourself.
+"""
+
+[teams.platform]
+description = "Framework infrastructure: provider seams, provenance, scoping, resource constraints."
+instances   = ["platform-worker", "platform-reviewer", "manager"]
+pipelines   = ["platform_ticket_to_pr"]
+
+[teams.quality]
+description = "Proactive architecture and tech-debt auditing."
+instances   = ["debt-auditor"]
+schedules   = ["debt-sweep"]
 
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."
