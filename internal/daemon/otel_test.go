@@ -14,6 +14,7 @@ import (
 	"time"
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
@@ -133,6 +134,107 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	}
 	if !containsString(otelEventNames(mergeRoot), "agent_team.merge") {
 		t.Fatalf("merge root events missing merge: %v", otelEventNames(mergeRoot))
+	}
+}
+
+func TestOrchestrationOTelLockQueuedStepExportsWait(t *testing.T) {
+	collector := newFakeOTLPCollector(t)
+	defer collector.Close()
+
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeOrchestrationOTelConfig(t, teamDir, true, collector.URL)
+	top := mustParseCustomTopo(t, `
+[locks.build]
+slots = 1
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+locks = ["build"]
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+`)
+
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	if _, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-lock-holder",
+	}); err != nil {
+		t.Fatalf("holder dispatch: %v", err)
+	}
+	result, err := resolver.EventWithResult("ticket.created", map[string]any{
+		"ticket":    "SQU-976",
+		"kickoff":   "implement SQU-976",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("pipeline dispatch: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "queued" || result.Outcomes[0].Reason != QueueReasonLockHeld {
+		t.Fatalf("pipeline outcomes = %+v, want lock-held queue", result.Outcomes)
+	}
+	queued, err := jobstore.Read(teamDir, "squ-976")
+	if err != nil {
+		t.Fatalf("read queued job: %v", err)
+	}
+	if len(queued.Steps) != 1 || queued.Steps[0].Status != jobstore.StatusQueued || queued.Steps[0].QueuedAt.IsZero() {
+		t.Fatalf("queued step = %+v", queued.Steps)
+	}
+
+	if _, err := m.Stop("worker-lock-holder"); err != nil {
+		t.Fatalf("stop holder: %v", err)
+	}
+	if err := m.WaitForReaper("worker-lock-holder", 5*time.Second); err != nil {
+		t.Fatalf("wait holder reaper: %v", err)
+	}
+	if fake.callCount() < 2 {
+		drain, err := resolver.DrainQueuesWithResult()
+		if err != nil {
+			t.Fatalf("drain queued step: %v", err)
+		}
+		if drain.Dispatched != 1 {
+			t.Fatalf("drain result = %+v, want queued step dispatch", drain)
+		}
+	}
+	if err := m.WaitForReaper("worker-squ-976", 5*time.Second); err != nil {
+		t.Fatalf("wait queued step reaper: %v", err)
+	}
+
+	j, err := jobstore.Read(teamDir, "squ-976")
+	if err != nil {
+		t.Fatalf("read completed job: %v", err)
+	}
+	if len(j.Steps) != 1 {
+		t.Fatalf("steps = %+v, want one", j.Steps)
+	}
+	step := j.Steps[0]
+	if step.Status != jobstore.StatusDone || step.Attempts != 1 || step.RunningAt.IsZero() || !step.RunningAt.After(step.QueuedAt) {
+		t.Fatalf("completed step = %+v, want one queued->running->done attempt", step)
+	}
+
+	spans := otelSpansFromBodies(t, collector.Bodies())
+	span := spanByName(t, spans, "agent-team.step implement")
+	attrs := otelAttrMap(span["attributes"])
+	if attrs["agent_team.queue_reason"] != QueueReasonLockHeld {
+		t.Fatalf("queue reason attrs = %+v, want %q", attrs, QueueReasonLockHeld)
+	}
+	if got := intAttrForTest(t, attrs, "agent_team.queue_wait_ms"); got <= 0 {
+		t.Fatalf("queue_wait_ms = %d, want > 0; attrs=%+v", got, attrs)
+	}
+	if got := intAttrForTest(t, attrs, "agent_team.lock_wait_ms"); got <= 0 {
+		t.Fatalf("lock_wait_ms = %d, want > 0; attrs=%+v", got, attrs)
 	}
 }
 
@@ -342,6 +444,19 @@ func anyToString(v any) string {
 		body, _ := json.Marshal(v)
 		return strings.TrimSpace(string(body))
 	}
+}
+
+func intAttrForTest(t *testing.T, attrs map[string]string, key string) int64 {
+	t.Helper()
+	raw := strings.TrimSpace(attrs[key])
+	if raw == "" {
+		t.Fatalf("missing attr %s in %+v", key, attrs)
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		t.Fatalf("attr %s = %q: %v", key, raw, err)
+	}
+	return value
 }
 
 func otelEventNames(span map[string]any) []string {

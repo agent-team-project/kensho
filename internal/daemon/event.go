@@ -754,6 +754,18 @@ func markPipelineStep(j *jobstore.Job, stepID string, status jobstore.Status, in
 		if j.Steps[i].ID != stepID {
 			continue
 		}
+		incrementAttempt := status == jobstore.StatusRunning || status == jobstore.StatusQueued
+		if status == jobstore.StatusRunning {
+			if j.Steps[i].Status == jobstore.StatusRunning && j.Steps[i].Instance == instance && !j.Steps[i].RunningAt.IsZero() {
+				incrementAttempt = false
+			}
+			if j.Steps[i].Status == jobstore.StatusQueued && !j.Steps[i].QueuedAt.IsZero() && j.Steps[i].Attempts > 0 {
+				incrementAttempt = false
+			}
+		}
+		if status == jobstore.StatusQueued && j.Steps[i].Status == jobstore.StatusQueued && j.Steps[i].Instance == instance && !j.Steps[i].QueuedAt.IsZero() {
+			incrementAttempt = false
+		}
 		j.Steps[i].Status = status
 		if instance != "" {
 			j.Steps[i].Instance = instance
@@ -761,7 +773,7 @@ func markPipelineStep(j *jobstore.Job, stepID string, status jobstore.Status, in
 		if status == jobstore.StatusQueued {
 			j.Steps[i].QueueReason = strings.TrimSpace(reason)
 		}
-		if status == jobstore.StatusRunning || status == jobstore.StatusQueued {
+		if incrementAttempt {
 			j.Steps[i].Attempts++
 		}
 		if j.Steps[i].StartedAt.IsZero() {
@@ -1552,6 +1564,11 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	}
 	if lastStatus != "" {
 		j.LastStatus = lastStatus
+	}
+	if status == jobstore.StatusRunning {
+		if stepID := payloadString(payload, "pipeline_step"); stepID != "" {
+			markPipelineStep(j, stepID, jobstore.StatusRunning, instance, lastStatus, now)
+		}
 	}
 	j.UpdatedAt = now
 	if err := r.writeJobWithAudit(j, "", "daemon", "", dispatchJobEventData(payload, branch, worktreePath)); err != nil {

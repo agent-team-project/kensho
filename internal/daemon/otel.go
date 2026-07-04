@@ -94,6 +94,17 @@ func newOrchestrationTracer(teamDir, daemonRoot string, cfg runtimeotel.Config) 
 	}
 }
 
+// ExportOrchestrationJob exports daemon-owned orchestration spans for a
+// terminal job when the repo has enabled [otel] config. It is used by CLI
+// commands that write durable job events outside the live daemon resolver.
+func ExportOrchestrationJob(teamDir, daemonRoot string, j *jobstore.Job) error {
+	tracer := loadOrchestrationTracer(teamDir, daemonRoot)
+	if tracer == nil {
+		return nil
+	}
+	return tracer.exportJob(j)
+}
+
 func otelTraceEndpoint(endpoint string) string {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
@@ -509,6 +520,9 @@ func (t *orchestrationTracer) jobAuditSpanEvents(jobID string) []otelSpanEvent {
 }
 
 func (t *orchestrationTracer) lifecycleSpanEvents(jobID string) []otelSpanEvent {
+	if strings.TrimSpace(t.daemonRoot) == "" {
+		return nil
+	}
 	events, err := ListLifecycleEvents(t.daemonRoot)
 	if err != nil {
 		return nil
