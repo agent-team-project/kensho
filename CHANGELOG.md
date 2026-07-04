@@ -31,6 +31,10 @@ The board-as-control-plane release. Driven almost entirely by day-1 field feedba
 
 ### Fixes
 
+- `job show --json` now emits lowercase snake_case keys for pipeline step objects
+  while keeping deprecated capitalized aliases for one release. Scripts should
+  migrate from keys such as `ID` and `RuntimeBin` to `id` and `runtime_bin`.
+  (SQU-87)
 - **Cross-instance lock waiters stall** — freeing a lock now kicks the shared queue drain; previously waiters queued under other instances stalled until a manual `queue drain`. Same-hour fix for a live field report. (SQU-76)
 - Bundled-template test expectations updated for the reviewer + 3-step pipeline. (SQU-57)
 

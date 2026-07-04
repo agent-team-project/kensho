@@ -3984,7 +3984,7 @@ Flags:
       --events string        Include the last N job events in the detail output, or all. (default "5")
       --events-sort string   Sort included job events by oldest or newest after applying --events. (default "oldest")
       --format string        Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
-      --json                 Emit the job as JSON.
+      --json                 Emit the job as JSON. Step objects include lowercase keys plus deprecated capitalized aliases.
       --repo string          Repo root containing .agent_team. (default "<repo>")
 ```
 

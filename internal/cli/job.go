@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -1946,7 +1947,7 @@ func newJobShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&eventsTail, "events", "5", "Include the last N job events in the detail output, or all.")
 	cmd.Flags().StringVar(&eventSort, "events-sort", "oldest", "Sort included job events by oldest or newest after applying --events.")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON. Step objects include lowercase keys plus deprecated capitalized aliases.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
@@ -17189,14 +17190,157 @@ func parseJobShowEventsTail(raw string) (int, error) {
 }
 
 type jobShowResult struct {
-	Job    *job.Job        `json:"job"`
+	Job    jobShowJSONJob  `json:"job"`
 	Events []job.Event     `json:"events"`
 	Gates  []jobGateResult `json:"gates,omitempty"`
 }
 
+type jobShowJSONJob struct {
+	Job *job.Job
+}
+
+func (j jobShowJSONJob) MarshalJSON() ([]byte, error) {
+	if j.Job == nil {
+		return []byte("null"), nil
+	}
+	type jobAlias job.Job
+	raw, err := json.Marshal((*jobAlias)(j.Job))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	steps, err := json.Marshal(jobShowJSONSteps(j.Job.Steps))
+	if err != nil {
+		return nil, err
+	}
+	fields["Steps"] = steps
+	return json.Marshal(fields)
+}
+
+type jobShowJSONSteps []job.Step
+
+func (steps jobShowJSONSteps) MarshalJSON() ([]byte, error) {
+	if steps == nil {
+		return []byte("null"), nil
+	}
+	out := make([]jobShowJSONStep, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, jobShowJSONStep{Step: step})
+	}
+	return json.Marshal(out)
+}
+
+type jobShowJSONStep struct {
+	Step job.Step
+}
+
+func (step jobShowJSONStep) MarshalJSON() ([]byte, error) {
+	fields, err := jobShowJSONStepFields(step.Step)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(fields)
+}
+
+func jobShowJSONStepFields(step job.Step) (map[string]json.RawMessage, error) {
+	value := reflect.ValueOf(step)
+	typ := value.Type()
+	fields := make(map[string]json.RawMessage, typ.NumField()+len(jobShowJSONStepLegacyKeys))
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		raw, err := json.Marshal(value.Field(i).Interface())
+		if err != nil {
+			return nil, err
+		}
+		fields[jobShowJSONStepFieldKey(field)] = raw
+		if _, ok := jobShowJSONStepLegacyKeys[field.Name]; ok {
+			fields[field.Name] = raw
+		}
+	}
+	return fields, nil
+}
+
+var jobShowJSONStepLegacyKeys = map[string]struct{}{
+	"ID":               {},
+	"Label":            {},
+	"Description":      {},
+	"Instructions":     {},
+	"Target":           {},
+	"Workspace":        {},
+	"Runtime":          {},
+	"RuntimeBin":       {},
+	"Status":           {},
+	"Instance":         {},
+	"After":            {},
+	"Gate":             {},
+	"ApprovalRequired": {},
+	"ApprovalID":       {},
+	"ApprovalStatus":   {},
+	"Optional":         {},
+	"Timeout":          {},
+	"Attempts":         {},
+	"MaxAttempts":      {},
+	"RetryOnCrash":     {},
+	"Skipped":          {},
+	"SkipReason":       {},
+	"QueueReason":      {},
+	"QueuedAt":         {},
+	"RunningAt":        {},
+	"StartedAt":        {},
+	"FinishedAt":       {},
+}
+
+func jobShowJSONStepFieldKey(field reflect.StructField) string {
+	if name := strings.TrimSpace(strings.Split(field.Tag.Get("toml"), ",")[0]); name != "" && name != "-" {
+		return name
+	}
+	return camelToSnake(field.Name)
+}
+
+func camelToSnake(raw string) string {
+	var b strings.Builder
+	var prev rune
+	for i, r := range raw {
+		if i > 0 && isUpperASCII(r) && (isLowerASCII(prev) || isDigitASCII(prev) || nextIsLowerASCII(raw, i)) {
+			b.WriteByte('_')
+		}
+		if isUpperASCII(r) {
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
+}
+
+func nextIsLowerASCII(raw string, idx int) bool {
+	for _, r := range raw[idx+1:] {
+		return isLowerASCII(r)
+	}
+	return false
+}
+
+func isUpperASCII(r rune) bool {
+	return r >= 'A' && r <= 'Z'
+}
+
+func isLowerASCII(r rune) bool {
+	return r >= 'a' && r <= 'z'
+}
+
+func isDigitASCII(r rune) bool {
+	return r >= '0' && r <= '9'
+}
+
 func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, tmpl *template.Template, includeEvents bool, eventTail int, eventSort string, commandsOut bool, scope operatorCommandScope) error {
-	if jsonOut || tmpl != nil {
-		if jsonOut && includeEvents {
+	if jsonOut {
+		if includeEvents {
 			events, err := job.ListEvents(teamDir, j.ID)
 			if err != nil {
 				return err
@@ -17209,12 +17353,15 @@ func renderJobShowResult(w io.Writer, teamDir string, j *job.Job, jsonOut bool, 
 				return err
 			}
 			return json.NewEncoder(w).Encode(jobShowResult{
-				Job:    j,
+				Job:    jobShowJSONJob{Job: j},
 				Events: events,
 				Gates:  gates,
 			})
 		}
-		return renderJobResult(w, j, jsonOut, tmpl)
+		return json.NewEncoder(w).Encode(jobShowJSONJob{Job: j})
+	}
+	if tmpl != nil {
+		return renderJobResult(w, j, false, tmpl)
 	}
 	queueItems, err := queueItemsForJob(teamDir, j)
 	if err != nil {

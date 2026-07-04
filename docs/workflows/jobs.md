@@ -144,6 +144,11 @@ agent-team job show squ-42 --events all
 agent-team job show squ-42 --json
 ```
 
+For `job show --json`, pipeline step objects emit lowercase snake_case keys such
+as `id`, `status`, and `runtime_bin`. The old capitalized aliases such as `ID`,
+`Status`, and `RuntimeBin` are still emitted with the same values for one
+release so existing scripts can migrate without an immediate break.
+
 Human output includes:
 
 - core job metadata
