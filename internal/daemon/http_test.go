@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
+	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 func TestHTTP_Dispatch_StopList(t *testing.T) {
@@ -760,6 +762,60 @@ func TestHTTP_Message_MethodGuard(t *testing.T) {
 	}
 }
 
+func TestHTTP_AuthorityViolationAuditOnly(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-92", "worker", "kickoff", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[authority.agents.manager]
+allow = ["inbox.send"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/message", bytes.NewReader([]byte(`{"from":"worker-squ-92","to":"manager","body":"hello"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{
+		Team:     "platform",
+		Agent:    "worker",
+		Instance: "worker-squ-92",
+		Job:      "squ-92",
+	}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("message: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" {
+		t.Fatalf("lifecycle events = %+v", events)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, "squ-92")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "inbox.send" {
+		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
 func TestHTTP_Channel_PublishSubscribeDrainAck(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)
@@ -847,6 +903,51 @@ func TestHTTP_Channel_PublishSubscribeDrainAck(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&drainResp)
 	if len(drainResp.Messages) != 0 {
 		t.Errorf("post-ack drain: got %d want 0", len(drainResp.Messages))
+	}
+}
+
+func TestHTTP_Channel_TeamScopedDeclarationUsesScopedStorage(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[channels.supervisor]
+scope = "team"
+
+[teams.platform]
+channels = ["supervisor"]
+`)
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, cs, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/channel/%23supervisor/publish", bytes.NewReader([]byte(`{"sender":"manager","body":"scoped"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Team: "platform", Agent: "manager", Instance: "manager"}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	scoped, err := readChannelMessagesSince(root, "#team-platform-supervisor", 0)
+	if err != nil {
+		t.Fatalf("read scoped channel: %v", err)
+	}
+	if len(scoped) != 1 || scoped[0].Body != "scoped" {
+		t.Fatalf("scoped messages = %+v", scoped)
+	}
+	unscoped, err := readChannelMessagesSince(root, "#supervisor", 0)
+	if err != nil {
+		t.Fatalf("read unscoped channel: %v", err)
+	}
+	if len(unscoped) != 0 {
+		t.Fatalf("unscoped messages = %+v, want none", unscoped)
 	}
 }
 

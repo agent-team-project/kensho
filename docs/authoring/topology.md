@@ -62,6 +62,7 @@ Locks serialize dispatches around shared resources such as build caches.
 ```toml
 [locks.build]
 slots = 1
+scope = "machine"
 
 [instances.worker]
 locks = ["build"]
@@ -76,6 +77,21 @@ locks = ["build"]
 dispatch cannot acquire every required lock, the daemon writes it to the normal
 pending queue with `reason = "lock_held"`. Inspect holders with
 `agent-team locks` and held work with `agent-team queue ls --reason lock_held`.
+
+Locks, channels, and schedules accept `scope = "machine" | "team" | "job"`.
+Omitting scope preserves the historical machine-wide namespace. Team scope uses
+the owning topology team for schedules/channels and the dispatch origin team for
+locks.
+
+Declared channels are optional unless a channel needs scoped storage:
+
+```toml
+[channels.supervisor]
+scope = "team"
+
+[teams.delivery]
+channels = ["supervisor"]
+```
 
 ## Triggers
 
@@ -106,6 +122,7 @@ Schedules publish `schedule` events.
 ```toml
 [schedules.nightly]
 every = "24h"
+scope = "team"
 run_on_start = false
 payload.target = "manager"
 payload.reason = "nightly maintenance"
@@ -177,6 +194,7 @@ description = "Software delivery team."
 instances = ["manager", "ticket-manager", "worker"]
 pipelines = ["ticket_to_pr"]
 schedules = ["nightly"]
+channels = ["supervisor"]
 ```
 
 Team commands operate only on owned resources:
@@ -187,6 +205,26 @@ agent-team team tick delivery --dry-run
 agent-team team queue quarantine delivery --restorable
 agent-team team snapshot delivery --output delivery.json
 ```
+
+## Authority
+
+Authority allowlists live in topology and are audit-only in the current phase:
+violations append `authority_violation` daemon/job events and appear in
+`agent-team job triage`, but requests are not blocked.
+
+```toml
+[authority]
+enforce = false
+
+[authority.agents.worker]
+allow = ["inbox.send", "channel.*", "job.gate.*"]
+
+[authority.agents.manager]
+allow = ["*"]
+```
+
+Allow entries are exact verbs or prefix wildcards such as `queue.*`. Agent and
+team rules are additive.
 
 ## Validation
 

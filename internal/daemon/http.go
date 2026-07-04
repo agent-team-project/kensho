@@ -18,6 +18,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
@@ -56,6 +57,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 	writeError := func(w http.ResponseWriter, code int, msg string) {
 		writeErrorWithBuild(w, code, msg, build)
 	}
+	auditor := newAuthorityAuditor(m, events, teamDir)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/v1/dispatch", func(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +88,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "workspace is required")
 			return
 		}
+		auditor.audit(r, "instance.dispatch", "instance:"+body.Name, origin.Envelope{})
 		meta, err := m.Dispatch(DispatchInput{
 			Agent:         body.Agent,
 			Name:          body.Name,
@@ -133,6 +136,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
+		auditor.audit(r, "instance.stop", "instance:"+body.Instance, origin.Envelope{})
 		_, err := m.StopWithOptions(body.Instance, StopOptions{
 			Force:   body.Force,
 			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
@@ -166,6 +170,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "by_ms must be > 0")
 			return
 		}
+		auditor.audit(r, "instance.extend", "instance:"+body.Instance, origin.Envelope{})
 		extension, err := m.ExtendRuntimeBudget(body.Instance, time.Duration(body.ByMillis)*time.Millisecond, body.Actor)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -199,6 +204,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "instance is required")
 			return
 		}
+		auditor.audit(r, "instance.start", "instance:"+body.Instance, origin.Envelope{})
 		meta, err := m.Start(body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -233,6 +239,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
+		auditor.audit(r, "instance.restart", "instance:"+body.Instance, origin.Envelope{})
 		meta, err := m.RestartWithOptions(body.Instance, RestartOptions{
 			Force:   body.Force,
 			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
@@ -276,6 +283,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
+		auditor.audit(r, "instance.interrupt", "instance:"+body.To, origin.Envelope{Instance: body.From})
 		result, err := m.Interrupt(body.To, InterruptOptions{
 			From:    body.From,
 			Body:    body.Body,
@@ -317,6 +325,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "instance is required")
 			return
 		}
+		auditor.audit(r, "instance.remove", "instance:"+body.Instance, origin.Envelope{})
 		if err := m.Remove(body.Instance, body.Force, 10*time.Second); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -361,6 +370,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		auditor.audit(r, "daemon.reconcile", "daemon:reconcile", origin.Envelope{})
 		before, err := ListMetadata(m.daemonRoot)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -421,6 +431,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "`body` is required")
 			return
 		}
+		auditor.audit(r, "inbox.send", "inbox:"+body.To, origin.Envelope{Instance: body.From})
 		msg := &Message{From: body.From, To: body.To, Body: body.Body, TS: time.Now().UTC()}
 		if err := AppendMessage(m.daemonRoot, body.To, msg); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -507,7 +518,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "expected /v1/channel/{name}/{verb}")
 			return
 		}
-		dispatchChannelRoute(w, r, channels, name, verb, build)
+		dispatchChannelRoute(w, r, channels, events, auditor, name, verb, build)
 	})
 
 	// `POST /v1/event` — public trigger entry point. Resolves the inbound
@@ -538,6 +549,10 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		if body.Payload == nil {
 			body.Payload = map[string]any{}
 		}
+		auditor.audit(r, "event.publish", "event:"+body.Type, origin.Envelope{
+			Job:     eventJobID(body.Payload),
+			Trigger: origin.TriggerFromEvent(body.Type, body.Payload),
+		})
 		result, err := events.EventWithResult(body.Type, body.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -575,6 +590,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		auditor.audit(r, "intake.publish", "intake:"+provider, origin.Envelope{})
 		if provider == "linear" || provider == "github" {
 			if reason := providerIntakeIgnoreReason(teamDir, events, provider, ev); reason != "" {
 				appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason, ev)
@@ -630,6 +646,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
+		auditor.audit(r, "outbox.drain", "outbox", origin.Envelope{})
 		result, err := events.DrainOutboxWithResult(r.URL.Query().Get("dry_run") == "true")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -679,6 +696,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
+		auditor.audit(r, "queue.drain", "queue", origin.Envelope{})
 		var (
 			result *QueueDrainResult
 			err    error
@@ -731,6 +749,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 				return
 			}
+			auditor.audit(r, "queue.drop", "queue:"+id, origin.Envelope{})
 			var err error
 			if events != nil {
 				err = events.DropQueueItem(id)
@@ -755,6 +774,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 				writeError(w, http.StatusServiceUnavailable, "topology not configured")
 				return
 			}
+			auditor.audit(r, "queue.retry", "queue:"+id, origin.Envelope{})
 			outcome, err := events.RetryQueueItem(id)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
@@ -779,6 +799,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
+		auditor.audit(r, "schedule.fire", "schedules", origin.Envelope{})
 		var (
 			result *ScheduleFireResult
 			err    error
@@ -831,6 +852,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
+		auditor.audit(r, "topology.reload", "topology", origin.Envelope{})
 		topo, err := topology.LoadFromTeamDir(teamDir)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1261,9 +1283,15 @@ func splitChannelPath(path string) (name, verb string, ok bool) {
 // dispatchChannelRoute handles every channel-scoped endpoint. Centralising
 // the dispatch keeps the route registrations small and lets us share JSON
 // decoding + name validation.
-func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *ChannelStore, name, verb string, build buildinfo.Info) {
+func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *ChannelStore, events *EventResolver, auditor *authorityAuditor, name, verb string, build buildinfo.Info) {
 	writeError := func(w http.ResponseWriter, code int, msg string) {
 		writeErrorWithBuild(w, code, msg, build)
+	}
+	requestActor := func(fallback origin.Envelope) origin.Envelope {
+		if auditor == nil {
+			return fallback.Clean()
+		}
+		return auditor.originForRequest(r, fallback)
 	}
 	switch verb {
 	case "publish":
@@ -1283,7 +1311,14 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, "`body` is required")
 			return
 		}
-		res, err := channels.Publish(name, body.Sender, body.Body)
+		actor := requestActor(origin.Envelope{Instance: body.Sender})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		auditor.audit(r, "channel.publish", "channel:"+storage, actor)
+		res, err := channels.Publish(storage, body.Sender, body.Body)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1305,7 +1340,14 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		cursor, fresh, err := channels.Subscribe(name, body.Instance)
+		actor := requestActor(origin.Envelope{Instance: body.Instance})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		auditor.audit(r, "channel.subscribe", "channel:"+storage, actor)
+		cursor, fresh, err := channels.Subscribe(storage, body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1328,7 +1370,14 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		removed, err := channels.Unsubscribe(name, body.Instance)
+		actor := requestActor(origin.Envelope{Instance: body.Instance})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		auditor.audit(r, "channel.unsubscribe", "channel:"+storage, actor)
+		removed, err := channels.Unsubscribe(storage, body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1351,7 +1400,14 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := channels.Ack(name, body.Instance, body.Cursor); err != nil {
+		actor := requestActor(origin.Envelope{Instance: body.Instance})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		auditor.audit(r, "channel.ack", "channel:"+storage, actor)
+		if err := channels.Ack(storage, body.Instance, body.Cursor); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -1365,6 +1421,12 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 		instance := r.URL.Query().Get("instance")
 		if strings.TrimSpace(instance) == "" {
 			writeError(w, http.StatusBadRequest, "`instance` query param is required")
+			return
+		}
+		actor := requestActor(origin.Envelope{Instance: instance})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		var since *int64
@@ -1391,7 +1453,7 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			}
 			wait = d
 		}
-		res, err := channels.Drain(r.Context(), name, instance, since, wait)
+		res, err := channels.Drain(r.Context(), storage, instance, since, wait)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1413,7 +1475,14 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		removed, err := channels.Delete(name)
+		actor := requestActor(origin.Envelope{})
+		storage, err := scopedChannelNameForRequest(events, name, actor)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		auditor.audit(r, "channel.delete", "channel:"+storage, actor)
+		removed, err := channels.Delete(storage)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1427,6 +1496,29 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 	default:
 		writeError(w, http.StatusNotFound, "unknown channel verb: "+verb)
 	}
+}
+
+func scopedChannelNameForRequest(events *EventResolver, requested string, actor origin.Envelope) (string, error) {
+	canonical, err := topology.CanonicalChannelName(requested)
+	if err != nil {
+		return "", err
+	}
+	if events == nil {
+		return canonical, nil
+	}
+	topo := events.Topology()
+	if topo == nil {
+		return canonical, nil
+	}
+	declared := topo.Channels[canonical]
+	if declared == nil {
+		return canonical, nil
+	}
+	team := actor.Team
+	if team == "" {
+		team = topo.TeamForChannel(canonical)
+	}
+	return topology.ScopedChannelName(canonical, declared.Scope, team, actor.Job)
 }
 
 // decodeJSON tolerates unknown fields by design: wire requests come from CLIs

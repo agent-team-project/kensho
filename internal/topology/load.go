@@ -48,13 +48,16 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 	if templateLayer == nil && repoLayer == nil {
 		return nil, nil
 	}
-	merged := &Topology{Instances: map[string]*Instance{}, Locks: map[string]*Lock{}, Pipelines: map[string]*Pipeline{}, Schedules: map[string]*Schedule{}, Teams: map[string]*Team{}}
+	merged := &Topology{Instances: map[string]*Instance{}, Locks: map[string]*Lock{}, Channels: map[string]*Channel{}, Pipelines: map[string]*Pipeline{}, Schedules: map[string]*Schedule{}, Teams: map[string]*Team{}}
 	if templateLayer != nil {
 		for name, inst := range templateLayer.Instances {
 			merged.Instances[name] = inst
 		}
 		for name, lock := range templateLayer.Locks {
 			merged.Locks[name] = lock
+		}
+		for name, channel := range templateLayer.Channels {
+			merged.Channels[name] = channel
 		}
 		for name, pipeline := range templateLayer.Pipelines {
 			merged.Pipelines[name] = pipeline
@@ -65,6 +68,7 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		for name, team := range templateLayer.Teams {
 			merged.Teams[name] = team
 		}
+		merged.Authority = templateLayer.Authority
 	}
 	if repoLayer != nil {
 		for name, inst := range repoLayer.Instances {
@@ -72,6 +76,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		}
 		for name, lock := range repoLayer.Locks {
 			merged.Locks[name] = lock
+		}
+		for name, channel := range repoLayer.Channels {
+			merged.Channels[name] = channel
 		}
 		for name, pipeline := range repoLayer.Pipelines {
 			merged.Pipelines[name] = pipeline
@@ -81,6 +88,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		}
 		for name, team := range repoLayer.Teams {
 			merged.Teams[name] = team
+		}
+		if repoLayer.Authority != nil {
+			merged.Authority = repoLayer.Authority
 		}
 	}
 	if err := validateTopologyTeams(merged); err != nil {

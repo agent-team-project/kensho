@@ -15,6 +15,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// HeaderName carries the actor origin on daemon HTTP requests.
+const HeaderName = "Agent-Team-Origin"
+
 // Envelope identifies where a resource came from and who owns it.
 type Envelope struct {
 	Project  string `json:"project,omitempty" toml:"project,omitempty"`
@@ -76,6 +79,15 @@ func Merge(primary, fallback Envelope) Envelope {
 
 // Footer renders the machine-parseable footer used on external writes.
 func Footer(e Envelope) string {
+	value := HeaderValue(e)
+	if value == "" {
+		return ""
+	}
+	return "agent-team-origin: " + value
+}
+
+// HeaderValue renders the machine-parseable origin fields for HeaderName.
+func HeaderValue(e Envelope) string {
 	e = e.Clean()
 	if e.Empty() {
 		return ""
@@ -100,7 +112,107 @@ func Footer(e Envelope) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "agent-team-origin: " + strings.Join(parts, " ")
+	return strings.Join(parts, " ")
+}
+
+// ParseHeaderValue decodes HeaderName or a footer-style origin value.
+func ParseHeaderValue(raw string) (Envelope, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return Envelope{}, nil
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "agent-team-origin:") {
+		raw = strings.TrimSpace(raw[len("agent-team-origin:"):])
+	}
+	fields, err := parseOriginFields(raw)
+	if err != nil {
+		return Envelope{}, err
+	}
+	var out Envelope
+	for _, field := range fields {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			return Envelope{}, fmt.Errorf("origin: invalid field %q", field)
+		}
+		switch key {
+		case "project":
+			out.Project = value
+		case "team":
+			out.Team = value
+		case "instance":
+			out.Instance = value
+		case "agent":
+			out.Agent = value
+		case "job":
+			out.Job = value
+		case "trigger":
+			out.Trigger = value
+		case "build":
+			out.Build = value
+		default:
+			return Envelope{}, fmt.Errorf("origin: unknown field %q", key)
+		}
+	}
+	return out.Clean(), nil
+}
+
+func parseOriginFields(raw string) ([]string, error) {
+	fields := []string{}
+	for i := 0; i < len(raw); {
+		for i < len(raw) && (raw[i] == ' ' || raw[i] == '\t') {
+			i++
+		}
+		if i >= len(raw) {
+			break
+		}
+		keyStart := i
+		for i < len(raw) && raw[i] != '=' && raw[i] != ' ' && raw[i] != '\t' {
+			i++
+		}
+		if i >= len(raw) || raw[i] != '=' {
+			return nil, fmt.Errorf("origin: expected key=value")
+		}
+		key := raw[keyStart:i]
+		i++
+		if i < len(raw) && raw[i] == '"' {
+			valueStart := i
+			i++
+			escaped := false
+			closed := false
+			for i < len(raw) {
+				c := raw[i]
+				i++
+				if escaped {
+					escaped = false
+					continue
+				}
+				if c == '\\' {
+					escaped = true
+					continue
+				}
+				if c == '"' {
+					quoted := raw[valueStart:i]
+					value, err := strconv.Unquote(quoted)
+					if err != nil {
+						return nil, fmt.Errorf("origin: invalid quoted value for %s: %w", key, err)
+					}
+					fields = append(fields, key+"="+value)
+					closed = true
+					break
+				}
+			}
+			if !closed {
+				return nil, fmt.Errorf("origin: unterminated quoted value for %s", key)
+			}
+			continue
+		}
+		valueStart := i
+		for i < len(raw) && raw[i] != ' ' && raw[i] != '\t' {
+			i++
+		}
+		fields = append(fields, key+"="+raw[valueStart:i])
+	}
+	return fields, nil
 }
 
 // AppendFooter adds the provenance footer unless one is already present.

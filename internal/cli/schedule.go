@@ -580,7 +580,7 @@ func loadScheduleInfos(teamDir string) ([]scheduleInfo, error) {
 	}
 	infos := make([]scheduleInfo, 0, len(top.Schedules))
 	for _, s := range top.SortedSchedules() {
-		infos = append(infos, scheduleInfoFromTopology(s, states[s.Name]))
+		infos = append(infos, scheduleInfoFromTopology(s, states[scheduleStateNameForInfo(top, s)]))
 	}
 	return infos, nil
 }
@@ -601,7 +601,8 @@ func loadScheduleInfo(teamDir, name string) (scheduleInfo, error) {
 	if err != nil {
 		return scheduleInfo{}, err
 	}
-	return scheduleInfoFromTopology(top.Schedules[name], states[name]), nil
+	s := top.Schedules[name]
+	return scheduleInfoFromTopology(s, states[scheduleStateNameForInfo(top, s)]), nil
 }
 
 func loadScheduleStateMap(teamDir string) (map[string]*daemon.ScheduleState, error) {
@@ -614,6 +615,17 @@ func loadScheduleStateMap(teamDir string) (map[string]*daemon.ScheduleState, err
 		out[state.Name] = state
 	}
 	return out, nil
+}
+
+func scheduleStateNameForInfo(top *topology.Topology, s *topology.Schedule) string {
+	if s == nil {
+		return ""
+	}
+	team := ""
+	if top != nil {
+		team = top.TeamForSchedule(s.Name)
+	}
+	return topology.ScopedResourceName(s.Name, s.Scope, team, "")
 }
 
 func scheduleInfoFromTopology(s *topology.Schedule, state *daemon.ScheduleState) scheduleInfo {

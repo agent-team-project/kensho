@@ -6,6 +6,12 @@ For runtimes whose sandbox blocks Unix sockets, `agent-team daemon start --http-
 
 The CLI is the supported interface, but the API boundary is useful when working on daemon features.
 
+Daemon write requests may include `Agent-Team-Origin` with the same fields as
+the `agent-team-origin:` footer, for example
+`team=platform instance=worker-squ-92 agent=worker job=squ-92`. The CLI sets
+this automatically from launched-agent environment variables. Topology
+authority allowlists use it for audit-only `authority_violation` events.
+
 ## Health
 
 ```http

@@ -260,9 +260,37 @@ instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-tria
 pipelines   = ["ticket_to_pr"]
 schedules   = ["feedback-triage"]
 
+# Optional resource scoping. Omitted scope defaults to "machine", preserving
+# today's flat namespace. Use "team" when each owning team needs an isolated
+# channel/schedule/lock key, and "job" for per-job state.
+#
+# [locks.build]
+# slots = 1
+# scope = "machine"
+#
+# [channels.supervisor]
+# scope = "team"
+# # Add "supervisor" to [teams.<name>].channels to declare ownership.
+#
+# [authority]
+# enforce = false # Phase 1 is audit-only; violations are logged, not blocked.
+#
+# [authority.agents.worker]
+# allow = ["inbox.send", "channel.*", "job.gate.*", "status.*", "feedback.submit"]
+#
+# [authority.agents.reviewer]
+# allow = ["inbox.send", "channel.*", "job.gate.*"]
+#
+# [authority.agents.manager]
+# allow = ["*"]
+#
+# [authority.teams.platform]
+# allow = ["event.publish", "queue.*", "schedule.fire", "topology.reload"]
+
 # Optional fixed-interval schedule. Uncomment and adapt to publish a `schedule`
 # event with name = "nightly" every 24 hours.
 #
 # [schedules.nightly]
 # every = "24h"
+# scope = "team"
 # payload.workspace = "repo"

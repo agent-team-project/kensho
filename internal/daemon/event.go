@@ -102,6 +102,11 @@ type queuedEvent struct {
 }
 
 type dispatchLockTracker struct {
+	name    string
+	storage string
+	scope   string
+	team    string
+	job     string
 	slots   int
 	holders map[string]*LockLease // instance name → lease
 }
@@ -1050,7 +1055,7 @@ func (r *EventResolver) acquireLocksLocked(names []string, instance string, env 
 		now = time.Now().UTC()
 	}
 	for _, name := range names {
-		tr := r.lockTrackerLocked(name)
+		tr := r.lockTrackerLocked(name, env)
 		if tr == nil {
 			return false, fmt.Errorf("lock %q is not declared", name)
 		}
@@ -1063,12 +1068,14 @@ func (r *EventResolver) acquireLocksLocked(names []string, instance string, env 
 	}
 	acquired := []string{}
 	for _, name := range names {
-		tr := r.lockTrackerLocked(name)
+		tr := r.lockTrackerLocked(name, env)
 		if tr.holders[instance] != nil {
 			continue
 		}
 		lease := &LockLease{
-			Lock:       name,
+			Lock:       tr.storage,
+			Name:       tr.name,
+			Scope:      tr.scope,
 			Instance:   instance,
 			AcquiredAt: now,
 			UpdatedAt:  now,
@@ -1082,23 +1089,36 @@ func (r *EventResolver) acquireLocksLocked(names []string, instance string, env 
 			return false, err
 		}
 		tr.holders[instance] = lease
-		acquired = append(acquired, name)
+		acquired = append(acquired, tr.storage)
 	}
 	return true, nil
 }
 
-func (r *EventResolver) lockTrackerLocked(name string) *dispatchLockTracker {
+func (r *EventResolver) lockTrackerLocked(name string, env origin.Envelope) *dispatchLockTracker {
 	if r.locks == nil {
 		r.locks = map[string]*dispatchLockTracker{}
 	}
-	if tr := r.locks[name]; tr != nil {
-		return tr
+	declared := (*topology.Lock)(nil)
+	if r.topo != nil {
+		declared = r.topo.Locks[name]
 	}
-	if r.topo == nil || r.topo.Locks[name] == nil {
+	if declared == nil {
 		return nil
 	}
-	tr := &dispatchLockTracker{slots: r.topo.Locks[name].Slots, holders: map[string]*LockLease{}}
-	r.locks[name] = tr
+	storage := topology.ScopedResourceName(name, declared.Scope, env.Team, env.Job)
+	if tr := r.locks[storage]; tr != nil {
+		return tr
+	}
+	tr := &dispatchLockTracker{
+		name:    name,
+		storage: storage,
+		scope:   declared.Scope,
+		team:    env.Team,
+		job:     env.Job,
+		slots:   declared.Slots,
+		holders: map[string]*LockLease{},
+	}
+	r.locks[storage] = tr
 	return tr
 }
 
@@ -1151,7 +1171,16 @@ func (r *EventResolver) recoverLockStateLocked(now time.Time) {
 	r.locks = map[string]*dispatchLockTracker{}
 	if r.topo != nil {
 		for _, lock := range r.topo.SortedLocks() {
-			r.locks[lock.Name] = &dispatchLockTracker{slots: lock.Slots, holders: map[string]*LockLease{}}
+			if lock.Scope != topology.ScopeMachine {
+				continue
+			}
+			r.locks[lock.Name] = &dispatchLockTracker{
+				name:    lock.Name,
+				storage: lock.Name,
+				scope:   lock.Scope,
+				slots:   lock.Slots,
+				holders: map[string]*LockLease{},
+			}
 		}
 	}
 	if r.mgr == nil {
@@ -1165,10 +1194,30 @@ func (r *EventResolver) recoverLockStateLocked(now time.Time) {
 		now = time.Now().UTC()
 	}
 	for _, lease := range leases {
-		tr := r.locks[lease.Lock]
-		if tr == nil {
+		declaredName := strings.TrimSpace(lease.Name)
+		if declaredName == "" {
+			declaredName = lease.Lock
+		}
+		declared := (*topology.Lock)(nil)
+		if r.topo != nil {
+			declared = r.topo.Locks[declaredName]
+		}
+		if declared == nil {
 			_ = RemoveLockLease(r.mgr.daemonRoot, lease.Lock, lease.Instance)
 			continue
+		}
+		tr := r.locks[lease.Lock]
+		if tr == nil {
+			tr = &dispatchLockTracker{
+				name:    declaredName,
+				storage: lease.Lock,
+				scope:   firstNonEmpty(lease.Scope, declared.Scope),
+				team:    lease.Origin.Team,
+				job:     lease.Origin.Job,
+				slots:   declared.Slots,
+				holders: map[string]*LockLease{},
+			}
+			r.locks[lease.Lock] = tr
 		}
 		live, recoveredPID := r.lockLeaseLivePID(lease)
 		if !live {
@@ -1218,6 +1267,7 @@ func (r *EventResolver) LockSnapshots() []LockSnapshot {
 	defer r.mu.Unlock()
 	r.recoverLockStateLocked(time.Now().UTC())
 	out := make([]LockSnapshot, 0, len(r.locks))
+	seenDeclared := map[string]bool{}
 	names := make([]string, 0, len(r.locks))
 	for name := range r.locks {
 		names = append(names, name)
@@ -1248,11 +1298,37 @@ func (r *EventResolver) LockSnapshots() []LockSnapshot {
 			available = 0
 		}
 		out = append(out, LockSnapshot{
-			Name:      name,
+			Name:      tr.name,
+			Storage:   tr.storage,
+			Scope:     tr.scope,
+			Team:      tr.team,
+			Job:       tr.job,
 			Slots:     tr.slots,
 			Used:      len(holders),
 			Available: available,
 			Holders:   holders,
+		})
+		seenDeclared[tr.name] = true
+	}
+	if r.topo != nil {
+		for _, lock := range r.topo.SortedLocks() {
+			if seenDeclared[lock.Name] {
+				continue
+			}
+			out = append(out, LockSnapshot{
+				Name:      lock.Name,
+				Storage:   topology.ScopedResourceName(lock.Name, lock.Scope, "", ""),
+				Scope:     lock.Scope,
+				Slots:     lock.Slots,
+				Available: lock.Slots,
+				Holders:   []LockHolder{},
+			})
+		}
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Name == out[j].Name {
+				return out[i].Storage < out[j].Storage
+			}
+			return out[i].Name < out[j].Name
 		})
 	}
 	return out
@@ -2827,10 +2903,12 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 				if len(locks) == 0 {
 					locks = r.dispatchLocksLocked(inst, ev.payload)
 				}
-				if !previewLocksAvailable(locks, ev.uniqueName, lockUsage, lockSlots) {
+				r.ensurePreviewLocksLocked(locks, ev.origin, lockUsage, lockSlots)
+				scopedLocks := r.scopedLockNamesLocked(locks, ev.origin)
+				if !previewLocksAvailable(scopedLocks, ev.uniqueName, lockUsage, lockSlots) {
 					continue
 				}
-				previewReserveLocks(locks, ev.uniqueName, lockUsage)
+				previewReserveLocks(scopedLocks, ev.uniqueName, lockUsage)
 				result.WouldDispatch++
 				result.Outcomes = append(result.Outcomes, EventOutcome{Instance: inst.Name, Action: "would_dispatch", InstanceID: ev.uniqueName})
 				capacity--
@@ -2905,6 +2983,40 @@ func (r *EventResolver) previewLockCountsLocked() (map[string]map[string]bool, m
 		}
 	}
 	return usage, slots
+}
+
+func (r *EventResolver) ensurePreviewLocksLocked(locks []string, env origin.Envelope, usage map[string]map[string]bool, slots map[string]int) {
+	if r == nil || r.topo == nil {
+		return
+	}
+	for _, name := range normalizeLockNames(locks) {
+		declared := r.topo.Locks[name]
+		if declared == nil {
+			continue
+		}
+		storage := topology.ScopedResourceName(name, declared.Scope, env.Team, env.Job)
+		if usage[storage] == nil {
+			usage[storage] = map[string]bool{}
+		}
+		slots[storage] = declared.Slots
+	}
+}
+
+func (r *EventResolver) scopedLockNamesLocked(locks []string, env origin.Envelope) []string {
+	names := normalizeLockNames(locks)
+	if r == nil || r.topo == nil {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		declared := r.topo.Locks[name]
+		if declared == nil {
+			out = append(out, name)
+			continue
+		}
+		out = append(out, topology.ScopedResourceName(name, declared.Scope, env.Team, env.Job))
+	}
+	return out
 }
 
 func previewLocksAvailable(locks []string, instance string, usage map[string]map[string]bool, slots map[string]int) bool {

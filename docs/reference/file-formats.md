@@ -135,6 +135,10 @@ locks = ["build"]
 
 [locks.build]
 slots = 1
+scope = "machine"
+
+[channels.supervisor]
+scope = "team"
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -166,6 +170,13 @@ optional = true
 [teams.delivery]
 instances = ["manager", "worker"]
 pipelines = ["ticket_to_pr"]
+channels = ["supervisor"]
+
+[authority]
+enforce = false
+
+[authority.agents.worker]
+allow = ["inbox.send", "channel.*", "job.gate.*"]
 ```
 
 Normalized intake events use names like `ticket.created`, `ticket.updated`,
@@ -184,7 +195,15 @@ Named `[locks.<name>]` entries serialize ephemeral dispatches around shared
 resources. `slots = 1` is a mutex; higher values are counting semaphores. Locks
 listed on an instance and a pipeline step are unioned before spawn. If any slot
 is unavailable, the daemon persists the dispatch in the normal queue with
-`reason = "lock_held"`.
+`reason = "lock_held"`. `scope = "machine" | "team" | "job"` is optional on
+locks, channels, and schedules; omitted scope is `machine`, preserving the
+historical flat namespace. Team-scoped schedules use the declaring team for the
+persisted clock key while publishing the same schedule event name.
+
+Declared `[channels.<name>]` entries are only needed for scoped channel storage;
+undeclared channels still work. `[authority]` allowlists are audit-only in this
+release: violations append `authority_violation` events and show up in job
+triage, but requests are not blocked while `enforce` remains false.
 
 ## Job TOML
 

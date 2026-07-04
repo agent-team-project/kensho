@@ -106,6 +106,10 @@ locks = ["build"]        # optional named dispatch locks held while spawned
 
 [locks.build]
 slots = 1                # default 1 = mutex; >1 = counting semaphore
+scope = "machine"        # machine (default), team, or job
+
+[channels.supervisor]
+scope = "team"           # declared channel storage is namespaced per owner
 
 [[instances.worker.triggers]]
 event  = "agent.dispatch"
@@ -155,6 +159,7 @@ retry_on_crash = true
 
 [schedules.nightly]
 every = "24h"
+scope = "team"
 payload.workspace = "repo"
 
 [teams.delivery]
@@ -162,6 +167,16 @@ description = "Default software-delivery team."
 instances   = ["manager", "tm-platform", "tm-mobile", "worker"]
 pipelines   = ["ticket_to_pr"]
 schedules   = ["nightly"]
+channels    = ["supervisor"]
+
+[authority]
+enforce = false           # phase 1: audit-only, log violations without blocking
+
+[authority.agents.worker]
+allow = ["inbox.send", "channel.*", "job.gate.*"]
+
+[authority.agents.manager]
+allow = ["*"]
 ```
 
 ### Lock field reference
@@ -176,9 +191,23 @@ the same dispatch again.
 | Field | Required | Default | Meaning |
 |---|---|---|---|
 | `slots` | no | `1` | Number of concurrent holders allowed for the named lock. `1` is a mutex; values above one are counting semaphores. |
+| `scope` | no | `machine` | Storage namespace for this lock: `machine` keeps the historical flat key, `team` prefixes the lock with the origin team, and `job` prefixes it with the origin job id. |
 
 Use `agent-team locks` to inspect declared slots and current holders, and
 `agent-team queue ls --reason lock_held` to inspect queued lock contention.
+
+### Channel field reference
+
+Channels live under `[channels.<name>]`. Undeclared channels continue to work
+with machine-scoped storage. Declarations are needed only when a channel should
+be namespaced.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `scope` | no | `machine` | Storage namespace for this channel: `machine` keeps the historical `#name`, `team` stores messages/cursors under the actor or owning team, and `job` stores them under the actor job id. |
+
+Channel reads remain open; the scope controls which storage key a declared
+channel write/read maps to, while authority allowlists audit write verbs.
 
 ### Instance field reference
 
@@ -311,6 +340,7 @@ Schedules live under `[schedules.<name>]`. They publish a `schedule` event with 
 |---|---|---|---|
 | `every` | yes | — | Go duration string such as `15m`, `1h`, or `24h`. |
 | `run_on_start` | no | `false` | If true, publish once when the daemon scheduler starts, then follow `every`. |
+| `scope` | no | `machine` | Storage namespace for the schedule clock. `team` uses the owning `[teams.<name>].schedules` entry; the emitted event payload still uses the declared schedule name. |
 | `payload.<key>` | no | — | Extra payload keys used by trigger matches or downstream agents. |
 
 Example usage digest schedule:
@@ -349,8 +379,34 @@ Teams live under `[teams.<name>]`. They group declared instances, pipelines, and
 | `instances` | no | empty | Declared instance names owned by the team. References must exist under `[instances]`. |
 | `pipelines` | no | empty | Declared pipeline names owned by the team. References must exist under `[pipelines]`. |
 | `schedules` | no | empty | Declared schedule names owned by the team. References must exist under `[schedules]`. |
+| `channels` | no | empty | Declared channel names owned by the team. References must exist under `[channels]`. |
 
-At least one of `instances`, `pipelines`, or `schedules` is required.
+At least one of `instances`, `pipelines`, `schedules`, or `channels` is required.
+
+### Authority field reference
+
+Authority policy lives under `[authority]`. Phase 1 is audit-only: when a
+configured allowlist does not include a daemon write verb, the daemon appends
+`authority_violation` lifecycle and job events and still performs the request.
+Those job events appear in `agent-team job triage` with the
+`authority_violation` reason. `enforce` is parsed for the future flag flip but
+defaults to false.
+
+```toml
+[authority]
+enforce = false
+
+[authority.agents.worker]
+allow = ["inbox.send", "channel.*", "job.gate.*"]
+
+[authority.teams.platform]
+allow = ["event.publish", "queue.*"]
+```
+
+Allow entries are exact verbs (`inbox.send`) or prefix wildcards (`queue.*`);
+`*` allows every audited verb. Per-agent and per-team rules are additive: a
+write is considered allowed if either rule matches. Reads are intentionally not
+audited or blocked so cross-team inspection remains possible.
 
 ### Origin envelope and project id
 

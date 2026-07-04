@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -94,7 +96,32 @@ func (t daemonBuildHeaderTransport) RoundTrip(req *http.Request) (*http.Response
 		req = req.Clone(req.Context())
 		req.Header.Set(buildinfo.HeaderName, value)
 	}
+	if value := daemonOriginHeaderFromEnv(t.build); value != "" && req.Header.Get(origin.HeaderName) == "" {
+		req = req.Clone(req.Context())
+		req.Header.Set(origin.HeaderName, value)
+	}
 	return base.RoundTrip(req)
+}
+
+func daemonOriginHeaderFromEnv(build buildinfo.Info) string {
+	env := origin.Envelope{
+		Project:  os.Getenv("AGENT_TEAM_PROJECT"),
+		Team:     os.Getenv("AGENT_TEAM_TEAM"),
+		Instance: firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_INSTANCE"), os.Getenv("AGENT_TEAM_INSTANCE")),
+		Agent:    os.Getenv("AGENT_TEAM_ORIGIN_AGENT"),
+		Job:      firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_JOB"), os.Getenv("AGENT_TEAM_JOB_ID")),
+		Trigger:  os.Getenv("AGENT_TEAM_ORIGIN_TRIGGER"),
+		Build:    os.Getenv("AGENT_TEAM_ORIGIN_BUILD"),
+	}
+	identity := env
+	identity.Build = ""
+	if identity.Clean().Empty() {
+		return ""
+	}
+	if strings.TrimSpace(env.Build) == "" {
+		env.Build = build.Display()
+	}
+	return origin.HeaderValue(env)
 }
 
 // dispatchPayload mirrors POST /v1/dispatch's body.

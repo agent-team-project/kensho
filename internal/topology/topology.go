@@ -34,6 +34,15 @@ const (
 	RestartAlways    = "always"
 )
 
+// Resource scopes control how daemon state is keyed for topology resources.
+// Machine scope preserves the historical flat namespace. Team and job scope
+// add ownership-derived namespace segments where the daemon has an origin.
+const (
+	ScopeMachine = "machine"
+	ScopeTeam    = "team"
+	ScopeJob     = "job"
+)
+
 // Event types recognised by the daemon's resolver. Webhook aliases
 // (`ticket_webhook`, `pr_webhook`) remain supported for older topology files;
 // normalized intake events (`ticket.created`, `pr.merged`, etc.) match those
@@ -54,12 +63,16 @@ type Topology struct {
 	Instances map[string]*Instance
 	// Locks is keyed by the declared lock name (`[locks.<n>]`).
 	Locks map[string]*Lock
+	// Channels is keyed by the canonical channel name (`#name`).
+	Channels map[string]*Channel
 	// Pipelines is keyed by the declared pipeline name (`[pipelines.<n>]`).
 	Pipelines map[string]*Pipeline
 	// Schedules is keyed by the declared schedule name (`[schedules.<n>]`).
 	Schedules map[string]*Schedule
 	// Teams is keyed by the declared team name (`[teams.<n>]`).
 	Teams map[string]*Team
+	// Authority is the optional daemon verb allowlist policy.
+	Authority *Authority
 }
 
 // Instance is one declared instance.
@@ -97,6 +110,14 @@ type Instance struct {
 type Lock struct {
 	Name  string
 	Slots int
+	Scope string
+}
+
+// Channel is a declared pub/sub channel. Undeclared channels still work and
+// keep machine-scoped behavior; declarations exist for scoped namespaces.
+type Channel struct {
+	Name  string
+	Scope string
 }
 
 // Trigger is one entry under `[[instances.<name>.triggers]]`.
@@ -174,6 +195,7 @@ type Schedule struct {
 	Name       string
 	Every      time.Duration
 	RunOnStart bool
+	Scope      string
 	Payload    map[string]any
 }
 
@@ -184,6 +206,75 @@ type Team struct {
 	Instances   []string
 	Pipelines   []string
 	Schedules   []string
+	Channels    []string
+}
+
+// Authority is the audit/enforcement policy declared in topology. Phase 1 uses
+// it for audit-only violation logging; Enforce is parsed but defaults false.
+type Authority struct {
+	Enforce bool
+	Agents  map[string]*AuthorityRule
+	Teams   map[string]*AuthorityRule
+}
+
+// AuthorityRule is a verb allowlist for one agent or team. Verbs may be exact
+// (`job.gate.set`) or prefix wildcards (`job.*`).
+type AuthorityRule struct {
+	Allow []string
+}
+
+// Configured reports whether at least one allowlist exists.
+func (a *Authority) Configured() bool {
+	if a == nil {
+		return false
+	}
+	return len(a.Agents) > 0 || len(a.Teams) > 0
+}
+
+// Allows reports whether agent/team is allowed to perform verb.
+func (a *Authority) Allows(agent, team, verb string) bool {
+	if !a.Configured() {
+		return true
+	}
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		return false
+	}
+	if rule := a.Agents[strings.TrimSpace(agent)]; rule != nil && rule.Allows(verb) {
+		return true
+	}
+	if rule := a.Teams[strings.TrimSpace(team)]; rule != nil && rule.Allows(verb) {
+		return true
+	}
+	return false
+}
+
+// Allows reports whether this rule includes verb.
+func (r *AuthorityRule) Allows(verb string) bool {
+	if r == nil {
+		return false
+	}
+	for _, allow := range r.Allow {
+		if authorityVerbMatches(allow, verb) {
+			return true
+		}
+	}
+	return false
+}
+
+func authorityVerbMatches(pattern, verb string) bool {
+	pattern = strings.TrimSpace(pattern)
+	verb = strings.TrimSpace(verb)
+	if pattern == "" || verb == "" {
+		return false
+	}
+	if pattern == "*" || pattern == verb {
+		return true
+	}
+	if strings.HasSuffix(pattern, ".*") {
+		return strings.HasPrefix(verb, strings.TrimSuffix(pattern, "*"))
+	}
+	return false
 }
 
 // EventPayload returns the payload published for this schedule tick.
@@ -347,6 +438,19 @@ func (t *Topology) SortedLocks() []*Lock {
 	return out
 }
 
+// SortedChannels returns declared channels ordered by canonical name.
+func (t *Topology) SortedChannels() []*Channel {
+	if t == nil {
+		return nil
+	}
+	out := make([]*Channel, 0, len(t.Channels))
+	for _, channel := range t.Channels {
+		out = append(out, channel)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // SortedPipelines returns pipelines ordered by name for deterministic execution.
 func (t *Topology) SortedPipelines() []*Pipeline {
 	if t == nil {
@@ -417,15 +521,52 @@ func (t *Topology) FindTeam(name string) *Team {
 	return t.Teams[name]
 }
 
+// TeamForSchedule returns the owning team declared for schedule, or empty.
+func (t *Topology) TeamForSchedule(name string) string {
+	if t == nil {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	for _, team := range t.SortedTeams() {
+		for _, ref := range team.Schedules {
+			if ref == name {
+				return team.Name
+			}
+		}
+	}
+	return ""
+}
+
+// TeamForChannel returns the owning team declared for channel, or empty.
+func (t *Topology) TeamForChannel(name string) string {
+	if t == nil {
+		return ""
+	}
+	canonical, err := normalizeChannelName(name)
+	if err != nil {
+		return ""
+	}
+	for _, team := range t.SortedTeams() {
+		for _, ref := range team.Channels {
+			if ref == canonical {
+				return team.Name
+			}
+		}
+	}
+	return ""
+}
+
 // rawTopology mirrors the on-wire TOML schema. We keep parsing in two stages
 // so the public Topology can carry validated, normalised values regardless of
 // how lenient toml.Decode is.
 type rawTopology struct {
 	Instances map[string]*rawInstance `toml:"instances"`
 	Locks     map[string]*rawLock     `toml:"locks"`
+	Channels  map[string]*rawChannel  `toml:"channels"`
 	Pipelines map[string]*rawPipeline `toml:"pipelines"`
 	Schedules map[string]*rawSchedule `toml:"schedules"`
 	Teams     map[string]*rawTeam     `toml:"teams"`
+	Authority *rawAuthority           `toml:"authority"`
 }
 
 type rawInstance struct {
@@ -442,7 +583,12 @@ type rawInstance struct {
 }
 
 type rawLock struct {
-	Slots *int `toml:"slots"`
+	Slots *int   `toml:"slots"`
+	Scope string `toml:"scope"`
+}
+
+type rawChannel struct {
+	Scope string `toml:"scope"`
 }
 
 type rawPipeline struct {
@@ -468,6 +614,7 @@ type rawSchedule struct {
 	Every      string         `toml:"every"`
 	Interval   string         `toml:"interval"`
 	RunOnStart bool           `toml:"run_on_start"`
+	Scope      string         `toml:"scope"`
 	Payload    map[string]any `toml:"payload"`
 }
 
@@ -476,6 +623,18 @@ type rawTeam struct {
 	Instances   []string `toml:"instances"`
 	Pipelines   []string `toml:"pipelines"`
 	Schedules   []string `toml:"schedules"`
+	Channels    []string `toml:"channels"`
+}
+
+type rawAuthority struct {
+	Enforce bool                         `toml:"enforce"`
+	Agents  map[string]*rawAuthorityRule `toml:"agents"`
+	Teams   map[string]*rawAuthorityRule `toml:"teams"`
+}
+
+type rawAuthorityRule struct {
+	Allow []string `toml:"allow"`
+	Verbs []string `toml:"verbs"`
 }
 
 // Parse decodes a single `instances.toml` body. Used by Load and tests.
@@ -495,6 +654,7 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 	t := &Topology{
 		Instances: make(map[string]*Instance, len(raw.Instances)),
 		Locks:     make(map[string]*Lock, len(raw.Locks)),
+		Channels:  make(map[string]*Channel, len(raw.Channels)),
 		Pipelines: make(map[string]*Pipeline, len(raw.Pipelines)),
 		Schedules: make(map[string]*Schedule, len(raw.Schedules)),
 		Teams:     make(map[string]*Team, len(raw.Teams)),
@@ -508,6 +668,16 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 			return nil, err
 		}
 		t.Locks[name] = lock
+	}
+	for name, rc := range raw.Channels {
+		if rc == nil {
+			continue
+		}
+		channel, err := finaliseChannel(name, rc)
+		if err != nil {
+			return nil, err
+		}
+		t.Channels[channel.Name] = channel
 	}
 	for name, ri := range raw.Instances {
 		if ri == nil {
@@ -549,6 +719,11 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		}
 		t.Teams[name] = team
 	}
+	authority, err := finaliseAuthority(raw.Authority)
+	if err != nil {
+		return nil, err
+	}
+	t.Authority = authority
 	if validateTeamRefs {
 		if err := validateLockReferences(t); err != nil {
 			return nil, err
@@ -562,6 +737,10 @@ func finaliseLock(name string, rl *rawLock) (*Lock, error) {
 	if err := validateLockName(name); err != nil {
 		return nil, fmt.Errorf("lock %q: %w", name, err)
 	}
+	scope, err := normalizeResourceScope(rl.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("lock %q: %w", name, err)
+	}
 	slots := 1
 	if rl.Slots != nil {
 		if *rl.Slots < 1 {
@@ -569,7 +748,19 @@ func finaliseLock(name string, rl *rawLock) (*Lock, error) {
 		}
 		slots = *rl.Slots
 	}
-	return &Lock{Name: name, Slots: slots}, nil
+	return &Lock{Name: name, Slots: slots, Scope: scope}, nil
+}
+
+func finaliseChannel(name string, rc *rawChannel) (*Channel, error) {
+	canonical, err := normalizeChannelName(name)
+	if err != nil {
+		return nil, fmt.Errorf("channel %q: %w", name, err)
+	}
+	scope, err := normalizeResourceScope(rc.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("channel %q: %w", name, err)
+	}
+	return &Channel{Name: canonical, Scope: scope}, nil
 }
 
 func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
@@ -800,6 +991,14 @@ func parsePipelineInfraSignatures(name string, raw map[string]string) (map[strin
 }
 
 func finaliseSchedule(name string, rs *rawSchedule) (*Schedule, error) {
+	name = strings.TrimSpace(name)
+	if err := validateLockName(name); err != nil {
+		return nil, fmt.Errorf("schedule %q: %w", name, err)
+	}
+	scope, err := normalizeResourceScope(rs.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("schedule %q: %w", name, err)
+	}
 	everyRaw := strings.TrimSpace(rs.Every)
 	if everyRaw == "" {
 		everyRaw = strings.TrimSpace(rs.Interval)
@@ -818,7 +1017,7 @@ func finaliseSchedule(name string, rs *rawSchedule) (*Schedule, error) {
 	for k, v := range rs.Payload {
 		payload[k] = v
 	}
-	return &Schedule{Name: name, Every: every, RunOnStart: rs.RunOnStart, Payload: payload}, nil
+	return &Schedule{Name: name, Every: every, RunOnStart: rs.RunOnStart, Scope: scope, Payload: payload}, nil
 }
 
 func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Team, error) {
@@ -837,8 +1036,12 @@ func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Te
 	if err != nil {
 		return nil, err
 	}
-	if len(instances) == 0 && len(pipelines) == 0 && len(schedules) == 0 {
-		return nil, fmt.Errorf("team %q: at least one of instances, pipelines, or schedules is required", name)
+	channels, err := cleanChannelRefs("team", name, "channels", rt.Channels)
+	if err != nil {
+		return nil, err
+	}
+	if len(instances) == 0 && len(pipelines) == 0 && len(schedules) == 0 && len(channels) == 0 {
+		return nil, fmt.Errorf("team %q: at least one of instances, pipelines, schedules, or channels is required", name)
 	}
 	if !validateRefs {
 		return &Team{
@@ -847,6 +1050,7 @@ func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Te
 			Instances:   instances,
 			Pipelines:   pipelines,
 			Schedules:   schedules,
+			Channels:    channels,
 		}, nil
 	}
 	team := &Team{
@@ -855,6 +1059,7 @@ func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Te
 		Instances:   instances,
 		Pipelines:   pipelines,
 		Schedules:   schedules,
+		Channels:    channels,
 	}
 	if err := validateTeamReferences(t, team); err != nil {
 		return nil, err
@@ -893,6 +1098,97 @@ func validateTeamReferences(t *Topology, team *Team) error {
 			return fmt.Errorf("team %q: schedules references unknown schedule %q", team.Name, ref)
 		}
 	}
+	for _, ref := range team.Channels {
+		if t.Channels[ref] == nil {
+			return fmt.Errorf("team %q: channels references unknown channel %q", team.Name, ref)
+		}
+	}
+	return nil
+}
+
+func finaliseAuthority(raw *rawAuthority) (*Authority, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	agents, err := finaliseAuthorityRules("authority.agents", raw.Agents)
+	if err != nil {
+		return nil, err
+	}
+	teams, err := finaliseAuthorityRules("authority.teams", raw.Teams)
+	if err != nil {
+		return nil, err
+	}
+	return &Authority{Enforce: raw.Enforce, Agents: agents, Teams: teams}, nil
+}
+
+func finaliseAuthorityRules(kind string, raw map[string]*rawAuthorityRule) (map[string]*AuthorityRule, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]*AuthorityRule, len(raw))
+	for name, rule := range raw {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("%s: name must be non-empty", kind)
+		}
+		allow, err := finaliseAuthorityAllowList(kind, name, rule)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = &AuthorityRule{Allow: allow}
+	}
+	return out, nil
+}
+
+func finaliseAuthorityAllowList(kind, name string, rule *rawAuthorityRule) ([]string, error) {
+	if rule == nil {
+		return nil, fmt.Errorf("%s.%s: allow must be non-empty", kind, name)
+	}
+	values := append([]string(nil), rule.Allow...)
+	values = append(values, rule.Verbs...)
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%s.%s: allow must be non-empty", kind, name)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for i, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s.%s allow[%d]: must be non-empty", kind, name, i)
+		}
+		if err := validateAuthorityVerb(value); err != nil {
+			return nil, fmt.Errorf("%s.%s allow[%d]: %w", kind, name, i, err)
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func validateAuthorityVerb(value string) error {
+	if value == "*" {
+		return nil
+	}
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("verb must not contain empty path segments")
+	}
+	for i, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		case r == '*' && i == len(value)-1 && strings.HasSuffix(value, ".*"):
+		default:
+			return fmt.Errorf("verb may only contain lowercase ASCII letters, digits, '.', '_' and '-' plus a trailing .* wildcard")
+		}
+	}
+	if strings.Contains(value, "*") && !strings.HasSuffix(value, ".*") {
+		return fmt.Errorf("wildcard must be '*' or a trailing .*")
+	}
 	return nil
 }
 
@@ -909,6 +1205,23 @@ func cleanTeamRefs(kind, name, field string, refs []string) ([]string, error) {
 		}
 		seen[ref] = true
 		out = append(out, ref)
+	}
+	return out, nil
+}
+
+func cleanChannelRefs(kind, name, field string, refs []string) ([]string, error) {
+	out := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for i, ref := range refs {
+		canonical, err := normalizeChannelName(ref)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: %s[%d]: %w", kind, name, field, i, err)
+		}
+		if seen[canonical] {
+			return nil, fmt.Errorf("%s %q: %s contains duplicate %q", kind, name, field, canonical)
+		}
+		seen[canonical] = true
+		out = append(out, canonical)
 	}
 	return out, nil
 }
@@ -1110,6 +1423,89 @@ func parseLockRefs(kind, name, field string, refs []string) ([]string, error) {
 	return out, nil
 }
 
+func normalizeResourceScope(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ScopeMachine, nil
+	}
+	switch value {
+	case ScopeMachine, ScopeTeam, ScopeJob:
+		return value, nil
+	default:
+		return "", fmt.Errorf("scope must be machine, team, or job")
+	}
+}
+
+// ScopedResourceName returns the storage key for a declared resource under the
+// requested scope. The unscoped name is returned for machine scope.
+func ScopedResourceName(name, scope, team, job string) string {
+	name = strings.TrimSpace(name)
+	scope, err := normalizeResourceScope(scope)
+	if err != nil {
+		scope = ScopeMachine
+	}
+	switch scope {
+	case ScopeTeam:
+		return "team." + safeResourceSegment(team, "unknown") + "." + name
+	case ScopeJob:
+		return "job." + safeResourceSegment(job, "unknown") + "." + name
+	default:
+		return name
+	}
+}
+
+// CanonicalChannelName normalizes topology channel names to the runtime form.
+func CanonicalChannelName(name string) (string, error) {
+	return normalizeChannelName(name)
+}
+
+// ScopedChannelName returns the storage channel name for a declared channel.
+func ScopedChannelName(name, scope, team, job string) (string, error) {
+	canonical, err := normalizeChannelName(name)
+	if err != nil {
+		return "", err
+	}
+	base := strings.TrimPrefix(canonical, "#")
+	scope, err = normalizeResourceScope(scope)
+	if err != nil {
+		scope = ScopeMachine
+	}
+	switch scope {
+	case ScopeTeam:
+		return normalizeChannelName("team-" + safeResourceSegment(team, "unknown") + "-" + base)
+	case ScopeJob:
+		return normalizeChannelName("job-" + safeResourceSegment(job, "unknown") + "-" + base)
+	default:
+		return canonical, nil
+	}
+}
+
+func safeResourceSegment(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = fallback
+	}
+	var b strings.Builder
+	lastSep := false
+	for _, r := range strings.ToLower(value) {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastSep = false
+			continue
+		}
+		if !lastSep {
+			b.WriteByte('-')
+			lastSep = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return fallback
+	}
+	return out
+}
+
 func validateLockName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("name must be non-empty")
@@ -1124,6 +1520,22 @@ func validateLockName(name string) error {
 		return fmt.Errorf("name may only contain ASCII letters, digits, '.', '_' and '-'")
 	}
 	return nil
+}
+
+var channelNameRE = regexp.MustCompile(`^#[a-z0-9][a-z0-9-]{0,63}$`)
+
+func normalizeChannelName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("name must be non-empty")
+	}
+	if !strings.HasPrefix(name, "#") {
+		name = "#" + name
+	}
+	if !channelNameRE.MatchString(name) {
+		return "", fmt.Errorf("name must match %s", channelNameRE)
+	}
+	return name, nil
 }
 
 func validateLockReferences(t *Topology) error {

@@ -135,6 +135,90 @@ brief = true
 	}
 }
 
+func TestParse_ResourceScopesChannelsAndAuthority(t *testing.T) {
+	top, err := Parse([]byte(`
+[locks.build]
+slots = 2
+scope = "team"
+
+[channels.supervisor]
+scope = "team"
+
+[schedules.nightly]
+every = "24h"
+scope = "job"
+
+[schedules.nightly.payload]
+kind = "audit"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+locks = ["build"]
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[authority]
+enforce = false
+
+[authority.agents.worker]
+allow = ["inbox.*", "job.gate.set"]
+
+[authority.teams.platform]
+verbs = ["job.*", "queue.retry"]
+
+[teams.platform]
+instances = ["worker"]
+schedules = ["nightly"]
+channels = ["supervisor"]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if lock := top.Locks["build"]; lock == nil || lock.Scope != ScopeTeam || lock.Slots != 2 {
+		t.Fatalf("lock = %+v", lock)
+	}
+	if channel := top.Channels["#supervisor"]; channel == nil || channel.Scope != ScopeTeam {
+		t.Fatalf("channel = %+v", channel)
+	}
+	if schedule := top.Schedules["nightly"]; schedule == nil || schedule.Scope != ScopeJob {
+		t.Fatalf("schedule = %+v", schedule)
+	}
+	if team := top.Teams["platform"]; team == nil || !reflect.DeepEqual(team.Channels, []string{"#supervisor"}) {
+		t.Fatalf("team = %+v", team)
+	}
+	if top.Authority == nil || top.Authority.Enforce {
+		t.Fatalf("authority = %+v", top.Authority)
+	}
+	if !top.Authority.Allows("worker", "", "inbox.check") {
+		t.Fatalf("worker inbox.check should be allowed by wildcard")
+	}
+	if !top.Authority.Allows("reviewer", "platform", "job.merge") {
+		t.Fatalf("platform job.merge should be allowed by team wildcard")
+	}
+	if top.Authority.Allows("worker", "", "job.merge") {
+		t.Fatalf("worker job.merge should not be allowed")
+	}
+	if got := ScopedResourceName("build", ScopeTeam, "platform", "squ-92"); got != "team.platform.build" {
+		t.Fatalf("ScopedResourceName = %q", got)
+	}
+	if got, err := ScopedChannelName("#supervisor", ScopeTeam, "platform", "squ-92"); err != nil || got != "#team-platform-supervisor" {
+		t.Fatalf("ScopedChannelName = %q, %v", got, err)
+	}
+}
+
+func TestParse_RejectsInvalidResourceScope(t *testing.T) {
+	_, err := Parse([]byte(`
+[locks.build]
+scope = "repo"
+`))
+	if err == nil || !strings.Contains(err.Error(), "scope must be machine, team, or job") {
+		t.Fatalf("Parse err = %v, want scope validation", err)
+	}
+}
+
 func TestParse_PipelineStepApprovalRequired(t *testing.T) {
 	top, err := Parse([]byte(`
 [pipelines.ticket_to_pr]

@@ -19,6 +19,8 @@ import (
 // a daemon crash lands between the pre-spawn reservation and post-spawn update.
 type LockLease struct {
 	Lock       string          `json:"lock"`
+	Name       string          `json:"name,omitempty"`
+	Scope      string          `json:"scope,omitempty"`
 	Instance   string          `json:"instance"`
 	PID        int             `json:"pid,omitempty"`
 	Origin     origin.Envelope `json:"origin,omitempty"`
@@ -29,6 +31,10 @@ type LockLease struct {
 // LockSnapshot is the operator-facing state for one declared lock.
 type LockSnapshot struct {
 	Name      string       `json:"name"`
+	Storage   string       `json:"storage,omitempty"`
+	Scope     string       `json:"scope,omitempty"`
+	Team      string       `json:"team,omitempty"`
+	Job       string       `json:"job,omitempty"`
 	Slots     int          `json:"slots"`
 	Used      int          `json:"used"`
 	Available int          `json:"available"`
@@ -101,6 +107,9 @@ func ReadLockLease(daemonRoot, name, instance string) (*LockLease, error) {
 	}
 	if lease.Lock == "" {
 		lease.Lock = name
+	}
+	if lease.Name == "" {
+		lease.Name = lease.Lock
 	}
 	if lease.Instance == "" {
 		lease.Instance = instance

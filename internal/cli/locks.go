@@ -89,38 +89,98 @@ func collectLocalLockSnapshots(teamDir string) ([]daemon.LockSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	byLock := map[string][]daemon.LockHolder{}
+	type lockBucket struct {
+		Name    string
+		Storage string
+		Scope   string
+		Team    string
+		Job     string
+		Holders []daemon.LockHolder
+	}
+	byStorage := map[string]*lockBucket{}
 	for _, lease := range leases {
-		if lease == nil || top.Locks[lease.Lock] == nil {
+		if lease == nil {
+			continue
+		}
+		declaredName := firstNonEmpty(lease.Name, lease.Lock)
+		declared := top.Locks[declaredName]
+		if declared == nil {
 			continue
 		}
 		pid := liveLockLeasePID(teamDir, lease)
 		if pid <= 0 {
 			continue
 		}
-		byLock[lease.Lock] = append(byLock[lease.Lock], daemon.LockHolder{
+		storage := firstNonEmpty(lease.Lock, topology.ScopedResourceName(declaredName, declared.Scope, lease.Origin.Team, lease.Origin.Job))
+		bucket := byStorage[storage]
+		if bucket == nil {
+			bucket = &lockBucket{
+				Name:    declaredName,
+				Storage: storage,
+				Scope:   firstNonEmpty(lease.Scope, declared.Scope),
+				Team:    lease.Origin.Team,
+				Job:     lease.Origin.Job,
+			}
+			byStorage[storage] = bucket
+		}
+		bucket.Holders = append(bucket.Holders, daemon.LockHolder{
 			Instance:   lease.Instance,
 			PID:        pid,
 			AcquiredAt: lease.AcquiredAt,
 			UpdatedAt:  lease.UpdatedAt,
 		})
 	}
-	out := make([]daemon.LockSnapshot, 0, len(top.Locks))
-	for _, lock := range top.SortedLocks() {
-		holders := byLock[lock.Name]
+	out := make([]daemon.LockSnapshot, 0, len(top.Locks)+len(byStorage))
+	seenDeclared := map[string]bool{}
+	storageNames := make([]string, 0, len(byStorage))
+	for storage := range byStorage {
+		storageNames = append(storageNames, storage)
+	}
+	sort.Strings(storageNames)
+	for _, storage := range storageNames {
+		bucket := byStorage[storage]
+		declared := top.Locks[bucket.Name]
+		if declared == nil {
+			continue
+		}
+		holders := bucket.Holders
 		sort.Slice(holders, func(i, j int) bool { return holders[i].Instance < holders[j].Instance })
-		available := lock.Slots - len(holders)
+		available := declared.Slots - len(holders)
 		if available < 0 {
 			available = 0
 		}
 		out = append(out, daemon.LockSnapshot{
-			Name:      lock.Name,
-			Slots:     lock.Slots,
+			Name:      bucket.Name,
+			Storage:   bucket.Storage,
+			Scope:     bucket.Scope,
+			Team:      bucket.Team,
+			Job:       bucket.Job,
+			Slots:     declared.Slots,
 			Used:      len(holders),
 			Available: available,
 			Holders:   holders,
 		})
+		seenDeclared[bucket.Name] = true
 	}
+	for _, lock := range top.SortedLocks() {
+		if seenDeclared[lock.Name] {
+			continue
+		}
+		out = append(out, daemon.LockSnapshot{
+			Name:      lock.Name,
+			Storage:   topology.ScopedResourceName(lock.Name, lock.Scope, "", ""),
+			Scope:     lock.Scope,
+			Slots:     lock.Slots,
+			Available: lock.Slots,
+			Holders:   []daemon.LockHolder{},
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].Storage < out[j].Storage
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out, nil
 }
 

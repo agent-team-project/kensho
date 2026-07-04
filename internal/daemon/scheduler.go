@@ -60,6 +60,18 @@ func (r *EventResolver) loadScheduleStates() map[string]*ScheduleState {
 	return out
 }
 
+func (r *EventResolver) scheduleStateName(s *topology.Schedule) string {
+	if s == nil {
+		return ""
+	}
+	topo := r.Topology()
+	team := ""
+	if topo != nil {
+		team = topo.TeamForSchedule(s.Name)
+	}
+	return topology.ScopedResourceName(s.Name, s.Scope, team, "")
+}
+
 // FireDueSchedulesWithResult publishes every schedule due at now and persists
 // schedule clocks. A zero now uses the current UTC time.
 func (r *EventResolver) FireDueSchedulesWithResult(now time.Time) (*ScheduleFireResult, error) {
@@ -126,14 +138,15 @@ func (r *EventResolver) fireDueSchedulesWithResult(now time.Time, state map[stri
 		if scoped && !names[sched.Name] {
 			continue
 		}
-		current[sched.Name] = true
-		clock, seen := state[sched.Name]
+		stateName := r.scheduleStateName(sched)
+		current[stateName] = true
+		clock, seen := state[stateName]
 		reason := ""
 		if !seen {
-			clock = &ScheduleState{Name: sched.Name, LastSeenAt: now}
+			clock = &ScheduleState{Name: stateName, LastSeenAt: now}
 			if !sched.RunOnStart {
 				if !dryRun {
-					state[sched.Name] = clock
+					state[stateName] = clock
 					_ = WriteScheduleState(r.mgr.daemonRoot, clock)
 				}
 				continue
@@ -152,7 +165,7 @@ func (r *EventResolver) fireDueSchedulesWithResult(now time.Time, state map[stri
 			continue
 		}
 		if !seen {
-			state[sched.Name] = clock
+			state[stateName] = clock
 		}
 		clock.LastSeenAt = now
 		clock.LastFiredAt = now
