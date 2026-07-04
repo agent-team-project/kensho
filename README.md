@@ -65,6 +65,36 @@ template pull  →  init  →  run  →  upgrade
 
 The full design is in [`documentation/templates.md`](./documentation/templates.md).
 
+## Feature tour
+
+Beyond direct `init` + `run`, the current surface is a repo-local control plane
+for durable agent work:
+
+- **Messaging**: `agent-team send`, `job send`, `pipeline send`, and
+  `team send` append durable mailbox messages. New dispatches receive unread
+  mail in their kickoff, running sessions can receive mail at runtime hook
+  boundaries, and `send --interrupt` is available for a hard steer that stops
+  and managed-resumes the captured session.
+- **Board control**: Linear-backed repos can treat a board column as the
+  dispatch gesture. The bundled pipeline listens for `ticket.status_changed`
+  events whose status matches `[linear].agent_column`, writes best-effort
+  status updates back to Linear, ignores agent-authored webhook loops when
+  `linear.agent_user_id` is configured or cached, and no-ops re-entry unless
+  `redispatch_on_reentry = true`.
+- **Observability**: status files, daemon metadata, lifecycle events, logs,
+  usage rollups, job gates, gate signatures, snapshots, and build identity all
+  stay file-backed and visible through CLI commands such as `ps`, `monitor`,
+  `usage`, `job gates`, `signatures test`, `snapshot`, and `daemon status`.
+- **Operator recovery**: jobs and pipelines expose dry-run-first controls for
+  bounce-back, unblocking, watchdog extension, retry, stale timeout, manual
+  gates, PR landing, and cleanup. Use `overview`, `next`, `health`, `repair`,
+  `job bounce`, `job extend`, `pipeline retry`, and `job merge` from the work
+  unit or team scope that owns the problem.
+
+See the guide pages for [messaging](./docs/guide/messaging.md), the
+[board control plane](./docs/guide/board-control-plane.md), and
+[observability and recovery](./docs/guide/observability-and-recovery.md).
+
 ## Developer Docs Website
 
 The developer documentation lives in [`docs/`](./docs/) and builds with VitePress:

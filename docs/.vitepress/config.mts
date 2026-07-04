@@ -36,6 +36,9 @@ export default defineConfig({
           { text: 'Quickstart', link: '/guide/quickstart' },
           { text: 'Concepts', link: '/guide/concepts' },
           { text: 'Architecture', link: '/guide/architecture' },
+          { text: 'Messaging', link: '/guide/messaging' },
+          { text: 'Board Control Plane', link: '/guide/board-control-plane' },
+          { text: 'Observability and Recovery', link: '/guide/observability-and-recovery' },
           { text: 'Repository Layout', link: '/guide/repository-layout' }
         ]
       },
