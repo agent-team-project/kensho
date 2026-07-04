@@ -2592,7 +2592,7 @@ trigger.event = "ticket.created"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
-timeout = "50ms"
+timeout = "500ms"
 `))
 	if err != nil {
 		t.Fatalf("parse topology: %v", err)
@@ -2619,8 +2619,8 @@ timeout = "50ms"
 	if err != nil {
 		t.Fatalf("metadata: %v", err)
 	}
-	if meta.RuntimeBudget != "50ms" || meta.RuntimeDeadline.IsZero() {
-		t.Fatalf("metadata budget = %+v, want 50ms with deadline", meta)
+	if meta.RuntimeBudget != "500ms" || meta.RuntimeDeadline.IsZero() {
+		t.Fatalf("metadata budget = %+v, want 500ms with deadline", meta)
 	}
 	if meta.Status != StatusCrashed {
 		t.Fatalf("metadata status = %s, want crashed", meta.Status)
