@@ -210,7 +210,7 @@ agent-team template run bundled manager \
     -p "kickoff message"
 ```
 
-This instantiates the template into a tempdir under `~/.agent-team/runs/<timestamp>-<agent>/` (or `$XDG_CACHE_HOME/agent-team/runs/...`), spawns the agent against it, and removes the tempdir when the agent exits. Pass `--runtime claude|codex` and `--runtime-bin <path>` for one-off runtime selection, `--last-message` for clean Codex one-shot output, `--keep` to preserve the tempdir, or `--target <dir>` to use a specific directory (which is always preserved). Add `--set team.pm_tool=linear --set linear.team_id=<uuid> --set linear.ticket_prefix=<PREFIX>` when the one-shot run should use Linear.
+This instantiates the template into a tempdir under `~/.agent-team/runs/<timestamp>-<agent>/` (or `$XDG_CACHE_HOME/agent-team/runs/...`), spawns the agent against it, and removes the tempdir when the agent exits. Pass `--runtime claude|codex` and `--runtime-bin <path>` for one-off runtime selection, `--last-message` for clean Codex one-shot output, `--keep` to preserve the tempdir, or `--target <dir>` to use a specific directory (which is always preserved). Add `--set pm.provider=linear --set linear.team_id=<uuid> --set linear.ticket_prefix=<PREFIX>` when the one-shot run should use Linear.
 
 The daemon is bypassed; the selected runtime is exec'd directly. For long-lived setups where you want `instance ps` / `logs --follow` visibility, use `init` + `run` separately.
 

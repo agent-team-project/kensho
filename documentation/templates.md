@@ -55,17 +55,24 @@ version     = "1.0.0"
 description = "Manager + worker + ticket-manager team for Linear-tracked engineering work."
 
 [[parameter]]
+key         = "pm.provider"
+type        = "string"
+default     = "none"
+pattern     = "^(none|linear)$"
+description = "Which PM provider the team talks to."
+
+[[parameter]]
 key         = "team.pm_tool"
 type        = "string"
 default     = "none"
 pattern     = "^(none|linear)$"
-description = "Which PM tool the team talks to."
+description = "Deprecated alias for pm.provider."
 
 [[parameter]]
 key         = "linear.team_id"
 type        = "string"
 default     = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
 description = "Linear team UUID. Find at linear.app/<workspace>/team/<TEAM>/all → URL contains the UUID."
 
@@ -73,7 +80,7 @@ description = "Linear team UUID. Find at linear.app/<workspace>/team/<TEAM>/all 
 key         = "linear.ticket_prefix"
 type        = "string"
 default     = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
 pattern     = "^[A-Z]{2,5}$"
 description = "Linear ticket prefix, e.g. SQU."

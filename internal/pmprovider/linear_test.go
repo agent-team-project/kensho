@@ -1,4 +1,4 @@
-package linearwriteback
+package pmprovider
 
 import (
 	"context"
@@ -41,14 +41,14 @@ func TestWriteBackMissingAPIKeyAuditsSkip(t *testing.T) {
 	client := &Client{}
 
 	result := client.WriteBack(context.Background(), teamDir, Request{Action: ActionDispatchInProgress, Job: j, Actor: "test"})
-	if !result.Skipped || result.Message != "no Linear API key found" || result.State != "In Progress" || result.AuditErr != nil {
+	if !result.Skipped || result.Message != errNoAPIKey.Error() || result.State != "In Progress" || result.AuditErr != nil {
 		t.Fatalf("result = %+v, want skipped missing-key audit", result)
 	}
 	events, err := job.ListEvents(teamDir, j.ID)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "linear_writeback_skipped" || events[0].Message != "no Linear API key found" || events[0].Data["action"] != string(ActionDispatchInProgress) || events[0].Data["state"] != "In Progress" {
+	if len(events) != 1 || events[0].Type != "linear_writeback_skipped" || events[0].Message != errNoAPIKey.Error() || events[0].Data["action"] != string(ActionDispatchInProgress) || events[0].Data["state"] != "In Progress" {
 		t.Fatalf("events = %+v, want skipped missing-key audit", events)
 	}
 }

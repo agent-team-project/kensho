@@ -105,6 +105,9 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	if got := string(workerConfig); !strings.Contains(got, ".agent_team/config.toml") || !strings.Contains(got, `team = ["linear", "status"]`) {
 		t.Errorf("worker config missing team-skill guidance: %s", got)
 	}
+	if !strings.Contains(body, `provider = "linear"`) {
+		t.Errorf("config.toml should set pm.provider when linear.* is set: %s", body)
+	}
 	lock, err := os.ReadFile(filepath.Join(tmp, ".agent_team", ".template.lock"))
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +159,7 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 	}
 	body := string(cfg)
 	for _, want := range []string{
+		`provider = "none"`,
 		`pm_tool = "none"`,
 		`team_id = ""`,
 		`ticket_prefix = ""`,
@@ -470,6 +474,60 @@ func TestInit_LinearNoInputFailsListingMissing(t *testing.T) {
 	}
 }
 
+func TestInit_PMProviderLinearNoInputFailsListingMissing(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"init", "--target", tmp, "--set", "pm.provider=linear", "--no-input"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error: Linear params missing under --no-input")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 2 {
+		t.Errorf("expected exit 2, got %v", err)
+	}
+	combined := errOut.String()
+	for _, want := range []string{
+		"--no-input given but required parameters are missing:",
+		"linear.team_id",
+		"linear.ticket_prefix",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("error output missing %q\nfull:\n%s", want, combined)
+		}
+	}
+}
+
+func TestInit_PMProviderLinearSyncsLegacyAlias(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init", "--target", tmp,
+		"--set", "pm.provider=linear",
+		"--set", "linear.team_id=test-team-uuid",
+		"--set", "linear.ticket_prefix=TST",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init: %v\nstderr: %s", err, errOut.String())
+	}
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cfg)
+	for _, want := range []string{`provider = "linear"`, `pm_tool = "linear"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestInit_PatternViolationFails(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
@@ -512,6 +570,9 @@ func TestInit_PromptFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `ticket_prefix = "ABC"`) {
 		t.Errorf("missing ticket_prefix from prompt: %s", body)
+	}
+	if !strings.Contains(body, `provider = "linear"`) {
+		t.Errorf("missing pm.provider alias from prompt: %s", body)
 	}
 	// stdout should show the prompts.
 	if !strings.Contains(out.String(), "This template requires the following parameters") {

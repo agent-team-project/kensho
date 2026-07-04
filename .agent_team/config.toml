@@ -4,6 +4,9 @@
 # Committed so teammates share the same config. No secrets here — API keys
 # live in .env.
 
+[pm]
+provider = "linear"
+
 [team]
 pm_tool = "linear"   # only "linear" supported in v1
 

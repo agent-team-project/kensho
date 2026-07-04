@@ -27,6 +27,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/jobwrite"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -1593,17 +1594,18 @@ func intakeIgnoreReason(cmd *cobra.Command, target, provider string, ev *intake.
 }
 
 func intakeIgnoreReasonForTeamDir(teamDir, provider string, ev *intake.Event) string {
-	if provider != "linear" {
+	pm, err := pmprovider.ForName(pmprovider.NormalizeProviderName(provider))
+	if err != nil || pm.Name() != pmprovider.ProviderLinear {
 		return ""
 	}
 	if !linearStatusChangeWouldDispatch(teamDir, ev) {
 		return ""
 	}
-	agentUserID, err := intake.ResolveLinearAgentUserID(teamDir)
+	agentUserID, err := pm.ResolveActorID(teamDir)
 	if err != nil || strings.TrimSpace(agentUserID) == "" {
 		return intake.LinearLoopProtectionUnavailableReason
 	}
-	if ignored, reason := intake.LinearSelfStatusChangeForUser(ev, agentUserID); ignored {
+	if ignored, reason := pm.SelfStatusChangeForActor(ev, agentUserID); ignored {
 		return reason
 	}
 	return ""

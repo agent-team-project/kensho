@@ -319,7 +319,9 @@ func resolveInitConfig(cmd *cobra.Command, m *template.Manifest, sets []template
 	}
 	if initShouldAutoEnableLinear(m, withSets, sets) {
 		withSets.SetDotted("team.pm_tool", "linear")
+		withSets.SetDotted("pm.provider", "linear")
 	}
+	syncPMProviderAliases(withSets, sets)
 
 	// Find missing required params.
 	missing := missingRequired(withSets, m)
@@ -362,7 +364,7 @@ func initShouldAutoEnableLinear(m *template.Manifest, resolved template.Tree, se
 	explicitPMTool := false
 	linearSet := false
 	for _, s := range sets {
-		if s.Key == "team.pm_tool" {
+		if s.Key == "team.pm_tool" || s.Key == "pm.provider" {
 			explicitPMTool = true
 			continue
 		}
@@ -379,6 +381,30 @@ func initShouldAutoEnableLinear(m *template.Manifest, resolved template.Tree, se
 	}
 	pm, ok := pmTool.(string)
 	return ok && (pm == "" || pm == "none")
+}
+
+func syncPMProviderAliases(resolved template.Tree, sets []template.SetSpec) {
+	explicitProvider := false
+	explicitPMTool := false
+	for _, s := range sets {
+		switch s.Key {
+		case "pm.provider":
+			explicitProvider = true
+		case "team.pm_tool":
+			explicitPMTool = true
+		}
+	}
+	if explicitProvider && !explicitPMTool {
+		if value, ok := resolved.GetDotted("pm.provider"); ok {
+			resolved.SetDotted("team.pm_tool", value)
+		}
+		return
+	}
+	if explicitPMTool && !explicitProvider {
+		if value, ok := resolved.GetDotted("team.pm_tool"); ok {
+			resolved.SetDotted("pm.provider", value)
+		}
+	}
 }
 
 func printMissingParams(w fmtWriter, m *template.Manifest, keys []string, reason string) {

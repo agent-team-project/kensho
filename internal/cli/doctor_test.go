@@ -52,6 +52,42 @@ ticket_prefix = ""
 	}
 }
 
+func TestDoctor_FailsOnEmptyLinearKeysFromPMProvider(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(`[pm]
+provider = "linear"
+
+[team]
+pm_tool = "none"
+
+[linear]
+team_id = ""
+ticket_prefix = ""
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error: empty Linear team_id/ticket_prefix")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Errorf("expected exit 1, got %v", err)
+	}
+	if !strings.Contains(errOut.String(), "[linear].team_id missing/empty") {
+		t.Errorf("missing team_id complaint: %s", errOut.String())
+	}
+}
+
 func TestDoctor_PassesWithFilledLinearKeys(t *testing.T) {
 	tmp := t.TempDir()
 	// initInto supplies linear.team_id and linear.ticket_prefix via --set, so

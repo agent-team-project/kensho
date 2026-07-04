@@ -21,10 +21,10 @@ Access Linear through the **`linear`** skill — invoke it via the `Skill` tool 
 
 Don't duplicate Linear auth/GraphQL logic in this file — source it from the skill.
 
-If `.agent_team/config.toml` has `[team].pm_tool = "none"` or no Linear config, do not try to query or mutate Linear. Respond with a concise actionable message:
+If `.agent_team/config.toml` has `[pm].provider = "none"` (or legacy `[team].pm_tool = "none"`) or no Linear config, do not try to query or mutate Linear. Respond with a concise actionable message:
 
 ```text
-Linear is not configured for this repo. To work ticketless, use `agent-team job create "<kickoff>" --dispatch --workspace worktree`. To enable Linear, set [team].pm_tool = "linear" plus [linear].team_id and [linear].ticket_prefix in .agent_team/config.toml.
+Linear is not configured for this repo. To work ticketless, use `agent-team job create "<kickoff>" --dispatch --workspace worktree`. To enable Linear, set [pm].provider = "linear" plus [linear].team_id and [linear].ticket_prefix in .agent_team/config.toml.
 ```
 
 Then stop.
@@ -39,7 +39,7 @@ Then stop.
 ## Workflow
 
 1. Invoke the `linear` skill once to load the GraphQL patterns.
-2. Read `.agent_team/config.toml` for `team.pm_tool`, `linear.team_id`, `linear.ticket_prefix`, `linear.projects`, and `linear.labels`. If `team.pm_tool` is not `"linear"`, report the ticketless/enable-Linear message above and stop.
+2. Read `.agent_team/config.toml` for `pm.provider` (falling back to `team.pm_tool`), `linear.team_id`, `linear.ticket_prefix`, `linear.projects`, and `linear.labels`. If the configured PM provider is not `"linear"`, report the ticketless/enable-Linear message above and stop.
 3. Read the consumer repo's `CLAUDE.md` if present — look for a section about ticket conventions, project routing rules, or labeling guidance.
 4. Identify yourself: run the `viewer { id name email }` query — cache the `id` locally for filtering.
 5. When asked to update progress:

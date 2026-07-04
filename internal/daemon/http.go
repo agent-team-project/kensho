@@ -18,6 +18,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
@@ -887,11 +888,15 @@ func linearIntakeIgnoreReason(teamDir string, events *EventResolver, ev *intake.
 	if !linearStatusChangeWouldDispatch(events, ev) {
 		return ""
 	}
-	agentUserID, err := intake.ResolveLinearAgentUserID(teamDir)
+	pm, err := pmprovider.ForName(pmprovider.ProviderLinear)
+	if err != nil {
+		return ""
+	}
+	agentUserID, err := pm.ResolveActorID(teamDir)
 	if err != nil || strings.TrimSpace(agentUserID) == "" {
 		return intake.LinearLoopProtectionUnavailableReason
 	}
-	if ignored, reason := intake.LinearSelfStatusChangeForUser(ev, agentUserID); ignored {
+	if ignored, reason := pm.SelfStatusChangeForActor(ev, agentUserID); ignored {
 		return reason
 	}
 	return ""

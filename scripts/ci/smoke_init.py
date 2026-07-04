@@ -77,6 +77,8 @@ def main(argv: list[str]) -> int:
             if not (ticketless_target / rel).exists():
                 problems.append(f"missing after ticketless init: {rel}")
         ticketless_cfg_text = (ticketless_target / ".agent_team" / "config.toml").read_text()
+        if 'provider = "none"' not in ticketless_cfg_text:
+            problems.append(f"ticketless init did not default pm.provider to none: {ticketless_cfg_text}")
         if 'pm_tool = "none"' not in ticketless_cfg_text:
             problems.append(f"ticketless init did not default pm_tool to none: {ticketless_cfg_text}")
         if 'team_id = ""' not in ticketless_cfg_text or 'ticket_prefix = ""' not in ticketless_cfg_text:
@@ -125,6 +127,10 @@ def main(argv: list[str]) -> int:
 
         # Resolved config must contain --set values.
         cfg_text = (target / ".agent_team" / "config.toml").read_text()
+        if 'provider = "linear"' not in cfg_text:
+            problems.append(f"--set linear.* did not set pm.provider=linear in config.toml: {cfg_text}")
+        if 'pm_tool = "linear"' not in cfg_text:
+            problems.append(f"--set linear.* did not set legacy team.pm_tool=linear in config.toml: {cfg_text}")
         if 'team_id = "smoke-team-uuid"' not in cfg_text:
             problems.append(f"--set linear.team_id missing from config.toml: {cfg_text}")
         if 'ticket_prefix = "SMK"' not in cfg_text:

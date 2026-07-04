@@ -14,18 +14,18 @@ description = "Manager + worker + ticket-manager team for Linear-tracked enginee
 key         = "linear.team_id"
 type        = "string"
 default     = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
-description = "Linear team UUID. Required only when team.pm_tool is linear."
+description = "Linear team UUID. Required only when pm.provider is linear."
 
 [[parameter]]
 key         = "linear.ticket_prefix"
 type        = "string"
 default     = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
 pattern     = "^[A-Z]{2,5}$"
-description = "Linear ticket prefix, e.g. SQU. Required only when team.pm_tool is linear."
+description = "Linear ticket prefix, e.g. SQU. Required only when pm.provider is linear."
 
 [[parameter]]
 key         = "linear.agent_column"
@@ -64,11 +64,18 @@ default     = []
 description = "Labels to apply to all created tickets."
 
 [[parameter]]
+key         = "pm.provider"
+type        = "string"
+default     = "none"
+pattern     = "^(none|linear)$"
+description = "Which PM provider the team talks to. Use none for ticketless jobs or linear for Linear-backed tickets."
+
+[[parameter]]
 key         = "team.pm_tool"
 type        = "string"
 default     = "none"
 pattern     = "^(none|linear)$"
-description = "Which PM tool the team talks to. Use none for ticketless jobs or linear for Linear-backed tickets."
+description = "Deprecated alias for pm.provider. Kept for compatibility with existing configs and scripts."
 
 [[parameter]]
 key         = "skills.team"

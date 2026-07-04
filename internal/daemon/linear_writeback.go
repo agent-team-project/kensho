@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/linearwriteback"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 )
 
 func (r *EventResolver) writeLinearDispatchInProgress(j *jobstore.Job, stepID string) {
@@ -15,7 +15,11 @@ func (r *EventResolver) writeLinearDispatchInProgress(j *jobstore.Job, stepID st
 	if stepID != "" && !jobFirstStep(j, stepID) {
 		return
 	}
-	_ = linearwriteback.DispatchInProgress(context.Background(), r.teamDir, j)
+	_ = pmprovider.WriteBack(context.Background(), r.teamDir, pmprovider.Request{
+		Action: pmprovider.ActionDispatchInProgress,
+		Job:    j,
+		Actor:  "daemon",
+	})
 }
 
 // linearDispatchStepFromPayload extracts the pipeline step for the dispatch

@@ -12,6 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/spf13/cobra"
@@ -151,8 +152,18 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		if _, err := toml.DecodeFile(cfgPath, &cfg); err != nil {
 			problems = append(problems, fmt.Sprintf("%s is not valid TOML: %v", cfgPath, err))
 		} else {
+			pm, _ := cfg["pm"].(map[string]any)
 			team, _ := cfg["team"].(map[string]any)
-			if pmTool, _ := team["pm_tool"].(string); pmTool == "linear" {
+			pmProvider, _ := pm["provider"].(string)
+			pmTool, _ := team["pm_tool"].(string)
+			provider, providerSource := pmprovider.ConfiguredProviderNameWithSource(pmProvider, pmTool)
+			if !pmprovider.KnownProvider(provider) {
+				if providerSource == "" {
+					providerSource = "pm.provider"
+				}
+				problems = append(problems, fmt.Sprintf("[%s] has unsupported value %q in %s", providerSource, provider, cfgPath))
+			}
+			if provider == pmprovider.ProviderLinear {
 				linear, _ := cfg["linear"].(map[string]any)
 				for _, k := range []string{"team_id", "ticket_prefix"} {
 					v, _ := linear[k].(string)

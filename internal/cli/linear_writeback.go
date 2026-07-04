@@ -5,15 +5,15 @@ import (
 	"strings"
 
 	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/linearwriteback"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 )
 
 func writeLinearDispatchInProgress(teamDir string, j *job.Job) {
 	if !linearJobDispatchStarted(j) {
 		return
 	}
-	_ = linearwriteback.DefaultClient().WriteBack(context.Background(), teamDir, linearwriteback.Request{
-		Action: linearwriteback.ActionDispatchInProgress,
+	_ = pmprovider.WriteBack(context.Background(), teamDir, pmprovider.Request{
+		Action: pmprovider.ActionDispatchInProgress,
 		Job:    j,
 		Actor:  "cli",
 	})
@@ -23,15 +23,21 @@ func writeLinearStepDispatchInProgress(teamDir string, j *job.Job, stepID string
 	if !linearJobDispatchStarted(j) || !linearFirstJobStep(j, stepID) {
 		return
 	}
-	_ = linearwriteback.DefaultClient().WriteBack(context.Background(), teamDir, linearwriteback.Request{
-		Action: linearwriteback.ActionDispatchInProgress,
+	_ = pmprovider.WriteBack(context.Background(), teamDir, pmprovider.Request{
+		Action: pmprovider.ActionDispatchInProgress,
 		Job:    j,
 		Actor:  "cli",
 	})
 }
 
 func writeLinearBounceBack(teamDir string, j *job.Job, stepID, findings string) {
-	_ = linearwriteback.BounceBack(context.Background(), teamDir, j, stepID, findings, "cli")
+	_ = pmprovider.WriteBack(context.Background(), teamDir, pmprovider.Request{
+		Action:   pmprovider.ActionBounceBack,
+		Job:      j,
+		StepID:   stepID,
+		Findings: findings,
+		Actor:    "cli",
+	})
 }
 
 func linearJobDispatchStarted(j *job.Job) bool {

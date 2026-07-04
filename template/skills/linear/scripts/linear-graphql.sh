@@ -97,16 +97,16 @@ cfg_path = Path(".agent_team/config.toml")
 if not cfg_path.exists():
     sys.exit(
         "linear-graphql.sh: Linear not configured; .agent_team/config.toml was not found. "
-        "Run `agent-team init` first, then set [team].pm_tool = \"linear\" with "
+        "Run `agent-team init` first, then set [pm].provider = \"linear\" with "
         "[linear].team_id and [linear].ticket_prefix."
     )
 
 cfg = tomllib.loads(cfg_path.read_text())
-pm_tool = cfg.get("team", {}).get("pm_tool", "none")
-if pm_tool != "linear":
+pm_provider = cfg.get("pm", {}).get("provider") or cfg.get("team", {}).get("pm_tool", "none")
+if pm_provider != "linear":
     sys.exit(
         "linear-graphql.sh: Linear not configured for this repo. "
-        "Set [team].pm_tool = \"linear\" plus [linear].team_id and "
+        "Set [pm].provider = \"linear\" plus [linear].team_id and "
         "[linear].ticket_prefix in .agent_team/config.toml, or use "
         "`agent-team job create \"<kickoff>\" --dispatch --workspace worktree` "
         "for ticketless work."
@@ -119,7 +119,7 @@ if missing:
         "linear-graphql.sh: Linear is enabled but missing config: "
         + ", ".join(f"[linear].{key}" for key in missing)
         + ". Set them in .agent_team/config.toml or re-run init with "
-        "`--set team.pm_tool=linear --set linear.team_id=<uuid> "
+        "`--set pm.provider=linear --set linear.team_id=<uuid> "
         "--set linear.ticket_prefix=<PREFIX>`."
     )
 PY

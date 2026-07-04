@@ -44,7 +44,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 ## Critical Rules
 
-1. **Never work without a concrete work item.** If `[team].pm_tool = "linear"`, you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If `[team].pm_tool = "none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.
+1. **Never work without a concrete work item.** If `[pm].provider = "linear"` (or legacy `[team].pm_tool = "linear"`), you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If the PM provider is `"none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.
 2. **Never push to `main` directly.** Always work on the branch your isolated worktree is on. Daemon-created branches are named `<ticket>-<tag>` (e.g. `squ-14-a1b2c3d4`); legacy Agent-tool worktrees use `worktree-<slug>`. Either is fine — just never main.
 3. **Run the repo's validation gates before marking a PR as reviewable.** See `CLAUDE.md` for the exact commands (lint, test, type check). Fix any failures.
 4. **Never commit `.env`, credentials, or secrets.**
@@ -53,16 +53,16 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 ## Startup Sequence
 
-Read `.agent_team/config.toml` first and check `[team].pm_tool`.
+Read `.agent_team/config.toml` first and check `[pm].provider`, falling back to legacy `[team].pm_tool` when `[pm].provider` is absent.
 
 - If it is `"linear"`, extract the ticket identifier from your prompt (e.g. `SQU-14` — the consumer's ticket prefix lives under `linear.ticket_prefix`).
 - If it is `"none"`, treat the job id and kickoff text as the work item. Skip Linear reads and do not fabricate a ticket URL.
 
 ### 1. Fetch ticket details
 
-When `[team].pm_tool = "linear"`, invoke the **`linear`** skill (via the `Skill` tool) to load Linear GraphQL access patterns, then fetch the ticket — title, description, acceptance criteria, comments, status, labels. Understand what needs to be done before planning.
+When the configured PM provider is `"linear"`, invoke the **`linear`** skill (via the `Skill` tool) to load Linear GraphQL access patterns, then fetch the ticket — title, description, acceptance criteria, comments, status, labels. Understand what needs to be done before planning.
 
-When `[team].pm_tool = "none"`, skip the `linear` skill. Use the kickoff text, job file, and any user-supplied context as the requirements.
+When the configured PM provider is `"none"`, skip the `linear` skill. Use the kickoff text, job file, and any user-supplied context as the requirements.
 
 ### 2. Initialize
 

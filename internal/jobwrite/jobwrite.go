@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/linearwriteback"
+	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/usage"
 )
 
@@ -37,7 +37,12 @@ func WriteWithAudit(teamDir string, j *job.Job, opts Options) error {
 		return err
 	}
 	if writeAttention {
-		_ = linearwriteback.FailureAttention(context.Background(), teamDir, j, attentionMessage(j, opts.Message), opts.Actor)
+		_ = pmprovider.WriteBack(context.Background(), teamDir, pmprovider.Request{
+			Action:  pmprovider.ActionFailureAttention,
+			Job:     j,
+			Message: attentionMessage(j, opts.Message),
+			Actor:   opts.Actor,
+		})
 	}
 	return nil
 }

@@ -120,12 +120,19 @@ func TestBundledManifestLinearIsConditional(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load bundled manifest: %v", err)
 	}
-	pm := m.FindParameter("team.pm_tool")
+	pm := m.FindParameter("pm.provider")
 	if pm == nil {
-		t.Fatal("bundled manifest missing team.pm_tool")
+		t.Fatal("bundled manifest missing pm.provider")
 	}
 	if pm.Default != "none" || pm.Pattern != "^(none|linear)$" {
-		t.Fatalf("team.pm_tool defaults = default:%v pattern:%q", pm.Default, pm.Pattern)
+		t.Fatalf("pm.provider defaults = default:%v pattern:%q", pm.Default, pm.Pattern)
+	}
+	alias := m.FindParameter("team.pm_tool")
+	if alias == nil {
+		t.Fatal("bundled manifest missing team.pm_tool alias")
+	}
+	if alias.Default != "none" || alias.Pattern != "^(none|linear)$" {
+		t.Fatalf("team.pm_tool alias defaults = default:%v pattern:%q", alias.Default, alias.Pattern)
 	}
 	for _, key := range []string{"linear.team_id", "linear.ticket_prefix"} {
 		p := m.FindParameter(key)
@@ -135,7 +142,7 @@ func TestBundledManifestLinearIsConditional(t *testing.T) {
 		if p.Required {
 			t.Fatalf("%s should not be unconditionally required", key)
 		}
-		if p.RequiredWhenKey != "team.pm_tool" || p.RequiredWhenValue != "linear" {
+		if p.RequiredWhenKey != "pm.provider" || p.RequiredWhenValue != "linear" {
 			t.Fatalf("%s conditional = %s=%s", key, p.RequiredWhenKey, p.RequiredWhenValue)
 		}
 		if p.Default != "" {
