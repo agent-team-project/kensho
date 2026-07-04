@@ -6,9 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"text/tabwriter"
 	"text/template"
 	"time"
 
@@ -112,6 +110,96 @@ type outboxQuarantineShowResult struct {
 	Pipeline   string             `json:"pipeline,omitempty"`
 	ScopeJob   string             `json:"scope_job,omitempty"`
 	OutboxItem *daemon.OutboxItem `json:"outbox_item,omitempty"`
+}
+
+var outboxQuarantineSortModes = []string{
+	"path",
+	"state",
+	"id",
+	"type",
+	"source",
+	"job",
+	"created",
+	"updated",
+	"modified",
+	"restorable",
+	"size",
+}
+
+var outboxQuarantineSortLessers = map[string]quarantineSortLess[outboxQuarantineItem]{
+	"state":      quarantineRankedStringLess(func(item outboxQuarantineItem) string { return item.State }, outboxStateRank),
+	"id":         quarantineStringLess(func(item outboxQuarantineItem) string { return item.ID }),
+	"type":       quarantineStringLess(func(item outboxQuarantineItem) string { return item.Type }),
+	"source":     quarantineStringLess(func(item outboxQuarantineItem) string { return item.Source }),
+	"job":        quarantineStringLess(func(item outboxQuarantineItem) string { return item.Job }),
+	"created":    quarantineTimeDescLess(func(item outboxQuarantineItem) time.Time { return item.CreatedAt }),
+	"updated":    quarantineTimeDescLess(func(item outboxQuarantineItem) time.Time { return item.UpdatedAt }),
+	"modified":   quarantineTimeDescLess(func(item outboxQuarantineItem) time.Time { return item.ModTime }),
+	"restorable": quarantineBoolTrueFirstLess(func(item outboxQuarantineItem) bool { return item.Restorable }),
+	"size":       quarantineInt64DescLess(func(item outboxQuarantineItem) int64 { return item.Size }),
+}
+
+var outboxQuarantineListColumns = []quarantineListColumn[outboxQuarantineItem]{
+	{Header: "PATH", Value: func(item outboxQuarantineItem) string { return item.Path }},
+	{Header: "STATE", Value: func(item outboxQuarantineItem) string { return emptyDash(item.State) }},
+	{Header: "ID", Value: func(item outboxQuarantineItem) string { return emptyDash(item.ID) }},
+	{Header: "TYPE", Value: func(item outboxQuarantineItem) string { return emptyDash(item.Type) }},
+	{Header: "SOURCE", Value: func(item outboxQuarantineItem) string { return emptyDash(item.Source) }},
+	{Header: "JOB", Value: func(item outboxQuarantineItem) string { return emptyDash(item.Job) }},
+	{Header: "RESTORABLE", Value: func(item outboxQuarantineItem) string { return outboxQuarantineRestorableText(item.Restorable) }},
+	{Header: "PROBLEM", Value: func(item outboxQuarantineItem) string { return emptyDash(item.Problem) }},
+}
+
+var outboxQuarantineRestoreConfig = quarantineRestoreConfig[outboxQuarantineItem, outboxQuarantineRestoreResult]{
+	Root:        daemon.OutboxRoot,
+	Normalize:   normalizeOutboxQuarantinePath,
+	Inspect:     inspectOutboxQuarantineFile,
+	SafePath:    outboxDoctorSafeOutboxPath,
+	Path:        func(item outboxQuarantineItem) string { return item.Path },
+	RestorePath: func(item outboxQuarantineItem) string { return item.RestorePath },
+	Restorable:  func(item outboxQuarantineItem) bool { return item.Restorable },
+	Problem:     func(item outboxQuarantineItem) string { return item.Problem },
+	NewResult: func(item outboxQuarantineItem, dryRun, force bool) outboxQuarantineRestoreResult {
+		return outboxQuarantineRestoreResult{
+			Path:        item.Path,
+			Destination: item.RestorePath,
+			State:       item.State,
+			ID:          item.ID,
+			Action:      "would_restore",
+			DryRun:      dryRun,
+			Overwrite:   force,
+		}
+	},
+	MarkRestored: func(result *outboxQuarantineRestoreResult) {
+		result.Action = "restored"
+		result.DryRun = false
+	},
+	PruneAfterRestore: true,
+	Prune:             pruneEmptyOutboxQuarantineDirs,
+}
+
+var outboxQuarantineDropConfig = quarantineDropConfig[outboxQuarantineItem, outboxQuarantineDropResult]{
+	Root:      daemon.OutboxRoot,
+	Normalize: normalizeOutboxQuarantinePath,
+	Inspect:   inspectOutboxQuarantineFile,
+	SafePath:  outboxDoctorSafeOutboxPath,
+	Path:      func(item outboxQuarantineItem) string { return item.Path },
+	NewResult: func(item outboxQuarantineItem, dryRun bool) outboxQuarantineDropResult {
+		return outboxQuarantineDropResult{
+			Path:       item.Path,
+			State:      item.State,
+			ID:         item.ID,
+			Restorable: item.Restorable,
+			Action:     "would_drop",
+			DryRun:     dryRun,
+		}
+	},
+	MarkDropped: func(result *outboxQuarantineDropResult) {
+		result.Action = "dropped"
+		result.Dropped = true
+		result.DryRun = false
+	},
+	Prune: pruneEmptyOutboxQuarantineDirs,
 }
 
 func newOutboxQuarantineCmd() *cobra.Command {
@@ -545,43 +633,9 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 
 func listOutboxQuarantine(teamDir string) ([]outboxQuarantineItem, error) {
 	outboxRoot := daemon.OutboxRoot(teamDir)
-	root := filepath.Join(outboxRoot, outboxQuarantineDir)
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if len(entries) == 0 {
-		return nil, nil
-	}
-	var items []outboxQuarantineItem
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			return nil
-		}
-		rel, err := filepath.Rel(outboxRoot, path)
-		if err != nil {
-			return err
-		}
-		item, err := inspectOutboxQuarantineFile(outboxRoot, rel)
-		if err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
+	return listQuarantineItems(outboxRoot, outboxQuarantineDir, ".json", inspectOutboxQuarantineFile, func(item outboxQuarantineItem) string {
+		return item.Path
 	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Path < items[j].Path
-	})
-	return items, nil
 }
 
 func inspectOutboxQuarantineFile(outboxRoot, rel string) (outboxQuarantineItem, error) {
@@ -677,20 +731,9 @@ func outboxQuarantineFiltersEmpty(filters outboxListFilters) bool {
 }
 
 func filterOutboxQuarantineRestorable(items []outboxQuarantineItem, restorableOnly, unrestorableOnly bool) []outboxQuarantineItem {
-	if !restorableOnly && !unrestorableOnly {
-		return items
-	}
-	out := make([]outboxQuarantineItem, 0, len(items))
-	for _, item := range items {
-		if restorableOnly && !item.Restorable {
-			continue
-		}
-		if unrestorableOnly && item.Restorable {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
+	return filterQuarantineRestorable(items, restorableOnly, unrestorableOnly, func(item outboxQuarantineItem) bool {
+		return item.Restorable
+	})
 }
 
 func validateOutboxQuarantineRestore(item daemon.OutboxItem, state, idFromPath string) error {
@@ -756,56 +799,7 @@ func showOutboxQuarantine(teamDir, rawPath string) (outboxQuarantineShowResult, 
 }
 
 func restoreOutboxQuarantine(teamDir, rawPath string, dryRun, force bool) (outboxQuarantineRestoreResult, error) {
-	outboxRoot := daemon.OutboxRoot(teamDir)
-	rel, err := normalizeOutboxQuarantinePath(rawPath)
-	if err != nil {
-		return outboxQuarantineRestoreResult{}, err
-	}
-	item, err := inspectOutboxQuarantineFile(outboxRoot, rel)
-	if err != nil {
-		return outboxQuarantineRestoreResult{}, err
-	}
-	if !item.Restorable {
-		return outboxQuarantineRestoreResult{}, fmt.Errorf("%s is not restorable: %s", item.Path, item.Problem)
-	}
-	source, err := outboxDoctorSafeOutboxPath(outboxRoot, item.Path)
-	if err != nil {
-		return outboxQuarantineRestoreResult{}, err
-	}
-	destination, err := outboxDoctorSafeOutboxPath(outboxRoot, item.RestorePath)
-	if err != nil {
-		return outboxQuarantineRestoreResult{}, err
-	}
-	if _, err := os.Stat(destination); err == nil && !force {
-		return outboxQuarantineRestoreResult{}, fmt.Errorf("%s already exists; pass --force to overwrite it", item.RestorePath)
-	} else if err != nil && !os.IsNotExist(err) {
-		return outboxQuarantineRestoreResult{}, err
-	}
-	result := outboxQuarantineRestoreResult{
-		Path:        item.Path,
-		Destination: item.RestorePath,
-		State:       item.State,
-		ID:          item.ID,
-		Action:      "would_restore",
-		DryRun:      dryRun,
-		Overwrite:   force,
-	}
-	if dryRun {
-		return result, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return result, err
-	}
-	if force {
-		_ = os.Remove(destination)
-	}
-	if err := os.Rename(source, destination); err != nil {
-		return result, err
-	}
-	result.Action = "restored"
-	result.DryRun = false
-	pruneEmptyOutboxQuarantineDirs(outboxRoot, filepath.Dir(source))
-	return result, nil
+	return restoreQuarantineItem(teamDir, rawPath, dryRun, force, outboxQuarantineRestoreConfig)
 }
 
 func restoreOutboxQuarantineAll(teamDir string, dryRun, force bool, filters outboxListFilters, sortMode string, limit int) ([]outboxQuarantineRestoreResult, error) {
@@ -819,29 +813,13 @@ func restoreOutboxQuarantineAll(teamDir string, dryRun, force bool, filters outb
 }
 
 func restoreOutboxQuarantineItems(teamDir string, items []outboxQuarantineItem, dryRun, force bool, sortMode string, limit int) ([]outboxQuarantineRestoreResult, error) {
-	items = prepareOutboxQuarantineItems(items, sortMode, limit)
-	results := make([]outboxQuarantineRestoreResult, 0, len(items))
-	for _, item := range items {
-		result, err := restoreOutboxQuarantine(teamDir, item.Path, dryRun, force)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
+	return restoreQuarantineItemBatch(teamDir, items, dryRun, force, sortMode, limit, prepareOutboxQuarantineItems, func(item outboxQuarantineItem) string {
+		return item.Path
+	}, restoreOutboxQuarantine)
 }
 
 func dropOutboxQuarantine(teamDir, rawPath string, dryRun bool) (outboxQuarantineDropResult, error) {
-	outboxRoot := daemon.OutboxRoot(teamDir)
-	rel, err := normalizeOutboxQuarantinePath(rawPath)
-	if err != nil {
-		return outboxQuarantineDropResult{}, err
-	}
-	item, err := inspectOutboxQuarantineFile(outboxRoot, rel)
-	if err != nil {
-		return outboxQuarantineDropResult{}, err
-	}
-	return dropOutboxQuarantineItem(outboxRoot, item, dryRun)
+	return dropQuarantinePath(teamDir, rawPath, dryRun, outboxQuarantineDropConfig)
 }
 
 func dropOutboxQuarantineAll(teamDir string, dryRun bool, olderThan time.Duration, restorable, unrestorable bool, filters outboxListFilters, sortMode string, limit int, now time.Time) ([]outboxQuarantineDropResult, error) {
@@ -856,268 +834,63 @@ func dropOutboxQuarantineAll(teamDir string, dryRun bool, olderThan time.Duratio
 
 func dropOutboxQuarantineItems(teamDir string, items []outboxQuarantineItem, dryRun bool, olderThan time.Duration, sortMode string, limit int, now time.Time) ([]outboxQuarantineDropResult, error) {
 	outboxRoot := daemon.OutboxRoot(teamDir)
-	sortOutboxQuarantineItems(items, sortMode)
-	matches := make([]outboxQuarantineItem, 0, len(items))
-	for _, item := range items {
-		if olderThan > 0 && item.ModTime.After(now.Add(-olderThan)) {
-			continue
-		}
-		matches = append(matches, item)
-		if limit > 0 && len(matches) >= limit {
-			break
-		}
-	}
-	results := make([]outboxQuarantineDropResult, 0, len(matches))
-	for _, item := range matches {
-		result, err := dropOutboxQuarantineItem(outboxRoot, item, dryRun)
-		if err != nil {
-			return results, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
+	return dropQuarantineItemBatch(outboxRoot, items, dryRun, olderThan, sortMode, limit, now, sortOutboxQuarantineItems, func(item outboxQuarantineItem) time.Time {
+		return item.ModTime
+	}, dropOutboxQuarantineItem)
 }
 
 func prepareOutboxQuarantineItems(items []outboxQuarantineItem, sortMode string, limit int) []outboxQuarantineItem {
-	sortOutboxQuarantineItems(items, sortMode)
-	if limit <= 0 || limit >= len(items) {
-		return items
-	}
-	return items[:limit]
+	return prepareQuarantineItems(items, sortMode, limit, sortOutboxQuarantineItems)
 }
 
 func parseOutboxQuarantineSort(raw string) (string, error) {
-	sortMode := strings.ToLower(strings.TrimSpace(raw))
-	switch sortMode {
-	case "", "path", "state", "id", "type", "source", "job", "created", "updated", "modified", "restorable", "size":
-		if sortMode == "" {
-			return "path", nil
-		}
-		return sortMode, nil
-	default:
-		return "", fmt.Errorf("--sort must be path, state, id, type, source, job, created, updated, modified, restorable, or size")
-	}
+	return parseQuarantineSort(raw, outboxQuarantineSortModes, "--sort must be path, state, id, type, source, job, created, updated, modified, restorable, or size")
 }
 
 func sortOutboxQuarantineItems(items []outboxQuarantineItem, sortMode string) {
-	sortMode = strings.ToLower(strings.TrimSpace(sortMode))
-	if sortMode == "" {
-		sortMode = "path"
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := items[i], items[j]
-		switch sortMode {
-		case "state":
-			if left.State != right.State {
-				return outboxStateRank(left.State) < outboxStateRank(right.State)
-			}
-		case "id":
-			if left.ID != right.ID {
-				return left.ID < right.ID
-			}
-		case "type":
-			if left.Type != right.Type {
-				return left.Type < right.Type
-			}
-		case "source":
-			if left.Source != right.Source {
-				return left.Source < right.Source
-			}
-		case "job":
-			if left.Job != right.Job {
-				return left.Job < right.Job
-			}
-		case "created":
-			if !left.CreatedAt.Equal(right.CreatedAt) {
-				return left.CreatedAt.After(right.CreatedAt)
-			}
-		case "updated":
-			if !left.UpdatedAt.Equal(right.UpdatedAt) {
-				return left.UpdatedAt.After(right.UpdatedAt)
-			}
-		case "modified":
-			if !left.ModTime.Equal(right.ModTime) {
-				return left.ModTime.After(right.ModTime)
-			}
-		case "restorable":
-			if left.Restorable != right.Restorable {
-				return left.Restorable && !right.Restorable
-			}
-		case "size":
-			if left.Size != right.Size {
-				return left.Size > right.Size
-			}
-		case "path":
-			if left.Path != right.Path {
-				return left.Path < right.Path
-			}
-		}
-		return left.Path < right.Path
-	})
+	sortQuarantineItems(items, sortMode, func(item outboxQuarantineItem) string {
+		return item.Path
+	}, outboxQuarantineSortLessers)
 }
 
 func dropOutboxQuarantineItem(outboxRoot string, item outboxQuarantineItem, dryRun bool) (outboxQuarantineDropResult, error) {
-	result := outboxQuarantineDropResult{
-		Path:       item.Path,
-		State:      item.State,
-		ID:         item.ID,
-		Restorable: item.Restorable,
-		Action:     "would_drop",
-		DryRun:     dryRun,
-	}
-	if dryRun {
-		return result, nil
-	}
-	source, err := outboxDoctorSafeOutboxPath(outboxRoot, item.Path)
-	if err != nil {
-		return result, err
-	}
-	if err := os.Remove(source); err != nil {
-		return result, err
-	}
-	pruneEmptyOutboxQuarantineDirs(outboxRoot, filepath.Dir(source))
-	result.Action = "dropped"
-	result.Dropped = true
-	result.DryRun = false
-	return result, nil
+	return dropQuarantineItem(outboxRoot, item, dryRun, outboxQuarantineDropConfig)
 }
 
 func pruneEmptyOutboxQuarantineDirs(outboxRoot, dir string) {
-	stop := filepath.Join(outboxRoot, outboxQuarantineDir)
-	for {
-		if dir == "" || dir == "." || dir == stop || !strings.HasPrefix(dir, stop) {
-			return
-		}
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
+	pruneEmptyQuarantineDirs(outboxRoot, dir, outboxQuarantineDir)
 }
 
 func normalizeOutboxQuarantinePath(raw string) (string, error) {
-	clean := filepath.Clean(strings.TrimSpace(raw))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("unsafe quarantine path %q", raw)
-	}
-	slash := filepath.ToSlash(clean)
-	if !strings.HasPrefix(slash, outboxQuarantineDir+"/") {
-		slash = outboxQuarantineDir + "/" + slash
-	}
-	if outboxQuarantineState(filepath.FromSlash(slash)) == "" {
-		return "", fmt.Errorf("quarantine path must look like quarantine/<timestamp>/pending/<file>.json, quarantine/<timestamp>/processed/<file>.json, or quarantine/<timestamp>/failed/<file>.json")
-	}
-	if !strings.HasSuffix(slash, ".json") {
-		return "", fmt.Errorf("quarantine path must name a .json file")
-	}
-	return filepath.FromSlash(slash), nil
+	return normalizeQuarantinePath(raw, outboxQuarantineDir, ".json", "quarantine path must look like quarantine/<timestamp>/pending/<file>.json, quarantine/<timestamp>/processed/<file>.json, or quarantine/<timestamp>/failed/<file>.json", outboxQuarantineState)
 }
 
 func parseOutboxQuarantineCommandFormat(cmd *cobra.Command, command, format string, jsonOut bool) (*template.Template, error) {
-	if format != "" && jsonOut {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: --format cannot be combined with --json.\n", command)
-		return nil, exitErr(2)
-	}
-	tmpl, err := parseOutboxQuarantineFormat(format)
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", command, err)
-		return nil, exitErr(2)
-	}
-	return tmpl, nil
+	return parseQuarantineCommandFormat(cmd, command, format, "outbox-quarantine-format", jsonOut)
 }
 
 func parseOutboxQuarantineFormat(format string) (*template.Template, error) {
-	if strings.TrimSpace(format) == "" {
-		return nil, nil
-	}
-	tmpl, err := template.New("outbox-quarantine-format").Parse(format)
-	if err != nil {
-		return nil, fmt.Errorf("invalid --format template: %w", err)
-	}
-	return tmpl, nil
+	return parseQuarantineFormat(format, "outbox-quarantine-format")
 }
 
 func renderOutboxQuarantineList(w io.Writer, items []outboxQuarantineItem, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		if items == nil {
-			items = []outboxQuarantineItem{}
-		}
-		return json.NewEncoder(w).Encode(items)
-	}
-	if tmpl != nil {
-		for _, item := range items {
-			if err := renderOutboxQuarantineTemplate(w, item, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(items) == 0 {
-		fmt.Fprintln(w, "(no quarantined outbox files)")
-		return nil
-	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PATH\tSTATE\tID\tTYPE\tSOURCE\tJOB\tRESTORABLE\tPROBLEM")
-	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			item.Path,
-			emptyDash(item.State),
-			emptyDash(item.ID),
-			emptyDash(item.Type),
-			emptyDash(item.Source),
-			emptyDash(item.Job),
-			outboxQuarantineRestorableText(item.Restorable),
-			emptyDash(item.Problem))
-	}
-	return tw.Flush()
+	return renderQuarantineList(w, items, jsonOut, tmpl, "(no quarantined outbox files)", outboxQuarantineListColumns)
 }
 
 func renderOutboxQuarantineSummary(w io.Writer, summary outboxQuarantineSummary, jsonOut bool) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(summary)
-	}
-	fmt.Fprintln(w, outboxQuarantineSummaryLine(summary))
-	return nil
+	return renderQuarantineSummary(w, summary, jsonOut, outboxQuarantineSummaryLine)
 }
 
 func outboxQuarantineRestorableText(restorable bool) string {
-	if restorable {
-		return "yes"
-	}
-	return "no"
+	return quarantineRestorableText(restorable)
 }
 
 func renderOutboxQuarantineRestore(w io.Writer, result outboxQuarantineRestoreResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(result)
-	}
-	if tmpl != nil {
-		return renderOutboxQuarantineTemplate(w, result, tmpl)
-	}
-	renderOutboxQuarantineRestoreLine(w, result)
-	return nil
+	return renderQuarantineResult(w, result, jsonOut, tmpl, renderOutboxQuarantineRestoreLine)
 }
 
 func renderOutboxQuarantineRestoreMany(w io.Writer, results []outboxQuarantineRestoreResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(results)
-	}
-	if tmpl != nil {
-		for _, result := range results {
-			if err := renderOutboxQuarantineTemplate(w, result, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(results) == 0 {
-		fmt.Fprintln(w, "(no restorable quarantined outbox files matched)")
-		return nil
-	}
-	for _, result := range results {
-		renderOutboxQuarantineRestoreLine(w, result)
-	}
-	return nil
+	return renderQuarantineResults(w, results, jsonOut, tmpl, "(no restorable quarantined outbox files matched)", renderOutboxQuarantineRestoreLine)
 }
 
 func renderOutboxQuarantineRestoreLine(w io.Writer, result outboxQuarantineRestoreResult) {
@@ -1130,12 +903,9 @@ func renderOutboxQuarantineRestoreLine(w io.Writer, result outboxQuarantineResto
 }
 
 func outboxQuarantineRestoreResultsHaveDryRunAction(results []outboxQuarantineRestoreResult, action string) bool {
-	for _, result := range results {
-		if result.DryRun && result.Action == action {
-			return true
-		}
-	}
-	return false
+	return quarantineResultsHaveDryRunAction(results, action, func(result outboxQuarantineRestoreResult, action string) bool {
+		return result.DryRun && result.Action == action
+	})
 }
 
 func renderOutboxQuarantineShow(w io.Writer, result outboxQuarantineShowResult, jsonOut bool, tmpl *template.Template) error {
@@ -1143,7 +913,7 @@ func renderOutboxQuarantineShow(w io.Writer, result outboxQuarantineShowResult, 
 		return json.NewEncoder(w).Encode(result)
 	}
 	if tmpl != nil {
-		return renderOutboxQuarantineTemplate(w, result, tmpl)
+		return renderQuarantineTemplate(w, result, tmpl)
 	}
 	fmt.Fprintf(w, "Path:        %s\n", result.Path)
 	fmt.Fprintf(w, "State:       %s\n", emptyDash(result.State))
@@ -1180,18 +950,7 @@ func renderOutboxQuarantineCommands(w io.Writer, result outboxQuarantineShowResu
 type outboxQuarantineActionResolver func(outboxQuarantineItem) []string
 
 func renderOutboxQuarantineListCommands(w io.Writer, items []outboxQuarantineItem, actions outboxQuarantineActionResolver, scope operatorCommandScope) error {
-	out := make([]string, 0, len(items)*2)
-	for _, item := range items {
-		out = append(out, outboxQuarantineItemResolvedActions(item, actions)...)
-	}
-	return renderOperatorActionCommands(w, out, scope)
-}
-
-func outboxQuarantineItemResolvedActions(item outboxQuarantineItem, actions outboxQuarantineActionResolver) []string {
-	if actions != nil {
-		return actions(item)
-	}
-	return outboxQuarantineItemActions(item)
+	return renderQuarantineListCommands(w, items, actions, outboxQuarantineItemActions, scope)
 }
 
 func outboxQuarantineItemActions(item outboxQuarantineItem) []string {
@@ -1210,67 +969,22 @@ func scopedOutboxQuarantineActionResolver(scopeJob, pipeline, team string) outbo
 }
 
 func outboxQuarantineShowActions(result outboxQuarantineShowResult) []string {
-	if result.Path == "" {
-		return nil
-	}
-	var prefix string
-	if result.ScopeJob != "" {
-		prefix = fmt.Sprintf("agent-team job outbox quarantine %%s %s %s", result.ScopeJob, result.Path)
-	} else if result.Pipeline != "" {
-		prefix = fmt.Sprintf("agent-team pipeline outbox quarantine %%s %s %s", result.Pipeline, result.Path)
-	} else if result.Team != "" {
-		prefix = fmt.Sprintf("agent-team team outbox quarantine %%s %s %s", result.Team, result.Path)
-	} else {
-		prefix = fmt.Sprintf("agent-team outbox quarantine %%s %s", result.Path)
-	}
-	actions := []string{}
-	if result.Restorable {
-		actions = append(actions, fmt.Sprintf(prefix, "restore"))
-	}
-	actions = append(actions, fmt.Sprintf(prefix, "drop"))
-	return actions
+	return quarantineShowActions("outbox", result.Path, result.Restorable, result.ScopeJob, result.Pipeline, result.Team)
 }
 
 func outboxQuarantineDropResultsHaveDryRunAction(results []outboxQuarantineDropResult, action string) bool {
-	for _, result := range results {
-		if result.DryRun && result.Action == action {
-			return true
-		}
-	}
-	return false
+	return quarantineResultsHaveDryRunAction(results, action, func(result outboxQuarantineDropResult, action string) bool {
+		return result.DryRun && result.Action == action
+	})
 }
 
 func renderOutboxQuarantineDrop(w io.Writer, results []outboxQuarantineDropResult, jsonOut bool, tmpl *template.Template) error {
-	if jsonOut {
-		return json.NewEncoder(w).Encode(results)
-	}
-	if tmpl != nil {
-		for _, result := range results {
-			if err := renderOutboxQuarantineTemplate(w, result, tmpl); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(results) == 0 {
-		fmt.Fprintln(w, "(no quarantined outbox files matched)")
-		return nil
-	}
-	for _, result := range results {
+	return renderQuarantineResults(w, results, jsonOut, tmpl, "(no quarantined outbox files matched)", func(w io.Writer, result outboxQuarantineDropResult) {
 		switch result.Action {
 		case "would_drop":
 			fmt.Fprintf(w, "Would drop %s\n", result.Path)
 		default:
 			fmt.Fprintf(w, "Dropped %s\n", result.Path)
 		}
-	}
-	return nil
-}
-
-func renderOutboxQuarantineTemplate(w io.Writer, value any, tmpl *template.Template) error {
-	if err := tmpl.Execute(w, value); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintln(w)
-	return err
+	})
 }
