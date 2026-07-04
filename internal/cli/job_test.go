@@ -100,13 +100,13 @@ func writeJobAuthorityTopology(t *testing.T, teamDir string) {
 	t.Helper()
 	body := topoFixture + `
 [authority.agents.worker]
-allow = ["job.gate.*"]
+allow = ["job.gate.*:own", "job.merge:own"]
 
 [authority.agents.reviewer]
-allow = ["job.gate.*"]
+allow = ["job.gate.*:own", "job.merge:own"]
 
 [authority.agents.manager]
-allow = ["job.merge"]
+allow = ["job.*"]
 `
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write instances.toml: %v", err)
@@ -14542,15 +14542,19 @@ func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
 
 func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 	cases := []struct {
+		name          string
 		actor         string
+		originJobID   string
 		wantViolation bool
 	}{
-		{actor: "worker"},
-		{actor: "reviewer"},
-		{actor: "manager", wantViolation: true},
+		{name: "worker-own-job", actor: "worker"},
+		{name: "reviewer-own-job", actor: "reviewer"},
+		{name: "worker-cross-job", actor: "worker", originJobID: "SQU-actor", wantViolation: true},
+		{name: "reviewer-cross-job", actor: "reviewer", originJobID: "SQU-actor", wantViolation: true},
+		{name: "manager-any-job", actor: "manager", originJobID: "SQU-actor"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.actor, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			initInto(t, root)
 			teamDir := filepath.Join(root, ".agent_team")
@@ -14559,7 +14563,11 @@ func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 			if err := job.Write(teamDir, j); err != nil {
 				t.Fatalf("write job: %v", err)
 			}
-			setJobAuthorityOriginEnv(t, tc.actor, j.ID)
+			originJobID := tc.originJobID
+			if originJobID == "" {
+				originJobID = j.ID
+			}
+			setJobAuthorityOriginEnv(t, tc.actor, originJobID)
 
 			cmd := NewRootCmd()
 			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -14587,7 +14595,7 @@ func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 			}
 			if tc.wantViolation {
 				ev := jobViolations[0]
-				if ev.Data["verb"] != "job.gate.set" || ev.Data["resource"] != "job:"+j.ID+":gate:review" || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" {
+				if ev.JobID != j.ID || ev.Data["verb"] != "job.gate.set" || ev.Data["resource"] != "job:"+j.ID+":gate:review" || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Origin.Job != originJobID {
 					t.Fatalf("job authority event = %+v", ev)
 				}
 				if daemonViolations[0].Origin.Agent != tc.actor || daemonViolations[0].Origin.Team != "platform" {
@@ -14672,15 +14680,19 @@ func TestJobMergeSquashUsesRecordedPR(t *testing.T) {
 
 func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 	cases := []struct {
+		name          string
 		actor         string
+		originJobID   string
 		wantViolation bool
 	}{
-		{actor: "worker", wantViolation: true},
-		{actor: "reviewer", wantViolation: true},
-		{actor: "manager"},
+		{name: "worker-own-job", actor: "worker"},
+		{name: "reviewer-own-job", actor: "reviewer"},
+		{name: "worker-cross-job", actor: "worker", originJobID: "SQU-actor", wantViolation: true},
+		{name: "reviewer-cross-job", actor: "reviewer", originJobID: "SQU-actor", wantViolation: true},
+		{name: "manager-any-job", actor: "manager", originJobID: "SQU-actor"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.actor, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
 			initInto(t, tmp)
 			teamDir := filepath.Join(tmp, ".agent_team")
@@ -14693,7 +14705,11 @@ func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 			if err := job.Write(teamDir, j); err != nil {
 				t.Fatalf("write job: %v", err)
 			}
-			setJobAuthorityOriginEnv(t, tc.actor, j.ID)
+			originJobID := tc.originJobID
+			if originJobID == "" {
+				originJobID = j.ID
+			}
+			setJobAuthorityOriginEnv(t, tc.actor, originJobID)
 
 			cmd := NewRootCmd()
 			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -14721,7 +14737,7 @@ func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 			}
 			if tc.wantViolation {
 				ev := jobViolations[0]
-				if ev.Data["verb"] != "job.merge" || ev.Data["resource"] != "job:"+j.ID || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" {
+				if ev.JobID != j.ID || ev.Data["verb"] != "job.merge" || ev.Data["resource"] != "job:"+j.ID || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Origin.Job != originJobID {
 					t.Fatalf("job authority event = %+v", ev)
 				}
 				if daemonViolations[0].Origin.Agent != tc.actor || daemonViolations[0].Origin.Team != "platform" {

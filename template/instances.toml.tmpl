@@ -276,10 +276,10 @@ schedules   = ["feedback-triage"]
 # enforce = false # Phase 1 is audit-only; violations are logged, not blocked.
 #
 # [authority.agents.worker]
-# allow = ["inbox.send", "channel.*", "job.gate.*", "status.*", "feedback.submit"]
+# allow = ["inbox.send", "channel.*", "job.gate.*:own", "status.*", "feedback.submit"]
 #
 # [authority.agents.reviewer]
-# allow = ["inbox.send", "channel.*", "job.gate.*"]
+# allow = ["inbox.send", "channel.*", "job.gate.*:own"]
 #
 # [authority.agents.manager]
 # allow = ["*"]

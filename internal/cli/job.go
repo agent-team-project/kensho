@@ -7700,6 +7700,7 @@ func auditCLIJobAuthority(teamDir string, j *job.Job, verb, resource string) {
 		Verb:       verb,
 		Resource:   resource,
 		JobID:      j.ID,
+		TargetJob:  j.ID,
 		EventActor: "cli",
 	})
 }

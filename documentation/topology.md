@@ -173,7 +173,7 @@ channels    = ["supervisor"]
 enforce = false           # phase 1: audit-only, log violations without blocking
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own"]
 
 [authority.agents.manager]
 allow = ["*"]
@@ -204,7 +204,7 @@ be namespaced.
 
 | Field | Required | Default | Meaning |
 |---|---|---|---|
-| `scope` | no | `machine` | Storage namespace for this channel: `machine` keeps the historical `#name`, `team` stores messages/cursors under the actor or owning team, and `job` stores them under the actor job id. |
+| `scope` | no | `machine` | Storage namespace for this channel: `machine` keeps the historical `#name`, `team` stores messages/cursors under the owning topology team, and `job` stores them under the actor job id. |
 
 Channel reads remain open; the scope controls which storage key a declared
 channel write/read maps to, while authority allowlists audit write verbs.
@@ -397,16 +397,19 @@ defaults to false.
 enforce = false
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own"]
 
 [authority.teams.platform]
 allow = ["event.publish", "queue.*"]
 ```
 
 Allow entries are exact verbs (`inbox.send`) or prefix wildcards (`queue.*`);
-`*` allows every audited verb. Per-agent and per-team rules are additive: a
-write is considered allowed if either rule matches. Reads are intentionally not
-audited or blocked so cross-team inspection remains possible.
+`*` allows every audited verb. Job-targeting entries can add `:own`, such as
+`job.gate.*:own`, to match only when the target job id equals the caller's
+origin job (`AGENT_TEAM_ORIGIN_JOB`, falling back to `AGENT_TEAM_JOB_ID`).
+Unqualified entries match any target job. Per-agent and per-team rules are
+additive: a write is considered allowed if either rule matches. Reads are
+intentionally not audited or blocked so cross-team inspection remains possible.
 
 ### Origin envelope and project id
 

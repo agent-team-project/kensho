@@ -32,6 +32,7 @@ type AuthorityAuditOptions struct {
 	Verb       string
 	Resource   string
 	JobID      string
+	TargetJob  string
 	EventActor string
 }
 
@@ -46,7 +47,17 @@ func AuditAuthority(opts AuthorityAuditOptions) {
 	actor := opts.Actor.Clean()
 	verb := strings.TrimSpace(opts.Verb)
 	resource := strings.TrimSpace(opts.Resource)
-	if topo.Authority.Allows(actor.Agent, actor.Team, verb) {
+	targetJob := strings.TrimSpace(opts.TargetJob)
+	if targetJob == "" {
+		targetJob = strings.TrimSpace(opts.JobID)
+	}
+	if topo.Authority.Allows(topology.AuthorityDecision{
+		Agent:     actor.Agent,
+		Team:      actor.Team,
+		Verb:      verb,
+		ActorJob:  actor.Job,
+		TargetJob: targetJob,
+	}) {
 		return
 	}
 	message := authorityViolationMessage(actor, verb, resource)
@@ -56,9 +67,9 @@ func AuditAuthority(opts AuthorityAuditOptions) {
 		"agent":    actor.Agent,
 		"team":     actor.Team,
 	}
-	jobID := strings.TrimSpace(actor.Job)
+	jobID := targetJob
 	if jobID == "" {
-		jobID = strings.TrimSpace(opts.JobID)
+		jobID = strings.TrimSpace(actor.Job)
 	}
 	daemonRoot := strings.TrimSpace(opts.DaemonRoot)
 	if daemonRoot != "" {

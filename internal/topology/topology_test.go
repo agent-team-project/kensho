@@ -164,7 +164,7 @@ match.target = "worker"
 enforce = false
 
 [authority.agents.worker]
-allow = ["inbox.*", "job.gate.set"]
+allow = ["inbox.*", "job.gate.set:own"]
 
 [authority.teams.platform]
 verbs = ["job.*", "queue.retry"]
@@ -192,13 +192,19 @@ channels = ["supervisor"]
 	if top.Authority == nil || top.Authority.Enforce {
 		t.Fatalf("authority = %+v", top.Authority)
 	}
-	if !top.Authority.Allows("worker", "", "inbox.check") {
+	if !top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "inbox.check"}) {
 		t.Fatalf("worker inbox.check should be allowed by wildcard")
 	}
-	if !top.Authority.Allows("reviewer", "platform", "job.merge") {
+	if !top.Authority.Allows(AuthorityDecision{Agent: "reviewer", Team: "platform", Verb: "job.merge", ActorJob: "squ-92", TargetJob: "squ-93"}) {
 		t.Fatalf("platform job.merge should be allowed by team wildcard")
 	}
-	if top.Authority.Allows("worker", "", "job.merge") {
+	if !top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "job.gate.set", ActorJob: "squ-92", TargetJob: "squ-92"}) {
+		t.Fatalf("worker job.gate.set should be allowed for own job")
+	}
+	if top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "job.gate.set", ActorJob: "squ-92", TargetJob: "squ-93"}) {
+		t.Fatalf("worker job.gate.set should not be allowed for another job")
+	}
+	if top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "job.merge"}) {
 		t.Fatalf("worker job.merge should not be allowed")
 	}
 	if got := ScopedResourceName("build", ScopeTeam, "platform", "squ-92"); got != "team.platform.build" {

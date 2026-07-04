@@ -217,14 +217,16 @@ violations append `authority_violation` daemon/job events and appear in
 enforce = false
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own"]
 
 [authority.agents.manager]
 allow = ["*"]
 ```
 
-Allow entries are exact verbs or prefix wildcards such as `queue.*`. Agent and
-team rules are additive.
+Allow entries are exact verbs or prefix wildcards such as `queue.*`. Job
+verbs can add `:own`, such as `job.gate.*:own`, to match only when the target
+job id equals the caller's origin job. Unqualified entries match any target
+job. Agent and team rules are additive.
 
 ## Validation
 

@@ -176,7 +176,7 @@ channels = ["supervisor"]
 enforce = false
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own"]
 ```
 
 Normalized intake events use names like `ticket.created`, `ticket.updated`,
@@ -201,9 +201,13 @@ historical flat namespace. Team-scoped schedules use the declaring team for the
 persisted clock key while publishing the same schedule event name.
 
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
-undeclared channels still work. `[authority]` allowlists are audit-only in this
-release: violations append `authority_violation` events and show up in job
-triage, but requests are not blocked while `enforce` remains false.
+undeclared channels still work. Team-scoped channels always use the owning
+topology team for storage; actor team is authority-audit input only.
+`[authority]` allowlists are audit-only in this release: violations append
+`authority_violation` events and show up in job triage, but requests are not
+blocked while `enforce` remains false. Job verbs can use `:own`, such as
+`job.gate.*:own`, to match only when the target job id equals the caller's
+origin job.
 
 ## Job TOML
 

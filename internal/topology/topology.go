@@ -218,9 +218,19 @@ type Authority struct {
 }
 
 // AuthorityRule is a verb allowlist for one agent or team. Verbs may be exact
-// (`job.gate.set`) or prefix wildcards (`job.*`).
+// (`job.gate.set`) or prefix wildcards (`job.*`), with optional scope
+// qualifiers such as `:own`.
 type AuthorityRule struct {
 	Allow []string
+}
+
+// AuthorityDecision is one audited daemon or CLI action.
+type AuthorityDecision struct {
+	Agent     string
+	Team      string
+	Verb      string
+	ActorJob  string
+	TargetJob string
 }
 
 // Configured reports whether at least one allowlist exists.
@@ -231,35 +241,70 @@ func (a *Authority) Configured() bool {
 	return len(a.Agents) > 0 || len(a.Teams) > 0
 }
 
-// Allows reports whether agent/team is allowed to perform verb.
-func (a *Authority) Allows(agent, team, verb string) bool {
+// Allows reports whether the actor is allowed to perform the decision's verb.
+func (a *Authority) Allows(decision AuthorityDecision) bool {
 	if !a.Configured() {
 		return true
 	}
-	verb = strings.TrimSpace(verb)
-	if verb == "" {
+	decision = cleanAuthorityDecision(decision)
+	if decision.Verb == "" {
 		return false
 	}
-	if rule := a.Agents[strings.TrimSpace(agent)]; rule != nil && rule.Allows(verb) {
+	if rule := a.Agents[decision.Agent]; rule != nil && rule.Allows(decision) {
 		return true
 	}
-	if rule := a.Teams[strings.TrimSpace(team)]; rule != nil && rule.Allows(verb) {
+	if rule := a.Teams[decision.Team]; rule != nil && rule.Allows(decision) {
 		return true
 	}
 	return false
 }
 
-// Allows reports whether this rule includes verb.
-func (r *AuthorityRule) Allows(verb string) bool {
+// Allows reports whether this rule includes the decision's verb and scope.
+func (r *AuthorityRule) Allows(decision AuthorityDecision) bool {
 	if r == nil {
 		return false
 	}
+	decision = cleanAuthorityDecision(decision)
 	for _, allow := range r.Allow {
-		if authorityVerbMatches(allow, verb) {
+		if authorityAllowMatches(allow, decision) {
 			return true
 		}
 	}
 	return false
+}
+
+func cleanAuthorityDecision(decision AuthorityDecision) AuthorityDecision {
+	return AuthorityDecision{
+		Agent:     strings.TrimSpace(decision.Agent),
+		Team:      strings.TrimSpace(decision.Team),
+		Verb:      strings.TrimSpace(decision.Verb),
+		ActorJob:  strings.TrimSpace(decision.ActorJob),
+		TargetJob: strings.TrimSpace(decision.TargetJob),
+	}
+}
+
+func authorityAllowMatches(allow string, decision AuthorityDecision) bool {
+	pattern, qualifier := splitAuthorityAllow(allow)
+	if !authorityVerbMatches(pattern, decision.Verb) {
+		return false
+	}
+	switch qualifier {
+	case "":
+		return true
+	case "own":
+		return decision.ActorJob != "" && decision.TargetJob != "" && strings.EqualFold(decision.ActorJob, decision.TargetJob)
+	default:
+		return false
+	}
+}
+
+func splitAuthorityAllow(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	verb, qualifier, ok := strings.Cut(value, ":")
+	if !ok {
+		return value, ""
+	}
+	return strings.TrimSpace(verb), strings.TrimSpace(qualifier)
 }
 
 func authorityVerbMatches(pattern, verb string) bool {
@@ -1170,8 +1215,22 @@ func finaliseAuthorityAllowList(kind, name string, rule *rawAuthorityRule) ([]st
 }
 
 func validateAuthorityVerb(value string) error {
+	value = strings.TrimSpace(value)
+	verb, qualifier, hasQualifier := strings.Cut(value, ":")
+	if hasQualifier {
+		if strings.Contains(qualifier, ":") {
+			return fmt.Errorf("authority scope qualifier must be :own")
+		}
+		if strings.TrimSpace(qualifier) != "own" {
+			return fmt.Errorf("authority scope qualifier must be :own")
+		}
+		value = strings.TrimSpace(verb)
+	}
 	if value == "*" {
 		return nil
+	}
+	if value == "" {
+		return fmt.Errorf("verb must be non-empty")
 	}
 	if strings.Contains(value, "..") {
 		return fmt.Errorf("verb must not contain empty path segments")
