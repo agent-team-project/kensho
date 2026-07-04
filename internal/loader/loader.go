@@ -115,20 +115,24 @@ func LoadAllAgents(teamDir string) ([]*Agent, error) {
 	return out, nil
 }
 
-// agentSkillsConfig matches the `[skills]` section of an agent's config.toml.
-type agentSkillsConfig struct {
+// skillsConfig matches the `[skills]` section in repo and agent config files.
+type skillsConfig struct {
 	Skills struct {
 		Extra   []string `toml:"extra"`
 		Disable []string `toml:"disable"`
+		Team    []string `toml:"team"`
 	} `toml:"skills"`
 }
 
 // ResolveSkills returns {skill-name: absolute path} for the agent. Local
 // skills under `<agentDir>/skills/<n>/` are auto-included; `[skills].extra`
 // in `<agentDir>/config.toml` pulls in shared (`<teamDir>/skills/<spec>`) or
-// path-referenced (`./...`, `foo/bar`) skills. `[skills].disable` opts out.
+// path-referenced (`./...`, `foo/bar`) skills. `[skills].disable` opts out of
+// local and extra skills. `[skills].team` in `<teamDir>/config.toml` adds shared
+// skills for every agent.
 func ResolveSkills(agentDir, teamDir string) (map[string]string, error) {
 	skills := map[string]string{}
+	agentName := filepath.Base(agentDir)
 
 	localRoot := filepath.Join(agentDir, "skills")
 	if entries, err := os.ReadDir(localRoot); err == nil {
@@ -144,7 +148,7 @@ func ResolveSkills(agentDir, teamDir string) (map[string]string, error) {
 			if isFile(filepath.Join(child, "SKILL.md")) {
 				resolved, err := resolvePath(child)
 				if err != nil {
-					return nil, newLoadErr("%s: cannot resolve %s: %v", filepath.Base(agentDir), child, err)
+					return nil, newLoadErr("%s: cannot resolve %s: %v", agentName, child, err)
 				}
 				skills[name] = resolved
 			}
@@ -152,10 +156,10 @@ func ResolveSkills(agentDir, teamDir string) (map[string]string, error) {
 	}
 
 	cfgPath := filepath.Join(agentDir, "config.toml")
-	var cfg agentSkillsConfig
+	var cfg skillsConfig
 	if isFile(cfgPath) {
 		if _, err := toml.DecodeFile(cfgPath, &cfg); err != nil {
-			return nil, newLoadErr("%s: invalid config.toml: %v", filepath.Base(agentDir), err)
+			return nil, newLoadErr("%s: invalid config.toml: %v", agentName, err)
 		}
 	}
 
@@ -171,14 +175,14 @@ func ResolveSkills(agentDir, teamDir string) (map[string]string, error) {
 		if err != nil || !isDir(path) || !isFile(filepath.Join(path, "SKILL.md")) {
 			return nil, newLoadErr(
 				"%s: skill `%s` not found at %s (no SKILL.md)",
-				filepath.Base(agentDir), spec, path,
+				agentName, spec, path,
 			)
 		}
 		name := filepath.Base(path)
 		if existing, ok := skills[name]; ok && existing != path {
 			return nil, newLoadErr(
 				"%s: skill name `%s` is already a local skill at %s; can't also import a different `%s`",
-				filepath.Base(agentDir), name, existing, spec,
+				agentName, name, existing, spec,
 			)
 		}
 		skills[name] = path
@@ -188,6 +192,56 @@ func ResolveSkills(agentDir, teamDir string) (map[string]string, error) {
 		delete(skills, name)
 	}
 
+	teamSkills, err := ResolveTeamSkills(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	for name, path := range teamSkills {
+		if existing, ok := skills[name]; ok && existing != path {
+			return nil, newLoadErr(
+				"%s: team skill `%s` resolves to %s but this agent already has `%s` at %s",
+				agentName, name, path, name, existing,
+			)
+		}
+		skills[name] = path
+	}
+
+	return skills, nil
+}
+
+// ResolveTeamSkills returns shared skills configured at repo scope for every
+// launched agent via `[skills] team = ["..."]` in `<teamDir>/config.toml`.
+func ResolveTeamSkills(teamDir string) (map[string]string, error) {
+	cfgPath := filepath.Join(teamDir, "config.toml")
+	var cfg skillsConfig
+	if isFile(cfgPath) {
+		if _, err := toml.DecodeFile(cfgPath, &cfg); err != nil {
+			return nil, newLoadErr("%s: invalid config.toml: %v", filepath.Base(teamDir), err)
+		}
+	}
+
+	skills := map[string]string{}
+	sharedRoot := filepath.Join(teamDir, "skills")
+	for _, spec := range cfg.Skills.Team {
+		name := strings.TrimSpace(spec)
+		if name == "" {
+			return nil, newLoadErr("%s: team skill name cannot be empty", filepath.Base(teamDir))
+		}
+		if strings.Contains(name, "/") || strings.Contains(name, string(filepath.Separator)) || strings.HasPrefix(name, ".") {
+			return nil, newLoadErr(
+				"%s: team skill `%s` must be a shared skill name under skills/, not a path",
+				filepath.Base(teamDir), spec,
+			)
+		}
+		path, err := resolvePath(filepath.Join(sharedRoot, name))
+		if err != nil || !isDir(path) || !isFile(filepath.Join(path, "SKILL.md")) {
+			return nil, newLoadErr(
+				"%s: team skill `%s` not found at %s (no SKILL.md)",
+				filepath.Base(teamDir), spec, path,
+			)
+		}
+		skills[name] = path
+	}
 	return skills, nil
 }
 

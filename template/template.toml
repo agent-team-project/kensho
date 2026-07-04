@@ -71,6 +71,12 @@ pattern     = "^(none|linear)$"
 description = "Which PM tool the team talks to. Use none for ticketless jobs or linear for Linear-backed tickets."
 
 [[parameter]]
+key         = "skills.team"
+type        = "list<string>"
+default     = []
+description = "Shared skills under .agent_team/skills/ that should be registered for every launched agent."
+
+[[parameter]]
 key         = "otel.enabled"
 type        = "bool"
 default     = false

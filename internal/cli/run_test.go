@@ -43,6 +43,7 @@ type runCapture struct {
 	addDir       string
 	promptFile   string
 	agentsJSON   string
+	skills       []string
 	settings     string
 	settingsBody string
 }
@@ -74,8 +75,15 @@ func captureRun(t *testing.T, rc error) (*runCapture, func()) {
 			switch args[i] {
 			case "--add-dir":
 				cap.addDir = args[i+1]
-				if st, err := os.Stat(filepath.Join(cap.addDir, ".claude", "skills")); err == nil && st.IsDir() {
+				skillsRoot := filepath.Join(cap.addDir, ".claude", "skills")
+				if st, err := os.Stat(skillsRoot); err == nil && st.IsDir() {
 					cap.skillsDirOK = true
+					if entries, err := os.ReadDir(skillsRoot); err == nil {
+						for _, entry := range entries {
+							cap.skills = append(cap.skills, entry.Name())
+						}
+						sort.Strings(cap.skills)
+					}
 				}
 			case "--append-system-prompt-file":
 				cap.promptFile = args[i+1]
@@ -401,6 +409,33 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 		if !strings.Contains(cap.settingsBody, want) {
 			t.Fatalf("mailbox hook settings missing %q:\n%s", want, cap.settingsBody)
 		}
+	}
+}
+
+func TestRun_StagesTeamLevelSkills(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "skills", "team-only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "skills", "team-only", "SKILL.md"), []byte("team skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setTeamSkillsForTest(t, teamDir, "team-only")
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !containsString(cap.skills, "team-only") {
+		t.Fatalf("staged skills = %v, want team-only", cap.skills)
 	}
 }
 

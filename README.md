@@ -177,7 +177,7 @@ The bundled Linear pipeline dispatches when a ticket moves into `linear.agent_co
 ```
 .agent_team/
 ├── .template.lock             # template ref + source content hash
-├── config.toml                # resolved parameter values, repo-wide
+├── config.toml                # resolved parameter values and team-wide skills
 ├── agents/
 │   ├── <name>/
 │   │   ├── agent.md           # frontmatter + prompt body
@@ -558,7 +558,7 @@ Use `snapshot --output diagnostics.json` when you need one read-only artifact fo
 
 ## How `run` works
 
-`agent-team run <agent>` reads every `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/` plus `[skills].extra` in `agents/<name>/config.toml`, builds a tmpdir of symlinks satisfying the runtime's extra-directory discovery, and exec's the selected runtime.
+`agent-team run <agent>` reads every `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/`, `[skills].extra` in `agents/<name>/config.toml`, plus team-wide `[skills].team` in `.agent_team/config.toml`, builds a tmpdir of symlinks satisfying the runtime's extra-directory discovery, and exec's the selected runtime.
 
 The default runtime is Claude-compatible:
 

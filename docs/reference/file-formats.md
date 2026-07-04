@@ -21,6 +21,9 @@ job_stale_after = "24h"
 [notifications]
 phase_transitions = ["blocked"]
 idle_renotify = "0"
+
+[skills]
+team = []
 ```
 
 Read by skills and the CLI.
@@ -38,6 +41,10 @@ instance `status.toml` phase transitions are published to `#supervisor`.
 `"blocked"` reports any transition into blocked; `"idle"` reports busy-to-idle
 transitions. `idle_renotify` is a duration string such as `"30m"`; `"0"` disables
 repeat idle notifications.
+
+`[skills].team` defaults to an empty list in the bundled template. Each entry
+names a shared skill under `.agent_team/skills/` that should be registered for
+every launched agent.
 
 ## `.agent_team/.template.lock`
 

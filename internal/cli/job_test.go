@@ -16821,6 +16821,8 @@ func initGitRepoForJobTest(t *testing.T, dir string) {
 	runGitForJobTest(t, dir, "init", "-b", "main")
 	runGitForJobTest(t, dir, "config", "user.email", "test@example.com")
 	runGitForJobTest(t, dir, "config", "user.name", "Agent Team Test")
+	runGitForJobTest(t, dir, "config", "gc.auto", "0")
+	runGitForJobTest(t, dir, "config", "maintenance.auto", "false")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

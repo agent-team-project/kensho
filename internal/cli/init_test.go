@@ -24,6 +24,27 @@ func initArgsWithRequired(target string) []string {
 	}
 }
 
+func setTeamSkillsForTest(t *testing.T, teamDir string, skills ...string) {
+	t.Helper()
+	cfgPath := filepath.Join(teamDir, "config.toml")
+	bodyBytes, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		quoted = append(quoted, `"`+strings.ReplaceAll(skill, `"`, `\"`)+`"`)
+	}
+	body := string(bodyBytes)
+	next := strings.Replace(body, "team = []", "team = ["+strings.Join(quoted, ", ")+"]", 1)
+	if next == body {
+		t.Fatalf("config.toml missing empty team skills list:\n%s", body)
+	}
+	if err := os.WriteFile(cfgPath, []byte(next), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInit_DefaultTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
@@ -73,6 +94,16 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	}
 	if !strings.Contains(body, `pm_tool = "linear"`) {
 		t.Errorf("config.toml should auto-enable Linear when linear.* is set: %s", body)
+	}
+	if !strings.Contains(body, `team = []`) {
+		t.Errorf("config.toml missing empty team skills list: %s", body)
+	}
+	workerConfig, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "agents", "worker", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(workerConfig); !strings.Contains(got, ".agent_team/config.toml") || !strings.Contains(got, `team = ["linear", "status"]`) {
+		t.Errorf("worker config missing team-skill guidance: %s", got)
 	}
 	lock, err := os.ReadFile(filepath.Join(tmp, ".agent_team", ".template.lock"))
 	if err != nil {
@@ -128,6 +159,7 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 		`pm_tool = "none"`,
 		`team_id = ""`,
 		`ticket_prefix = ""`,
+		`team = []`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticketless config missing %q:\n%s", want, body)
