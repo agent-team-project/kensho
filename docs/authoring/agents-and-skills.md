@@ -62,6 +62,37 @@ These commands accept `--json` for automation and `--format` for shell-friendly 
 agent-team agents ls --format '{{.Name}} {{.Runtime}} {{.RuntimeBin}} {{len .Skills}}'
 ```
 
+## Skills Ownership Model
+
+Skills can be registered through three ownership layers:
+
+| Layer | Declared in | Scope |
+| --- | --- | --- |
+| Per-agent | `.agent_team/agents/<agent>/skills/<skill>/` | Only agents using that agent definition |
+| Extra | `.agent_team/agents/<agent>/config.toml` `[skills].extra` | Shared skills pulled into one agent definition |
+| Team | `.agent_team/config.toml` `[skills].team` | Shared skills registered for every launched agent |
+
+Per-agent skills are useful for private workflow affordances that should travel
+with one agent definition. Extra skills are shared capabilities that only some
+agents should see. Team skills are shared capabilities that must not disappear
+when one instance or agent role is retired, such as the status, inbox, or PM-tool
+integration skills a whole deployment depends on.
+
+Team skills must be names under `.agent_team/skills/`:
+
+```toml
+[skills]
+team = ["linear", "status"]
+```
+
+The loader adds team skills after per-agent `disable` handling, so they are
+available to every launched agent independent of each agent's `extra` list.
+
+`agent-team instance rm` protects this model: when removing a declared instance
+would leave a non-team skill with no declared instance using it, the command
+prints the orphaned skill names and requires `--force`. Move shared capabilities
+to `[skills].team` before retiring their last declared owner.
+
 ## Agent Config
 
 `config.toml` assigns shared skills:
@@ -76,6 +107,7 @@ The loader resolves:
 1. agent-private skills under `<agent>/skills/`
 2. shared skills under `.agent_team/skills/`
 3. arbitrary paths listed in config
+4. team skills under `.agent_team/skills/`
 
 ## Skill Layout
 

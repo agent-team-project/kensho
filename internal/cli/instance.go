@@ -775,6 +775,11 @@ type instanceRmResult struct {
 	DryRun        bool   `json:"dry_run,omitempty"`
 }
 
+type instanceRmOrphanedSkills struct {
+	Instance string
+	Skills   []string
+}
+
 func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string, opts instanceRmOptions) error {
 	if opts.All && len(names) > 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --all cannot be combined with instance names.")
@@ -989,6 +994,28 @@ func runInstanceRmWithOptions(cmd *cobra.Command, target string, names []string,
 		}
 	}
 
+	if !opts.Force && !opts.DryRun {
+		removableNames := make([]string, 0, len(names))
+		for _, name := range names {
+			stateDir := filepath.Join(teamDir, "state", name)
+			st, statErr := os.Stat(stateDir)
+			stateExists := statErr == nil && st.IsDir()
+			_, daemonKnown := daemonByName[name]
+			if stateExists || daemonKnown {
+				removableNames = append(removableNames, name)
+			}
+		}
+		orphaned, err := instanceRmOrphanedSkillsForRemoval(teamDir, removableNames)
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+			return exitErr(1)
+		}
+		if len(orphaned) > 0 {
+			renderInstanceRmOrphanedSkillsWarning(cmd.ErrOrStderr(), orphaned)
+			return exitErr(2)
+		}
+	}
+
 	results := make([]instanceRmResult, 0, len(names))
 	for _, name := range names {
 		stateDir := filepath.Join(teamDir, "state", name)
@@ -1113,6 +1140,106 @@ func renderInstanceRmCommands(w fmtWriter, rows []instanceRmResult, opts lifecyc
 	}
 	_, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(lifecycleApplyCommandArgs(opts)), " "))
 	return err
+}
+
+func instanceRmOrphanedSkillsForRemoval(teamDir string, names []string) ([]instanceRmOrphanedSkills, error) {
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return nil, fmt.Errorf("load instances.toml for skill ownership check: %w", err)
+	}
+	if top == nil || len(names) == 0 {
+		return nil, nil
+	}
+
+	removeSet := map[string]bool{}
+	for _, name := range names {
+		removeSet[name] = true
+	}
+	hasDeclaredTarget := false
+	for name := range removeSet {
+		if top.Find(name) != nil {
+			hasDeclaredTarget = true
+			break
+		}
+	}
+	if !hasDeclaredTarget {
+		return nil, nil
+	}
+
+	teamSkills, err := loader.ResolveTeamSkills(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	agentSkillCache := map[string][]string{}
+	agentSkills := func(agent string) ([]string, error) {
+		if skills, ok := agentSkillCache[agent]; ok {
+			return skills, nil
+		}
+		loaded, err := loader.LoadAgent(filepath.Join(teamDir, "agents", agent), teamDir)
+		if err != nil {
+			return nil, err
+		}
+		var skills []string
+		for name := range loaded.Skills {
+			if _, teamLevel := teamSkills[name]; teamLevel {
+				continue
+			}
+			skills = append(skills, name)
+		}
+		sort.Strings(skills)
+		agentSkillCache[agent] = skills
+		return skills, nil
+	}
+
+	remainingUsers := map[string]int{}
+	removedByInstance := map[string][]string{}
+	for _, inst := range top.SortedInstances() {
+		if inst == nil || inst.Agent == "" {
+			continue
+		}
+		skills, err := agentSkills(inst.Agent)
+		if err != nil {
+			return nil, err
+		}
+		if removeSet[inst.Name] {
+			removedByInstance[inst.Name] = skills
+			continue
+		}
+		for _, skill := range skills {
+			remainingUsers[skill]++
+		}
+	}
+
+	var out []instanceRmOrphanedSkills
+	for _, name := range names {
+		skills := removedByInstance[name]
+		if len(skills) == 0 {
+			continue
+		}
+		var orphaned []string
+		for _, skill := range skills {
+			if remainingUsers[skill] == 0 {
+				orphaned = append(orphaned, skill)
+			}
+		}
+		if len(orphaned) > 0 {
+			out = append(out, instanceRmOrphanedSkills{Instance: name, Skills: orphaned})
+		}
+	}
+	return out, nil
+}
+
+func renderInstanceRmOrphanedSkillsWarning(w fmtWriter, orphaned []instanceRmOrphanedSkills) {
+	if len(orphaned) == 1 {
+		item := orphaned[0]
+		fmt.Fprintf(w, "agent-team: removing instance %q would orphan non-team skill(s): %s\n", item.Instance, strings.Join(item.Skills, ", "))
+	} else {
+		fmt.Fprintln(w, "agent-team: removing selected instances would orphan non-team skills:")
+		for _, item := range orphaned {
+			fmt.Fprintf(w, "  %s: %s\n", item.Instance, strings.Join(item.Skills, ", "))
+		}
+	}
+	fmt.Fprintln(w, "agent-team: add shared skills to [skills].team in .agent_team/config.toml, or pass --force to remove anyway.")
 }
 
 func instanceRmResultsHaveApplyCommand(rows []instanceRmResult) bool {

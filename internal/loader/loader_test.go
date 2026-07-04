@@ -140,6 +140,72 @@ func TestResolveSkills_LocalAndShared(t *testing.T) {
 	}
 }
 
+func TestResolveSkills_TeamSkillsApplyToEveryAgent(t *testing.T) {
+	teamDir := makeTeam(t)
+
+	writeFile(t, filepath.Join(teamDir, "config.toml"),
+		"[skills]\nteam = [\"linear\"]\n")
+	writeFile(t, filepath.Join(teamDir, "skills", "linear", "SKILL.md"), "linear")
+	for _, name := range []string{"alpha", "bravo"} {
+		writeFile(t, filepath.Join(teamDir, "agents", name, "agent.md"),
+			"---\ndescription: "+name+"\n---\nbody\n")
+	}
+
+	agents, err := LoadAllAgents(teamDir)
+	if err != nil {
+		t.Fatalf("LoadAllAgents: %v", err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("loaded %d agents, want 2", len(agents))
+	}
+	for _, agent := range agents {
+		if _, ok := agent.Skills["linear"]; !ok {
+			t.Fatalf("%s missing team skill linear: %+v", agent.Name, agent.Skills)
+		}
+	}
+}
+
+func TestResolveSkills_TeamSkillsSurviveAgentDisable(t *testing.T) {
+	teamDir := makeTeam(t)
+
+	writeFile(t, filepath.Join(teamDir, "config.toml"),
+		"[skills]\nteam = [\"status\"]\n")
+	writeFile(t, filepath.Join(teamDir, "skills", "status", "SKILL.md"), "status")
+	agentDir := filepath.Join(teamDir, "agents", "alpha")
+	writeFile(t, filepath.Join(agentDir, "config.toml"),
+		"[skills]\ndisable = [\"status\"]\n")
+
+	got, err := ResolveSkills(agentDir, teamDir)
+	if err != nil {
+		t.Fatalf("ResolveSkills: %v", err)
+	}
+	if _, ok := got["status"]; !ok {
+		t.Fatalf("team skill status should not be disabled by agent config: %+v", got)
+	}
+}
+
+func TestResolveTeamSkills_MissingSharedSkill(t *testing.T) {
+	teamDir := makeTeam(t)
+	writeFile(t, filepath.Join(teamDir, "config.toml"),
+		"[skills]\nteam = [\"missing\"]\n")
+
+	_, err := ResolveTeamSkills(teamDir)
+	if err == nil || !strings.Contains(err.Error(), "team skill `missing` not found") {
+		t.Fatalf("expected missing team skill error, got %v", err)
+	}
+}
+
+func TestResolveTeamSkills_RejectsPathSpecs(t *testing.T) {
+	teamDir := makeTeam(t)
+	writeFile(t, filepath.Join(teamDir, "config.toml"),
+		"[skills]\nteam = [\"./local\"]\n")
+
+	_, err := ResolveTeamSkills(teamDir)
+	if err == nil || !strings.Contains(err.Error(), "must be a shared skill name") {
+		t.Fatalf("expected path-spec error, got %v", err)
+	}
+}
+
 func TestResolveSkills_PathReferenced(t *testing.T) {
 	teamDir := makeTeam(t)
 

@@ -14,6 +14,16 @@ import (
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
+func writeInstanceTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInstanceLs_Empty(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -1493,6 +1503,77 @@ func TestInstanceRm_Force(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "removed") {
 		t.Errorf("missing 'removed' message: %s", out.String())
+	}
+}
+
+func TestInstanceRmRefusesSoleOwnerSkillWithoutForce(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "skills", "sole-skill", "SKILL.md"), "sole")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "agents", "ticket-manager", "config.toml"),
+		"[skills]\nextra = [\"sole-skill\"]\n")
+	stateDir := filepath.Join(teamDir, "state", "ticket-manager")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--target", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("expected instance rm to refuse orphaning sole-skill")
+	}
+	if got := stderr.String(); !strings.Contains(got, "sole-skill") || !strings.Contains(got, "--force") {
+		t.Fatalf("stderr = %q, want sole-skill and --force warning", got)
+	}
+	if _, err := os.Stat(stateDir); err != nil {
+		t.Fatalf("state dir should remain after refused removal: %v", err)
+	}
+}
+
+func TestInstanceRmDoesNotWarnForTeamLevelSkill(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "skills", "team-skill", "SKILL.md"), "team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "agents", "ticket-manager", "config.toml"),
+		"[skills]\nextra = [\"team-skill\"]\n")
+	cfg, err := os.OpenFile(filepath.Join(teamDir, "config.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.WriteString("\n[skills]\nteam = [\"team-skill\"]\n"); err != nil {
+		_ = cfg.Close()
+		t.Fatal(err)
+	}
+	if err := cfg.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(teamDir, "state", "ticket-manager")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--target", tmp, "--force"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance rm --force: %v\nstderr=%s", err, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "orphan") || strings.Contains(stderr.String(), "team-skill") {
+		t.Fatalf("unexpected orphan warning for team-level skill: %q", stderr.String())
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Fatalf("state dir should be removed, stat err=%v", err)
+	}
+	if !strings.Contains(out.String(), "removed") {
+		t.Fatalf("stdout missing removed message: %q", out.String())
 	}
 }
 
