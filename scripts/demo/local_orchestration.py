@@ -839,14 +839,16 @@ def enable_demo_schedule(repo: Path) -> None:
     if approve_gate not in body:
         raise DemoError("bundled topology no longer has the expected approve gate")
     body = body.replace(approve_gate, 'gate         = "manual"\napproval_required = true\ninstructions = """', 1)
-    team_pipelines = 'pipelines   = ["ticket_to_pr"]'
-    if team_pipelines not in body:
-        raise DemoError("bundled topology no longer has the expected delivery pipeline list")
     team_schedules = 'schedules   = ["feedback-triage"]'
     if team_schedules in body:
-        body = body.replace(team_schedules, 'schedules   = ["feedback-triage", "demo_due"]', 1)
+        body = body.replace(team_schedules, 'schedules   = ["demo_due", "feedback-triage"]', 1)
     else:
+        team_pipelines = 'pipelines   = ["ticket_to_pr"]'
+        if team_pipelines not in body:
+            raise DemoError("bundled topology no longer has the expected delivery pipeline list")
         body = body.replace(team_pipelines, team_pipelines + '\nschedules   = ["demo_due"]', 1)
+    if 'schedules   = ["demo_due"]' not in body and 'schedules   = ["demo_due", "feedback-triage"]' not in body:
+        raise DemoError("bundled topology no longer has the expected delivery pipeline list")
     body += textwrap.dedent(
         """\
 
