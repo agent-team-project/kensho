@@ -23,6 +23,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/linearwriteback"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
@@ -44,6 +45,37 @@ func queueQuarantineItemIDs(items []queueQuarantineItem) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ",")
+}
+
+func TestJobListFiltersByOriginTeamAndTrigger(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	platform := mustNewJob(t, "SQU-90", "worker")
+	platform.Origin = origin.Envelope{Team: "platform", Trigger: "schedule:feedback-triage"}
+	if err := job.Write(teamDir, platform); err != nil {
+		t.Fatalf("write platform job: %v", err)
+	}
+	other := mustNewJob(t, "SQU-91", "worker")
+	other.Origin = origin.Envelope{Team: "delivery", Trigger: "schedule:feedback-triage"}
+	if err := job.Write(teamDir, other); err != nil {
+		t.Fatalf("write other job: %v", err)
+	}
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "ls", "--repo", tmp, "--team", "platform", "--trigger", "schedule:feedback-triage", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job ls: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []job.Job
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode jobs: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].ID != platform.ID {
+		t.Fatalf("rows = %+v, want only %s", rows, platform.ID)
+	}
 }
 
 func jobDoctorHasCode(findings []jobDoctorFinding, code string) bool {

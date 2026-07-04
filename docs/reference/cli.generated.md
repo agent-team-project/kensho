@@ -1045,6 +1045,7 @@ Flags:
       --canary                    Dispatch a throwaway daemon-backed runtime canary and verify it exits cleanly.
       --canary-timeout duration   Maximum time to wait for the daemon-backed canary to exit. (default 30s)
       --commands                  Print recommended follow-up commands, one per line.
+      --fix                       Apply safe, local repairs such as backfilling [project].id.
       --format string             Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json                      Emit machine-readable JSON.
       --runtime string            Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.
@@ -2923,7 +2924,9 @@ Flags:
       --status string         Filter by status: queued, running, blocked, done, or failed.
       --summary               Show aggregate job counts instead of job rows.
       --target-agent string   Filter by target agent.
+      --team string           Filter by origin team.
       --ticket string         Filter by ticket id or URL substring.
+      --trigger string        Filter by origin trigger, e.g. schedule:feedback-triage.
       --unheld                Only show jobs that are not held.
   -w, --watch                 Refresh the job table until interrupted.
 ```
@@ -6710,6 +6713,7 @@ Flags:
       --status strings      Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --summary             Show lifecycle counts instead of instance rows.
       --target string       Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --team string         Only show instances owned by this topology team.
       --unhealthy           Only show crashed, status-stale, or runtime-stale instances.
   -w, --watch               Refresh the process table until interrupted.
 ```
@@ -10697,7 +10701,7 @@ agent-team usage [flags]
 Flags:
 
 ```text
-      --by string       Group usage by job, instance, agent, or runtime. (default "job")
+      --by string       Group usage by job, instance, agent, runtime, or team. (default "job")
       --json            Emit usage rollups as JSON.
       --since string    Only include usage captured since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")

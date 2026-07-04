@@ -9,6 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/intake"
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 type ProviderName string
@@ -166,4 +167,22 @@ func writeBackConfigError(teamDir string, req Request, err error) Result {
 		result.AuditErr = appendAudit(teamDir, req.Job, req, result)
 	}
 	return result
+}
+
+func appendOriginFooter(teamDir string, req Request, body string) string {
+	if strings.TrimSpace(body) == "" {
+		return body
+	}
+	env := origin.Envelope{}
+	if req.Job != nil {
+		env = req.Job.Origin
+		projectID, _ := origin.ProjectID(teamDir)
+		env = origin.Merge(env, origin.Envelope{
+			Project:  projectID,
+			Instance: req.Job.Instance,
+			Agent:    req.Job.Target,
+			Job:      req.Job.ID,
+		})
+	}
+	return origin.AppendFooter(body, env)
 }

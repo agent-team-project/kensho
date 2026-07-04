@@ -8,8 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/pmprovider"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/usage"
 )
 
@@ -21,6 +24,7 @@ type Options struct {
 }
 
 func WriteWithAudit(teamDir string, j *job.Job, opts Options) error {
+	applyJobOrigin(teamDir, j, opts)
 	writeAttention := shouldWriteFailureAttention(teamDir, j)
 	if writeAttention {
 		j.LinearAttentionWritten = true
@@ -70,6 +74,7 @@ func RecordUsage(teamDir, rawID string, record usage.Record, opts Options) (*job
 	if err != nil {
 		return nil, false, err
 	}
+	record.Origin = origin.Merge(record.Origin, j.Origin)
 	merged, changed := usage.MergeRecord(j.Usage, record)
 	if !changed {
 		return j, false, nil
@@ -156,6 +161,93 @@ func attentionMessage(j *job.Job, message string) string {
 		return ""
 	}
 	return strings.TrimSpace(j.LastStatus)
+}
+
+func applyJobOrigin(teamDir string, j *job.Job, opts Options) {
+	if j == nil {
+		return
+	}
+	fallback := origin.Envelope{
+		Project:  projectID(teamDir),
+		Team:     jobTeam(teamDir, j),
+		Instance: j.Instance,
+		Agent:    j.Target,
+		Job:      j.ID,
+		Trigger:  originTrigger(opts),
+		Build:    buildinfo.Current("").Display(),
+	}
+	j.Origin = origin.Merge(j.Origin, fallback)
+}
+
+func projectID(teamDir string) string {
+	id, _ := origin.ProjectID(teamDir)
+	return id
+}
+
+func originTrigger(opts Options) string {
+	for _, key := range []string{"trigger", "event", "source"} {
+		if opts.Data != nil {
+			if value := strings.TrimSpace(opts.Data[key]); value != "" {
+				return value
+			}
+		}
+	}
+	return strings.TrimSpace(opts.EventType)
+}
+
+func jobTeam(teamDir string, j *job.Job) string {
+	if j == nil {
+		return ""
+	}
+	if team := strings.TrimSpace(j.Origin.Team); team != "" {
+		return team
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || top == nil {
+		return ""
+	}
+	for _, team := range top.SortedTeams() {
+		if j.Pipeline != "" && stringInList(team.Pipelines, j.Pipeline) {
+			return team.Name
+		}
+		if j.Instance != "" && instanceMatchesTeam(j.Instance, team.Instances) {
+			return team.Name
+		}
+		if j.Target != "" && stringInList(team.Instances, j.Target) {
+			return team.Name
+		}
+	}
+	return ""
+}
+
+func instanceMatchesTeam(instance string, names []string) bool {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return false
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if instance == name || strings.HasPrefix(instance, name+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func stringInList(values []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileEventData(input job.ReconcileInput, matchedBy string) map[string]string {

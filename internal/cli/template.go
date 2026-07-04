@@ -427,7 +427,7 @@ func runTemplateSmokeDoctor(target string, opts templateSmokeOptions) (*doctorRe
 	var out, stderr bytes.Buffer
 	smokeCmd.SetOut(&out)
 	smokeCmd.SetErr(&stderr)
-	err := runDoctor(smokeCmd, target, opts.StrictDaemon, opts.StrictRuntime, opts.StrictTemplate, opts.StrictAction, true, false, nil, runtimeSelection{}, doctorCanaryOptions{})
+	err := runDoctor(smokeCmd, target, opts.StrictDaemon, opts.StrictRuntime, opts.StrictTemplate, opts.StrictAction, false, true, false, nil, runtimeSelection{}, doctorCanaryOptions{})
 	var result doctorResult
 	if out.Len() > 0 {
 		_ = json.Unmarshal(out.Bytes(), &result)

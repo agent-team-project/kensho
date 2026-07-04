@@ -41,7 +41,7 @@ Classify each MATERIALIZE cluster:
 - **Framework** (the agent-team CLI/daemon itself misbehaved or lacks a capability): file via the `upstream` route.
 - **External** (another project's tooling that our agents touch): file via that project's named route if one is declared; otherwise treat as deployment-local with a note.
 
-File through the `linear` skill using the route's `team_key` and `label`.
+File through the `linear` skill using the route's `team_key` and `label`. For any non-local route, also apply a `source-project:<project.id>` label where `<project.id>` is read from `[project].id` in this repo's `.agent_team/config.toml`. Include the machine footer `agent-team-origin: project=<id> team=<team> instance=<instance> trigger=<trigger>` at the end of filed ticket descriptions or folded evidence comments; the `linear-graphql.sh` helper appends it automatically when the daemon exported `AGENT_TEAM_*` origin variables.
 
 ## Guardrails (hard rules)
 

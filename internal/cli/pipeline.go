@@ -405,7 +405,7 @@ func newPipelineJobsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline jobs: pipeline name is required.")
 				return exitErr(2)
 			}
-			filters, err := newJobListFilters(status, targetFilter, instance, pipelineName, ticket, branch, pr, runtimeFilters)
+			filters, err := newJobListFilters(status, targetFilter, instance, "", pipelineName, "", ticket, branch, pr, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline jobs: %v\n", err)
 				return exitErr(2)
@@ -600,7 +600,7 @@ func newPipelineJobEventsCmd() *cobra.Command {
 }
 
 func collectPipelineEventJobs(teamDir, pipelineName string) ([]*job.Job, error) {
-	filters, err := newJobListFilters("", "", "", pipelineName, "", "", "", nil)
+	filters, err := newJobListFilters("", "", "", "", pipelineName, "", "", "", "", nil)
 	if err != nil {
 		return nil, err
 	}

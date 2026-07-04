@@ -18,6 +18,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -51,6 +52,7 @@ func newPsCmd() *cobra.Command {
 		agentFilters     []string
 		phaseFilters     []string
 		instanceFilters  []string
+		teamFilter       string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -91,6 +93,7 @@ func newPsCmd() *cobra.Command {
 			opts.Sort = sortMode
 			opts.SortSet = cmd.Flags().Changed("sort")
 			opts.Limit = last
+			opts.Team = strings.TrimSpace(teamFilter)
 			if latest {
 				opts.Limit = 1
 			}
@@ -169,6 +172,7 @@ func newPsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show instances with this name. Can repeat or comma-separate.")
+	cmd.Flags().StringVar(&teamFilter, "team", "", "Only show instances owned by this topology team.")
 	return cmd
 }
 
@@ -440,6 +444,7 @@ type psOptions struct {
 	Sort         psSortMode
 	SortSet      bool
 	Limit        int
+	Team         string
 	statuses     map[string]bool
 	runtimes     map[string]bool
 	agents       map[string]bool
@@ -612,7 +617,7 @@ func splitFilterValues(raw []string) []string {
 }
 
 func filterPsRows(rows []instanceRow, opts psOptions) []instanceRow {
-	if len(opts.statuses) == 0 && len(opts.runtimes) == 0 && len(opts.agents) == 0 && len(opts.phases) == 0 && len(opts.instances) == 0 && !opts.stale && !opts.runtimeStale && !opts.unhealthy {
+	if opts.Team == "" && len(opts.statuses) == 0 && len(opts.runtimes) == 0 && len(opts.agents) == 0 && len(opts.phases) == 0 && len(opts.instances) == 0 && !opts.stale && !opts.runtimeStale && !opts.unhealthy {
 		return rows
 	}
 	out := make([]instanceRow, 0, len(rows))
@@ -627,6 +632,9 @@ func filterPsRows(rows []instanceRow, opts psOptions) []instanceRow {
 			continue
 		}
 		if len(opts.instances) > 0 && !opts.instances[r.Instance] {
+			continue
+		}
+		if opts.Team != "" && r.Team != opts.Team {
 			continue
 		}
 		if len(opts.statuses) > 0 && !opts.statuses[psStatusKey(r)] {
@@ -796,6 +804,7 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 		return nil, err
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Instance < rows[j].Instance })
+	rows = annotatePsTeams(teamDir, rows)
 	return rows, nil
 }
 
@@ -816,6 +825,7 @@ func mergeDaemonRows(teamDir string, rows []instanceRow, insts []*daemon.Metadat
 			rows[idx].Agent = m.Agent
 		}
 		rows[idx].Lifecycle = metadataStatusKey(m)
+		rows[idx].Team = firstNonEmpty(rows[idx].Team, m.Origin.Team)
 		rows[idx].Runtime = m.Runtime
 		rows[idx].RuntimeBinary = m.RuntimeBinary
 		rows[idx].RuntimeBudget = m.RuntimeBudget
@@ -840,6 +850,36 @@ func mergeDaemonRows(teamDir string, rows []instanceRow, insts []*daemon.Metadat
 		rows[idx].ExitedAt = m.ExitedAt
 	}
 	return rows
+}
+
+func annotatePsTeams(teamDir string, rows []instanceRow) []instanceRow {
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || top == nil {
+		return rows
+	}
+	for i := range rows {
+		if strings.TrimSpace(rows[i].Team) != "" {
+			continue
+		}
+		rows[i].Team = topologyTeamForInstanceRow(top, rows[i].Instance)
+	}
+	return rows
+}
+
+func topologyTeamForInstanceRow(top *topology.Topology, instance string) string {
+	instance = strings.TrimSpace(instance)
+	if top == nil || instance == "" {
+		return ""
+	}
+	for _, team := range top.SortedTeams() {
+		for _, name := range team.Instances {
+			name = strings.TrimSpace(name)
+			if name != "" && (instance == name || strings.HasPrefix(instance, name+"-")) {
+				return team.Name
+			}
+		}
+	}
+	return ""
 }
 
 func renderPsTable(w io.Writer, rows []instanceRow) error {
@@ -884,6 +924,7 @@ func resumeCountTableText(row instanceRow) string {
 
 type psJSONRow struct {
 	Instance         string `json:"instance"`
+	Team             string `json:"team,omitempty"`
 	Agent            string `json:"agent"`
 	Status           string `json:"status"`
 	Phase            string `json:"phase"`
@@ -920,6 +961,7 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 	for _, r := range rows {
 		row := psJSONRow{
 			Instance:         r.Instance,
+			Team:             r.Team,
 			Agent:            r.Agent,
 			Status:           psStatusKey(r),
 			Phase:            psPhaseKey(r),
@@ -975,6 +1017,7 @@ func newRowFromMeta(teamDir string, m *daemon.Metadata, agentNames map[string]bo
 	activity := runtimeActivityForInstance(teamDir, m.Instance, m, now)
 	return instanceRow{
 		Instance:         m.Instance,
+		Team:             m.Origin.Team,
 		Agent:            agent,
 		Phase:            "—",
 		Age:              "—",

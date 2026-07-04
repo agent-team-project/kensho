@@ -32,6 +32,7 @@ func captureUsageForMetadata(meta *Metadata, now time.Time) error {
 		return err
 	}
 	if record != nil && usage.RecordUseful(*record) {
+		record.Origin = meta.Origin
 		meta.Usage = record
 	}
 	return nil

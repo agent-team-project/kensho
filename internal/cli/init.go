@@ -11,6 +11,7 @@ import (
 	"strings"
 	texttemplate "text/template"
 
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -19,6 +20,9 @@ const teamDirName = ".agent_team"
 
 const emptyConfig = `# agent-team config — consumer-specific runtime values your skills read.
 # This is the empty-template stub. Add sections as your skills require.
+
+[project]
+id = "{{PROJECT_ID}}"
 `
 
 // templateAuxFiles are filenames at the root of a template that are NOT
@@ -164,6 +168,12 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 		DryRun:     cfg.dryRun,
 		Action:     "initialized",
 	}
+	configExistedBefore := false
+	if _, err := os.Stat(filepath.Join(teamDir, "config.toml")); err == nil {
+		configExistedBefore = true
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if cfg.dryRun {
 		result.Action = "would-init"
 	}
@@ -221,6 +231,11 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 	}
 	if err := writeResolvedConfig(out, teamDir, resolved); err != nil {
 		return err
+	}
+	if !configExistedBefore {
+		if _, _, err := origin.EnsureProjectID(teamDir); err != nil {
+			return fmt.Errorf("backfill project id: %w", err)
+		}
 	}
 	if err := writeTemplateLock(out, teamDir, rt, cfg.force); err != nil {
 		return err
@@ -320,6 +335,13 @@ func resolveInitConfig(cmd *cobra.Command, m *template.Manifest, sets []template
 	if initShouldAutoEnableLinear(m, withSets, sets) {
 		withSets.SetDotted("team.pm_tool", "linear")
 		withSets.SetDotted("pm.provider", "linear")
+	}
+	if projectID, ok := withSets.GetDotted("project.id"); !ok || strings.TrimSpace(fmt.Sprint(projectID)) == "" {
+		id, err := origin.GenerateProjectID()
+		if err != nil {
+			return nil, err
+		}
+		withSets.SetDotted("project.id", id)
 	}
 	syncPMProviderAliases(withSets, sets)
 
@@ -710,7 +732,12 @@ func writeEmptyConfig(out fmtWriter, teamDir string) error {
 		fmt.Fprintf(out, "  keep %s/config.toml (untouched)\n", teamDirName)
 		return nil
 	}
-	if err := os.WriteFile(cfg, []byte(emptyConfig), 0o644); err != nil {
+	projectID, err := origin.GenerateProjectID()
+	if err != nil {
+		return err
+	}
+	body := strings.ReplaceAll(emptyConfig, "{{PROJECT_ID}}", projectID)
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "  + %s/config.toml (starter; edit before use)\n", teamDirName)

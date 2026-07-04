@@ -12,6 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/pmprovider"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/template"
@@ -32,6 +33,7 @@ func newDoctorCmd() *cobra.Command {
 		runtimeBinary  string
 		canary         bool
 		canaryTimeout  time.Duration
+		fix            bool
 	)
 	cwd, _ := os.Getwd()
 
@@ -81,7 +83,7 @@ func newDoctorCmd() *cobra.Command {
 			if len(args) == 1 {
 				canaryAgent = args[0]
 			}
-			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, strictActionFlag, jsonOut, commands, tmpl, runtimeSelection{
+			return runDoctor(cmd, target, strictDaemon, strictRuntime, strictTemplate, strictActionFlag, fix, jsonOut, commands, tmpl, runtimeSelection{
 				Kind:   runtimeKind,
 				Binary: runtimeBinary,
 			}, doctorCanaryOptions{
@@ -103,10 +105,11 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to validate for this invocation. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&canary, "canary", false, "Dispatch a throwaway daemon-backed runtime canary and verify it exits cleanly.")
 	cmd.Flags().DurationVar(&canaryTimeout, "canary-timeout", defaultDoctorCanaryTimeout, "Maximum time to wait for the daemon-backed canary to exit.")
+	cmd.Flags().BoolVar(&fix, "fix", false, "Apply safe, local repairs such as backfilling [project].id.")
 	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate bool, strictActionFlag string, jsonOut, commands bool, tmpl *texttemplate.Template, selection runtimeSelection, canaryOpts doctorCanaryOptions) error {
+func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate bool, strictActionFlag string, fix bool, jsonOut, commands bool, tmpl *texttemplate.Template, selection runtimeSelection, canaryOpts doctorCanaryOptions) error {
 	target = effectiveRepoTarget(cmd, target)
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -156,6 +159,21 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 			team, _ := cfg["team"].(map[string]any)
 			pmProvider, _ := pm["provider"].(string)
 			pmTool, _ := team["pm_tool"].(string)
+			project, _ := cfg["project"].(map[string]any)
+			projectID, _ := project["id"].(string)
+			if strings.TrimSpace(projectID) == "" {
+				if fix {
+					id, changed, err := origin.EnsureProjectID(teamDir)
+					if err != nil {
+						problems = append(problems, fmt.Sprintf("[project].id could not be backfilled in %s: %v", cfgPath, err))
+					} else if changed {
+						actions = appendDoctorActions(actions, fmt.Sprintf("backfilled [project].id = %s", id))
+					}
+				} else {
+					warnings = append(warnings, fmt.Sprintf("[project].id missing/empty in %s — run `agent-team doctor --fix` to backfill it.", cfgPath))
+					actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "doctor", "--target", abs, "--fix"}), " "))
+				}
+			}
 			provider, providerSource := pmprovider.ConfiguredProviderNameWithSource(pmProvider, pmTool)
 			if !pmprovider.KnownProvider(provider) {
 				if providerSource == "" {

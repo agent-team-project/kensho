@@ -19,6 +19,7 @@ import (
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
@@ -94,6 +95,7 @@ type queuedEvent struct {
 	uniqueName string
 	reason     string
 	locks      []string
+	origin     origin.Envelope
 	attempts   int
 	lastError  string
 	nextRetry  time.Time
@@ -292,6 +294,14 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), Pipeline: pipeline.Name}}
 	}
 	j.Pipeline = pipeline.Name
+	j.Origin = origin.Envelope{
+		Project: projectIDForTeamDir(r.teamDir),
+		Team:    r.teamForPipeline(pipeline.Name),
+		Agent:   pipeline.Steps[0].Target,
+		Job:     j.ID,
+		Trigger: origin.TriggerFromEvent(eventType, payload),
+		Build:   buildinfo.Current("").Display(),
+	}
 	if pipeline.ReapWorktree != worktreepolicy.Never {
 		j.ReapWorktree = pipeline.ReapWorktree
 	}
@@ -822,6 +832,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 	if err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
+	eventOrigin := r.originForEvent(inst, childName, eventType, payload)
 	now := time.Now().UTC()
 	if requested && r.mgr.isRunning(childName) {
 		reason := fmt.Sprintf("instance %q already running", childName)
@@ -870,6 +881,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 			uniqueName: childName,
 			reason:     QueueReasonReplicaCapacity,
 			locks:      r.dispatchLocksLocked(inst, payload),
+			origin:     eventOrigin,
 		}
 		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
 			r.mu.Unlock()
@@ -881,7 +893,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName}
 	}
 	locks := r.dispatchLocksLocked(inst, payload)
-	acquired, err := r.acquireLocksLocked(locks, childName, now)
+	acquired, err := r.acquireLocksLocked(locks, childName, eventOrigin, now)
 	if err != nil {
 		r.mu.Unlock()
 		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "lock_error", err.Error(), "", "")
@@ -902,6 +914,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 			uniqueName: childName,
 			reason:     QueueReasonLockHeld,
 			locks:      locks,
+			origin:     eventOrigin,
 		}
 		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
 			r.mu.Unlock()
@@ -1028,7 +1041,7 @@ func normalizeLockNames(names []string) []string {
 	return out
 }
 
-func (r *EventResolver) acquireLocksLocked(names []string, instance string, now time.Time) (bool, error) {
+func (r *EventResolver) acquireLocksLocked(names []string, instance string, env origin.Envelope, now time.Time) (bool, error) {
 	names = normalizeLockNames(names)
 	if len(names) == 0 {
 		return true, nil
@@ -1059,6 +1072,7 @@ func (r *EventResolver) acquireLocksLocked(names []string, instance string, now 
 			Instance:   instance,
 			AcquiredAt: now,
 			UpdatedAt:  now,
+			Origin:     env,
 		}
 		if err := WriteLockLease(r.mgr.daemonRoot, lease); err != nil {
 			for _, held := range acquired {
@@ -1293,8 +1307,10 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		cleanupWorkspace()
 		return nil, err
 	}
+	eventOrigin := r.originForEvent(inst, name, eventType, payload)
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
+	env = append(env, originContextEnv(eventOrigin)...)
 	otelCtx := runtimeotel.Context{
 		Agent:        inst.Agent,
 		Instance:     name,
@@ -1327,6 +1343,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		Ticket:        payloadString(payload, "ticket"),
 		Branch:        branch,
 		PR:            firstPayloadString(payload, "pr_url", "pr"),
+		Origin:        eventOrigin,
 		Workspace:     workspace,
 		Runtime:       string(rt.Kind),
 		RuntimeBinary: rt.Binary,
@@ -1454,6 +1471,7 @@ func (r *EventResolver) recordKickoffMailDelivered(instance, agent string, paylo
 		Job:      jobID,
 		Ticket:   ticket,
 		Branch:   branch,
+		Origin:   r.originForPayload(instance, payload),
 		Message:  message,
 	})
 	if jobID == "" || strings.TrimSpace(r.teamDir) == "" {
@@ -1472,6 +1490,7 @@ func (r *EventResolver) recordKickoffMailDelivered(instance, agent string, paylo
 		Instance: instance,
 		Message:  message,
 		Actor:    "daemon",
+		Origin:   r.originForPayload(instance, payload),
 		Data:     data,
 	})
 }
@@ -1484,6 +1503,7 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 	meta.Ticket = payloadString(payload, "ticket")
 	meta.Branch = branch
 	meta.PR = firstPayloadString(payload, "pr_url", "pr")
+	meta.Origin = origin.Merge(meta.Origin, r.originForPayload(meta.Instance, payload))
 	j := r.upsertDispatchJob(payload, meta.Instance, jobstore.StatusRunning, "dispatched", "running", branch, worktreePath)
 	if j != nil {
 		meta.Job = j.ID
@@ -1532,6 +1552,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	if target := firstPayloadString(payload, "target", "agent"); target != "" {
 		j.Target = target
 	}
+	j.Origin = origin.Merge(j.Origin, r.originForPayload(instance, payload))
 	if kickoff := payloadString(payload, "kickoff"); kickoff != "" && j.Kickoff == "" {
 		j.Kickoff = kickoff
 	}
@@ -1589,6 +1610,9 @@ func dispatchJobEventData(payload map[string]any, branch, worktreePath string) m
 			data[key] = value
 		}
 	}
+	if trigger := origin.TriggerFromEvent("", payload); trigger != "" {
+		data["trigger"] = trigger
+	}
 	if branch != "" {
 		data["branch"] = branch
 	}
@@ -1634,6 +1658,112 @@ func (r *EventResolver) teamForInstance(instance string, payload map[string]any)
 		}
 	}
 	return ""
+}
+
+func (r *EventResolver) teamForOrigin(instance string, payload map[string]any) string {
+	if r == nil || r.topo == nil {
+		return ""
+	}
+	// Origin ownership is topology-derived only. Inbound payloads may carry
+	// provider team keys such as Linear's "SQU", but those are trigger context,
+	// not agent-team ownership.
+	instance = strings.TrimSpace(instance)
+	for _, team := range r.topo.SortedTeams() {
+		for _, name := range team.Instances {
+			if instance == name || strings.HasPrefix(instance, name+"-") {
+				return team.Name
+			}
+		}
+	}
+	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
+		if team := r.teamForPipeline(pipeline); team != "" {
+			return team
+		}
+	}
+	return ""
+}
+
+func (r *EventResolver) teamForPipeline(pipeline string) string {
+	pipeline = strings.TrimSpace(pipeline)
+	if pipeline == "" || r == nil || r.topo == nil {
+		return ""
+	}
+	for _, team := range r.topo.SortedTeams() {
+		for _, name := range team.Pipelines {
+			if name == pipeline {
+				return team.Name
+			}
+		}
+	}
+	return ""
+}
+
+func (r *EventResolver) originForEvent(inst *topology.Instance, instance, eventType string, payload map[string]any) origin.Envelope {
+	declared := instance
+	agent := firstPayloadString(payload, "target", "agent")
+	if inst != nil {
+		declared = inst.Name
+		if agent == "" {
+			agent = inst.Agent
+		}
+	}
+	if agent == "" {
+		agent = payloadString(payload, "agent")
+	}
+	return origin.Envelope{
+		Project:  projectIDForTeamDir(r.teamDir),
+		Team:     r.teamForOrigin(declared, payload),
+		Instance: instance,
+		Agent:    agent,
+		Job:      eventJobID(payload),
+		Trigger:  origin.TriggerFromEvent(eventType, payload),
+		Build:    buildinfo.Current("").Display(),
+	}
+}
+
+func (r *EventResolver) originForPayload(instance string, payload map[string]any) origin.Envelope {
+	trigger := payloadString(payload, "trigger")
+	if trigger == "" {
+		trigger = origin.TriggerFromEvent("", payload)
+	}
+	return origin.Envelope{
+		Project:  projectIDForTeamDir(r.teamDir),
+		Team:     r.teamForOrigin(instance, payload),
+		Instance: instance,
+		Agent:    firstPayloadString(payload, "target", "agent"),
+		Job:      eventJobID(payload),
+		Trigger:  trigger,
+		Build:    buildinfo.Current("").Display(),
+	}
+}
+
+func projectIDForTeamDir(teamDir string) string {
+	id, _ := origin.ProjectID(teamDir)
+	return id
+}
+
+func originContextEnv(env origin.Envelope) []string {
+	env = env.Clean()
+	out := []string{}
+	if env.Project != "" {
+		out = append(out, "AGENT_TEAM_PROJECT="+env.Project)
+	}
+	if env.Team != "" {
+		out = append(out, "AGENT_TEAM_TEAM="+env.Team)
+	}
+	if env.Trigger != "" {
+		out = append(out, "AGENT_TEAM_ORIGIN_TRIGGER="+env.Trigger)
+	}
+	if env.Build != "" {
+		out = append(out, "AGENT_TEAM_ORIGIN_BUILD="+env.Build)
+	}
+	if env.Agent != "" {
+		out = append(out, "AGENT_TEAM_ORIGIN_AGENT="+env.Agent)
+	}
+	if env.Job != "" {
+		out = append(out, "AGENT_TEAM_ORIGIN_JOB="+env.Job)
+	}
+	return out
 }
 
 func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []string {
@@ -2497,7 +2627,7 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		if len(ev.locks) == 0 {
 			ev.locks = r.dispatchLocksLocked(inst, ev.payload)
 		}
-		acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, now)
+		acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, ev.origin, now)
 		if err != nil {
 			ev.lastError = err.Error()
 			ev.reason = "lock_error"
@@ -2862,7 +2992,7 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 	if len(ev.locks) == 0 {
 		ev.locks = r.dispatchLocksLocked(inst, ev.payload)
 	}
-	acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, time.Now().UTC())
+	acquired, err := r.acquireLocksLocked(ev.locks, ev.uniqueName, ev.origin, time.Now().UTC())
 	if err != nil {
 		r.mu.Unlock()
 		return EventOutcome{}, err
@@ -2918,6 +3048,7 @@ func queueItemFromEvent(declared string, ev *queuedEvent, state string) *QueueIt
 		Reason:     ev.reason,
 		Locks:      append([]string(nil), ev.locks...),
 		Payload:    ev.payload,
+		Origin:     ev.origin,
 		Attempts:   ev.attempts,
 		LastError:  ev.lastError,
 		NextRetry:  ev.nextRetry,
@@ -2935,6 +3066,7 @@ func queuedEventFromItem(item *QueueItem) *queuedEvent {
 		uniqueName: item.InstanceID,
 		reason:     item.Reason,
 		locks:      append([]string(nil), item.Locks...),
+		origin:     item.Origin,
 		attempts:   item.Attempts,
 		lastError:  item.LastError,
 		nextRetry:  item.NextRetry,

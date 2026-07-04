@@ -63,7 +63,7 @@ The helper enforces that `[pm] provider = "linear"` is set (or legacy `[team] pm
 
 ## The helper
 
-`${AGENT_TEAM_ROOT}/skills/linear/scripts/linear-graphql.sh` loads a Linear API key (prefers `LINEAR_API_KEY`, falls back to `LINEAR_USER_API_KEY`) from env or `$PWD/.env`, builds the request body with `jq`, and POSTs to `https://api.linear.app/graphql`. The raw response streams to stdout — pipe through `jq` to pretty-print or filter.
+`${AGENT_TEAM_ROOT}/skills/linear/scripts/linear-graphql.sh` loads a Linear API key (prefers `LINEAR_API_KEY`, falls back to `LINEAR_USER_API_KEY`) from env or `$PWD/.env`, builds the request body with `jq`, and POSTs to `https://api.linear.app/graphql`. For `commentCreate` and `issueCreate` mutations, it appends the machine-readable `agent-team-origin: ...` footer when project/dispatch origin context is available in `.agent_team/config.toml` and `AGENT_TEAM_*`. The raw response streams to stdout — pipe through `jq` to pretty-print or filter.
 
 Usage:
 

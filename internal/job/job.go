@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/usage"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
@@ -53,6 +54,7 @@ type Job struct {
 	Worktree               string          `toml:"worktree,omitempty"`
 	ReapWorktree           string          `toml:"reap_worktree,omitempty"`
 	PR                     string          `toml:"pr,omitempty"`
+	Origin                 origin.Envelope `toml:"origin,omitempty"`
 	LinearAttentionWritten bool            `toml:"linear_attention_written,omitempty"`
 	Merge                  *Merge          `toml:"merge,omitempty"`
 	Drift                  *Drift          `toml:"drift,omitempty"`

@@ -49,6 +49,7 @@ type blockingSection struct {
 // design says we render a placeholder rather than hiding them.
 type instanceRow struct {
 	Instance         string
+	Team             string
 	Agent            string // best-effort guess; "—" if unknown
 	Phase            string
 	Age              string

@@ -260,6 +260,7 @@ func (c *Client) WriteBack(ctx context.Context, teamDir string, req Request) Res
 		result.Changed = true
 	}
 	if strings.TrimSpace(commentBody) != "" {
+		commentBody = appendOriginFooter(teamDir, req, commentBody)
 		if err := c.createComment(ctx, apiKey, issueID, commentBody); err != nil {
 			result.Error = err.Error()
 			result.Message = "linear write-back failed"

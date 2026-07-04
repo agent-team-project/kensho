@@ -634,7 +634,9 @@ func newJobLsCmd() *cobra.Command {
 		statusFilter   string
 		targetFilter   string
 		instance       string
+		team           string
 		pipeline       string
+		trigger        string
 		ticket         string
 		branch         string
 		pr             string
@@ -717,7 +719,7 @@ func newJobLsCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job ls: --expired-hold and --active-hold cannot be combined.")
 				return exitErr(2)
 			}
-			filters, err := newJobListFilters(statusFilter, targetFilter, instance, pipeline, ticket, branch, pr, runtimeFilters)
+			filters, err := newJobListFilters(statusFilter, targetFilter, instance, team, pipeline, trigger, ticket, branch, pr, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job ls: %v\n", err)
 				return exitErr(2)
@@ -751,7 +753,9 @@ func newJobLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&targetFilter, "target-agent", "", "Filter by target agent.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Filter by owning instance.")
+	cmd.Flags().StringVar(&team, "team", "", "Filter by origin team.")
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Filter by pipeline name.")
+	cmd.Flags().StringVar(&trigger, "trigger", "", "Filter by origin trigger, e.g. schedule:feedback-triage.")
 	cmd.Flags().StringVar(&ticket, "ticket", "", "Filter by ticket id or URL substring.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Filter by branch.")
 	cmd.Flags().StringVar(&pr, "pr", "", "Filter by PR URL or number substring.")
@@ -8713,8 +8717,10 @@ type jobListFilters struct {
 	Status        job.Status
 	Target        string
 	Instance      string
+	Team          string
 	Pipeline      string
 	PipelineOwned bool
+	Trigger       string
 	Ticket        string
 	Branch        string
 	PR            string
@@ -8981,11 +8987,13 @@ func (f jobTriageFilters) match(item jobTriageItem) bool {
 	return true
 }
 
-func newJobListFilters(status, target, instance, pipeline, ticket, branch, pr string, runtimeFilters []string) (jobListFilters, error) {
+func newJobListFilters(status, target, instance, team, pipeline, trigger, ticket, branch, pr string, runtimeFilters []string) (jobListFilters, error) {
 	f := jobListFilters{
 		Target:   strings.TrimSpace(target),
 		Instance: strings.TrimSpace(instance),
+		Team:     strings.TrimSpace(team),
 		Pipeline: strings.TrimSpace(pipeline),
+		Trigger:  strings.TrimSpace(trigger),
 		Ticket:   strings.TrimSpace(ticket),
 		Branch:   strings.TrimSpace(branch),
 		PR:       strings.TrimSpace(pr),
@@ -11133,9 +11141,13 @@ func filteredJobs(teamDir string, filters jobListFilters) ([]*job.Job, error) {
 	if err != nil {
 		return nil, err
 	}
+	var top *topology.Topology
+	if filters.Team != "" {
+		top, _ = topology.LoadFromTeamDir(teamDir)
+	}
 	filtered := make([]*job.Job, 0, len(jobs))
 	for _, j := range jobs {
-		if jobMatchesFilters(j, filters) && jobMatchesRuntimeFilter(j, filters, runtimeByInstance) {
+		if jobMatchesFilters(j, filters, top) && jobMatchesRuntimeFilter(j, filters, runtimeByInstance) {
 			filtered = append(filtered, j)
 		}
 	}
@@ -11175,7 +11187,7 @@ func jobRuntimeIndex(teamDir string, filters jobListFilters) (map[string]string,
 	return out, nil
 }
 
-func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
+func jobMatchesFilters(j *job.Job, filters jobListFilters, top *topology.Topology) bool {
 	if j == nil {
 		return false
 	}
@@ -11194,7 +11206,13 @@ func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
 	if filters.Instance != "" && j.Instance != filters.Instance {
 		return false
 	}
+	if filters.Team != "" && !jobMatchesTeamFilter(j, filters.Team, top) {
+		return false
+	}
 	if filters.Pipeline != "" && j.Pipeline != filters.Pipeline {
+		return false
+	}
+	if filters.Trigger != "" && j.Origin.Trigger != filters.Trigger {
 		return false
 	}
 	if filters.PipelineOwned && strings.TrimSpace(j.Pipeline) == "" {
@@ -11210,6 +11228,49 @@ func jobMatchesFilters(j *job.Job, filters jobListFilters) bool {
 		return false
 	}
 	return true
+}
+
+func jobMatchesTeamFilter(j *job.Job, team string, top *topology.Topology) bool {
+	team = strings.TrimSpace(team)
+	if j == nil || team == "" {
+		return false
+	}
+	if strings.TrimSpace(j.Origin.Team) == team {
+		return true
+	}
+	if top == nil {
+		return false
+	}
+	declared := top.FindTeam(team)
+	if declared == nil {
+		return false
+	}
+	if j.Pipeline != "" && stringSliceContains(declared.Pipelines, j.Pipeline) {
+		return true
+	}
+	if instanceMatchesAnyDeclared(j.Instance, declared.Instances) {
+		return true
+	}
+	for _, step := range j.Steps {
+		if instanceMatchesAnyDeclared(step.Instance, declared.Instances) {
+			return true
+		}
+	}
+	return false
+}
+
+func instanceMatchesAnyDeclared(instance string, declared []string) bool {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return false
+	}
+	for _, name := range declared {
+		name = strings.TrimSpace(name)
+		if name != "" && (instance == name || strings.HasPrefix(instance, name+"-")) {
+			return true
+		}
+	}
+	return false
 }
 
 func jobMatchesRuntimeFilter(j *job.Job, filters jobListFilters, runtimeByInstance map[string]string) bool {
@@ -16347,6 +16408,30 @@ func renderJobTableWithRuntime(w io.Writer, jobs []*job.Job, runtimeByInstance m
 	_ = tw.Flush()
 }
 
+func formatJobOrigin(j *job.Job) string {
+	if j == nil || j.Origin.Empty() {
+		return ""
+	}
+	items := []string{}
+	for _, item := range []struct {
+		key   string
+		value string
+	}{
+		{"project", j.Origin.Project},
+		{"team", j.Origin.Team},
+		{"instance", j.Origin.Instance},
+		{"agent", j.Origin.Agent},
+		{"job", j.Origin.Job},
+		{"trigger", j.Origin.Trigger},
+		{"build", j.Origin.Build},
+	} {
+		if value := strings.TrimSpace(item.value); value != "" {
+			items = append(items, item.key+"="+value)
+		}
+	}
+	return strings.Join(items, " ")
+}
+
 func jobRuntimeLabel(j *job.Job, runtimeByInstance map[string]string) string {
 	if j == nil || len(runtimeByInstance) == 0 {
 		return "-"
@@ -16564,6 +16649,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	}
 	if j.PR != "" {
 		fmt.Fprintf(w, "PR:          %s\n", j.PR)
+	}
+	if originText := formatJobOrigin(j); originText != "" {
+		fmt.Fprintf(w, "Origin:      %s\n", originText)
 	}
 	if j.Merge != nil {
 		fmt.Fprintf(w, "Merge:       %s%s%s%s\n", j.Merge.Strategy, formatMergeScript(j.Merge.Script), formatMergeLand(j.Merge.Land), formatMergeOwnedPaths(j.Merge.OwnedPaths))

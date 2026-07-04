@@ -13,6 +13,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/usage"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +25,7 @@ const (
 	usageByInstance usageGroupBy = "instance"
 	usageByAgent    usageGroupBy = "agent"
 	usageByRuntime  usageGroupBy = "runtime"
+	usageByTeam     usageGroupBy = "team"
 )
 
 func newUsageCmd() *cobra.Command {
@@ -72,7 +74,7 @@ func newUsageCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&since, "since", "", "Only include usage captured since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.")
-	cmd.Flags().StringVar(&by, "by", string(usageByJob), "Group usage by job, instance, agent, or runtime.")
+	cmd.Flags().StringVar(&by, "by", string(usageByJob), "Group usage by job, instance, agent, runtime, or team.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit usage rollups as JSON.")
 	return cmd
 }
@@ -103,14 +105,17 @@ func parseUsageGroupBy(raw string) (usageGroupBy, error) {
 		return usageByAgent, nil
 	case usageByRuntime:
 		return usageByRuntime, nil
+	case usageByTeam:
+		return usageByTeam, nil
 	default:
-		return "", fmt.Errorf("--by must be job, instance, agent, or runtime")
+		return "", fmt.Errorf("--by must be job, instance, agent, runtime, or team")
 	}
 }
 
 type usageAttributedRecord struct {
 	JobID  string
 	Ticket string
+	Team   string
 	Record usage.Record
 }
 
@@ -122,6 +127,7 @@ type usageRollupRow struct {
 	Instance string        `json:"instance,omitempty"`
 	Agent    string        `json:"agent,omitempty"`
 	Runtime  string        `json:"runtime,omitempty"`
+	Team     string        `json:"team,omitempty"`
 	Usage    usage.Summary `json:"usage"`
 }
 
@@ -135,6 +141,7 @@ func collectUsageRecords(teamDir string, since *time.Time) ([]usageAttributedRec
 		return nil, err
 	}
 	jobs = append(jobs, archived...)
+	top, _ := topology.LoadFromTeamDir(teamDir)
 	records := make([]usageAttributedRecord, 0)
 	seen := map[string]bool{}
 	for _, j := range jobs {
@@ -150,7 +157,7 @@ func collectUsageRecords(teamDir string, since *time.Time) ([]usageAttributedRec
 				continue
 			}
 			seen[key] = true
-			records = append(records, usageAttributedRecord{JobID: j.ID, Ticket: j.Ticket, Record: rec})
+			records = append(records, usageAttributedRecord{JobID: j.ID, Ticket: j.Ticket, Team: usageTeamForJob(top, j, rec), Record: rec})
 		}
 	}
 	metas, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
@@ -167,7 +174,7 @@ func collectUsageRecords(teamDir string, since *time.Time) ([]usageAttributedRec
 			continue
 		}
 		seen[key] = true
-		records = append(records, usageAttributedRecord{JobID: jobID, Ticket: meta.Ticket, Record: *meta.Usage})
+		records = append(records, usageAttributedRecord{JobID: jobID, Ticket: meta.Ticket, Team: usageTeamForMetadata(top, meta), Record: *meta.Usage})
 	}
 	return records, nil
 }
@@ -237,6 +244,8 @@ func usageRollupKey(attributed usageAttributedRecord, by usageGroupBy) string {
 		return strings.TrimSpace(rec.Agent)
 	case usageByRuntime:
 		return strings.TrimSpace(rec.Runtime)
+	case usageByTeam:
+		return strings.TrimSpace(attributed.Team)
 	default:
 		return strings.TrimSpace(attributed.JobID)
 	}
@@ -258,7 +267,58 @@ func applyUsageRollupIdentity(row *usageRollupRow, attributed usageAttributedRec
 		row.Agent = rec.Agent
 	case usageByRuntime:
 		row.Runtime = rec.Runtime
+	case usageByTeam:
+		row.Team = attributed.Team
 	}
+}
+
+func usageTeamForJob(top *topology.Topology, j *job.Job, rec usage.Record) string {
+	if team := strings.TrimSpace(rec.Origin.Team); team != "" {
+		return team
+	}
+	if j == nil {
+		return ""
+	}
+	if team := strings.TrimSpace(j.Origin.Team); team != "" {
+		return team
+	}
+	if team := topologyTeamForPipeline(top, j.Pipeline); team != "" {
+		return team
+	}
+	if team := topologyTeamForInstanceRow(top, rec.Instance); team != "" {
+		return team
+	}
+	return topologyTeamForInstanceRow(top, j.Instance)
+}
+
+func usageTeamForMetadata(top *topology.Topology, meta *daemon.Metadata) string {
+	if meta == nil {
+		return ""
+	}
+	if meta.Usage != nil {
+		if team := strings.TrimSpace(meta.Usage.Origin.Team); team != "" {
+			return team
+		}
+	}
+	if team := strings.TrimSpace(meta.Origin.Team); team != "" {
+		return team
+	}
+	return topologyTeamForInstanceRow(top, meta.Instance)
+}
+
+func topologyTeamForPipeline(top *topology.Topology, pipeline string) string {
+	pipeline = strings.TrimSpace(pipeline)
+	if top == nil || pipeline == "" {
+		return ""
+	}
+	for _, team := range top.SortedTeams() {
+		for _, name := range team.Pipelines {
+			if strings.TrimSpace(name) == pipeline {
+				return team.Name
+			}
+		}
+	}
+	return ""
 }
 
 func renderUsageRollups(w io.Writer, rows []usageRollupRow) {

@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 // Event is one durable audit record for a job.
@@ -22,6 +25,7 @@ type Event struct {
 	Instance string            `json:"instance,omitempty"`
 	Message  string            `json:"message,omitempty"`
 	Actor    string            `json:"actor,omitempty"`
+	Origin   origin.Envelope   `json:"origin,omitempty"`
 	Data     map[string]string `json:"data,omitempty"`
 }
 
@@ -55,6 +59,7 @@ func AppendEvent(teamDir string, ev *Event) error {
 	ev.Instance = strings.TrimSpace(ev.Instance)
 	ev.Message = strings.TrimSpace(ev.Message)
 	ev.Actor = strings.TrimSpace(ev.Actor)
+	ev.Origin = origin.Merge(ev.Origin, eventOriginFallback(teamDir, ev))
 
 	dir := Directory(teamDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -73,6 +78,28 @@ func AppendEvent(teamDir string, ev *Event) error {
 		return fmt.Errorf("job event: close: %w", err)
 	}
 	return nil
+}
+
+func eventOriginFallback(teamDir string, ev *Event) origin.Envelope {
+	if ev == nil {
+		return origin.Envelope{}
+	}
+	fallback := origin.Envelope{
+		Project:  projectID(teamDir),
+		Instance: ev.Instance,
+		Job:      ev.JobID,
+		Trigger:  strings.TrimSpace(ev.Type),
+		Build:    buildinfo.Current("").Display(),
+	}
+	if j, err := Read(teamDir, ev.JobID); err == nil && j != nil {
+		fallback = origin.Merge(fallback, j.Origin)
+	}
+	return fallback
+}
+
+func projectID(teamDir string) string {
+	id, _ := origin.ProjectID(teamDir)
+	return id
 }
 
 // AppendSnapshotEvent appends an audit event using the current job fields.
@@ -98,6 +125,7 @@ func AppendSnapshotEvent(teamDir string, j *Job, eventType, actor, message strin
 		Instance: j.Instance,
 		Message:  message,
 		Actor:    actor,
+		Origin:   j.Origin,
 		Data:     data,
 	})
 }

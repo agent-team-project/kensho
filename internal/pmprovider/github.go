@@ -187,6 +187,7 @@ func (c *GitHubClient) WriteBack(ctx context.Context, teamDir string, req Reques
 		result.Changed = true
 	}
 	if strings.TrimSpace(commentBody) != "" {
+		commentBody = appendOriginFooter(teamDir, req, commentBody)
 		if err := c.createIssueComment(ctx, token, issue, commentBody); err != nil {
 			result.Error = err.Error()
 			result.Message = "github write-back failed"

@@ -10,24 +10,27 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 // Record is one finalized runtime run captured from daemon metadata.
 type Record struct {
-	Instance              string    `json:"instance,omitempty" toml:"instance,omitempty"`
-	Agent                 string    `json:"agent,omitempty" toml:"agent,omitempty"`
-	Runtime               string    `json:"runtime,omitempty" toml:"runtime,omitempty"`
-	TokensAvailable       bool      `json:"tokens_available" toml:"tokens_available"`
-	InputTokens           int64     `json:"input_tokens,omitempty" toml:"input_tokens,omitempty"`
-	CachedInputTokens     int64     `json:"cached_input_tokens,omitempty" toml:"cached_input_tokens,omitempty"`
-	OutputTokens          int64     `json:"output_tokens,omitempty" toml:"output_tokens,omitempty"`
-	ReasoningOutputTokens int64     `json:"reasoning_output_tokens,omitempty" toml:"reasoning_output_tokens,omitempty"`
-	Turns                 int       `json:"turns,omitempty" toml:"turns,omitempty"`
-	DurationMS            int64     `json:"duration_ms,omitempty" toml:"duration_ms,omitempty"`
-	StartedAt             time.Time `json:"started_at,omitempty" toml:"started_at,omitempty"`
-	EndedAt               time.Time `json:"ended_at,omitempty" toml:"ended_at,omitempty"`
-	CapturedAt            time.Time `json:"captured_at,omitempty" toml:"captured_at,omitempty"`
-	Source                string    `json:"source,omitempty" toml:"source,omitempty"`
+	Instance              string          `json:"instance,omitempty" toml:"instance,omitempty"`
+	Agent                 string          `json:"agent,omitempty" toml:"agent,omitempty"`
+	Runtime               string          `json:"runtime,omitempty" toml:"runtime,omitempty"`
+	TokensAvailable       bool            `json:"tokens_available" toml:"tokens_available"`
+	InputTokens           int64           `json:"input_tokens,omitempty" toml:"input_tokens,omitempty"`
+	CachedInputTokens     int64           `json:"cached_input_tokens,omitempty" toml:"cached_input_tokens,omitempty"`
+	OutputTokens          int64           `json:"output_tokens,omitempty" toml:"output_tokens,omitempty"`
+	ReasoningOutputTokens int64           `json:"reasoning_output_tokens,omitempty" toml:"reasoning_output_tokens,omitempty"`
+	Turns                 int             `json:"turns,omitempty" toml:"turns,omitempty"`
+	DurationMS            int64           `json:"duration_ms,omitempty" toml:"duration_ms,omitempty"`
+	StartedAt             time.Time       `json:"started_at,omitempty" toml:"started_at,omitempty"`
+	EndedAt               time.Time       `json:"ended_at,omitempty" toml:"ended_at,omitempty"`
+	CapturedAt            time.Time       `json:"captured_at,omitempty" toml:"captured_at,omitempty"`
+	Source                string          `json:"source,omitempty" toml:"source,omitempty"`
+	Origin                origin.Envelope `json:"origin,omitempty" toml:"origin,omitempty"`
 }
 
 // Summary is an aggregate over one or more usage records.

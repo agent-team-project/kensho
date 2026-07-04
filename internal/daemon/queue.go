@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 const (
@@ -22,20 +24,21 @@ const (
 
 // QueueItem is one persisted topology dispatch waiting for capacity or manual retry.
 type QueueItem struct {
-	ID             string         `json:"id"`
-	State          string         `json:"state"`
-	EventType      string         `json:"event_type"`
-	Instance       string         `json:"instance"`
-	InstanceID     string         `json:"instance_id"`
-	Reason         string         `json:"reason,omitempty"`
-	Locks          []string       `json:"locks,omitempty"`
-	Payload        map[string]any `json:"payload"`
-	Attempts       int            `json:"attempts"`
-	LastError      string         `json:"last_error,omitempty"`
-	NextRetry      time.Time      `json:"next_retry,omitempty"`
-	QueuedAt       time.Time      `json:"queued_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DeadLetteredAt time.Time      `json:"dead_lettered_at,omitempty"`
+	ID             string          `json:"id"`
+	State          string          `json:"state"`
+	EventType      string          `json:"event_type"`
+	Instance       string          `json:"instance"`
+	InstanceID     string          `json:"instance_id"`
+	Reason         string          `json:"reason,omitempty"`
+	Locks          []string        `json:"locks,omitempty"`
+	Payload        map[string]any  `json:"payload"`
+	Origin         origin.Envelope `json:"origin,omitempty"`
+	Attempts       int             `json:"attempts"`
+	LastError      string          `json:"last_error,omitempty"`
+	NextRetry      time.Time       `json:"next_retry,omitempty"`
+	QueuedAt       time.Time       `json:"queued_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	DeadLetteredAt time.Time       `json:"dead_lettered_at,omitempty"`
 }
 
 // QueueDrainResult describes one explicit queue drain pass.

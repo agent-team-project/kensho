@@ -10,17 +10,20 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 // LockLease is one durable row recording an instance holding a named dispatch
 // lock. PID is filled after spawn; reconcile can recover it from metadata when
 // a daemon crash lands between the pre-spawn reservation and post-spawn update.
 type LockLease struct {
-	Lock       string    `json:"lock"`
-	Instance   string    `json:"instance"`
-	PID        int       `json:"pid,omitempty"`
-	AcquiredAt time.Time `json:"acquired_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Lock       string          `json:"lock"`
+	Instance   string          `json:"instance"`
+	PID        int             `json:"pid,omitempty"`
+	Origin     origin.Envelope `json:"origin,omitempty"`
+	AcquiredAt time.Time       `json:"acquired_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // LockSnapshot is the operator-facing state for one declared lock.

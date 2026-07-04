@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -165,6 +166,10 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	if err := os.MkdirAll(DaemonRoot(cfg.TeamDir), 0o755); err != nil {
 		return nil, fmt.Errorf("daemon: mkdir runtime dir: %w", err)
+	}
+	if _, _, err := origin.EnsureProjectID(cfg.TeamDir); err != nil {
+		fmt.Fprintf(cfg.LogOut, "%s project: backfill failed: %v\n",
+			time.Now().UTC().Format(time.RFC3339), err)
 	}
 	httpAddr, err := NormalizeLoopbackHTTPAddr(cfg.HTTPAddr)
 	if err != nil {

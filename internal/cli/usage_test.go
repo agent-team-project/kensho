@@ -10,6 +10,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/usage"
 )
 
@@ -115,6 +116,65 @@ func TestUsageCommandRollsUpByRuntimeAndFiltersSince(t *testing.T) {
 	}
 	if byRuntime["claude"].TokenUnavailableRuns != 1 || byRuntime["claude"].DurationMS != int64((5*time.Minute).Milliseconds()) {
 		t.Fatalf("claude rollup = %+v, rows=%+v", byRuntime["claude"], rows)
+	}
+}
+
+func TestUsageCommandRollsUpByTeam(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	platform := writeUsageJobForTest(t, teamDir, "SQU-90", usage.Record{
+		Instance:        "platform-worker-squ-90",
+		Agent:           "worker",
+		Runtime:         "codex",
+		TokensAvailable: true,
+		InputTokens:     100,
+		OutputTokens:    20,
+		Turns:           1,
+		StartedAt:       now.Add(-time.Hour),
+		EndedAt:         now,
+	})
+	platform.Origin = origin.Envelope{Team: "platform"}
+	platform.Usage.Records[0].Origin = platform.Origin
+	if err := job.Write(teamDir, platform); err != nil {
+		t.Fatalf("job.Write platform: %v", err)
+	}
+	delivery := writeUsageJobForTest(t, teamDir, "SQU-91", usage.Record{
+		Instance:        "worker-squ-91",
+		Agent:           "worker",
+		Runtime:         "codex",
+		TokensAvailable: true,
+		InputTokens:     7,
+		OutputTokens:    3,
+		Turns:           1,
+		StartedAt:       now.Add(-time.Hour),
+		EndedAt:         now,
+	})
+	delivery.Origin = origin.Envelope{Team: "delivery"}
+	delivery.Usage.Records[0].Origin = delivery.Origin
+	if err := job.Write(teamDir, delivery); err != nil {
+		t.Fatalf("job.Write delivery: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"usage", "--target", tmp, "--by", "team", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("usage: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []usageRollupRow
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode usage rows: %v\nbody=%s", err, out.String())
+	}
+	byTeam := map[string]usage.Summary{}
+	for _, row := range rows {
+		byTeam[row.Key] = row.Usage
+	}
+	if byTeam["platform"].InputTokens != 100 || byTeam["delivery"].InputTokens != 7 {
+		t.Fatalf("team rollups = %+v rows=%+v", byTeam, rows)
 	}
 }
 

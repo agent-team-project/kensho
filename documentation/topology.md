@@ -352,6 +352,39 @@ Teams live under `[teams.<name>]`. They group declared instances, pipelines, and
 
 At least one of `instances`, `pipelines`, or `schedules` is required.
 
+### Origin envelope and project id
+
+`agent-team init` writes a stable `[project].id` into `.agent_team/config.toml`. Existing repos are backfilled by `agent-team doctor --fix` or the first daemon start. The id is local to the vendored team and is used to identify the source deployment when jobs or agent-written PM artifacts cross repo boundaries.
+
+The daemon stamps a fixed origin envelope on resources it creates or updates:
+
+```
+project = "<[project].id>"
+team = "<topology team>"
+instance = "<runtime instance>"
+agent = "<agent name>"
+job = "<durable job id>"
+trigger = "<event, schedule:name, or pipeline:name:step>"
+build = "<binary build identity>"
+```
+
+The envelope is persisted on jobs, job events, queue items, lock leases, lifecycle metadata, and usage records. Team ownership is resolved from the declared topology: pipeline-created jobs use `[teams.*].pipelines`, spawned instances use `[teams.*].instances`, and unique ephemeral names match their declared instance prefix.
+
+Operator queries can use the envelope directly:
+
+```
+agent-team job ls --team platform
+agent-team job ls --trigger schedule:feedback-triage
+agent-team ps --team platform
+agent-team usage --by team
+```
+
+PM writes append a machine-readable footer such as:
+
+```
+agent-team-origin: project=<id> team=platform instance=platform-worker-squ-90 trigger=pipeline:platform_ticket_to_pr:implement
+```
+
 ### Trigger field reference
 
 | Field | Required | Meaning |

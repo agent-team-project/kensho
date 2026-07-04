@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 func TestWriteBackSkipsWhenLinearDisabled(t *testing.T) {
@@ -152,6 +153,46 @@ func TestWriteBackFailureLabelsWhenAttentionStateMissing(t *testing.T) {
 	comment := commentBodyFromRequests(t, *requests)
 	if !strings.Contains(comment, "Job squ-68 failed and needs attention: worker crashed") {
 		t.Fatalf("comment = %q", comment)
+	}
+}
+
+func TestWriteBackCommentAppendsOriginFooter(t *testing.T) {
+	teamDir := testLinearTeamDir(t, `attention_state = "Todo"
+
+[project]
+id = "project-1"`)
+	server, requests := linearTestServer(t)
+	defer server.Close()
+	j := testJob()
+	j.Status = job.StatusFailed
+	j.Origin = origin.Envelope{
+		Team:     "platform",
+		Instance: "platform-worker-squ-90",
+		Trigger:  "schedule:feedback-triage",
+	}
+	client := &Client{Endpoint: server.URL, APIKey: "linear-key", HTTPClient: server.Client()}
+
+	result := client.WriteBack(context.Background(), teamDir, Request{
+		Action:  ActionFailureAttention,
+		Job:     j,
+		Message: "instance crashed",
+		Actor:   "test",
+	})
+	if result.Error != "" || !result.Comment {
+		t.Fatalf("result = %+v, want comment", result)
+	}
+	comment := commentBodyFromRequests(t, *requests)
+	for _, want := range []string{
+		"agent-team-origin:",
+		"project=project-1",
+		"team=platform",
+		"instance=platform-worker-squ-90",
+		"job=squ-68",
+		"trigger=schedule:feedback-triage",
+	} {
+		if !strings.Contains(comment, want) {
+			t.Fatalf("comment missing %q:\n%s", want, comment)
+		}
 	}
 }
 

@@ -174,6 +174,71 @@ func TestReconcilePRClosedFailureWritesLinearAttention(t *testing.T) {
 	}
 }
 
+func TestWriteWithAuditStampsOrigin(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatalf("mkdir team dir: %v", err)
+	}
+	config := `[project]
+id = "project-1"
+
+[pm]
+provider = "none"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	topology := `[instances.platform-worker]
+agent = "worker"
+ephemeral = true
+
+[teams.platform]
+instances = ["platform-worker"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topology), 0o644); err != nil {
+		t.Fatalf("write instances: %v", err)
+	}
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-90", "worker", "kickoff", now)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Instance = "platform-worker-squ-90"
+	j.Status = job.StatusRunning
+	j.LastEvent = "dispatch"
+	j.LastStatus = "running"
+
+	if err := WriteWithAudit(teamDir, j, Options{
+		EventType: "dispatch",
+		Actor:     "daemon",
+		Data:      map[string]string{"trigger": "schedule:feedback-triage"},
+	}); err != nil {
+		t.Fatalf("WriteWithAudit: %v", err)
+	}
+	persisted, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if persisted.Origin.Project != "project-1" ||
+		persisted.Origin.Team != "platform" ||
+		persisted.Origin.Instance != "platform-worker-squ-90" ||
+		persisted.Origin.Agent != "worker" ||
+		persisted.Origin.Job != "squ-90" ||
+		persisted.Origin.Trigger != "schedule:feedback-triage" {
+		t.Fatalf("origin = %+v", persisted.Origin)
+	}
+	events, err := job.ListEvents(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if events[0].Origin.Team != "platform" || events[0].Origin.Project != "project-1" {
+		t.Fatalf("event origin = %+v", events[0].Origin)
+	}
+}
+
 func testTeamDir(t *testing.T) string {
 	t.Helper()
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")

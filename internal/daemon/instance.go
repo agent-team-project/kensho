@@ -20,6 +20,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
@@ -133,6 +134,7 @@ type DispatchInput struct {
 	Ticket        string
 	Branch        string
 	PR            string
+	Origin        origin.Envelope
 	Prompt        string
 	Workspace     string
 	Runtime       string
@@ -311,6 +313,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		Ticket:        in.Ticket,
 		Branch:        in.Branch,
 		PR:            in.PR,
+		Origin:        in.Origin,
 		Runtime:       string(rt.Kind),
 		RuntimeBinary: rt.Binary,
 		Workspace:     in.Workspace,
@@ -1513,6 +1516,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	meta := &Metadata{
 		Instance:      in.Name,
 		Agent:         in.Agent,
+		Origin:        in.Origin,
 		Runtime:       string(rt.Kind),
 		RuntimeBinary: rt.Binary,
 		Workspace:     in.Workspace,
@@ -1961,6 +1965,7 @@ func (m *InstanceManager) recordEvent(action string, meta *Metadata, message str
 		Ticket:   meta.Ticket,
 		Branch:   meta.Branch,
 		PR:       meta.PR,
+		Origin:   meta.Origin,
 		Status:   meta.Status,
 		PID:      meta.PID,
 		ExitCode: meta.ExitCode,

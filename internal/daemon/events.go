@@ -13,24 +13,28 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/jamesaud/agent-team/internal/origin"
 )
 
 // LifecycleEvent is one append-only daemon lifecycle record. Stored as JSONL
 // at `.agent_team/daemon/events.jsonl` and streamed by GET /v1/events.
 type LifecycleEvent struct {
-	ID       string    `json:"id"`
-	TS       time.Time `json:"ts"`
-	Action   string    `json:"action"`
-	Instance string    `json:"instance,omitempty"`
-	Agent    string    `json:"agent,omitempty"`
-	Job      string    `json:"job,omitempty"`
-	Ticket   string    `json:"ticket,omitempty"`
-	Branch   string    `json:"branch,omitempty"`
-	PR       string    `json:"pr,omitempty"`
-	Status   Status    `json:"status,omitempty"`
-	PID      int       `json:"pid,omitempty"`
-	ExitCode *int      `json:"exit_code,omitempty"`
-	Message  string    `json:"message,omitempty"`
+	ID       string          `json:"id"`
+	TS       time.Time       `json:"ts"`
+	Action   string          `json:"action"`
+	Instance string          `json:"instance,omitempty"`
+	Agent    string          `json:"agent,omitempty"`
+	Job      string          `json:"job,omitempty"`
+	Ticket   string          `json:"ticket,omitempty"`
+	Branch   string          `json:"branch,omitempty"`
+	PR       string          `json:"pr,omitempty"`
+	Origin   origin.Envelope `json:"origin,omitempty"`
+	Status   Status          `json:"status,omitempty"`
+	PID      int             `json:"pid,omitempty"`
+	ExitCode *int            `json:"exit_code,omitempty"`
+	Message  string          `json:"message,omitempty"`
 }
 
 var lifecycleEventLock sync.Mutex
@@ -55,6 +59,7 @@ func AppendLifecycleEvent(daemonRoot string, ev *LifecycleEvent) error {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()
 	}
+	ev.Origin = origin.Merge(ev.Origin, lifecycleOriginFallback(daemonRoot, ev))
 	if err := os.MkdirAll(daemonRoot, 0o755); err != nil {
 		return fmt.Errorf("events: mkdir: %w", err)
 	}
@@ -75,6 +80,22 @@ func AppendLifecycleEvent(daemonRoot string, ev *LifecycleEvent) error {
 		return fmt.Errorf("events: write: %w", err)
 	}
 	return nil
+}
+
+func lifecycleOriginFallback(daemonRoot string, ev *LifecycleEvent) origin.Envelope {
+	if ev == nil {
+		return origin.Envelope{}
+	}
+	teamDir := filepath.Dir(daemonRoot)
+	id, _ := origin.ProjectID(teamDir)
+	return origin.Envelope{
+		Project:  id,
+		Instance: ev.Instance,
+		Agent:    ev.Agent,
+		Job:      ev.Job,
+		Trigger:  ev.Action,
+		Build:    buildinfo.Current("").Display(),
+	}
 }
 
 // ListLifecycleEvents reads lifecycle JSONL into memory. Missing files return

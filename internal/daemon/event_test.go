@@ -1862,6 +1862,11 @@ func TestEvent_EphemeralReplicasQueueing(t *testing.T) {
 func TestEvent_DispatchLockContentionQueuesAndReapDrains(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`[project]
+id = "project-1"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	top := mustParseCustomTopo(t, `
 [locks.build]
 slots = 1
@@ -1875,6 +1880,9 @@ locks = ["build"]
 [[instances.worker.triggers]]
 event = "agent.dispatch"
 match.target = "worker"
+
+[teams.platform]
+instances = ["worker"]
 `)
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
@@ -1908,6 +1916,16 @@ match.target = "worker"
 	}
 	if len(items) != 1 || items[0].Reason != QueueReasonLockHeld || !reflect.DeepEqual(items[0].Locks, []string{"build"}) {
 		t.Fatalf("queue items = %+v", items)
+	}
+	if items[0].Origin.Project != "project-1" || items[0].Origin.Team != "platform" || items[0].Origin.Instance != "worker-squ-101" || items[0].Origin.Trigger != topology.EventAgentDispatch {
+		t.Fatalf("queue item origin = %+v", items[0].Origin)
+	}
+	lease, err := ReadLockLease(root, "build", "worker-squ-100")
+	if err != nil {
+		t.Fatalf("ReadLockLease: %v", err)
+	}
+	if lease.Origin.Project != "project-1" || lease.Origin.Team != "platform" || lease.Origin.Instance != "worker-squ-100" {
+		t.Fatalf("lock lease origin = %+v", lease.Origin)
 	}
 	snapshots := resolver.LockSnapshots()
 	if len(snapshots) != 1 || snapshots[0].Name != "build" || snapshots[0].Used != 1 || snapshots[0].Holders[0].Instance != "worker-squ-100" {
@@ -2389,6 +2407,11 @@ func TestEvent_DrainOutboxWithResultPublishesPendingEvents(t *testing.T) {
 func TestEvent_PipelineCreatesJobAndDispatchesFirstStep(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`[project]
+id = "project-1"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	top, err := topology.Parse([]byte(`
 [instances.worker]
 agent = "worker"
@@ -2415,6 +2438,10 @@ target = "manager"
 after = ["implement"]
 optional = true
 timeout = "2h"
+
+[teams.platform]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
 `))
 	if err != nil {
 		t.Fatalf("parse topology: %v", err)
@@ -2450,11 +2477,89 @@ timeout = "2h"
 	if j.Pipeline != "ticket_to_pr" || j.Status != jobstore.StatusRunning || len(j.Steps) != 2 || j.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-92/pipeline" {
 		t.Fatalf("job = %+v", j)
 	}
+	if j.Origin.Project != "project-1" || j.Origin.Team != "platform" || j.Origin.Job != "squ-92" || j.Origin.Trigger != "ticket.created" {
+		t.Fatalf("job origin = %+v", j.Origin)
+	}
 	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" {
 		t.Fatalf("first step = %+v", j.Steps[0])
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
 		t.Fatalf("optional review step = %+v", j.Steps[1])
+	}
+	meta, err := ReadMetadata(root, "worker-squ-92")
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if meta.Origin.Project != "project-1" || meta.Origin.Team != "platform" || meta.Origin.Instance != "worker-squ-92" || meta.Origin.Trigger != "pipeline:ticket_to_pr:implement" {
+		t.Fatalf("metadata origin = %+v", meta.Origin)
+	}
+}
+
+func TestEvent_PipelineDispatchOriginIgnoresPayloadTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`[project]
+id = "project-1"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+instructions = "Implement the ticket."
+target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult("ticket.status_changed", map[string]any{
+		"ticket":     "SQU-93",
+		"ticket_url": "https://linear.app/squirtlesquad/issue/SQU-93/pipeline",
+		"team":       "SQU",
+		"status":     "Ready for Agent",
+		"workspace":  "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	if id := result.Outcomes[0].InstanceID; id != "worker-squ-93" {
+		t.Fatalf("instance_id = %q, want worker-squ-93", id)
+	}
+	j, err := jobstore.Read(teamDir, "squ-93")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Origin.Project != "project-1" || j.Origin.Team != "delivery" || j.Origin.Job != "squ-93" || j.Origin.Trigger != "ticket.status_changed" {
+		t.Fatalf("job origin = %+v", j.Origin)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-93")
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if meta.Origin.Project != "project-1" || meta.Origin.Team != "delivery" || meta.Origin.Instance != "worker-squ-93" || meta.Origin.Trigger != "pipeline:ticket_to_pr:implement" {
+		t.Fatalf("metadata origin = %+v", meta.Origin)
 	}
 }
 

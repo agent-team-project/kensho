@@ -185,6 +185,61 @@ else
         '{query: $q, variables: $v}')"
 fi
 
+origin_footer() {
+    python3 - <<'PY'
+import os
+import shlex
+import tomllib
+from pathlib import Path
+
+team_root = Path(os.environ.get("AGENT_TEAM_ROOT") or ".agent_team")
+cfg_path = team_root / "config.toml"
+project = ""
+if cfg_path.exists():
+    try:
+        project = tomllib.loads(cfg_path.read_text()).get("project", {}).get("id", "")
+    except Exception:
+        project = ""
+
+fields = [
+    ("project", project),
+    ("team", os.environ.get("AGENT_TEAM_TEAM", "")),
+    ("instance", os.environ.get("AGENT_TEAM_INSTANCE", "")),
+    ("agent", os.environ.get("AGENT_TEAM_ORIGIN_AGENT", "")),
+    ("job", os.environ.get("AGENT_TEAM_ORIGIN_JOB") or os.environ.get("AGENT_TEAM_JOB_ID", "")),
+    ("trigger", os.environ.get("AGENT_TEAM_ORIGIN_TRIGGER", "")),
+    ("build", os.environ.get("AGENT_TEAM_ORIGIN_BUILD", "")),
+]
+parts = []
+for key, value in fields:
+    value = str(value or "").strip()
+    if not value:
+        continue
+    if any(ch.isspace() for ch in value):
+        value = shlex.quote(value)
+    parts.append(f"{key}={value}")
+if parts:
+    print("agent-team-origin: " + " ".join(parts))
+PY
+}
+
+FOOTER="$(origin_footer || true)"
+if [ -n "$FOOTER" ]; then
+    PAYLOAD="$(jq --arg footer "$FOOTER" '
+        def stamp_origin:
+            if type == "string" and length > 0 and (contains("agent-team-origin:") | not)
+            then . + "\n\n---\n" + $footer
+            else .
+            end;
+        if ((.query // "") | test("commentCreate|issueCreate")) and ((.variables.input? | type) == "object") then
+            (if (.variables.input.body? | type) == "string" then .variables.input.body |= stamp_origin else . end)
+            | (if (.variables.input.description? | type) == "string" then .variables.input.description |= stamp_origin else . end)
+        else
+            .
+        end
+    ' <<<"$PAYLOAD")"
+fi
+
 curl -sS --fail-with-body https://api.linear.app/graphql \
     -H "Authorization: $LINEAR_API_KEY" \
     -H "Content-Type: application/json" \

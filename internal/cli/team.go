@@ -1885,7 +1885,7 @@ func newTeamJobsCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
 				return exitErr(2)
 			}
-			filters, err := newJobListFilters(status, targetFilter, instance, "", ticket, branch, pr, runtimeFilters)
+			filters, err := newJobListFilters(status, targetFilter, instance, "", "", "", ticket, branch, pr, runtimeFilters)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team team jobs: %v\n", err)
 				return exitErr(2)
@@ -9226,7 +9226,7 @@ func collectTeamJobs(teamDir, name string, filters jobListFilters) ([]*job.Job, 
 	}
 	filtered := owned[:0]
 	for _, j := range owned {
-		if jobMatchesFilters(j, filters) && jobMatchesRuntimeFilter(j, filters, runtimeByInstance) {
+		if jobMatchesFilters(j, filters, top) && jobMatchesRuntimeFilter(j, filters, runtimeByInstance) {
 			filtered = append(filtered, j)
 		}
 	}
