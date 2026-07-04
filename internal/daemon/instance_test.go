@@ -1026,16 +1026,18 @@ description = "Recoverable Codex manager."
 	workspace := t.TempDir()
 	now := time.Now().UTC()
 	if err := WriteMetadata(root, &Metadata{
-		Instance:      "mgr",
-		Agent:         "manager",
-		Runtime:       string(runtimebin.KindCodex),
-		RuntimeBinary: "codex",
-		Workspace:     workspace,
-		PID:           123,
-		SessionID:     "missing-rollout-session",
-		StartedAt:     now,
-		StoppedAt:     now,
-		Status:        StatusStopped,
+		Instance:       "mgr",
+		Agent:          "manager",
+		Runtime:        string(runtimebin.KindCodex),
+		RuntimeBinary:  "codex",
+		Workspace:      workspace,
+		PID:            123,
+		SessionID:      "missing-rollout-session",
+		StartedAt:      now,
+		StoppedAt:      now,
+		Status:         StatusStopped,
+		ResumeCount:    2,
+		FreshFallbacks: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1058,6 +1060,16 @@ description = "Recoverable Codex manager."
 	}
 	if fresh.Status != StatusRunning || fresh.PID == 123 {
 		t.Fatalf("fresh metadata = %+v, want new running process", fresh)
+	}
+	if fresh.ResumeCount != 3 || !fresh.FreshFallback || fresh.FreshFallbacks != 2 {
+		t.Fatalf("fresh fallback metadata = %+v, want resume_count=3 fresh fallback count=2", fresh)
+	}
+	disk, err := ReadMetadata(root, "mgr")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if disk.ResumeCount != 3 || !disk.FreshFallback || disk.FreshFallbacks != 2 {
+		t.Fatalf("disk fallback metadata = %+v, want resume_count=3 fresh fallback count=2", disk)
 	}
 	args := fake.lastCall()
 	for _, want := range []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "-"} {
@@ -1195,6 +1207,16 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	}
 	if resumed.SessionID != sessionID {
 		t.Errorf("session ID changed: %s -> %s", sessionID, resumed.SessionID)
+	}
+	if resumed.ResumeCount != 1 || resumed.FreshFallback || resumed.FreshFallbacks != 0 {
+		t.Fatalf("resume metadata = %+v, want resume_count=1 without fresh fallback", resumed)
+	}
+	disk, err := ReadMetadata(root, "mgr")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if disk.ResumeCount != 1 || disk.FreshFallback || disk.FreshFallbacks != 0 {
+		t.Fatalf("disk resume metadata = %+v, want resume_count=1 without fresh fallback", disk)
 	}
 	args := fake.lastCall()
 	foundResume := false

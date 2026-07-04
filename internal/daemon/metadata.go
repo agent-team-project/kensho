@@ -41,6 +41,9 @@ type Metadata struct {
 	StartedAt       time.Time     `json:"started_at"`
 	RuntimeBudget   string        `json:"runtime_budget,omitempty"`
 	RuntimeDeadline time.Time     `json:"runtime_deadline,omitempty"`
+	ResumeCount     int           `json:"resume_count,omitempty"`
+	FreshFallback   bool          `json:"fresh_fallback,omitempty"`
+	FreshFallbacks  int           `json:"fresh_fallback_count,omitempty"`
 	StoppedAt       time.Time     `json:"stopped_at,omitempty"`
 	ExitedAt        time.Time     `json:"exited_at,omitempty"`
 	Status          Status        `json:"status"`

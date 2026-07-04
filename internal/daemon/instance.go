@@ -1194,6 +1194,8 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	meta.Status = StatusRunning
 	meta.LogPath = logPath
 	meta.Adopted = false
+	meta.ResumeCount++
+	meta.FreshFallback = false
 	meta.RestartBackoffUntil = time.Time{}
 	reaped := make(chan struct{})
 	next := &tracked{meta: &meta, process: proc, reaped: reaped}
@@ -1341,11 +1343,47 @@ func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, c
 	if base != nil {
 		m.recordEvent("resume_fallback", base, fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause))
 	}
-	meta, _, err := launchDeclaredFreshWithPrompt(teamDir, m, topo, inst, base, extraPrompt)
+	meta, launched, err := launchDeclaredFreshWithPrompt(teamDir, m, topo, inst, base, extraPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("start: resume fallback: %w", err)
 	}
+	if launched && base != nil {
+		return m.markFreshFallbackMetadata(instance, base, meta)
+	}
 	return meta, nil
+}
+
+func (m *InstanceManager) markFreshFallbackMetadata(instance string, base, meta *Metadata) (*Metadata, error) {
+	if meta == nil {
+		return nil, nil
+	}
+	updated := *meta
+	updated.ResumeCount = base.ResumeCount + 1
+	updated.FreshFallback = true
+	updated.FreshFallbacks = base.FreshFallbacks + 1
+	if updated.Job == "" {
+		updated.Job = base.Job
+	}
+	if updated.Ticket == "" {
+		updated.Ticket = base.Ticket
+	}
+	if updated.Branch == "" {
+		updated.Branch = base.Branch
+	}
+	if updated.PR == "" {
+		updated.PR = base.PR
+	}
+
+	m.mu.Lock()
+	if t := m.instances[instance]; t != nil && sameTrackedIncarnation(t, &updated) {
+		t.meta = &updated
+	}
+	if err := WriteMetadata(m.daemonRoot, &updated); err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("start: persist fresh fallback metadata: %w", err)
+	}
+	m.mu.Unlock()
+	return &updated, nil
 }
 
 func (m *InstanceManager) ensureTracked(instance string, expected *Metadata) error {

@@ -13729,6 +13729,12 @@ type jobExplainStep struct {
 	State            string             `json:"state"`
 	Ready            bool               `json:"ready,omitempty"`
 	Instance         string             `json:"instance,omitempty"`
+	ResumeCount      int                `json:"resume_count"`
+	FreshFallback    bool               `json:"fresh_fallback,omitempty"`
+	FreshFallbacks   int                `json:"fresh_fallback_count,omitempty"`
+	LastActivityAt   string             `json:"last_activity_at,omitempty"`
+	Activity         string             `json:"activity,omitempty"`
+	Incarnations     []jobExplainEvent  `json:"incarnations,omitempty"`
 	After            []string           `json:"after,omitempty"`
 	Gate             string             `json:"gate,omitempty"`
 	ApprovalRequired bool               `json:"approval_required,omitempty"`
@@ -13746,6 +13752,14 @@ type jobExplainStep struct {
 	StartedAt        string             `json:"started_at,omitempty"`
 	FinishedAt       string             `json:"finished_at,omitempty"`
 	Message          string             `json:"message"`
+}
+
+type jobExplainEvent struct {
+	At      string `json:"at"`
+	Action  string `json:"action"`
+	Summary string `json:"summary"`
+	Count   int    `json:"count,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type jobReadyRow struct {
@@ -14223,6 +14237,141 @@ func jobExplainNextFromResult(next jobNextResult) jobExplainNext {
 		out.Instance = next.Step.Instance
 	}
 	return out
+}
+
+func enrichJobExplainRuntime(teamDir string, res *jobExplainResult, now time.Time) {
+	if res == nil {
+		return
+	}
+	jobID := job.NormalizeID(res.JobID)
+	if jobID == "" {
+		return
+	}
+	metas, _ := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
+	metaByInstance := make(map[string]*daemon.Metadata, len(metas))
+	for _, meta := range metas {
+		if meta != nil && strings.TrimSpace(meta.Instance) != "" && job.NormalizeID(meta.Job) == jobID {
+			metaByInstance[meta.Instance] = meta
+		}
+	}
+	events, _ := daemon.ListLifecycleEvents(daemon.DaemonRoot(teamDir))
+	timelineByInstance := jobExplainTimelinesByInstance(events, jobID)
+	for i := range res.Steps {
+		instance := strings.TrimSpace(res.Steps[i].Instance)
+		if instance == "" {
+			continue
+		}
+		meta := metaByInstance[instance]
+		if meta != nil {
+			res.Steps[i].ResumeCount = meta.ResumeCount
+			res.Steps[i].FreshFallback = meta.FreshFallback
+			res.Steps[i].FreshFallbacks = meta.FreshFallbacks
+			activity := runtimeActivityForInstance(teamDir, instance, meta, now)
+			res.Steps[i].LastActivityAt = formatOptionalRFC3339(activity.LastActivityAt)
+			res.Steps[i].Activity = activity.Activity
+		}
+		res.Steps[i].Incarnations = timelineByInstance[instance]
+	}
+}
+
+func jobExplainTimelinesByInstance(events []*daemon.LifecycleEvent, jobID string) map[string][]jobExplainEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	copied := make([]*daemon.LifecycleEvent, 0, len(events))
+	for _, ev := range events {
+		if ev != nil && strings.TrimSpace(ev.Instance) != "" && job.NormalizeID(ev.Job) == jobID {
+			copied = append(copied, ev)
+		}
+	}
+	sort.SliceStable(copied, func(i, j int) bool {
+		return copied[i].TS.Before(copied[j].TS)
+	})
+	out := map[string][]jobExplainEvent{}
+	for _, ev := range copied {
+		summary := jobExplainTimelineSummary(ev)
+		if summary == "" {
+			continue
+		}
+		row := jobExplainEvent{
+			At:      formatOptionalRFC3339(ev.TS),
+			Action:  ev.Action,
+			Summary: summary,
+			Count:   1,
+			Message: ev.Message,
+		}
+		rows := out[ev.Instance]
+		if len(rows) > 0 {
+			last := &rows[len(rows)-1]
+			if last.Action == row.Action && last.Summary == row.Summary && timelineMinute(last.At) == timelineMinute(row.At) {
+				last.Count++
+				out[ev.Instance] = rows
+				continue
+			}
+		}
+		out[ev.Instance] = append(rows, row)
+	}
+	return out
+}
+
+func jobExplainTimelineSummary(ev *daemon.LifecycleEvent) string {
+	if ev == nil {
+		return ""
+	}
+	switch ev.Action {
+	case "dispatch":
+		return "dispatched"
+	case "start":
+		return "resumed"
+	case "resume_fallback":
+		return "fresh fallback"
+	case "extended":
+		if d := extendedDurationFromMessage(ev.Message); d != "" {
+			return "watchdog extended +" + d
+		}
+		return "watchdog extended"
+	case "watchdog":
+		return "watchdog killed"
+	default:
+		return ""
+	}
+}
+
+func extendedDurationFromMessage(message string) string {
+	fields := strings.Fields(message)
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] != "by" {
+			continue
+		}
+		d, err := time.ParseDuration(fields[i+1])
+		if err != nil || d <= 0 {
+			continue
+		}
+		return compactDurationString(d)
+	}
+	return ""
+}
+
+func compactDurationString(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d <= 0:
+		return ""
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	default:
+		return d.String()
+	}
+}
+
+func timelineMinute(raw string) string {
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return t.UTC().Format("2006-01-02T15:04")
 }
 
 func explainJobStepState(j *job.Job, step *job.Step, ready bool, waiting []string) string {
@@ -14954,13 +15103,13 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 	} else {
 		fmt.Fprintln(w, "Steps:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tLABEL\tTARGET\tWORKSPACE\tRUNTIME\tSTATUS\tSTATE\tINSTANCE\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tATTEMPTS\tWAITING_FOR\tACTION")
+		fmt.Fprintln(tw, "ID\tLABEL\tTARGET\tWORKSPACE\tRUNTIME\tSTATUS\tSTATE\tINSTANCE\tRESUMES\tLAST_ACTIVITY\tACTIVITY\tAFTER\tGATE\tOPTIONAL\tTIMEOUT\tATTEMPTS\tWAITING_FOR\tACTION")
 		for _, step := range res.Steps {
 			action := "-"
 			if len(step.Actions) > 0 {
 				action = strings.Join(step.Actions, "; ")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				step.ID,
 				emptyDash(step.Label),
 				emptyDash(step.Target),
@@ -14969,6 +15118,9 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 				step.Status,
 				emptyDash(step.State),
 				emptyDash(step.Instance),
+				jobExplainResumeText(step),
+				emptyDash(step.LastActivityAt),
+				emptyDash(step.Activity),
 				listDash(step.After),
 				emptyDash(step.Gate),
 				yesNo(step.Optional),
@@ -14981,6 +15133,7 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 			return err
 		}
 	}
+	renderJobExplainIncarnations(w, res)
 	if len(res.Actions) > 0 {
 		fmt.Fprintln(w, "Actions:")
 		for _, action := range res.Actions {
@@ -14988,6 +15141,52 @@ func renderJobExplainResult(w io.Writer, res jobExplainResult, jsonOut bool, tmp
 		}
 	}
 	return nil
+}
+
+func jobExplainResumeText(step jobExplainStep) string {
+	parts := []string{fmt.Sprint(step.ResumeCount)}
+	if step.FreshFallbacks > 0 {
+		parts = append(parts, fmt.Sprintf("fallbacks=%d", step.FreshFallbacks))
+	}
+	if step.FreshFallback {
+		parts = append(parts, "fresh")
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderJobExplainIncarnations(w io.Writer, res jobExplainResult) {
+	hasTimeline := false
+	for _, step := range res.Steps {
+		if len(step.Incarnations) > 0 {
+			hasTimeline = true
+			break
+		}
+	}
+	if !hasTimeline {
+		return
+	}
+	fmt.Fprintln(w, "Incarnations:")
+	for _, step := range res.Steps {
+		if len(step.Incarnations) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "  %s %s:\n", step.ID, emptyDash(step.Instance))
+		for _, ev := range step.Incarnations {
+			count := ""
+			if ev.Count > 1 {
+				count = fmt.Sprintf(" x%d", ev.Count)
+			}
+			fmt.Fprintf(w, "    %s %s%s\n", timelineDisplayTime(ev.At), ev.Summary, count)
+		}
+	}
+}
+
+func timelineDisplayTime(raw string) string {
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return t.UTC().Format("15:04")
 }
 
 func jobExplainCommandActions(res jobExplainResult) []string {
@@ -15010,6 +15209,7 @@ func runJobExplain(w io.Writer, teamDir, id string, stateFilter map[string]bool,
 		return err
 	}
 	explained := explainJobPipeline(j)
+	enrichJobExplainRuntime(teamDir, &explained, time.Now().UTC())
 	stepFilter := strings.TrimSpace(step)
 	if stepFilter != "" {
 		var ok bool

@@ -135,7 +135,7 @@ func collectInstanceInspect(cmd *cobra.Command, target, name string, now time.Ti
 			Path:   displayPathFromTeamDir(teamDir, stateDir),
 			Exists: stateExists,
 		},
-		Runtime: inspectRuntimeJSONFromMeta(teamDir, meta),
+		Runtime: inspectRuntimeJSONFromMetaAt(teamDir, meta, now),
 	}
 	if stateExists {
 		status, statusErr := inspectStatusJSONFor(teamDir, stateDir, now)
@@ -263,6 +263,11 @@ type inspectRuntimeJSON struct {
 	RuntimeDeadline  string `json:"runtime_deadline,omitempty"`
 	RuntimeElapsed   string `json:"runtime_elapsed,omitempty"`
 	RuntimeRemaining string `json:"runtime_remaining,omitempty"`
+	ResumeCount      int    `json:"resume_count"`
+	FreshFallback    bool   `json:"fresh_fallback,omitempty"`
+	FreshFallbacks   int    `json:"fresh_fallback_count,omitempty"`
+	LastActivityAt   string `json:"last_activity_at,omitempty"`
+	Activity         string `json:"activity,omitempty"`
 	StoppedAt        string `json:"stopped_at,omitempty"`
 	ExitedAt         string `json:"exited_at,omitempty"`
 	ExitCode         *int   `json:"exit_code,omitempty"`
@@ -314,25 +319,35 @@ type inspectFileJSON struct {
 }
 
 func inspectRuntimeJSONFromMeta(teamDir string, meta *daemon.Metadata) *inspectRuntimeJSON {
+	return inspectRuntimeJSONFromMetaAt(teamDir, meta, time.Now().UTC())
+}
+
+func inspectRuntimeJSONFromMetaAt(teamDir string, meta *daemon.Metadata, now time.Time) *inspectRuntimeJSON {
 	if meta == nil {
 		return nil
 	}
 	out := &inspectRuntimeJSON{
-		Lifecycle:     metadataStatusKey(meta),
-		Agent:         meta.Agent,
-		Runtime:       meta.Runtime,
-		RuntimeBinary: meta.RuntimeBinary,
-		Job:           meta.Job,
-		Ticket:        meta.Ticket,
-		Branch:        meta.Branch,
-		PR:            meta.PR,
-		PID:           meta.PID,
-		Workspace:     filepath.ToSlash(meta.Workspace),
-		SessionID:     meta.SessionID,
-		ExitCode:      meta.ExitCode,
-		Adopted:       meta.Adopted,
-		RuntimeBudget: meta.RuntimeBudget,
+		Lifecycle:      metadataStatusKey(meta),
+		Agent:          meta.Agent,
+		Runtime:        meta.Runtime,
+		RuntimeBinary:  meta.RuntimeBinary,
+		Job:            meta.Job,
+		Ticket:         meta.Ticket,
+		Branch:         meta.Branch,
+		PR:             meta.PR,
+		PID:            meta.PID,
+		Workspace:      filepath.ToSlash(meta.Workspace),
+		SessionID:      meta.SessionID,
+		ExitCode:       meta.ExitCode,
+		Adopted:        meta.Adopted,
+		RuntimeBudget:  meta.RuntimeBudget,
+		ResumeCount:    meta.ResumeCount,
+		FreshFallback:  meta.FreshFallback,
+		FreshFallbacks: meta.FreshFallbacks,
 	}
+	activity := runtimeActivityForInstance(teamDir, meta.Instance, meta, now)
+	out.LastActivityAt = formatOptionalRFC3339(activity.LastActivityAt)
+	out.Activity = activity.Activity
 	if !meta.StartedAt.IsZero() {
 		out.StartedAt = meta.StartedAt.Format(time.RFC3339)
 	}
@@ -513,6 +528,19 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	}
 	if runtime.RuntimeDeadline != "" {
 		fmt.Fprintf(w, "  deadline:    %s\n", runtime.RuntimeDeadline)
+	}
+	fmt.Fprintf(w, "  resumes:     %d\n", runtime.ResumeCount)
+	if runtime.FreshFallbacks > 0 {
+		fmt.Fprintf(w, "  fallbacks:   %d\n", runtime.FreshFallbacks)
+	}
+	if runtime.FreshFallback {
+		fmt.Fprintln(w, "  fresh_fallback: yes")
+	}
+	if runtime.LastActivityAt != "" {
+		fmt.Fprintf(w, "  last_activity: %s\n", runtime.LastActivityAt)
+	}
+	if runtime.Activity != "" {
+		fmt.Fprintf(w, "  activity:    %s\n", runtime.Activity)
 	}
 	if runtime.StoppedAt != "" {
 		fmt.Fprintf(w, "  stopped_at:  %s\n", runtime.StoppedAt)

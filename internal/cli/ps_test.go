@@ -175,6 +175,17 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	started := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	deadline := started.Add(45 * time.Minute)
 	now := started.Add(5 * time.Minute)
+	lastActivity := started.Add(4 * time.Minute)
+	logPath := filepath.Join(daemon.DaemonRoot(teamDir), "adhoc", "child.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("mkdir log dir: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("working\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if err := os.Chtimes(logPath, lastActivity, lastActivity); err != nil {
+		t.Fatalf("chtimes log: %v", err)
+	}
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
 		Instance:        "adhoc",
 		Agent:           "manager",
@@ -183,6 +194,9 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		StartedAt:       started,
 		RuntimeBudget:   "45m0s",
 		RuntimeDeadline: deadline,
+		ResumeCount:     2,
+		FreshFallback:   true,
+		FreshFallbacks:  1,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -207,6 +221,11 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		got.RuntimeElapsed != "5m0s" ||
 		got.RuntimeRemaining != "" {
 		t.Fatalf("row = %+v, want persisted runtime budget metadata", got)
+	}
+	if got.ResumeCount != 2 || !got.FreshFallback || got.FreshFallbacks != 1 ||
+		got.LastActivityAt != lastActivity.Format(time.RFC3339) ||
+		got.Activity != "quiet 1m" {
+		t.Fatalf("row = %+v, want resume/activity metadata", got)
 	}
 	if got.HasStatus {
 		t.Fatalf("daemon-only row should not report status.toml: %+v", got)
@@ -1042,7 +1061,7 @@ func TestMergeDaemonRowsUpdatesAgentForExistingStateRow(t *testing.T) {
 	metas := []*daemon.Metadata{
 		{Instance: "adhoc", Agent: "manager", Status: daemon.StatusRunning, Runtime: "codex", RuntimeBinary: "codex-dev", PID: 42, StartedAt: started, StoppedAt: stopped, ExitedAt: exited},
 	}
-	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true}, started.Add(30*time.Minute))
+	got := mergeDaemonRows(t.TempDir(), rows, metas, map[string]bool{"manager": true}, started.Add(30*time.Minute))
 	if got[0].Agent != "manager" || got[0].Lifecycle != "running" || got[0].Runtime != "codex" || got[0].RuntimeBinary != "codex-dev" || got[0].PID != 42 || !got[0].StartedAt.Equal(started) || !got[0].StoppedAt.Equal(stopped) || !got[0].ExitedAt.Equal(exited) {
 		t.Fatalf("row = %+v, want daemon agent/status/pid", got[0])
 	}
@@ -1080,7 +1099,7 @@ func TestMergeDaemonRowsNormalizesMissingStatus(t *testing.T) {
 		{Instance: "adhoc", Agent: "manager", PID: 43},
 	}
 
-	got := mergeDaemonRows(rows, metas, map[string]bool{"manager": true}, time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	got := mergeDaemonRows(t.TempDir(), rows, metas, map[string]bool{"manager": true}, time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	if len(got) != 2 {
 		t.Fatalf("rows = %+v, want two", got)
 	}

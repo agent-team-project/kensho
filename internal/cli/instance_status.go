@@ -63,6 +63,11 @@ type instanceRow struct {
 	RuntimeDeadline  time.Time
 	RuntimeElapsed   string
 	RuntimeRemaining string
+	ResumeCount      int
+	FreshFallback    bool
+	FreshFallbacks   int
+	LastActivityAt   time.Time
+	Activity         string
 	Job              string
 	Ticket           string
 	Branch           string
@@ -128,6 +133,9 @@ func instanceRowFor(stateRoot, instance string, agentNames map[string]bool, now 
 	}
 	row.HasFile = true
 	row.StatusAt = st.ModTime()
+	activity := runtimeActivityFromTime(st.ModTime(), now)
+	row.LastActivityAt = activity.LastActivityAt
+	row.Activity = activity.Activity
 
 	var sf statusFile
 	if _, err := toml.DecodeFile(statusPath, &sf); err != nil {

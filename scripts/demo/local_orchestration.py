@@ -720,6 +720,21 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     if not any(row.get("name") == "demo" and row.get("used") == 1 for row in locks):
         raise DemoError(f"demo lock did not show one holder: {json.dumps(locks, indent=2)}")
     run(binary, "wait", "worker-lock-a", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+    run(
+        binary,
+        "tick",
+        "--target",
+        repo,
+        "--skip-schedules",
+        "--skip-advance",
+        "--until-idle",
+        "--max-cycles",
+        "3",
+        "--interval",
+        "0s",
+        "--json",
+        parse_json=True,
+    )
     run(binary, "wait", "worker-lock-b", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
     remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
     if any(row.get("instance_id") == "worker-lock-b" for row in remaining):
@@ -839,14 +854,16 @@ def enable_demo_schedule(repo: Path) -> None:
     if approve_gate not in body:
         raise DemoError("bundled topology no longer has the expected approve gate")
     body = body.replace(approve_gate, 'gate         = "manual"\napproval_required = true\ninstructions = """', 1)
-    team_pipelines = 'pipelines   = ["ticket_to_pr"]'
-    if team_pipelines not in body:
-        raise DemoError("bundled topology no longer has the expected delivery pipeline list")
     team_schedules = 'schedules   = ["feedback-triage"]'
     if team_schedules in body:
-        body = body.replace(team_schedules, 'schedules   = ["feedback-triage", "demo_due"]', 1)
+        body = body.replace(team_schedules, 'schedules   = ["demo_due", "feedback-triage"]', 1)
     else:
+        team_pipelines = 'pipelines   = ["ticket_to_pr"]'
+        if team_pipelines not in body:
+            raise DemoError("bundled topology no longer has the expected delivery pipeline list")
         body = body.replace(team_pipelines, team_pipelines + '\nschedules   = ["demo_due"]', 1)
+    if 'schedules   = ["demo_due"]' not in body and 'schedules   = ["demo_due", "feedback-triage"]' not in body:
+        raise DemoError("bundled topology no longer has the expected delivery pipeline list")
     body += textwrap.dedent(
         """\
 

@@ -785,13 +785,13 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		rows = mergeDaemonRows(rows, insts, agentNames, now)
+		rows = mergeDaemonRows(teamDir, rows, insts, agentNames, now)
 	case errors.Is(err, errDaemonNotRunning):
 		insts, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 		if err != nil {
 			return nil, err
 		}
-		rows = mergeDaemonRows(rows, insts, agentNames, now)
+		rows = mergeDaemonRows(teamDir, rows, insts, agentNames, now)
 	default:
 		return nil, err
 	}
@@ -799,7 +799,7 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 	return rows, nil
 }
 
-func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames map[string]bool, now time.Time) []instanceRow {
+func mergeDaemonRows(teamDir string, rows []instanceRow, insts []*daemon.Metadata, agentNames map[string]bool, now time.Time) []instanceRow {
 	rowByInstance := map[string]int{}
 	for i := range rows {
 		rowByInstance[rows[i].Instance] = i
@@ -807,7 +807,7 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 	for _, m := range insts {
 		idx, ok := rowByInstance[m.Instance]
 		if !ok {
-			newRow := newRowFromMeta(m, agentNames, now)
+			newRow := newRowFromMeta(teamDir, m, agentNames, now)
 			rows = append(rows, newRow)
 			rowByInstance[newRow.Instance] = len(rows) - 1
 			continue
@@ -823,6 +823,12 @@ func mergeDaemonRows(rows []instanceRow, insts []*daemon.Metadata, agentNames ma
 		rows[idx].RuntimeElapsed = metadataRuntimeBudgetElapsed(m, now)
 		rows[idx].RuntimeRemaining = metadataRuntimeBudgetRemaining(m, now)
 		rows[idx].RuntimeStale = runtimeResumeMetadataIsStale(m)
+		rows[idx].ResumeCount = m.ResumeCount
+		rows[idx].FreshFallback = m.FreshFallback
+		rows[idx].FreshFallbacks = m.FreshFallbacks
+		activity := runtimeActivityForInstance(teamDir, m.Instance, m, now)
+		rows[idx].LastActivityAt = activity.LastActivityAt
+		rows[idx].Activity = activity.Activity
 		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
 		rows[idx].Ticket = firstNonEmpty(rows[idx].Ticket, m.Ticket)
 		rows[idx].Branch = firstNonEmpty(rows[idx].Branch, m.Branch)
@@ -843,7 +849,7 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "INSTANCE\tAGENT\tJOB\tSTATUS\tPHASE\tPID\tBUDGET\tAGE\tSUMMARY")
+	fmt.Fprintln(tw, "INSTANCE\tAGENT\tJOB\tSTATUS\tPHASE\tPID\tBUDGET\tRESUMES\tLAST_ACTIVITY\tACTIVITY\tAGE\tSUMMARY")
 	for _, r := range rows {
 		phase := r.Phase
 		if r.Stale {
@@ -859,10 +865,21 @@ func renderPsTable(w io.Writer, rows []instanceRow) error {
 		if r.PID > 0 {
 			pid = strconv.Itoa(r.PID)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Instance, r.Agent, emptyDash(r.Job), life, phase, pid, runtimeBudgetTableText(r), r.Age, r.Summary)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.Instance, r.Agent, emptyDash(r.Job), life, phase, pid, runtimeBudgetTableText(r), resumeCountTableText(r), emptyDash(formatOptionalRFC3339(r.LastActivityAt)), emptyDash(r.Activity), r.Age, r.Summary)
 	}
 	return tw.Flush()
+}
+
+func resumeCountTableText(row instanceRow) string {
+	parts := []string{strconv.Itoa(row.ResumeCount)}
+	if row.FreshFallbacks > 0 {
+		parts = append(parts, fmt.Sprintf("fallbacks=%d", row.FreshFallbacks))
+	}
+	if row.FreshFallback {
+		parts = append(parts, "fresh")
+	}
+	return strings.Join(parts, " ")
 }
 
 type psJSONRow struct {
@@ -878,6 +895,11 @@ type psJSONRow struct {
 	RuntimeDeadline  string `json:"runtime_deadline,omitempty"`
 	RuntimeElapsed   string `json:"runtime_elapsed,omitempty"`
 	RuntimeRemaining string `json:"runtime_remaining,omitempty"`
+	ResumeCount      int    `json:"resume_count"`
+	FreshFallback    bool   `json:"fresh_fallback,omitempty"`
+	FreshFallbacks   int    `json:"fresh_fallback_count,omitempty"`
+	LastActivityAt   string `json:"last_activity_at,omitempty"`
+	Activity         string `json:"activity,omitempty"`
 	Job              string `json:"job,omitempty"`
 	Ticket           string `json:"ticket,omitempty"`
 	Branch           string `json:"branch,omitempty"`
@@ -908,6 +930,11 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 			RuntimeBudget:    r.RuntimeBudget,
 			RuntimeElapsed:   r.RuntimeElapsed,
 			RuntimeRemaining: r.RuntimeRemaining,
+			ResumeCount:      r.ResumeCount,
+			FreshFallback:    r.FreshFallback,
+			FreshFallbacks:   r.FreshFallbacks,
+			LastActivityAt:   formatOptionalRFC3339(r.LastActivityAt),
+			Activity:         r.Activity,
 			Job:              r.Job,
 			Ticket:           r.Ticket,
 			Branch:           r.Branch,
@@ -939,12 +966,13 @@ func psJSONRows(rows []instanceRow) []psJSONRow {
 // newRowFromMeta builds a row for an instance the daemon knows about but
 // which has no state dir / status.toml on disk yet. Phase shows `—` until
 // the instance starts emitting status.
-func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool, now time.Time) instanceRow {
+func newRowFromMeta(teamDir string, m *daemon.Metadata, agentNames map[string]bool, now time.Time) instanceRow {
 	agent := m.Agent
 	if !agentNames[agent] {
 		// Best-effort: if the agent name isn't recognised, fall back to "—".
 		agent = guessAgentName(m.Instance, agentNames)
 	}
+	activity := runtimeActivityForInstance(teamDir, m.Instance, m, now)
 	return instanceRow{
 		Instance:         m.Instance,
 		Agent:            agent,
@@ -958,6 +986,11 @@ func newRowFromMeta(m *daemon.Metadata, agentNames map[string]bool, now time.Tim
 		RuntimeElapsed:   metadataRuntimeBudgetElapsed(m, now),
 		RuntimeRemaining: metadataRuntimeBudgetRemaining(m, now),
 		RuntimeStale:     runtimeResumeMetadataIsStale(m),
+		ResumeCount:      m.ResumeCount,
+		FreshFallback:    m.FreshFallback,
+		FreshFallbacks:   m.FreshFallbacks,
+		LastActivityAt:   activity.LastActivityAt,
+		Activity:         activity.Activity,
 		Job:              m.Job,
 		Ticket:           m.Ticket,
 		Branch:           m.Branch,

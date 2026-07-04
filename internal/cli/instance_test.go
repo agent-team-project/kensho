@@ -135,6 +135,9 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		RuntimeBudget:   "45m0s",
 		RuntimeDeadline: deadline,
 		LogPath:         filepath.Join(teamDir, "daemon", "adhoc", "child.log"),
+		ResumeCount:     2,
+		FreshFallback:   true,
+		FreshFallbacks:  1,
 	}
 
 	var out bytes.Buffer
@@ -152,6 +155,9 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		"started_at:  2026-06-17T12:30:00Z",
 		"budget:      45m0s",
 		"deadline:    2026-06-17T13:15:00Z",
+		"resumes:     2",
+		"fallbacks:   1",
+		"fresh_fallback: yes",
 		"log:         .agent_team/daemon/adhoc/child.log",
 	} {
 		if !strings.Contains(body, want) {
@@ -182,6 +188,17 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	started := time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
 	stopped := started.Add(8 * time.Minute)
 	deadline := started.Add(45 * time.Minute)
+	lastActivity := stopped.Add(2 * time.Minute)
+	logPath := filepath.Join(root, "adhoc", "child.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("mkdir log dir: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("finished\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	if err := os.Chtimes(logPath, lastActivity, lastActivity); err != nil {
+		t.Fatalf("chtimes log: %v", err)
+	}
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
 		Instance:        "adhoc",
 		Agent:           "manager",
@@ -195,6 +212,8 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		RuntimeBudget:   "45m0s",
 		RuntimeDeadline: deadline,
 		Adopted:         true,
+		ResumeCount:     4,
+		FreshFallbacks:  2,
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -225,6 +244,9 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 		body.Runtime.RuntimeElapsed != "8m0s" ||
 		body.Runtime.RuntimeRemaining != "" ||
 		body.Runtime.StoppedAt != stopped.Format(time.RFC3339) ||
+		body.Runtime.ResumeCount != 4 ||
+		body.Runtime.FreshFallbacks != 2 ||
+		body.Runtime.LastActivityAt != lastActivity.Format(time.RFC3339) ||
 		!body.Runtime.Adopted {
 		t.Fatalf("runtime = %+v, want stopped manager session", body.Runtime)
 	}
