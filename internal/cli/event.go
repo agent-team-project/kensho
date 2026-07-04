@@ -40,9 +40,11 @@ func newEventPublishCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	c := &cobra.Command{
-		Use:   "publish <type>",
+		Use:   "publish <type> [key=value...]",
 		Short: "Publish an event of the given type. The daemon resolves it against declared triggers.",
-		Args:  cobra.ExactArgs(1),
+		Long: "Payload entries may be passed as positional key=value pairs; values are strings. " +
+			"When --payload or --payload-file is also used, JSON object keys override matching shorthand keys.",
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team event publish: --format cannot be combined with --json.")
@@ -74,11 +76,16 @@ func newEventPublishCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			eventType := args[0]
+			payloadPairs := args[1:]
 			teamDir, err := resolveTeamDir(cmd, target)
 			if err != nil {
 				return err
 			}
-			body := map[string]any{}
+			body, err := parseEventPayloadPairs(payloadPairs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event publish: %v\n", err)
+				return exitErr(2)
+			}
 			payloadBody := []byte(strings.TrimSpace(payload))
 			if strings.TrimSpace(payloadFile) != "" {
 				payloadBody, err = readPayloadFile(payloadFile)
@@ -88,12 +95,13 @@ func newEventPublishCmd() *cobra.Command {
 				}
 			}
 			if len(payloadBody) > 0 {
-				if err := json.Unmarshal(payloadBody, &body); err != nil {
+				jsonBody := map[string]any{}
+				if err := json.Unmarshal(payloadBody, &jsonBody); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event publish: payload is not valid JSON: %v\n", err)
 					return exitErr(2)
 				}
-				if body == nil {
-					body = map[string]any{}
+				for k, v := range jsonBody {
+					body[k] = v
 				}
 			}
 			if dryRun {
@@ -112,6 +120,7 @@ func newEventPublishCmd() *cobra.Command {
 						PayloadFile:    payloadFile,
 						PayloadFileSet: cmd.Flags().Changed("payload-file"),
 						PayloadRaw:     string(payloadBody),
+						PayloadPairs:   payloadPairs,
 					})
 				}
 				if trace && !jsonOut && formatTemplate == nil {
@@ -169,7 +178,7 @@ func newEventPublishCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
-	c.Flags().StringVar(&payload, "payload", "", "JSON object passed as the event payload (e.g. '{\"target\":\"worker\"}').")
+	c.Flags().StringVar(&payload, "payload", "", "JSON object passed as the event payload; keys override matching key=value args (e.g. '{\"target\":\"worker\"}').")
 	c.Flags().StringVar(&payloadFile, "payload-file", "", "Read event payload JSON from a file, or '-' for stdin.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching triggers without publishing to the daemon.")
 	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command, one per line.")
@@ -192,7 +201,7 @@ func newEventTraceCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			eventType := args[0]
-			payload, err := parseEventTracePayload(payloadPairs)
+			payload, err := parseEventPayloadPairs(payloadPairs)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team event trace: %v\n", err)
 				return exitErr(2)
@@ -219,7 +228,7 @@ func newEventTraceCmd() *cobra.Command {
 	return c
 }
 
-func parseEventTracePayload(pairs []string) (map[string]any, error) {
+func parseEventPayloadPairs(pairs []string) (map[string]any, error) {
 	payload := map[string]any{}
 	for _, pair := range pairs {
 		key, value, ok := strings.Cut(pair, "=")
@@ -281,6 +290,7 @@ type eventPublishApplyCommandOptions struct {
 	PayloadFile    string
 	PayloadFileSet bool
 	PayloadRaw     string
+	PayloadPairs   []string
 }
 
 func renderEventPublishApplyCommand(w io.Writer, preview *eventPublishPreview, opts eventPublishApplyCommandOptions) error {
@@ -298,7 +308,8 @@ func eventPublishApplyCommandArgs(preview *eventPublishPreview, opts eventPublis
 	}
 	args := []string{"agent-team", "event", "publish", eventType}
 	args = appendIntakeRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
-	return appendPayloadCommandArgs(args, opts.Payload, opts.PayloadSet, opts.PayloadFile, opts.PayloadFileSet, opts.PayloadRaw)
+	args = appendPayloadCommandArgs(args, opts.Payload, opts.PayloadSet, opts.PayloadFile, opts.PayloadFileSet, opts.PayloadRaw)
+	return append(args, opts.PayloadPairs...)
 }
 
 func previewEventPublish(teamDir, eventType string, payload map[string]any) (*eventPublishPreview, error) {

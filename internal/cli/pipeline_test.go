@@ -11390,11 +11390,41 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	duplicate.SetOut(dupOut)
 	duplicate.SetErr(dupErr)
 	duplicate.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-304", "--repo", root})
+	var dupCode ExitCode
 	if err := duplicate.Execute(); err == nil {
 		t.Fatalf("pipeline run duplicate succeeded")
+	} else if !errors.As(err, &dupCode) || dupCode != 1 {
+		t.Fatalf("pipeline run duplicate exit = %v, want 1; stderr=%s", err, dupErr.String())
 	}
-	if !strings.Contains(dupErr.String(), `job "squ-304" already exists`) {
-		t.Fatalf("duplicate stderr = %q", dupErr.String())
+	for _, want := range []string{`job "squ-304" already exists`, `status "queued"`, "--id", "clean up"} {
+		if !strings.Contains(dupErr.String(), want) {
+			t.Fatalf("duplicate stderr missing %q:\n%s", want, dupErr.String())
+		}
+	}
+	if dupOut.Len() != 0 {
+		t.Fatalf("duplicate text stdout = %q, want empty", dupOut.String())
+	}
+
+	duplicateJSON := NewRootCmd()
+	dupJSONOut, dupJSONErr := &bytes.Buffer{}, &bytes.Buffer{}
+	duplicateJSON.SetOut(dupJSONOut)
+	duplicateJSON.SetErr(dupJSONErr)
+	duplicateJSON.SetArgs([]string{"pipeline", "run", "ticket_to_pr", "SQU-304", "--repo", root, "--json"})
+	var dupJSONCode ExitCode
+	if err := duplicateJSON.Execute(); err == nil {
+		t.Fatalf("pipeline run duplicate json succeeded")
+	} else if !errors.As(err, &dupJSONCode) || dupJSONCode != 1 {
+		t.Fatalf("pipeline run duplicate json exit = %v, want 1; stderr=%s", err, dupJSONErr.String())
+	}
+	var conflict jobConflictError
+	if err := json.Unmarshal(dupJSONOut.Bytes(), &conflict); err != nil {
+		t.Fatalf("decode duplicate json: %v\nbody=%s", err, dupJSONOut.String())
+	}
+	if conflict.Error != "job_conflict" || conflict.JobID != "squ-304" || conflict.Status != "queued" || !strings.Contains(conflict.Suggestion, "--id") {
+		t.Fatalf("duplicate json = %+v", conflict)
+	}
+	if dupJSONErr.Len() != 0 {
+		t.Fatalf("duplicate json stderr = %q, want empty", dupJSONErr.String())
 	}
 }
 

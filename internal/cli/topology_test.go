@@ -806,6 +806,78 @@ func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
 	}
 }
 
+func TestEventPublishPayloadShorthand(t *testing.T) {
+	target := t.TempDir()
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topoFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{
+		"event", "publish", "user_invocation",
+		"name=shorthand",
+		"source=shell",
+		"--payload", `{"name":"json","enabled":true}`,
+		"--dry-run",
+		"--json",
+		"--target", target,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("event publish shorthand: %v\nstderr=%s", err, stderr.String())
+	}
+	var preview eventPublishPreview
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("decode event publish shorthand: %v\nbody=%s", err, out.String())
+	}
+	if preview.Payload["name"] != "json" || preview.Payload["source"] != "shell" || preview.Payload["enabled"] != true {
+		t.Fatalf("payload merge = %+v", preview.Payload)
+	}
+
+	commandsCmd := NewRootCmd()
+	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	commandsCmd.SetOut(commandsOut)
+	commandsCmd.SetErr(commandsErr)
+	commandsCmd.SetArgs([]string{"event", "publish", "agent.dispatch", "target=worker", "reason=nightly", "--dry-run", "--commands", "--target", target})
+	if err := commandsCmd.Execute(); err != nil {
+		t.Fatalf("event publish shorthand commands: %v\nstderr=%s", err, commandsErr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"event",
+		"publish",
+		"agent.dispatch",
+		"--repo",
+		target,
+		"target=worker",
+		"reason=nightly",
+	}), " ")
+	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
+		t.Fatalf("event publish shorthand commands = %q, want %q", got, wantCommand)
+	}
+
+	invalidCmd := NewRootCmd()
+	invalidErr := &bytes.Buffer{}
+	invalidCmd.SetOut(&bytes.Buffer{})
+	invalidCmd.SetErr(invalidErr)
+	invalidCmd.SetArgs([]string{"event", "publish", "user_invocation", "not-a-pair", "--dry-run", "--target", target})
+	var code ExitCode
+	if err := invalidCmd.Execute(); err == nil {
+		t.Fatalf("event publish invalid shorthand succeeded")
+	} else if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("event publish invalid shorthand exit = %v, want 2", err)
+	}
+	if !strings.Contains(invalidErr.String(), `payload values must be key=value`) {
+		t.Fatalf("invalid shorthand stderr = %q", invalidErr.String())
+	}
+}
+
 func TestEventPublishDryRunPreviewsPipelineJob(t *testing.T) {
 	target := t.TempDir()
 	teamDir := filepath.Join(target, ".agent_team")
