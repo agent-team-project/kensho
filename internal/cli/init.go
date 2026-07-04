@@ -25,9 +25,10 @@ const emptyConfig = `# agent-team config — consumer-specific runtime values yo
 // copied verbatim. They drive the init flow but never land in the consumer's
 // .agent_team/ tree.
 var templateAuxFiles = map[string]bool{
-	template.ManifestFileName: true,
-	template.LockFileName:     true,
-	"config.toml.example":     true, // legacy, retained for back-compat
+	template.ManifestFileName:  true,
+	template.LockFileName:      true,
+	template.CacheMetaFileName: true,
+	"config.toml.example":      true, // legacy, retained for back-compat
 }
 
 func newInitCmd() *cobra.Command {
@@ -48,7 +49,8 @@ func newInitCmd() *cobra.Command {
 		Short: "Vendor a starter team template into the current repo (creates .agent_team/).",
 		Long: "Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled\n" +
 			"default template is used (a software-engineering team — manager + worker + ticket-manager,\n" +
-			"plus linear / pull-request / assign-worker skills). Pass `--template empty` for a scaffold-\n" +
+			"plus linear / pull-request / assign-worker skills). Refs can be local paths, cached refs,\n" +
+			"or git refs such as github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-\n" +
 			"only init. `--set k=v` supplies template parameters; `--no-input` fails (rather than prompting)\n" +
 			"when required parameters have no value.",
 		Args: cobra.MaximumNArgs(1),
@@ -181,12 +183,12 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 	}
 
 	// Default-kind path: resolve template ref → render → write resolved config.
-	resolver := newResolver()
-	rt, err := resolver.Resolve(cfg.ref)
+	rt, pull, err := resolveTemplateRefForCLI(cfg.ref)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
 	}
+	warnTemplatePull(cmd.ErrOrStderr(), pull, cfg.jsonOut, cfg.format != nil)
 	result.Ref = rt.Ref
 	result.LockPath = filepath.ToSlash(filepath.Join(teamDir, template.LockFileName))
 	if rt.Manifest != nil {

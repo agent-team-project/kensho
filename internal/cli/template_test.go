@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/template"
 )
 
 func TestTemplateShow_Bundled(t *testing.T) {
@@ -828,28 +829,42 @@ func TestParseGitTemplateRef(t *testing.T) {
 		ref      string
 		cloneURL string
 		revision string
-		cacheKey string
+		source   string
 	}{
 		{
 			name:     "github shorthand",
 			ref:      "github.com/acme/eng-team@v1.0.0",
 			cloneURL: "https://github.com/acme/eng-team",
 			revision: "v1.0.0",
-			cacheKey: "github.com/acme/eng-team@v1.0.0",
+			source:   "github.com/acme/eng-team",
 		},
 		{
 			name:     "https",
 			ref:      "https://github.com/acme/eng-team.git@v1.0.0",
 			cloneURL: "https://github.com/acme/eng-team.git",
 			revision: "v1.0.0",
-			cacheKey: "github.com/acme/eng-team@v1.0.0",
+			source:   "github.com/acme/eng-team",
 		},
 		{
 			name:     "scp",
 			ref:      "git@github.com:acme/eng-team.git@main",
 			cloneURL: "git@github.com:acme/eng-team.git",
 			revision: "main",
-			cacheKey: "github.com/acme/eng-team@main",
+			source:   "github.com/acme/eng-team",
+		},
+		{
+			name:     "default revision",
+			ref:      "github.com/acme/eng-team",
+			cloneURL: "https://github.com/acme/eng-team",
+			revision: "",
+			source:   "github.com/acme/eng-team",
+		},
+		{
+			name:     "https userinfo without revision",
+			ref:      "https://git@github.com/acme/eng-team.git",
+			cloneURL: "https://git@github.com/acme/eng-team.git",
+			revision: "",
+			source:   "github.com/acme/eng-team",
 		},
 	}
 	for _, tt := range tests {
@@ -861,7 +876,7 @@ func TestParseGitTemplateRef(t *testing.T) {
 			if !ok {
 				t.Fatal("parseGitTemplateRef ok=false")
 			}
-			if got.CloneURL != tt.cloneURL || got.Revision != tt.revision || got.CacheKey != tt.cacheKey {
+			if got.CloneURL != tt.cloneURL || got.Revision != tt.revision || got.CacheSource != tt.source {
 				t.Fatalf("parsed = %+v", got)
 			}
 		})
@@ -887,14 +902,19 @@ version = "1.0.0"
 	runGitForTemplateTest(t, repo, "add", "template.toml")
 	runGitForTemplateTest(t, repo, "commit", "-m", "init")
 	runGitForTemplateTest(t, repo, "tag", "v1.0.0")
+	sha := strings.TrimSpace(runGitForTemplateTest(t, repo, "rev-parse", "HEAD"))
 
 	gitURL := (&url.URL{Scheme: "file", Path: repo}).String() + "@v1.0.0"
-	cacheRef := "github.com/acme/git-template@v1.0.0"
+	parsed, ok, err := parseGitTemplateRef(gitURL)
+	if err != nil || !ok {
+		t.Fatalf("parse git URL: ok=%v err=%v", ok, err)
+	}
+	cacheRef := gitTemplateCacheKey(parsed.CacheSource, sha)
 	pull := NewRootCmd()
 	pullOut, pullErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pull.SetOut(pullOut)
 	pull.SetErr(pullErr)
-	pull.SetArgs([]string{"template", "pull", gitURL, "--as", cacheRef, "--json"})
+	pull.SetArgs([]string{"template", "pull", gitURL, "--json"})
 	if err := pull.Execute(); err != nil {
 		t.Fatalf("template pull git ref: %v\nstdout=%s\nstderr=%s", err, pullOut.String(), pullErr.String())
 	}
@@ -902,12 +922,15 @@ version = "1.0.0"
 	if err := json.Unmarshal(pullOut.Bytes(), &pullResult); err != nil {
 		t.Fatalf("decode template pull git json: %v\nbody=%s", err, pullOut.String())
 	}
-	if pullResult.Ref != gitURL || pullResult.Source != "git" || pullResult.CacheKey != cacheRef || pullResult.CloneURL == "" || pullResult.Revision != "v1.0.0" || pullResult.Action != "pulled" || !pullResult.Pulled || pullResult.DryRun {
+	if pullResult.Ref != gitURL || pullResult.Source != "git" || pullResult.CacheKey != cacheRef || pullResult.CloneURL == "" || pullResult.Revision != "v1.0.0" || pullResult.RevisionKind != gitRevisionTag || pullResult.ResolvedSHA != sha || pullResult.Action != "pulled" || !pullResult.Pulled || pullResult.DryRun {
 		t.Fatalf("unexpected git pull result: %+v", pullResult)
 	}
 	cached := filepath.Join(home, ".agent-team", "cache", filepath.FromSlash(cacheRef))
 	if _, err := os.Stat(filepath.Join(cached, "template.toml")); err != nil {
 		t.Fatalf("template.toml not cached: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cached, template.CacheMetaFileName)); err != nil {
+		t.Fatalf("cache metadata not written: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cached, ".git")); !os.IsNotExist(err) {
 		t.Fatalf(".git should not be retained in template cache, err=%v", err)
@@ -917,21 +940,58 @@ version = "1.0.0"
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(showOut)
 	show.SetErr(showErr)
-	show.SetArgs([]string{"template", "show", cacheRef})
+	show.SetArgs([]string{"template", "show", gitURL})
 	if err := show.Execute(); err != nil {
 		t.Fatalf("template show cached git ref: %v\nstdout=%s\nstderr=%s", err, showOut.String(), showErr.String())
 	}
 	if !strings.Contains(showOut.String(), "Template: git-template v1.0.0") {
 		t.Fatalf("show output missing cached template:\n%s", showOut.String())
 	}
+
+	firstTarget := t.TempDir()
+	initFirst := NewRootCmd()
+	initFirstOut, initFirstErr := &bytes.Buffer{}, &bytes.Buffer{}
+	initFirst.SetOut(initFirstOut)
+	initFirst.SetErr(initFirstErr)
+	initFirst.SetArgs([]string{"init", gitURL, "--target", firstTarget, "--no-input"})
+	if err := initFirst.Execute(); err != nil {
+		t.Fatalf("init from git ref: %v\nstdout=%s\nstderr=%s", err, initFirstOut.String(), initFirstErr.String())
+	}
+	lock, err := template.LoadLock(filepath.Join(firstTarget, ".agent_team", template.LockFileName))
+	if err != nil {
+		t.Fatalf("load template lock: %v", err)
+	}
+	if lock.Template.Ref != cacheRef {
+		t.Fatalf("lock ref = %q, want canonical cache ref %q", lock.Template.Ref, cacheRef)
+	}
+	if _, err := os.Stat(filepath.Join(firstTarget, ".agent_team", template.CacheMetaFileName)); !os.IsNotExist(err) {
+		t.Fatalf("cache metadata should not be rendered into .agent_team, err=%v", err)
+	}
+
+	movedRepo := repo + "-moved"
+	if err := os.Rename(repo, movedRepo); err != nil {
+		t.Fatal(err)
+	}
+	secondTarget := t.TempDir()
+	initSecond := NewRootCmd()
+	initSecondOut, initSecondErr := &bytes.Buffer{}, &bytes.Buffer{}
+	initSecond.SetOut(initSecondOut)
+	initSecond.SetErr(initSecondErr)
+	initSecond.SetArgs([]string{"init", gitURL, "--target", secondTarget, "--no-input"})
+	if err := initSecond.Execute(); err != nil {
+		t.Fatalf("second init should use cached tag after source moved: %v\nstdout=%s\nstderr=%s", err, initSecondOut.String(), initSecondErr.String())
+	}
 }
 
-func runGitForTemplateTest(t *testing.T, dir string, args ...string) {
+func runGitForTemplateTest(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, string(out))
+	} else {
+		return string(out)
 	}
+	return ""
 }
 
 func TestInit_FromLocalRef(t *testing.T) {

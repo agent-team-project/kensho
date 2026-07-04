@@ -91,6 +91,8 @@ follow-up doctor commands for any findings.
 
 1. Use a local path while iterating.
 2. Commit the template to a git repo.
-3. Pull/cache by ref.
-4. Initialize consumer repos from the pinned ref.
-5. Use `upgrade --check` to detect drift and `upgrade --apply --dry-run` before applying clean template changes.
+3. Tag stable releases, for example `v1.0.0`.
+4. Pull or initialize from a pinned git ref, for example `github.com/acme/my-engineering-team@v1.0.0`.
+5. Let the cache key pin the resolved commit SHA; later installs of the same tag reuse the cache.
+6. Initialize consumer repos from the pinned ref.
+7. Use `upgrade --check` to detect drift and `upgrade --apply --dry-run` before applying clean template changes.

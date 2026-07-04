@@ -58,8 +58,8 @@ agent-team --version
 template pull  →  init  →  run  →  upgrade
 ```
 
-1. **(Optional) `template pull`** — fetch a template into the local cache. Skip this for the bundled default.
-2. **`init`** — instantiate a template into the current repo. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
+1. **(Optional) `template pull`** — fetch a template into the local cache. Git refs are shallow-fetched and cached by resolved commit SHA. Skip this for the bundled default, or let `init` pull a git ref on demand.
+2. **`init`** — instantiate a template into the current repo from the bundled default, a local path, a cached ref, or a git ref. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
 3. **`run`** — launch the selected runtime as one of the agents.
 4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref; `upgrade --apply --dry-run` previews clean three-way changes and conflicts; `upgrade --apply --dry-run --commands` prints the clean apply command; `upgrade --apply` updates only files that still match the locked template version.
 
@@ -461,7 +461,7 @@ agent-team template ls [--format '{{.Ref}}'] [--json]
 agent-team template show [<ref>] [--format '{{.Ref}} {{.ContentHash}}'] [--json]
                                                 # print manifest (default: bundled)
 agent-team template pull <ref> [--as <n>] [--dry-run] [--commands] [--format '{{.CacheKey}} {{.Action}}'] [--json]
-                                                # copy a local template or clone a git ref into the cache
+                                                # copy a local template or shallow-fetch a git ref into the cache
 agent-team template rm <ref> [--dry-run] [--commands] [--format '{{.Ref}} {{.Action}}'] [--json]
                                                 # remove a cached template
 agent-team template smoke [<ref>] [--set k=v]... [--strict] [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--commands] [--format '{{.OK}} {{len .Steps}}'] [--json]

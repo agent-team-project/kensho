@@ -842,7 +842,11 @@ def enable_demo_schedule(repo: Path) -> None:
     team_pipelines = 'pipelines   = ["ticket_to_pr"]'
     if team_pipelines not in body:
         raise DemoError("bundled topology no longer has the expected delivery pipeline list")
-    body = body.replace(team_pipelines, team_pipelines + '\nschedules   = ["demo_due"]', 1)
+    team_schedules = 'schedules   = ["feedback-triage"]'
+    if team_schedules in body:
+        body = body.replace(team_schedules, 'schedules   = ["feedback-triage", "demo_due"]', 1)
+    else:
+        body = body.replace(team_pipelines, team_pipelines + '\nschedules   = ["demo_due"]', 1)
     body += textwrap.dedent(
         """\
 

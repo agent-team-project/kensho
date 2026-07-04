@@ -45,6 +45,14 @@ Template provenance.
 
 Stores source identity and content hash so `upgrade --check` can compare current state against a target ref and `upgrade --apply` can render a conservative three-way plan.
 
+## `~/.agent-team/cache/**/.agent-team-meta.json`
+
+Cache-only provenance for pulled git templates.
+
+It records the requested ref, clone URL, revision, revision kind, resolved commit
+SHA, cache key, and pull time. It is ignored by template content hashing and is
+not copied into consumer `.agent_team/` directories.
+
 ## `template.toml`
 
 Template manifest.

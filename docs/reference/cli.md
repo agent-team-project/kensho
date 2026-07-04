@@ -12,10 +12,10 @@ as the output directory instead.
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team init [ref] [--dry-run] [--commands] [--format <template>] [--json]` | Instantiate a template into `.agent_team/`, preview it, or emit a machine-readable success record |
+| `agent-team init [ref] [--dry-run] [--commands] [--format <template>] [--json]` | Instantiate a bundled, local, cached, or git template into `.agent_team/`, preview it, or emit a machine-readable success record |
 | `agent-team template ls [--format <template>] [--json]` | List bundled and cached templates with text, Go-template, or JSON output |
 | `agent-team template show [ref] [--format <template>] [--json]` | Show a template manifest with content hash, agents, skills, and parameters |
-| `agent-team template pull <ref> [--as <cache-ref>] [--dry-run] [--commands] [--format <template>] [--json]` | Cache a template, or preview/print the apply command |
+| `agent-team template pull <ref> [--as <cache-ref>] [--dry-run] [--commands] [--format <template>] [--json]` | Cache a local template or shallow-fetch a git ref by resolved commit SHA, or preview/print the apply command |
 | `agent-team template rm <ref> [--dry-run] [--commands] [--format <template>] [--json]` | Remove a cached template, or preview/print the apply command |
 | `agent-team template smoke [ref] [--strict] [--commands] [--format <template>] [--json]` | Render a template in a temp repo and run doctor, agent, pipeline, and team validation; add `--commands` for scoped follow-ups or `--strict` for CI checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |

@@ -244,17 +244,17 @@ func loadUpgradeTarget(cmd *cobra.Command, cfg upgradeConfig) (string, *template
 	if targetRef == "" {
 		targetRef = lock.Template.Ref
 	}
-	resolver := newResolver()
-	locked, err := resolver.Resolve(lock.Template.Ref)
+	locked, _, err := resolveTemplateRefForCLI(lock.Template.Ref)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: resolve locked template %q: %v\n", lock.Template.Ref, err)
 		return "", nil, nil, upgradeCheckResult{}, exitErr(2)
 	}
-	target, err := resolver.Resolve(targetRef)
+	target, pull, err := resolveTemplateRefForCLI(targetRef)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return "", nil, nil, upgradeCheckResult{}, exitErr(2)
 	}
+	warnTemplatePull(cmd.ErrOrStderr(), pull, cfg.json, cfg.format != "" || cfg.commands)
 	targetHash, err := template.ContentHash(target)
 	if err != nil {
 		return "", nil, nil, upgradeCheckResult{}, fmt.Errorf("hash template source: %w", err)
@@ -264,7 +264,7 @@ func loadUpgradeTarget(cmd *cobra.Command, cfg upgradeConfig) (string, *template
 		LockedTemplate:   lock.Template.Name,
 		LockedVersion:    lock.Template.Version,
 		LockedHash:       lock.Template.ContentHash,
-		TargetRef:        targetRef,
+		TargetRef:        target.Ref,
 		TargetHash:       targetHash,
 		UpToDate:         targetHash == lock.Template.ContentHash,
 		ApplyImplemented: true,

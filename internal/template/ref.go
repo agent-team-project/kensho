@@ -65,8 +65,8 @@ type Resolver struct {
 //     directory.
 //   - any other string — looked up in the cache root as a relative path.
 //
-// Git sources are fetched by `agent-team template pull` into the cache first;
-// after that, init/show/run resolve them through the same cache-relative path.
+// Git sources are fetched by the CLI layer into the cache first; after that,
+// init/show/run resolve them through the same cache-relative path.
 func (r *Resolver) Resolve(ref string) (*ResolvedTemplate, error) {
 	if IsBundledRef(ref) {
 		return r.resolveBundled()

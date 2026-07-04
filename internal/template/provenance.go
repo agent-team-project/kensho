@@ -13,6 +13,11 @@ import (
 // LockFileName is the generated provenance file written into .agent_team/.
 const LockFileName = ".template.lock"
 
+// CacheMetaFileName stores cache-only provenance for pulled templates. It is
+// ignored by rendering and hashing so pulled metadata never becomes template
+// content.
+const CacheMetaFileName = ".agent-team-meta.json"
+
 // Lock is the on-disk shape of .agent_team/.template.lock.
 type Lock struct {
 	Template LockTemplate `toml:"template"`
@@ -95,7 +100,7 @@ func ContentHash(rt *ResolvedTemplate) (string, error) {
 			}
 			rel = strings.TrimPrefix(p, prefix)
 		}
-		if path.Dir(rel) == "." && path.Base(rel) == LockFileName {
+		if path.Dir(rel) == "." && (path.Base(rel) == LockFileName || path.Base(rel) == CacheMetaFileName) {
 			if d.IsDir() {
 				return fs.SkipDir
 			}

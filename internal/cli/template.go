@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -44,8 +42,8 @@ func newTemplateCmd() *cobra.Command {
 		Short: "Manage templates (bundled + cached) used by `agent-team init`.",
 		Long: "Manage templates: list, inspect, pull, and remove. A template is a parameterised " +
 			"directory tree with a `template.toml` manifest. The default template is embedded in the " +
-			"binary and can be referenced as `bundled` or `default`; additional templates are pulled " +
-			"from local paths into a local cache.",
+			"binary and can be referenced as `bundled` or `default`; additional templates can come " +
+			"from local paths, cached refs, or git refs pulled into a local cache.",
 	}
 	cmd.AddCommand(newTemplateLsCmd())
 	cmd.AddCommand(newTemplateShowCmd())
@@ -235,12 +233,12 @@ func newTemplateShowCmd() *cobra.Command {
 			if len(args) == 1 {
 				ref = args[0]
 			}
-			r := newResolver()
-			rt, err := r.Resolve(ref)
+			rt, pull, err := resolveTemplateRefForCLI(ref)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 				return exitErr(2)
 			}
+			warnTemplatePull(cmd.ErrOrStderr(), pull, jsonOut, tmpl != nil)
 			result, err := templateShowResultFromResolved(rt)
 			if err != nil {
 				return err
@@ -751,9 +749,10 @@ func newTemplatePullCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "pull <ref>",
 		Short: "Fetch a template into the cache so it can be referenced later.",
-		Long: "Pull a template into ~/.agent-team/cache/<ref>. Local directory refs are copied. " +
+		Long: "Pull a template into ~/.agent-team/cache/. Local directory refs are copied. " +
 			"Git refs such as github.com/acme/eng-team@v1.0.0 or https://github.com/acme/eng-team.git@v1.0.0 " +
-			"are cloned at the requested revision. Bundled templates need no pull because they are embedded in the binary.",
+			"are shallow-fetched at the requested revision and cached under the resolved commit SHA. " +
+			"Bundled templates need no pull because they are embedded in the binary.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
@@ -838,40 +837,14 @@ func newTemplatePullCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %q is not a local template directory or supported git ref\n", ref)
 				return exitErr(2)
 			}
-			cacheKey := asRef
-			if cacheKey == "" {
-				cacheKey = gitRef.CacheKey
-			}
-			dst, err := cacheDestination(r.CacheRoot, cacheKey)
+			result, err := pullGitTemplate(gitRef, r.CacheRoot, asRef, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 				return exitErr(2)
 			}
-			result := templatePullResult{
-				Ref:      ref,
-				Source:   "git",
-				CacheKey: cacheKey,
-				Path:     filepath.ToSlash(dst),
-				CloneURL: gitRef.CloneURL,
-				Revision: gitRef.Revision,
-				DryRun:   dryRun,
-				Pulled:   true,
-				Action:   "pulled",
-			}
-			if isMutableGitRevision(gitRef.Revision) {
-				result.MutableRevision = true
-				result.Warning = fmt.Sprintf("pulling mutable git revision %q; prefer an immutable tag or commit", gitRef.Revision)
-				if !jsonOut && tmpl == nil && !commands {
-					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: warning: %s\n", result.Warning)
-				}
-			}
-			if dryRun {
-				result.Action = "would-pull"
-			} else if err := cloneGitTemplate(gitRef, r.CacheRoot, dst); err != nil {
-				return err
-			}
+			warnTemplatePull(cmd.ErrOrStderr(), result, jsonOut, tmpl != nil || commands)
 			if commands {
-				return renderTemplatePullApplyCommand(cmd.OutOrStdout(), true, ref, asRef)
+				return renderTemplatePullApplyCommand(cmd.OutOrStdout(), result.Action == "would-pull", ref, asRef)
 			}
 			if err := renderTemplatePull(cmd.OutOrStdout(), result, jsonOut, tmpl); err != nil {
 				return err
@@ -888,19 +861,23 @@ func newTemplatePullCmd() *cobra.Command {
 }
 
 type templatePullResult struct {
-	Ref             string `json:"ref"`
-	Source          string `json:"source"`
-	CacheKey        string `json:"cache_key,omitempty"`
-	Path            string `json:"path,omitempty"`
-	SourcePath      string `json:"source_path,omitempty"`
-	CloneURL        string `json:"clone_url,omitempty"`
-	Revision        string `json:"revision,omitempty"`
-	Bundled         bool   `json:"bundled,omitempty"`
-	MutableRevision bool   `json:"mutable_revision,omitempty"`
-	Warning         string `json:"warning,omitempty"`
-	DryRun          bool   `json:"dry_run"`
-	Pulled          bool   `json:"pulled"`
-	Action          string `json:"action"`
+	Ref               string `json:"ref"`
+	Source            string `json:"source"`
+	CacheKey          string `json:"cache_key,omitempty"`
+	Path              string `json:"path,omitempty"`
+	SourcePath        string `json:"source_path,omitempty"`
+	CloneURL          string `json:"clone_url,omitempty"`
+	Revision          string `json:"revision,omitempty"`
+	RevisionKind      string `json:"revision_kind,omitempty"`
+	DefaultedRevision bool   `json:"defaulted_revision,omitempty"`
+	ResolvedSHA       string `json:"resolved_sha,omitempty"`
+	Bundled           bool   `json:"bundled,omitempty"`
+	MutableRevision   bool   `json:"mutable_revision,omitempty"`
+	Warning           string `json:"warning,omitempty"`
+	DryRun            bool   `json:"dry_run"`
+	Pulled            bool   `json:"pulled"`
+	Cached            bool   `json:"cached,omitempty"`
+	Action            string `json:"action"`
 }
 
 func renderTemplatePull(w io.Writer, result templatePullResult, jsonOut bool, tmpl *texttemplate.Template) error {
@@ -918,12 +895,23 @@ func renderTemplatePull(w io.Writer, result templatePullResult, jsonOut bool, tm
 		fmt.Fprintln(w, "bundled template needs no pull (embedded in the binary)")
 		return nil
 	}
+	if result.Action == "cached" {
+		fmt.Fprintf(w, "cached %s at %s\n", result.Ref, result.Path)
+		return nil
+	}
 	if result.DryRun {
 		fmt.Fprintf(w, "would pull %s into %s\n", result.Ref, result.Path)
 		return nil
 	}
 	fmt.Fprintf(w, "pulled %s into %s\n", result.Ref, result.Path)
 	return nil
+}
+
+func warnTemplatePull(w io.Writer, result templatePullResult, machineOutput bool, quiet bool) {
+	if result.Warning == "" || machineOutput || quiet {
+		return
+	}
+	fmt.Fprintf(w, "agent-team: warning: %s\n", result.Warning)
 }
 
 func renderTemplatePullApplyCommand(w io.Writer, hasAction bool, ref, asRef string) error {
@@ -940,81 +928,6 @@ func templatePullApplyCommandArgs(ref, asRef string) []string {
 		args = append(args, "--as", asRef)
 	}
 	return args
-}
-
-type gitTemplateRef struct {
-	Input    string
-	Source   string
-	CloneURL string
-	Revision string
-	CacheKey string
-}
-
-func parseGitTemplateRef(ref string) (gitTemplateRef, bool, error) {
-	ref = strings.TrimSpace(ref)
-	at := strings.LastIndex(ref, "@")
-	if at <= 0 || at == len(ref)-1 {
-		if strings.Contains(ref, "://") || strings.HasPrefix(ref, "git@") {
-			return gitTemplateRef{}, false, fmt.Errorf("git template ref %q must include @<revision>", ref)
-		}
-		return gitTemplateRef{}, false, nil
-	}
-	source := strings.TrimSpace(ref[:at])
-	revision := strings.TrimSpace(ref[at+1:])
-	if source == "" || revision == "" {
-		return gitTemplateRef{}, false, fmt.Errorf("git template ref %q must include source and revision", ref)
-	}
-	cloneURL, cacheSource, ok, err := normalizeGitTemplateSource(source)
-	if err != nil || !ok {
-		return gitTemplateRef{}, ok, err
-	}
-	return gitTemplateRef{
-		Input:    ref,
-		Source:   source,
-		CloneURL: cloneURL,
-		Revision: revision,
-		CacheKey: cacheSource + "@" + revision,
-	}, true, nil
-}
-
-func normalizeGitTemplateSource(source string) (cloneURL, cacheSource string, ok bool, err error) {
-	if strings.Contains(source, "://") {
-		u, parseErr := url.Parse(source)
-		if parseErr != nil {
-			return "", "", true, fmt.Errorf("git template ref %q: %w", source, parseErr)
-		}
-		switch u.Scheme {
-		case "http", "https", "ssh":
-			cacheSource = strings.TrimPrefix(u.Host+strings.TrimSuffix(u.EscapedPath(), ".git"), "/")
-		case "file":
-			path := filepath.ToSlash(filepath.Clean(u.Path))
-			cacheSource = "file/" + strings.Trim(strings.TrimSuffix(path, ".git"), "/")
-		default:
-			return "", "", true, fmt.Errorf("git template ref %q: unsupported scheme %q", source, u.Scheme)
-		}
-		cacheSource = strings.Trim(cacheSource, "/")
-		if cacheSource == "" {
-			return "", "", true, fmt.Errorf("git template ref %q: could not infer cache key", source)
-		}
-		return source, cacheSource, true, nil
-	}
-	if strings.HasPrefix(source, "git@") {
-		colon := strings.Index(source, ":")
-		if colon < 0 {
-			return "", "", true, fmt.Errorf("git template ref %q: expected git@host:path form", source)
-		}
-		host := strings.TrimPrefix(source[:colon], "git@")
-		path := strings.TrimSuffix(source[colon+1:], ".git")
-		if host == "" || path == "" {
-			return "", "", true, fmt.Errorf("git template ref %q: expected git@host:path form", source)
-		}
-		return source, host + "/" + strings.Trim(path, "/"), true, nil
-	}
-	parts := strings.Split(source, "/")
-	if len(parts) >= 3 && (strings.Contains(parts[0], ".") || parts[0] == "localhost") {
-		return "https://" + source, strings.TrimSuffix(source, ".git"), true, nil
-	}
-	return "", "", false, nil
 }
 
 func cacheDestination(cacheRoot, cacheKey string) (string, error) {
@@ -1035,72 +948,6 @@ func cacheDestination(cacheRoot, cacheKey string) (string, error) {
 		return "", fmt.Errorf("cache key %q must be relative", cacheKey)
 	}
 	return filepath.Join(cacheRoot, cacheKey), nil
-}
-
-func cloneGitTemplate(ref gitTemplateRef, cacheRoot, dst string) error {
-	if _, err := exec.LookPath("git"); err != nil {
-		return fmt.Errorf("git is required to pull %s: %w", ref.Input, err)
-	}
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp(cacheRoot, ".pull-*")
-	if err != nil {
-		return err
-	}
-	removeTmp := true
-	defer func() {
-		if removeTmp {
-			_ = os.RemoveAll(tmp)
-		}
-	}()
-	if err := runGitClone(ref.CloneURL, ref.Revision, tmp); err != nil {
-		return err
-	}
-	if err := os.RemoveAll(filepath.Join(tmp, ".git")); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if err := os.RemoveAll(dst); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return err
-	}
-	removeTmp = false
-	return nil
-}
-
-func runGitClone(cloneURL, revision, dst string) error {
-	cmd := exec.Command("git", "clone", "--depth", "1", "--branch", revision, cloneURL, dst)
-	if _, err := cmd.CombinedOutput(); err == nil {
-		return nil
-	} else {
-		_ = os.RemoveAll(dst)
-		if mkdirErr := os.MkdirAll(dst, 0o755); mkdirErr != nil {
-			return mkdirErr
-		}
-		full := exec.Command("git", "clone", cloneURL, dst)
-		if fullOut, fullErr := full.CombinedOutput(); fullErr != nil {
-			return fmt.Errorf("git clone: %w: %s", fullErr, strings.TrimSpace(string(fullOut)))
-		}
-		checkout := exec.Command("git", "-C", dst, "checkout", revision)
-		if checkoutOut, checkoutErr := checkout.CombinedOutput(); checkoutErr != nil {
-			return fmt.Errorf("git checkout %s: %w: %s", revision, checkoutErr, strings.TrimSpace(string(checkoutOut)))
-		}
-		return nil
-	}
-}
-
-func isMutableGitRevision(revision string) bool {
-	switch strings.ToLower(strings.TrimSpace(revision)) {
-	case "head", "main", "master", "trunk", "develop", "dev":
-		return true
-	default:
-		return false
-	}
 }
 
 func inferCacheKey(rt *template.ResolvedTemplate) string {
