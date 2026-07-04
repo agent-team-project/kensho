@@ -20,11 +20,13 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/jobwrite"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
@@ -5412,6 +5414,7 @@ func newJobMergeCmd() *cobra.Command {
 			if dryRun {
 				return renderJobMergeResult(cmd.OutOrStdout(), result, jsonOut)
 			}
+			auditCLIJobAuthority(teamDir, j, "job.merge", "job:"+j.ID)
 			if err := applyJobMerge(cmd.Context(), teamDir, j, result); err != nil {
 				var blocked mergeBlockedError
 				if errors.As(err, &blocked) {
@@ -7678,6 +7681,54 @@ func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message str
 		_ = daemon.ExportOrchestrationJob(teamDir, "", j)
 	}
 	return nil
+}
+
+func auditCLIJobAuthority(teamDir string, j *job.Job, verb, resource string) {
+	if j == nil {
+		return
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || top == nil || top.Authority == nil || !top.Authority.Configured() {
+		return
+	}
+	actor := cliAuthorityActor(teamDir, j)
+	daemon.AuditAuthority(daemon.AuthorityAuditOptions{
+		TeamDir:    teamDir,
+		DaemonRoot: daemon.DaemonRoot(teamDir),
+		Topology:   top,
+		Actor:      actor,
+		Verb:       verb,
+		Resource:   resource,
+		JobID:      j.ID,
+		EventActor: "cli",
+	})
+}
+
+func cliAuthorityActor(teamDir string, j *job.Job) origin.Envelope {
+	build := buildinfo.Current("")
+	var fromEnv origin.Envelope
+	if raw := daemonOriginHeaderFromEnv(build); raw != "" {
+		fromEnv, _ = origin.ParseHeaderValue(raw)
+	}
+	projectID, _ := origin.ProjectID(teamDir)
+	actor := origin.Merge(fromEnv, origin.Envelope{
+		Project: projectID,
+		Job:     j.ID,
+		Build:   build.Display(),
+	})
+	if strings.TrimSpace(actor.Instance) != "" {
+		if meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), actor.Instance); err == nil && meta != nil {
+			metaOrigin := meta.Origin
+			if metaOrigin.Agent == "" {
+				metaOrigin.Agent = meta.Agent
+			}
+			if metaOrigin.Instance == "" {
+				metaOrigin.Instance = meta.Instance
+			}
+			actor = origin.Merge(actor, metaOrigin)
+		}
+	}
+	return actor.Clean()
 }
 
 func runJobEvents(w io.Writer, teamDir, id string, tail int, filters jobEventFilters, sortMode string, jsonOut, summary bool, tmpl *template.Template) error {

@@ -951,6 +951,134 @@ channels = ["supervisor"]
 	}
 }
 
+func TestHTTP_Channel_TeamScopedReadUsesOwningTeamWhenActorDiffers(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[channels.supervisor]
+scope = "team"
+
+[teams.platform]
+channels = ["supervisor"]
+`)
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, cs, resolver, teamDir))
+	defer srv.Close()
+
+	if _, err := cs.Publish("#team-platform-supervisor", "manager", "owner message"); err != nil {
+		t.Fatalf("seed owner channel: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/channel/%23supervisor/messages?instance=quality-auditor&since=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Team: "quality", Agent: "auditor", Instance: "quality-auditor"}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Messages []ChannelMessage `json:"messages"`
+		Cursor   int64            `json:"cursor"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	if len(body.Messages) != 1 || body.Messages[0].Body != "owner message" {
+		t.Fatalf("messages = %+v, want owner channel message", body.Messages)
+	}
+	actorScoped, err := readChannelMessagesSince(root, "#team-quality-supervisor", 0)
+	if err != nil {
+		t.Fatalf("read actor-scoped channel: %v", err)
+	}
+	if len(actorScoped) != 0 {
+		t.Fatalf("actor-scoped messages = %+v, want none", actorScoped)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("read path wrote lifecycle events = %+v", events)
+	}
+}
+
+func TestHTTP_Channel_TeamScopedWriteUsesOwningTeamAndAuditsActorTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-92", "worker", "kickoff", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[channels.supervisor]
+scope = "team"
+
+[teams.platform]
+channels = ["supervisor"]
+
+[authority.agents.manager]
+allow = ["channel.*"]
+`)
+	m := NewInstanceManager(root, nil)
+	cs := NewChannelStore(root)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, cs, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/channel/%23supervisor/publish", bytes.NewReader([]byte(`{"sender":"quality-auditor","body":"cross write"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Team: "quality", Agent: "auditor", Instance: "quality-auditor", Job: j.ID}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	ownerScoped, err := readChannelMessagesSince(root, "#team-platform-supervisor", 0)
+	if err != nil {
+		t.Fatalf("read owner-scoped channel: %v", err)
+	}
+	if len(ownerScoped) != 1 || ownerScoped[0].Body != "cross write" {
+		t.Fatalf("owner-scoped messages = %+v", ownerScoped)
+	}
+	actorScoped, err := readChannelMessagesSince(root, "#team-quality-supervisor", 0)
+	if err != nil {
+		t.Fatalf("read actor-scoped channel: %v", err)
+	}
+	if len(actorScoped) != 0 {
+		t.Fatalf("actor-scoped messages = %+v, want none", actorScoped)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Team != "quality" || events[0].Origin.Agent != "auditor" {
+		t.Fatalf("lifecycle events = %+v", events)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "channel.publish" || jobEvents[0].Data["resource"] != "channel:#team-platform-supervisor" {
+		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
 func TestHTTP_Channel_DrainSinceParam(t *testing.T) {
 	root := t.TempDir()
 	m := NewInstanceManager(root, nil)

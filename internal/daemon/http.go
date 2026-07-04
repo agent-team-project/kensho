@@ -1514,10 +1514,7 @@ func scopedChannelNameForRequest(events *EventResolver, requested string, actor 
 	if declared == nil {
 		return canonical, nil
 	}
-	team := actor.Team
-	if team == "" {
-		team = topo.TeamForChannel(canonical)
-	}
+	team := topo.TeamForChannel(canonical)
 	return topology.ScopedChannelName(canonical, declared.Scope, team, actor.Job)
 }
 
