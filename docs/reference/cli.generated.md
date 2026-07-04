@@ -1555,7 +1555,8 @@ Vendor a starter team template into the current repo (creates .agent_team/).
 
 Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled
 default template is used (a software-engineering team — manager + worker + ticket-manager,
-plus linear / pull-request / assign-worker skills). Pass `--template empty` for a scaffold-
+plus linear / pull-request / assign-worker skills). Refs can be local paths, cached refs,
+or git refs such as github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-
 only init. `--set k=v` supplies template parameters; `--no-input` fails (rather than prompting)
 when required parameters have no value.
 
@@ -10315,7 +10316,7 @@ Flags:
 
 Manage templates (bundled + cached) used by `agent-team init`.
 
-Manage templates: list, inspect, pull, and remove. A template is a parameterised directory tree with a `template.toml` manifest. The default template is embedded in the binary and can be referenced as `bundled` or `default`; additional templates are pulled from local paths into a local cache.
+Manage templates: list, inspect, pull, and remove. A template is a parameterised directory tree with a `template.toml` manifest. The default template is embedded in the binary and can be referenced as `bundled` or `default`; additional templates can come from local paths, cached refs, or git refs pulled into a local cache.
 
 ```text
 agent-team template
@@ -10361,7 +10362,7 @@ Inherited Flags:
 
 Fetch a template into the cache so it can be referenced later.
 
-Pull a template into ~/.agent-team/cache/&lt;ref&gt;. Local directory refs are copied. Git refs such as github.com/acme/eng-team@v1.0.0 or https://github.com/acme/eng-team.git@v1.0.0 are cloned at the requested revision. Bundled templates need no pull because they are embedded in the binary.
+Pull a template into ~/.agent-team/cache/. Local directory refs are copied. Git refs such as github.com/acme/eng-team@v1.0.0 or https://github.com/acme/eng-team.git@v1.0.0 are shallow-fetched at the requested revision and cached under the resolved commit SHA. Bundled templates need no pull because they are embedded in the binary.
 
 ```text
 agent-team template pull <ref> [flags]
@@ -10410,7 +10411,7 @@ Inherited Flags:
 
 One-shot: instantiate a template into a tempdir and spawn an agent.
 
-Instantiate a template (bundled, local path, or cached ref) into a target directory and immediately spawn the named agent against it. Returns when the selected runtime session exits. Without --target, a tempdir under $XDG_CACHE_HOME/agent-team/runs (or ~/.agent-team/runs) is created and removed on exit unless --keep is passed. With --target, the directory is preserved.
+Instantiate a template (bundled, local path, cached ref, or git ref) into a target directory and immediately spawn the named agent against it. Returns when the selected runtime session exits. Without --target, a tempdir under $XDG_CACHE_HOME/agent-team/runs (or ~/.agent-team/runs) is created and removed on exit unless --keep is passed. With --target, the directory is preserved.
 
 This is for ephemeral try-out / CI / sandbox use cases. The daemon is bypassed; the selected runtime is exec&#39;d directly. For long-lived setups, use `init` + `run` separately.
 

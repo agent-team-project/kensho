@@ -476,8 +476,7 @@ func checkDoctorTemplateLock(lock *template.Lock) error {
 	if lock == nil {
 		return fmt.Errorf("template lock is nil")
 	}
-	resolver := newResolver()
-	rt, err := resolver.Resolve(lock.Template.Ref)
+	rt, _, err := resolveTemplateRefForCLI(lock.Template.Ref)
 	if err != nil {
 		return fmt.Errorf("template lock ref %q cannot be resolved: %v", lock.Template.Ref, err)
 	}

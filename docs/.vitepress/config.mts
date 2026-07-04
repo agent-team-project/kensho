@@ -46,6 +46,7 @@ export default defineConfig({
         text: 'Authoring',
         items: [
           { text: 'Templates', link: '/authoring/templates' },
+          { text: 'Publishing Templates', link: '/authoring/publishing-templates' },
           { text: 'Agents and Skills', link: '/authoring/agents-and-skills' },
           { text: 'Topology', link: '/authoring/topology' }
         ]

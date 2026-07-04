@@ -203,7 +203,7 @@ A template ref identifies *what to instantiate*:
 
 - **Bundled** (no ref): `agent-team init` → uses the default template embedded in the binary.
 - **Local path**: `agent-team init ./path/to/template` → useful for template authoring / development.
-- **Git URL**: `agent-team template pull github.com/foo/bar@v0.1.0` → fetches via `git clone`, caches under `~/.agent-team/cache/<host>/<owner>/<repo>@<version>/`; after that `agent-team init github.com/foo/bar@v0.1.0` resolves from the cache. Pinned refs (`@v0.1.0`) are preferred; mutable refs such as `@main` warn on pull.
+- **Git URL**: `agent-team template pull github.com/foo/bar@v0.1.0` → shallow-fetches via git, resolves the ref to a commit SHA, and caches under `~/.agent-team/cache/<host>/<owner>/<repo>@<sha>/`; after that `agent-team init github.com/foo/bar@v0.1.0` can resolve from the cache. Pinned refs (`@v0.1.0` or `@<sha>`) are preferred; mutable refs such as `@main` warn on pull.
 - **OCI / registry** (later): defer until git refs prove insufficient.
 
 ## Versioning
@@ -317,11 +317,11 @@ Cache layout after pull:
 ~/.agent-team/cache/
 └── github.com/
     └── acme/
-        └── eng-team@v1.0.0/
+        └── eng-team@a1b2c3.../
             ├── template.toml
             ├── agents/...
             ├── skills/...
-            └── .agent-team-meta.json    ← {ref, content_hash, pulled_at}
+            └── .agent-team-meta.json    ← {ref, revision, resolved_sha, pulled_at}
 ```
 
 ### 3. Consumer: inspect
@@ -346,7 +346,7 @@ Skills in this template: pull-request, linear
 ```sh
 $ cd ~/projects/my-app
 $ agent-team init github.com/acme/eng-team@v1.0.0
-Resolving template github.com/acme/eng-team@v1.0.0 ... ✓ (cached)
+Resolving template github.com/acme/eng-team@v1.0.0 ... ✓ (cached at github.com/acme/eng-team@a1b2c3...)
 
 This template requires the following parameters:
 

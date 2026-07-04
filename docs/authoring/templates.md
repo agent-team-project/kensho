@@ -111,8 +111,30 @@ Supported ref sources:
 | omitted, `bundled`, or `default` | Use the embedded default template |
 | local path | Copy from the local filesystem |
 | cached ref | Resolve from `~/.agent-team/cache/` |
+| `github.com/org/repo@v1.2.3` | Shallow-fetch the git ref, cache it by resolved commit SHA, then render it |
+| `https://...git@ref`, `ssh://...@ref`, `git@host:org/repo.git@ref`, `file:///...@ref` | Generic git URL forms; tags, branches, and commit SHAs are accepted |
+| `github.com/org/repo` | Resolve the latest git tag; if no tags exist, fall back to `HEAD` with a warning |
 
-Template pull/cache support exists for local and git-oriented flows. Full registry semantics are intentionally deferred.
+Git cache entries live under `~/.agent-team/cache/<source>@<resolved-sha>/`
+and include cache metadata that is ignored by rendering and content hashing.
+Pinned tags and commit SHAs are reused from cache on later `init` / `show` /
+`pull` calls. Branch refs are allowed, but they are mutable and produce a
+warning.
+
+There is no central registry or marketplace. Any git repo with `template.toml`
+at its root is installable.
+
+## Trust Model
+
+`init` renders files only. It reads `template.toml`, copies files, renders
+opt-in `.tmpl` files with Go `text/template`, writes `.agent_team/config.toml`,
+and records `.template.lock`. It does not execute hooks, scripts, package
+managers, or template-provided commands.
+
+This render-only boundary is the security posture for installable templates.
+Users should still inspect remote template content like any other source they
+vendor into a repo, but installing a template does not run code from that
+template.
 
 ## Template Lock
 
@@ -129,7 +151,8 @@ When authoring a template:
 3. Use `.tmpl` only where values must be rendered.
 4. Keep agents reusable; put repo-specific behavior in config.
 5. Include a starter `instances.toml` when daemon workflows should work after init.
-6. Run:
+6. Tag published releases, for example `v1.2.3`, so consumers can pin refs.
+7. Run:
 
 ```sh
 go build -o bin/agent-team ./cmd/agent-team
@@ -154,4 +177,5 @@ Template behavior lives mostly in:
 - `internal/template/provenance.go`
 - `internal/cli/init.go`
 - `internal/cli/template.go`
+- `internal/cli/template_git.go`
 - `internal/cli/template_run.go`

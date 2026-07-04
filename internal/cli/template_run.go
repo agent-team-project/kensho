@@ -46,7 +46,7 @@ func newTemplateRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run <ref> <agent> [-- <runtime-args>...]",
 		Short: "One-shot: instantiate a template into a tempdir and spawn an agent.",
-		Long: "Instantiate a template (bundled, local path, or cached ref) into a target directory " +
+		Long: "Instantiate a template (bundled, local path, cached ref, or git ref) into a target directory " +
 			"and immediately spawn the named agent against it. Returns when the selected runtime " +
 			"session exits. Without --target, a tempdir under " +
 			"$XDG_CACHE_HOME/agent-team/runs (or ~/.agent-team/runs) is created and removed on " +
