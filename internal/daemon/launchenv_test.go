@@ -78,7 +78,7 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 		Bin:        "claude",
 		Args:       []string{"codex", "exec", "-c", `otel.exporter={ otlp-http = { endpoint = "http://collector", headers = { "authorization" = "header-secret" } } }`},
 		Dir:        "/repo",
-		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "OTEL_EXPORTER_OTLP_HEADERS=authorization=header-secret", "MARKER=dispatch"},
+		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "OTEL_EXPORTER_OTLP_HEADERS=authorization=header-secret", "AGENTTEAM_OTEL_HEADER_0=header-secret", "MARKER=dispatch"},
 		RecordedAt: recordedAt,
 		PID:        4321,
 		Version:    1,
@@ -102,6 +102,9 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	}
 	if envHasKey(got.Env, "OTEL_EXPORTER_OTLP_HEADERS") {
 		t.Fatalf("otel header key persisted in env: %+v", got.Env)
+	}
+	if envHasKey(got.Env, "AGENTTEAM_OTEL_HEADER_0") {
+		t.Fatalf("generated otel header key persisted in env: %+v", got.Env)
 	}
 	if strings.Contains(strings.Join(got.Args, " "), "header-secret") {
 		t.Fatalf("otel header secret persisted in args: %+v", got.Args)

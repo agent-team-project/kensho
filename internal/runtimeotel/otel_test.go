@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
@@ -127,7 +128,7 @@ func TestBuildLaunchCodexArgs(t *testing.T) {
 	restoreTraceRand(t)
 	cfg := Config{
 		Enabled:  true,
-		Endpoint: "http://collector:4318/v1/logs",
+		Endpoint: "http://collector:4318",
 		Headers:  map[string]string{"x-otlp-api-key": "secret"},
 	}
 	launch, err := BuildLaunch(cfg, runtimebin.KindCodex, Context{
@@ -143,10 +144,16 @@ func TestBuildLaunchCodexArgs(t *testing.T) {
 	if !contains(launch.Env, "TRACEPARENT=00-0102030405060708090a0b0c0d0e0f10-1112131415161718-01") {
 		t.Fatalf("codex env missing traceparent: %#v", launch.Env)
 	}
+	if !contains(launch.Env, "AGENTTEAM_OTEL_HEADER_0=secret") {
+		t.Fatalf("codex env missing header indirection: %#v", launch.Env)
+	}
 	joined := strings.Join(launch.CodexArgs, "\n")
+	if strings.Contains(joined, "secret") {
+		t.Fatalf("codex args leaked header secret:\n%s", joined)
+	}
 	for _, want := range []string{
-		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318/v1/logs\", protocol = \"binary\", headers = { \"x-otlp-api-key\" = \"secret\" } } }",
-		"otel.trace_exporter={ otlp-http = { endpoint = \"http://collector:4318/v1/logs\", protocol = \"binary\", headers = { \"x-otlp-api-key\" = \"secret\" } } }",
+		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"x-otlp-api-key\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
+		"otel.trace_exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"x-otlp-api-key\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
 		"otel.log_user_prompt=false",
 		"otel.span_attributes={",
 		"\"service.name\" = \"agent-team/worker\"",
@@ -156,6 +163,7 @@ func TestBuildLaunchCodexArgs(t *testing.T) {
 			t.Fatalf("codex args missing %q:\n%s", want, joined)
 		}
 	}
+	assertCodexOTelArgsDecode(t, launch.CodexArgs, "http://collector:4318")
 }
 
 func TestSanitizeArgsRedactsOTelHeaders(t *testing.T) {
@@ -173,6 +181,32 @@ func TestSanitizeArgsRedactsOTelHeaders(t *testing.T) {
 	}
 	if !contains(got, "<otel headers stripped>") {
 		t.Fatalf("SanitizeArgs missing redaction marker: %#v", got)
+	}
+}
+
+func TestStripOwnedEnvRemovesTelemetryKeys(t *testing.T) {
+	got := StripOwnedEnv([]string{
+		"PATH=/bin",
+		"TRACEPARENT=00-stale",
+		"TRACESTATE=stale",
+		"CLAUDE_CODE_ENABLE_TELEMETRY=1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://old",
+		"OTEL_RESOURCE_ATTRIBUTES=old=true",
+		"AGENTTEAM_OTEL_HEADER_0=secret",
+		"AGENT_TEAM_INSTANCE=manager",
+	})
+	for _, forbidden := range []string{
+		"TRACEPARENT", "TRACESTATE", "CLAUDE_CODE_ENABLE_TELEMETRY",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_RESOURCE_ATTRIBUTES", "AGENTTEAM_OTEL_HEADER_0",
+	} {
+		if envValueForTest(got, forbidden) != "" {
+			t.Fatalf("StripOwnedEnv kept %s in %#v", forbidden, got)
+		}
+	}
+	if !contains(got, "PATH=/bin") || !contains(got, "AGENT_TEAM_INSTANCE=manager") {
+		t.Fatalf("StripOwnedEnv removed unrelated env: %#v", got)
 	}
 }
 
@@ -204,4 +238,40 @@ func envValueForTest(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func assertCodexOTelArgsDecode(t *testing.T, args []string, endpoint string) {
+	t.Helper()
+	var lines []string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-c" && strings.HasPrefix(args[i+1], "otel.") {
+			lines = append(lines, args[i+1])
+		}
+	}
+	var cfg struct {
+		Otel struct {
+			Exporter      map[string]codexExporterForTest `toml:"exporter"`
+			TraceExporter map[string]codexExporterForTest `toml:"trace_exporter"`
+		} `toml:"otel"`
+	}
+	if _, err := toml.Decode(strings.Join(lines, "\n"), &cfg); err != nil {
+		t.Fatalf("codex otel args did not decode as TOML: %v\n%s", err, strings.Join(lines, "\n"))
+	}
+	for name, exporter := range map[string]codexExporterForTest{
+		"otel.exporter":       cfg.Otel.Exporter["otlp-http"],
+		"otel.trace_exporter": cfg.Otel.TraceExporter["otlp-http"],
+	} {
+		if exporter.Endpoint != endpoint || exporter.Protocol != codexOTLPProtocol {
+			t.Fatalf("%s decoded exporter = %+v, want endpoint %q protocol %q", name, exporter, endpoint, codexOTLPProtocol)
+		}
+		if exporter.Headers["x-otlp-api-key"] != "${AGENTTEAM_OTEL_HEADER_0}" {
+			t.Fatalf("%s decoded headers = %+v, want env reference", name, exporter.Headers)
+		}
+	}
+}
+
+type codexExporterForTest struct {
+	Endpoint string            `toml:"endpoint"`
+	Protocol string            `toml:"protocol"`
+	Headers  map[string]string `toml:"headers"`
 }

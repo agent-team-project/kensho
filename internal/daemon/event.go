@@ -1279,6 +1279,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
 		Budget:        ephemeralRuntimeBudget(payload),
 	})
@@ -1731,6 +1732,9 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	rt, err := r.runtimeForAgent(chosen, payload)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	}
+	if otelCfg.Configured() {
+		env = runtimeotel.StripOwnedEnv(env)
 	}
 	skillPaths, err := loader.UnionSkills(agents)
 	if err != nil {

@@ -133,7 +133,9 @@ func sanitizedLaunchEnvSnapshot(le *LaunchEnv) LaunchEnv {
 	snapshot := *le
 	snapshot.Args = runtimeotel.SanitizeArgs(le.Args)
 	snapshot.Env = stripEnv(le.Env, DefaultStrippedEnvKeys)
+	snapshot.Env = runtimeotel.StripGeneratedHeaderEnv(snapshot.Env)
 	snapshot.Stripped = append([]string(nil), DefaultStrippedEnvKeys...)
+	snapshot.Stripped = append(snapshot.Stripped, runtimeotel.CodexHeaderEnvPrefix+"*")
 	return snapshot
 }
 

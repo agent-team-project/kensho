@@ -384,7 +384,11 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		return exitErr(2)
 	}
 
-	env := append(os.Environ(), teamEnv...)
+	baseEnv := os.Environ()
+	if otelCfg.Configured() {
+		baseEnv = runtimeotel.StripOwnedEnv(baseEnv)
+	}
+	env := append(baseEnv, teamEnv...)
 
 	// Daemon-aware routing: one-shot dispatches (--prompt given) route
 	// through the daemon when one is running, and --detach opts into daemon

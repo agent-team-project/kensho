@@ -20,6 +20,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/runtimeotel"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
 
@@ -136,7 +137,12 @@ type DispatchInput struct {
 	RuntimeBinary string
 	Args          []string
 	Env           []string
-	Stdin         string
+	// EnvComplete means Env is already the full process environment. The
+	// normal dispatch path treats Env as an overlay on top of a persisted
+	// launch snapshot or os.Environ.
+	EnvComplete  bool
+	StripOTelEnv bool
+	Stdin        string
 	// Budget, if > 0, is a hard wall-clock runtime budget for the dispatched
 	// instance. When it elapses before the process exits on its own, a watchdog
 	// finalises the instance as Crashed and force-kills its process group (see
@@ -1406,7 +1412,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: %w", err)
 	}
-	env, err := m.launchPreparedEnv(in.Name, in.Env)
+	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv)
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
@@ -1507,15 +1513,25 @@ func (m *InstanceManager) startEnv(instance string) ([]string, error) {
 	return os.Environ(), nil
 }
 
-func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string) ([]string, error) {
+func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, complete, stripOTel bool) ([]string, error) {
+	if complete {
+		return append([]string(nil), overlay...), nil
+	}
 	env, ok, err := m.instanceLaunchEnv(instance)
 	if err != nil {
 		return nil, err
 	}
 	if ok {
+		if stripOTel {
+			env = runtimeotel.StripOwnedEnv(env)
+		}
 		return env, nil
 	}
-	return append(os.Environ(), overlay...), nil
+	env = os.Environ()
+	if stripOTel {
+		env = runtimeotel.StripOwnedEnv(env)
+	}
+	return append(env, overlay...), nil
 }
 
 func (m *InstanceManager) instanceLaunchEnv(instance string) ([]string, bool, error) {

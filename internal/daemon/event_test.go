@@ -804,11 +804,17 @@ func TestEvent_EphemeralCodexDispatchInjectsOTel(t *testing.T) {
 	if !containsEnvPrefix(env, "TRACEPARENT=00-") {
 		t.Fatalf("codex env missing TRACEPARENT: %#v", env)
 	}
+	if !containsString(env, "AGENTTEAM_OTEL_HEADER_0=Bearer secret") {
+		t.Fatalf("codex env missing header indirection: %#v", env)
+	}
 	call := fake.lastCall()
 	joined := strings.Join(call, "\n")
+	if strings.Contains(joined, "Bearer secret") {
+		t.Fatalf("codex spawn leaked header secret in argv:\n%s", joined)
+	}
 	for _, want := range []string{
-		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"Bearer secret\" } } }",
-		"otel.trace_exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"Bearer secret\" } } }",
+		"otel.exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
+		"otel.trace_exporter={ otlp-http = { endpoint = \"http://collector:4318\", protocol = \"binary\", headers = { \"authorization\" = \"${AGENTTEAM_OTEL_HEADER_0}\" } } }",
 		"otel.log_user_prompt=false",
 		"otel.span_attributes={",
 		"\"service.name\" = \"agent-team/worker\"",

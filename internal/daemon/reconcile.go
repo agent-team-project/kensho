@@ -295,10 +295,12 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		prompt += "\n\n" + extraPrompt
 	}
 	env := append([]string(nil), runtime.env...)
+	envComplete := false
 	if snapshotEnv, ok, err := m.instanceLaunchEnv(inst.Name); err != nil {
 		return nil, false, fmt.Errorf("restart: launch env: %w", err)
 	} else if ok {
 		env = snapshotEnv
+		envComplete = true
 	}
 	otelCtx := runtimeotel.Context{
 		Agent:    inst.Agent,
@@ -319,6 +321,8 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		EnvComplete:   envComplete,
+		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
 	}, expected)
 }
