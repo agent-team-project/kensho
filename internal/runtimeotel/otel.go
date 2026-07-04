@@ -125,6 +125,21 @@ func BuildLaunch(cfg Config, rt runtimebin.Kind, ctx Context) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
+	return BuildLaunchWithTraceparent(cfg, rt, ctx, tp)
+}
+
+// BuildLaunchWithTraceparent creates runtime env/config propagation using a
+// caller-owned W3C TRACEPARENT. Daemon orchestration spans use this to make the
+// runtime child continue the daemon step span's trace instead of allocating an
+// unrelated trace.
+func BuildLaunchWithTraceparent(cfg Config, rt runtimebin.Kind, ctx Context, traceparent string) (Launch, error) {
+	if !cfg.Enabled {
+		return Launch{}, nil
+	}
+	tp := strings.TrimSpace(traceparent)
+	if tp == "" {
+		return Launch{}, fmt.Errorf("traceparent is required when otel.enabled is true")
+	}
 	attrs := resourceAttributes(cfg.Resource, ctx)
 	resourceValue := joinKeyValues(attrs)
 	headersValue := joinKeyValues(cfg.Headers)

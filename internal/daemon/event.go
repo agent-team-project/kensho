@@ -29,12 +29,18 @@ import (
 )
 
 func (r *EventResolver) writeJobWithAudit(j *jobstore.Job, eventType, actor, message string, data map[string]string) error {
-	return jobwrite.WriteWithAudit(r.teamDir, j, jobwrite.Options{
+	if err := jobwrite.WriteWithAudit(r.teamDir, j, jobwrite.Options{
 		EventType: eventType,
 		Actor:     actor,
 		Message:   message,
 		Data:      data,
-	})
+	}); err != nil {
+		return err
+	}
+	if r.otel != nil {
+		_ = r.otel.exportJob(j)
+	}
+	return nil
 }
 
 // DefaultQueueCap is the maximum number of events queued per declared
@@ -67,6 +73,7 @@ type EventResolver struct {
 	teamDir  string
 	queueCap int
 	logOut   io.Writer
+	otel     *orchestrationTracer
 
 	mu       sync.Mutex
 	topo     *topology.Topology
@@ -108,6 +115,7 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 		topo:     topo,
 		tracking: map[string]*ephTracker{},
 		locks:    map[string]*dispatchLockTracker{},
+		otel:     loadOrchestrationTracer(teamDir, mgr.daemonRoot),
 	}
 	mgr.SetReapHook(r.onReap)
 	r.mu.Lock()
@@ -252,6 +260,9 @@ func (r *EventResolver) reconcilePRJob(eventType string, payload map[string]any)
 	result, err := jobwrite.ReconcilePR(r.teamDir, jobstore.ReconcileInputFromPayload(eventType, payload), time.Now().UTC())
 	if err == nil || errors.Is(err, jobstore.ErrNoReconcileMatch) || errors.Is(err, jobstore.ErrAmbiguousReconcileMatch) {
 		if err == nil && result != nil && result.Job != nil {
+			if r.otel != nil {
+				_ = r.otel.exportJob(result.Job)
+			}
 			r.autoReapJob(result.Job.ID, worktreepolicy.OnMerge)
 		}
 		return result
@@ -717,13 +728,13 @@ func applyPipelineStepOutcome(j *jobstore.Job, stepID string, outcomes []EventOu
 	j.LastEvent = "pipeline_step"
 	for _, oc := range outcomes {
 		if oc.Action == "dispatched" || oc.Action == "messaged" {
-			markPipelineStep(j, stepID, jobstore.StatusRunning, oc.InstanceID, now)
+			markPipelineStep(j, stepID, jobstore.StatusRunning, oc.InstanceID, oc.Reason, now)
 			j.Status = jobstore.StatusRunning
 			j.LastStatus = "running " + stepID
 			return
 		}
 		if oc.Action == "queued" {
-			markPipelineStep(j, stepID, jobstore.StatusQueued, oc.InstanceID, now)
+			markPipelineStep(j, stepID, jobstore.StatusQueued, oc.InstanceID, oc.Reason, now)
 			j.Status = jobstore.StatusQueued
 			j.LastStatus = "queued " + stepID
 			return
@@ -733,27 +744,56 @@ func applyPipelineStepOutcome(j *jobstore.Job, stepID string, outcomes []EventOu
 	if len(outcomes) > 0 && outcomes[0].Reason != "" {
 		reason = outcomes[0].Reason
 	}
-	markPipelineStep(j, stepID, jobstore.StatusFailed, "", now)
+	markPipelineStep(j, stepID, jobstore.StatusFailed, "", reason, now)
 	j.Status = jobstore.StatusFailed
 	j.LastStatus = reason
 }
 
-func markPipelineStep(j *jobstore.Job, stepID string, status jobstore.Status, instance string, now time.Time) {
+func markPipelineStep(j *jobstore.Job, stepID string, status jobstore.Status, instance, reason string, now time.Time) {
 	for i := range j.Steps {
 		if j.Steps[i].ID != stepID {
 			continue
+		}
+		incrementAttempt := status == jobstore.StatusRunning || status == jobstore.StatusQueued
+		if status == jobstore.StatusRunning {
+			if j.Steps[i].Status == jobstore.StatusRunning && j.Steps[i].Instance == instance && !j.Steps[i].RunningAt.IsZero() {
+				incrementAttempt = false
+			}
+			if j.Steps[i].Status == jobstore.StatusQueued && !j.Steps[i].QueuedAt.IsZero() && j.Steps[i].Attempts > 0 {
+				incrementAttempt = false
+			}
+		}
+		if status == jobstore.StatusQueued && j.Steps[i].Status == jobstore.StatusQueued && j.Steps[i].Instance == instance && !j.Steps[i].QueuedAt.IsZero() {
+			incrementAttempt = false
 		}
 		j.Steps[i].Status = status
 		if instance != "" {
 			j.Steps[i].Instance = instance
 		}
-		if status == jobstore.StatusRunning || status == jobstore.StatusQueued {
+		if status == jobstore.StatusQueued {
+			j.Steps[i].QueueReason = strings.TrimSpace(reason)
+		}
+		if incrementAttempt {
 			j.Steps[i].Attempts++
 		}
 		if j.Steps[i].StartedAt.IsZero() {
 			j.Steps[i].StartedAt = now
 		}
+		if status == jobstore.StatusQueued && j.Steps[i].QueuedAt.IsZero() {
+			j.Steps[i].QueuedAt = now
+		}
+		if status == jobstore.StatusRunning {
+			if j.Steps[i].QueuedAt.IsZero() {
+				j.Steps[i].QueuedAt = j.Steps[i].StartedAt
+			}
+			if j.Steps[i].RunningAt.IsZero() {
+				j.Steps[i].RunningAt = now
+			}
+		}
 		if status == jobstore.StatusDone || status == jobstore.StatusFailed {
+			if j.Steps[i].RunningAt.IsZero() {
+				j.Steps[i].RunningAt = j.Steps[i].StartedAt
+			}
 			j.Steps[i].FinishedAt = now
 		}
 		return
@@ -1262,7 +1302,15 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		Worktree:     worktreePath,
 		Build:        buildinfo.Current(""),
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx)
+	traceparent := ""
+	if r.otel != nil && payloadString(payload, "pipeline_step") != "" {
+		traceparent, err = r.otel.traceparentForStep(eventJobID(payload), payloadString(payload, "pipeline_step"))
+		if err != nil {
+			cleanupWorkspace()
+			return nil, fmt.Errorf("event runtime: otel trace context: %w", err)
+		}
+	}
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx, traceparent)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -1517,6 +1565,11 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	if lastStatus != "" {
 		j.LastStatus = lastStatus
 	}
+	if status == jobstore.StatusRunning {
+		if stepID := payloadString(payload, "pipeline_step"); stepID != "" {
+			markPipelineStep(j, stepID, jobstore.StatusRunning, instance, lastStatus, now)
+		}
+	}
 	j.UpdatedAt = now
 	if err := r.writeJobWithAudit(j, "", "daemon", "", dispatchJobEventData(payload, branch, worktreePath)); err != nil {
 		return nil
@@ -1714,7 +1767,7 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context) ([]string, string, runtimebin.Runtime, []string, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context, traceparent string) ([]string, string, runtimebin.Runtime, []string, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: load agents: %w", err)
@@ -1741,7 +1794,12 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: resolve skills: %w", err)
 	}
 	otelCtx.Runtime = string(rt.Kind)
-	otelLaunch, err := runtimeotel.BuildLaunch(otelCfg, rt.Kind, otelCtx)
+	var otelLaunch runtimeotel.Launch
+	if strings.TrimSpace(traceparent) != "" {
+		otelLaunch, err = runtimeotel.BuildLaunchWithTraceparent(otelCfg, rt.Kind, otelCtx, traceparent)
+	} else {
+		otelLaunch, err = runtimeotel.BuildLaunch(otelCfg, rt.Kind, otelCtx)
+	}
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
 	}
@@ -2227,6 +2285,10 @@ func (r *EventResolver) tryAutoAdvancePipeline(j *jobstore.Job, meta *Metadata, 
 			return
 		}
 		prevStep.Instance = ""
+		prevStep.QueueReason = ""
+		prevStep.QueuedAt = time.Time{}
+		prevStep.RunningAt = time.Time{}
+		prevStep.StartedAt = time.Time{}
 		prevStep.FinishedAt = time.Time{}
 		r.dispatchAndRecord(pipeline, topoStep, j, nil, "auto-retried crashed step "+topoStep.ID)
 		return
@@ -2371,6 +2433,12 @@ func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore
 		step.Status = status
 		if step.StartedAt.IsZero() {
 			step.StartedAt = now
+		}
+		if step.QueuedAt.IsZero() {
+			step.QueuedAt = step.StartedAt
+		}
+		if step.RunningAt.IsZero() {
+			step.RunningAt = step.StartedAt
 		}
 		step.FinishedAt = now
 		return true

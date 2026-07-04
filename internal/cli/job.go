@@ -8758,12 +8758,19 @@ func readJobAndTeamDir(cmd *cobra.Command, repo, id string) (string, *job.Job, e
 }
 
 func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message string, data map[string]string) error {
-	return jobwrite.WriteWithAudit(teamDir, j, jobwrite.Options{
+	if err := jobwrite.WriteWithAudit(teamDir, j, jobwrite.Options{
 		EventType: eventType,
 		Actor:     actor,
 		Message:   message,
 		Data:      data,
-	})
+	}); err != nil {
+		return err
+	}
+	switch strings.TrimSpace(eventType) {
+	case "merged", "pr.merged":
+		_ = daemon.ExportOrchestrationJob(teamDir, "", j)
+	}
+	return nil
 }
 
 func runJobEvents(w io.Writer, teamDir, id string, tail int, filters jobEventFilters, sortMode string, jsonOut, summary bool, tmpl *template.Template) error {
@@ -14667,6 +14674,9 @@ func resetJobStepForBounce(step *job.Step, status job.Status) {
 	}
 	step.Status = status
 	step.Instance = ""
+	step.QueueReason = ""
+	step.QueuedAt = time.Time{}
+	step.RunningAt = time.Time{}
 	step.StartedAt = time.Time{}
 	step.FinishedAt = time.Time{}
 	step.Skipped = false

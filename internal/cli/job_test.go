@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16089,6 +16093,57 @@ func TestJobMergeSquashUsesRecordedPR(t *testing.T) {
 	}
 }
 
+func TestJobMergeExportsOrchestrationMergeEvent(t *testing.T) {
+	collector := newCLIFakeOTLPCollector(t)
+	defer collector.Close()
+
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeCLITestOTelConfig(t, teamDir, collector.URL)
+	installRecordingFakeGHForJobTest(t, 0)
+
+	now := time.Now().UTC()
+	j := mustNewJob(t, "SQU-458", "worker")
+	j.PR = "https://github.com/acme/repo/pull/458"
+	j.Branch = "worker-squ-458"
+	j.Merge = &job.Merge{Strategy: "squash"}
+	j.Status = job.StatusDone
+	j.LastEvent = "manual_gate_approved"
+	j.LastStatus = "approved for merge"
+	j.UpdatedAt = now
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if err := daemon.ExportOrchestrationJob(teamDir, "", j); err != nil {
+		t.Fatalf("initial export: %v", err)
+	}
+	if got := len(collector.Requests()); got != 1 {
+		t.Fatalf("initial collector requests=%d, want 1", got)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", "SQU-458", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job merge: %v\nstderr=%s", err, stderr.String())
+	}
+	requests := collector.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("collector requests=%d, want initial + merge re-export; bodies=%s", len(requests), collector.BodiesText())
+	}
+	spans := cliOTelSpansFromBodies(t, collector.Bodies()[1:])
+	if len(spans) != 1 {
+		t.Fatalf("merge export spans=%d, want root only\n%s", len(spans), string(requests[1].Body))
+	}
+	rootSpan := cliSpanByName(t, spans, "agent-team.job squ-458")
+	if !containsString(cliOTelEventNames(rootSpan), "agent_team.merge") {
+		t.Fatalf("merge root events missing merge: %v", cliOTelEventNames(rootSpan))
+	}
+}
+
 func TestJobMergeLandControlsRecordedPRFlag(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -16392,4 +16447,131 @@ func installRecordingFakeGHForJobTest(t *testing.T, exitCode int) string {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return logPath
+}
+
+type cliFakeOTLPCollector struct {
+	*httptest.Server
+	mu       sync.Mutex
+	requests []cliFakeOTLPRequest
+}
+
+type cliFakeOTLPRequest struct {
+	Path   string
+	Header http.Header
+	Body   []byte
+}
+
+func newCLIFakeOTLPCollector(t *testing.T) *cliFakeOTLPCollector {
+	t.Helper()
+	c := &cliFakeOTLPCollector{}
+	c.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read collector body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		c.mu.Lock()
+		c.requests = append(c.requests, cliFakeOTLPRequest{
+			Path:   r.URL.Path,
+			Header: r.Header.Clone(),
+			Body:   body,
+		})
+		c.mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	return c
+}
+
+func (c *cliFakeOTLPCollector) Requests() []cliFakeOTLPRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]cliFakeOTLPRequest, len(c.requests))
+	copy(out, c.requests)
+	return out
+}
+
+func (c *cliFakeOTLPCollector) Bodies() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([][]byte, 0, len(c.requests))
+	for _, req := range c.requests {
+		out = append(out, append([]byte(nil), req.Body...))
+	}
+	return out
+}
+
+func (c *cliFakeOTLPCollector) BodiesText() string {
+	bodies := c.Bodies()
+	parts := make([]string, 0, len(bodies))
+	for _, body := range bodies {
+		parts = append(parts, string(body))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func writeCLITestOTelConfig(t *testing.T, teamDir, endpoint string) {
+	t.Helper()
+	body := `[otel]
+enabled = true
+endpoint = "` + endpoint + `"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write otel config: %v", err)
+	}
+}
+
+func cliOTelSpansFromBodies(t *testing.T, bodies [][]byte) []map[string]any {
+	t.Helper()
+	var spans []map[string]any
+	for _, body := range bodies {
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode collector payload: %v\n%s", err, string(body))
+		}
+		for _, resourceSpan := range cliAnySlice(payload["resourceSpans"]) {
+			rs, _ := resourceSpan.(map[string]any)
+			for _, scopeSpan := range cliAnySlice(rs["scopeSpans"]) {
+				ss, _ := scopeSpan.(map[string]any)
+				for _, rawSpan := range cliAnySlice(ss["spans"]) {
+					span, _ := rawSpan.(map[string]any)
+					spans = append(spans, span)
+				}
+			}
+		}
+	}
+	return spans
+}
+
+func cliSpanByName(t *testing.T, spans []map[string]any, name string) map[string]any {
+	t.Helper()
+	for _, span := range spans {
+		if span["name"] == name {
+			return span
+		}
+	}
+	t.Fatalf("span %q not found in %+v", name, spans)
+	return nil
+}
+
+func cliOTelEventNames(span map[string]any) []string {
+	events := cliAnySlice(span["events"])
+	out := make([]string, 0, len(events))
+	for _, raw := range events {
+		event, _ := raw.(map[string]any)
+		name, _ := event["name"].(string)
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func cliAnySlice(raw any) []any {
+	switch v := raw.(type) {
+	case []any:
+		return v
+	default:
+		return nil
+	}
 }

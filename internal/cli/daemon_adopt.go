@@ -469,14 +469,26 @@ func applyDaemonAdoptToPipelineStep(j *job.Job, instance string, stepID string, 
 	}
 	beforeStatus := step.Status
 	beforeInstance := strings.TrimSpace(step.Instance)
+	beforeQueuedAt := step.QueuedAt
+	beforeRunningAt := step.RunningAt
 	beforeStartedAt := step.StartedAt
 	step.Status = job.StatusRunning
 	step.Instance = instance
+	if step.QueuedAt.IsZero() {
+		step.QueuedAt = now.UTC()
+	}
+	if step.RunningAt.IsZero() {
+		step.RunningAt = now.UTC()
+	}
 	if step.StartedAt.IsZero() {
 		step.StartedAt = now.UTC()
 	}
 	step.FinishedAt = time.Time{}
-	changed := beforeStatus != step.Status || beforeInstance != instance || !beforeStartedAt.Equal(step.StartedAt)
+	changed := beforeStatus != step.Status ||
+		beforeInstance != instance ||
+		!beforeQueuedAt.Equal(step.QueuedAt) ||
+		!beforeRunningAt.Equal(step.RunningAt) ||
+		!beforeStartedAt.Equal(step.StartedAt)
 	return step.ID, changed, nil
 }
 

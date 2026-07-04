@@ -124,6 +124,21 @@ func TestBuildLaunchClaudeEnv(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchWithTraceparentUsesCallerContext(t *testing.T) {
+	cfg := Config{
+		Enabled:  true,
+		Endpoint: "http://collector:4318",
+	}
+	traceparent := "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
+	launch, err := BuildLaunchWithTraceparent(cfg, runtimebin.KindClaude, Context{Agent: "worker"}, traceparent)
+	if err != nil {
+		t.Fatalf("BuildLaunchWithTraceparent: %v", err)
+	}
+	if launch.Traceparent != traceparent || !contains(launch.Env, "TRACEPARENT="+traceparent) {
+		t.Fatalf("launch traceparent = %+v, want caller traceparent", launch)
+	}
+}
+
 func TestBuildLaunchCodexArgs(t *testing.T) {
 	restoreTraceRand(t)
 	cfg := Config{

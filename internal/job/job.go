@@ -106,6 +106,9 @@ type Step struct {
 	RetryOnCrash     bool           `toml:"retry_on_crash,omitempty"`
 	Skipped          bool           `toml:"skipped,omitempty"`
 	SkipReason       string         `toml:"skip_reason,omitempty"`
+	QueueReason      string         `toml:"queue_reason,omitempty"`
+	QueuedAt         time.Time      `toml:"queued_at,omitempty"`
+	RunningAt        time.Time      `toml:"running_at,omitempty"`
 	StartedAt        time.Time      `toml:"started_at,omitempty"`
 	FinishedAt       time.Time      `toml:"finished_at,omitempty"`
 }

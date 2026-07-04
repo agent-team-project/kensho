@@ -309,7 +309,7 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		Worktree: workspace,
 		Build:    buildinfo.Current(""),
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx)
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx, "")
 	if err != nil {
 		return nil, false, err
 	}
