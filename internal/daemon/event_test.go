@@ -2495,6 +2495,74 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestEvent_PipelineDispatchOriginIgnoresPayloadTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`[project]
+id = "project-1"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+instructions = "Implement the ticket."
+target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+pipelines = ["ticket_to_pr"]
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult("ticket.status_changed", map[string]any{
+		"ticket":     "SQU-93",
+		"ticket_url": "https://linear.app/squirtlesquad/issue/SQU-93/pipeline",
+		"team":       "SQU",
+		"status":     "Ready for Agent",
+		"workspace":  "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	if id := result.Outcomes[0].InstanceID; id != "worker-squ-93" {
+		t.Fatalf("instance_id = %q, want worker-squ-93", id)
+	}
+	j, err := jobstore.Read(teamDir, "squ-93")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Origin.Project != "project-1" || j.Origin.Team != "delivery" || j.Origin.Job != "squ-93" || j.Origin.Trigger != "ticket.status_changed" {
+		t.Fatalf("job origin = %+v", j.Origin)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-93")
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if meta.Origin.Project != "project-1" || meta.Origin.Team != "delivery" || meta.Origin.Instance != "worker-squ-93" || meta.Origin.Trigger != "pipeline:ticket_to_pr:implement" {
+		t.Fatalf("metadata origin = %+v", meta.Origin)
+	}
+}
+
 func TestEvent_PipelineInitialDispatchRejectionWritesLinearFailureAttention(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "")
 	t.Setenv("LINEAR_USER_API_KEY", "")

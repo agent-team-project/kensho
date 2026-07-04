@@ -1661,23 +1661,23 @@ func (r *EventResolver) teamForInstance(instance string, payload map[string]any)
 }
 
 func (r *EventResolver) teamForOrigin(instance string, payload map[string]any) string {
-	if team := payloadString(payload, "team"); team != "" {
-		return team
-	}
-	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
-		if team := r.teamForPipeline(pipeline); team != "" {
-			return team
-		}
-	}
 	if r == nil || r.topo == nil {
 		return ""
 	}
+	// Origin ownership is topology-derived only. Inbound payloads may carry
+	// provider team keys such as Linear's "SQU", but those are trigger context,
+	// not agent-team ownership.
 	instance = strings.TrimSpace(instance)
 	for _, team := range r.topo.SortedTeams() {
 		for _, name := range team.Instances {
 			if instance == name || strings.HasPrefix(instance, name+"-") {
 				return team.Name
 			}
+		}
+	}
+	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
+		if team := r.teamForPipeline(pipeline); team != "" {
+			return team
 		}
 	}
 	return ""
