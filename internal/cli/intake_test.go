@@ -163,6 +163,72 @@ func TestIntakeLinearSelfActorStatusChangeIgnored(t *testing.T) {
 	}
 }
 
+func TestIntakeGitHubProjectStatusTransitionDispatches(t *testing.T) {
+	target, _, cleanup := setupGitHubColumnPipelineRepo(t, "agent-bot")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	payload := githubProjectStatusPayload("42", "Ready for Agent", "human-user")
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github project status: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake json: %v\nbody=%s", err, out.String())
+	}
+	if result.Event.Type != "ticket.status_changed" || result.Event.Payload["status"] != "Ready for Agent" || result.Event.Payload["actor_login"] != "human-user" {
+		t.Fatalf("event = %+v", result.Event)
+	}
+	if result.Outcome == nil || len(result.Outcome.Queued) != 1 || result.Outcome.Queued[0] != "manager" {
+		t.Fatalf("outcome = %+v", result.Outcome)
+	}
+	j, err := job.Read(teamDir, "42")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Pipeline != "ticket_to_pr" || j.TicketURL != "https://github.com/acme/widgets/issues/42" || len(j.Steps) != 1 || j.Steps[0].Status != job.StatusQueued {
+		t.Fatalf("job = %+v", j)
+	}
+}
+
+func TestIntakeGitHubSelfActorStatusChangeIgnored(t *testing.T) {
+	target, _, cleanup := setupGitHubColumnPipelineRepo(t, "agent-bot")
+	defer cleanup()
+	teamDir := filepath.Join(target, ".agent_team")
+
+	payload := githubProjectStatusPayload("43", "Ready for Agent", "agent-bot")
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("intake github self actor: %v\nstderr=%s", err, stderr.String())
+	}
+	var result intakePublishResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode intake json: %v\nbody=%s", err, out.String())
+	}
+	if !result.Ignored || result.IgnoreReason != intake.GitHubSelfStatusChangeReason || result.Outcome != nil {
+		t.Fatalf("result = %+v, want ignored self actor without outcome", result)
+	}
+	if _, err := job.Read(teamDir, "43"); !os.IsNotExist(err) {
+		t.Fatalf("self actor wrote job, err=%v", err)
+	}
+	events, err := daemon.ListLifecycleEvents(daemon.DaemonRoot(teamDir))
+	if err != nil {
+		t.Fatalf("list lifecycle events: %v", err)
+	}
+	if !hasIntakeIgnoredLifecycleEventForInstance(events, "intake:github", "43", intake.GitHubSelfStatusChangeReason) {
+		t.Fatalf("lifecycle events = %+v, want GitHub intake_ignored audit event", events)
+	}
+}
+
 func TestIntakeLinearDryRunPreviewResolvesViewerAndIgnoresSelfActor(t *testing.T) {
 	target, _, cleanup := setupLinearColumnPipelineRepo(t, false, "")
 	defer cleanup()
@@ -3634,8 +3700,12 @@ target = "manager"
 }
 
 func hasIntakeIgnoredLifecycleEvent(events []*daemon.LifecycleEvent, ticket, reason string) bool {
+	return hasIntakeIgnoredLifecycleEventForInstance(events, "intake:linear", ticket, reason)
+}
+
+func hasIntakeIgnoredLifecycleEventForInstance(events []*daemon.LifecycleEvent, instance, ticket, reason string) bool {
 	for _, ev := range events {
-		if ev != nil && ev.Action == "intake_ignored" && ev.Instance == "intake:linear" && ev.Ticket == ticket && ev.Message == reason {
+		if ev != nil && ev.Action == "intake_ignored" && ev.Instance == instance && ev.Ticket == ticket && ev.Message == reason {
 			return true
 		}
 	}
@@ -3704,4 +3774,52 @@ target = "manager"
 
 func linearStatusPayload(ticket, status, actorID string) string {
 	return fmt.Sprintf(`{"action":"Issue updated","actor":{"id":%q,"name":"Actor"},"data":{"identifier":%q,"title":"Board dispatch","url":"https://linear.app/squirtlesquad/issue/%s/board-dispatch","state":{"name":%q}}}`, actorID, ticket, ticket, status)
+}
+
+func setupGitHubColumnPipelineRepo(t *testing.T, agentLogin string) (target string, mgr *daemon.InstanceManager, cleanup func()) {
+	t.Helper()
+	target, err := os.MkdirTemp("/tmp", "agent-team-github-column-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "manager"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "manager", "agent.md"), []byte("---\ndescription: manager\n---\n\nmanager\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(agentLogin) != "" {
+		if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(fmt.Sprintf("[github]\nagent_login = %q\n", agentLogin)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+trigger.match.status = "Ready for Agent"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr = daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
+	return target, mgr, func() {
+		cleanupDaemon()
+		_ = os.RemoveAll(target)
+	}
+}
+
+func githubProjectStatusPayload(ticket, status, actorLogin string) string {
+	return fmt.Sprintf(`{"action":"edited","sender":{"id":1234,"login":%q},"repository":{"full_name":"acme/widgets"},"projects_v2_item":{"content_url":"https://api.github.com/repos/acme/widgets/issues/%s","content":{"number":%s,"title":"Board dispatch","html_url":"https://github.com/acme/widgets/issues/%s"},"project":{"title":"Delivery"}},"changes":{"field_value":{"field_name":"Status","from":{"name":"Todo"},"to":{"name":%q}}}}`, actorLogin, ticket, ticket, ticket, status)
 }

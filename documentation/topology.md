@@ -44,7 +44,7 @@ Event types in v1.2:
 |---|---|---|
 | `user_invocation` | `agent-team run <name>` from a human session | name, optional kickoff prompt |
 | `agent.dispatch` | One instance dispatching another (e.g. manager → worker) via the orchestrator API | source instance, target name, kickoff |
-| `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | Linear intake | ticket fields (project, label, status, assignee) plus actor fields when Linear sends them |
+| `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | PM intake | ticket fields (project, label, status, assignee) plus actor fields when the provider sends them |
 | `pr.opened`, `pr.review_requested`, `pr.commented`, `pr.merged`, etc. | GitHub intake | PR metadata |
 | `ticket_webhook`, `pr_webhook` | Legacy topology aliases | match the corresponding normalized intake family; `match.event` receives the suffix |
 | `schedule` | Fixed-interval timer in the daemon | schedule name plus optional payload |
@@ -202,7 +202,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | Field | Required | Default | Meaning |
 |---|---|---|---|
 | `trigger.event` | yes | — | Event type that creates or updates a pipeline job. |
-| `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. The bundled Linear pipeline uses `trigger.match.status = "<linear.agent_column>"`, so dragging a card into that column is the dispatch gesture. |
+| `trigger.match.<key>` | no | — | Payload filters using the same match syntax as instance triggers. The bundled PM-backed pipeline uses `trigger.match.status = "<provider.agent_column>"`, so dragging a card/item into that column is the dispatch gesture. |
 | `redispatch_on_reentry` | no | `false` | Controls what happens when a matching trigger arrives for a ticket whose durable job already exists. Non-terminal jobs always no-op with an audit event. Terminal jobs no-op by default; set true to reopen and dispatch the first ready step again. |
 | `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this pipeline. Pipeline policy takes precedence over the target instance policy. |
 | `land` | no | `"squash"` | Final GitHub PR landing mode for jobs created by this pipeline. Supported values: `"squash"`, `"merge"`, or `"rebase"`. This is equivalent to `merge.land`; declare only one form unless both values match. |
@@ -234,27 +234,30 @@ Use `agent-team signatures test <pipeline> --against <log-file>` before trusting
 
 `agent-team job merge <job-id>` is a merge-only operator action. It does not dispatch another agent, rerun gates, or retry failed stages. Jobs with a recorded PR merge through `gh pr merge <pr> --squash`, `--merge`, or `--rebase` according to `merge.land` (or `land` on the pipeline); omitted land defaults to `squash`. Use `agent-team job merge <job-id> --land merge` for a one-off apply override, or `agent-team job update <job-id> --land merge` to persist a per-job override before the merge gate. Jobs without a recorded PR are refused unless the operator passes `--branch <head>`, in which case branch-local squash/rebase mechanics are applied in the selected worktree from `merge.strategy`. Script strategy executes the configured script with `(base, head, worktree)` and records a blocked merge if it exits nonzero or leaves tracked files dirty.
 
-### Linear board dispatch
+### PM board dispatch
 
-The bundled Linear-mode default treats the board column as the control plane:
+The bundled PM-backed default treats the board column as the control plane:
 
 ```toml
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
-trigger.match.status = "Ready for Agent" # usually [linear].agent_column
+trigger.match.status = "Ready for Agent" # usually the provider agent_column
 redispatch_on_reentry = false
 ```
 
 `agent-team intake linear` normalizes Linear state-change webhooks into
 `ticket.status_changed` and stores the destination column in `payload.status`.
-Moving a card into the configured column dispatches the pipeline; moving it to
-any other column does not match.
+`agent-team intake github` normalizes GitHub Projects status edits the same way.
+Moving a card or project item into the configured column dispatches the
+pipeline; moving it to any other column does not match.
 
-Loop protection is actor based. If `[linear].agent_user_id` is set, or
-`.agent_team/state/linear/viewer.json` contains a cached `viewer.id`, Linear
+Loop protection is actor based. For Linear, if `[linear].agent_user_id` is set,
+or `.agent_team/state/linear/viewer.json` contains a cached `viewer.id`, Linear
 status-change events authored by that user are ignored before topology
-matching. This prevents agent-driven ticket write-backs from dispatching new
-workers.
+matching. For GitHub, `[github].agent_login`, `[github].agent_id`, or
+`.agent_team/state/github/viewer.json` provides the actor identity used to
+ignore self-authored project status moves. This prevents agent-driven
+write-backs from dispatching new workers.
 
 Re-entry is intentionally idempotent. If a matching status-change arrives for a
 ticket with an existing queued, running, or blocked job, the daemon records a

@@ -75,11 +75,12 @@ for durable agent work:
   mail in their kickoff, running sessions can receive mail at runtime hook
   boundaries, and `send --interrupt` is available for a hard steer that stops
   and managed-resumes the captured session.
-- **Board control**: Linear-backed repos can treat a board column as the
-  dispatch gesture. The bundled pipeline listens for `ticket.status_changed`
-  events whose status matches `[linear].agent_column`, writes best-effort
-  status updates back to Linear, ignores agent-authored webhook loops when
-  `linear.agent_user_id` is configured or cached, and no-ops re-entry unless
+- **Board control**: Linear-backed repos and GitHub Projects-backed repos can
+  treat a board column as the dispatch gesture. The bundled pipeline listens
+  for `ticket.status_changed` events whose status matches the configured
+  provider `agent_column`, writes best-effort status updates back to the PM
+  provider, ignores agent-authored webhook loops when the provider actor is
+  configured or cached, and no-ops re-entry unless
   `redispatch_on_reentry = true`.
 - **Observability**: status files, daemon metadata, lifecycle events, logs,
   usage rollups, job gates, gate signatures, snapshots, and build identity all
@@ -170,7 +171,22 @@ agent-team init \
 ```
 
 Passing `linear.*` values without `team.pm_tool` also enables Linear for compatibility with older quickstarts. If `team.pm_tool=linear`, missing `linear.team_id` or `linear.ticket_prefix` fails clearly; otherwise Linear stays disabled.
-The bundled Linear pipeline dispatches when a ticket moves into `linear.agent_column`; `ticket.created` remains the documented zero-config alternative in `.agent_team/instances.toml`.
+The bundled PM pipeline dispatches when a ticket moves into the configured provider `agent_column`; `ticket.created` remains the documented zero-config alternative in `.agent_team/instances.toml`.
+
+To back the team with GitHub Issues and GitHub Projects, opt in during init:
+
+```sh
+agent-team init \
+    --set pm.provider=github \
+    --set github.owner=<owner-or-org> \
+    --set github.repo=<repo> \
+    --set github.agent_column="Ready for Agent"
+```
+
+When `[github].project_number` is configured, write-back can also move the
+issue's Projects v2 item through `[github].project_status_field` (default
+`Status`) to `[github].in_progress_column` or `[github].attention_column`.
+The GitHub helper reads `GITHUB_TOKEN` or `GH_TOKEN` from env or `.env`.
 
 `init` writes a starter `.agent_team/` into the current repo:
 
@@ -636,12 +652,14 @@ Subagents are session-scoped — they exist only for the duration of the spawned
 
 `agent-team init` (no ref) uses the default template baked into the binary — a software-engineering team:
 
-- **`ticket-manager`** — searches, creates, routes, and transitions Linear tickets.
+- **`ticket-manager`** — searches, creates, routes, and transitions PM tickets when Linear or GitHub is configured.
 - **`manager`** — persistent agent. Tracks goals and dispatches workers. State lives at `.agent_team/state/<instance-name>/`. Multiple instances can run side-by-side (e.g. `--name=manager-billing`, `--name=manager-release`), each with their own state directory.
 - **`worker`** — ephemeral. One instance per ticket, each in a fresh git worktree, each delivers a PR. No persistent state — the worktree is the workspace.
-- **Skills**: `linear` (GraphQL wrapper), `pull-request` (gh CLI wrapper), `assign-worker` (worker-spawn mechanics, agent-private to the manager).
+- **Skills**: `linear` (GraphQL wrapper), `github` (REST/GraphQL wrapper), `pull-request` (gh CLI wrapper), `assign-worker` (worker-spawn mechanics, agent-private to the manager).
 
-Required parameters: `linear.team_id`, `linear.ticket_prefix`. Run `agent-team template show` for the full manifest.
+Required parameters depend on the selected PM provider: `linear.team_id` and
+`linear.ticket_prefix` for Linear, or `github.owner` and `github.repo` for
+GitHub. Run `agent-team template show` for the full manifest.
 
 `agent-team init --template empty` skips the bundled content and gives you just the directory scaffold + a stub `config.toml`.
 

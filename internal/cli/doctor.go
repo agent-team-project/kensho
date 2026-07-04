@@ -172,6 +172,15 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 					}
 				}
 			}
+			if provider == pmprovider.ProviderGitHub {
+				github, _ := cfg["github"].(map[string]any)
+				for _, k := range []string{"owner", "repo"} {
+					v, _ := github[k].(string)
+					if v == "" {
+						problems = append(problems, fmt.Sprintf("[github].%s missing/empty in %s", k, cfgPath))
+					}
+				}
+			}
 		}
 	}
 

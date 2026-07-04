@@ -16,6 +16,7 @@ type ProviderName string
 const (
 	ProviderNone   ProviderName = "none"
 	ProviderLinear ProviderName = "linear"
+	ProviderGitHub ProviderName = "github"
 )
 
 type Provider interface {
@@ -67,6 +68,8 @@ func NormalizeProviderName(raw string) ProviderName {
 		return ProviderNone
 	case "linear":
 		return ProviderLinear
+	case "github":
+		return ProviderGitHub
 	default:
 		return ProviderName(strings.ToLower(strings.TrimSpace(raw)))
 	}
@@ -74,7 +77,7 @@ func NormalizeProviderName(raw string) ProviderName {
 
 func KnownProvider(name ProviderName) bool {
 	switch name {
-	case ProviderNone, ProviderLinear:
+	case ProviderNone, ProviderLinear, ProviderGitHub:
 		return true
 	default:
 		return false
@@ -95,6 +98,8 @@ func ForName(name ProviderName) (Provider, error) {
 		return NoneProvider{}, nil
 	case ProviderLinear:
 		return DefaultClient(), nil
+	case ProviderGitHub:
+		return DefaultGitHubClient(), nil
 	default:
 		return nil, fmt.Errorf("unknown PM provider %q", name)
 	}

@@ -51,8 +51,9 @@ event        = "agent.dispatch"
 match.target = "reviewer"
 
 # The field-proven pipeline shape (see documentation/operating-model.md):
-# dragging a Linear card into [linear].agent_column ("Ready for Agent" by
-# default) is the dispatch gesture. The zero-config alternative is:
+# dragging a Linear card or GitHub Project item into the configured
+# agent_column ("Ready for Agent" by default) is the dispatch gesture. The
+# zero-config alternative is:
 #   trigger.event = "ticket.created"
 #   # remove trigger.match.status
 #
@@ -64,7 +65,7 @@ match.target = "reviewer"
 # recording a gate/verdict.
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
-trigger.match.status = "{{ .linear.agent_column }}"
+trigger.match.status = "{{ if eq .pm.provider `github` }}{{ .github.agent_column }}{{ else }}{{ .linear.agent_column }}{{ end }}"
 auto_advance  = true
 redispatch_on_reentry = false
 

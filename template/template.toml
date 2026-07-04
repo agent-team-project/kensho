@@ -1,5 +1,5 @@
 # Manifest for the bundled "default" template — a software-engineering team
-# (manager + worker + ticket-manager) for Linear-tracked work.
+# (manager + worker + ticket-manager) for ticketless, Linear, or GitHub work.
 #
 # `agent-team init` reads this file to determine which parameters the consumer
 # must supply; values flow into config.toml.tmpl below to produce the repo's
@@ -8,7 +8,7 @@
 [template]
 name        = "default"
 version     = "1.0.0"
-description = "Manager + worker + ticket-manager team for Linear-tracked engineering work."
+description = "Manager + worker + ticket-manager team for ticketless, Linear, or GitHub-tracked engineering work."
 
 [[parameter]]
 key         = "linear.team_id"
@@ -64,17 +64,111 @@ default     = []
 description = "Labels to apply to all created tickets."
 
 [[parameter]]
+key         = "github.owner"
+type        = "string"
+default     = ""
+required_when_key = "pm.provider"
+required_when_value = "github"
+description = "GitHub repository owner or organization. Required only when pm.provider is github."
+
+[[parameter]]
+key         = "github.repo"
+type        = "string"
+default     = ""
+required_when_key = "pm.provider"
+required_when_value = "github"
+description = "GitHub repository name. Required only when pm.provider is github."
+
+[[parameter]]
+key         = "github.agent_column"
+type        = "string"
+default     = "Ready for Agent"
+description = "GitHub Projects status option that dispatches the default ticket_to_pr pipeline when an issue item is moved into it."
+
+[[parameter]]
+key         = "github.agent_login"
+type        = "string"
+default     = ""
+description = "Optional GitHub login for the agent token; project status webhooks authored by this login are ignored to prevent dispatch loops."
+
+[[parameter]]
+key         = "github.agent_id"
+type        = "string"
+default     = ""
+description = "Optional numeric GitHub actor id for the agent token; used when agent_login is not set."
+
+[[parameter]]
+key         = "github.in_progress_state"
+type        = "string"
+default     = "open"
+description = "GitHub issue state used when a job is dispatched or bounced back to implementation."
+
+[[parameter]]
+key         = "github.attention_state"
+type        = "string"
+default     = "open"
+description = "GitHub issue state used when a job fails and needs attention."
+
+[[parameter]]
+key         = "github.in_progress_label"
+type        = "string"
+default     = ""
+description = "Optional GitHub issue label applied when work starts or is bounced back."
+
+[[parameter]]
+key         = "github.attention_label"
+type        = "string"
+default     = ""
+description = "Optional GitHub issue label applied when a job fails and needs attention."
+
+[[parameter]]
+key         = "github.labels"
+type        = "list<string>"
+default     = []
+description = "GitHub labels to apply on all provider write-backs."
+
+[[parameter]]
+key         = "github.project_owner"
+type        = "string"
+default     = ""
+description = "Optional GitHub Projects owner; defaults to github.owner when project_number is set."
+
+[[parameter]]
+key         = "github.project_number"
+type        = "int"
+default     = 0
+description = "Optional GitHub Projects v2 number for status write-back."
+
+[[parameter]]
+key         = "github.project_status_field"
+type        = "string"
+default     = "Status"
+description = "GitHub Projects single-select field used for board status write-back."
+
+[[parameter]]
+key         = "github.in_progress_column"
+type        = "string"
+default     = "In Progress"
+description = "GitHub Projects status option used when a job is dispatched or bounced back."
+
+[[parameter]]
+key         = "github.attention_column"
+type        = "string"
+default     = "Todo"
+description = "GitHub Projects status option used when a job fails and needs attention."
+
+[[parameter]]
 key         = "pm.provider"
 type        = "string"
 default     = "none"
-pattern     = "^(none|linear)$"
-description = "Which PM provider the team talks to. Use none for ticketless jobs or linear for Linear-backed tickets."
+pattern     = "^(none|linear|github)$"
+description = "Which PM provider the team talks to. Use none for ticketless jobs, linear for Linear-backed tickets, or github for GitHub Issues/Projects."
 
 [[parameter]]
 key         = "team.pm_tool"
 type        = "string"
 default     = "none"
-pattern     = "^(none|linear)$"
+pattern     = "^(none|linear|github)$"
 description = "Deprecated alias for pm.provider. Kept for compatibility with existing configs and scripts."
 
 [[parameter]]

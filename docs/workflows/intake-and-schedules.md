@@ -58,10 +58,11 @@ Supported intake command groups include:
 The important design principle is that intake normalizes external input into internal events and durable delivery records.
 
 Linear intake emits normalized `ticket.*` events such as `ticket.created`.
-GitHub PR intake emits normalized `pr.*` events such as `pr.opened` and
-`pr.merged`. Older topology files that use `ticket_webhook` or `pr_webhook`
-still route: those trigger names match the corresponding normalized events,
-and `match.event` sees the suffix (`created`, `opened`, `merged`, and so on).
+GitHub Projects status edits emit `ticket.status_changed`; GitHub PR intake
+emits normalized `pr.*` events such as `pr.opened` and `pr.merged`. Older
+topology files that use `ticket_webhook` or `pr_webhook` still route: those
+trigger names match the corresponding normalized events, and `match.event` sees
+the suffix (`created`, `opened`, `merged`, and so on).
 
 ## Linear Intake
 

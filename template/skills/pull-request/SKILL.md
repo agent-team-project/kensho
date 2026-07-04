@@ -34,9 +34,9 @@ If a ticket was mentioned or worked on earlier in this conversation, include a r
 - `Closes <ticket URL>` — this PR fully resolves the ticket.
 - `Contributes to <ticket URL>` — this PR is partial progress.
 
-Look for ticket references already in the conversation: Linear URLs (e.g. `https://linear.app/<org>/issue/<PREFIX>-<n>/...`), or ticket codes matching the consumer's `linear.ticket_prefix` from `.agent_team/config.toml` if that file exists. Don't fabricate ticket references — if no ticket was discussed, skip the link and open the PR without one.
+Look for ticket references already in the conversation: Linear URLs (e.g. `https://linear.app/<org>/issue/<PREFIX>-<n>/...`), GitHub issue URLs (e.g. `https://github.com/<owner>/<repo>/issues/<n>`), owner/repo#number references, or ticket codes matching the consumer's `linear.ticket_prefix` from `.agent_team/config.toml` if that file exists. Don't fabricate ticket references — if no ticket was discussed, skip the link and open the PR without one.
 
 ## Notes
 
-- v1 assumes Linear as the PM tool. A future PM-tool adapter (Jira, GitHub Issues) will let this skill remain unchanged while the URL-resolution logic moves behind a capability boundary. Until then, Linear URL conventions are baked in here.
+- PM-tool URL resolution is handled by the calling agent and the configured provider context; this skill only formats the PR body and invokes `gh`.
 - The `Co-Authored-By` trailer in commits is handled by the calling agent's commit workflow, not this skill.

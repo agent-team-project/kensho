@@ -5,7 +5,7 @@
 
 [pm]
 # Which PM provider the team talks to. Use "none" for ticketless jobs, or
-# "linear" after filling in the [linear] section below.
+# "linear"/"github" after filling in that provider's section below.
 provider = "none"
 
 [team]
@@ -96,6 +96,41 @@ in_progress_state = "In Progress"
 #   query($teamId: String!) { team(id: $teamId) { projects { nodes { id name } } } }
 # general = "..."
 # release = "..."
+
+[github]
+# Used only when [pm].provider = "github".
+#
+# Repository that owns this repo's GitHub issue tickets.
+owner = ""
+repo = ""
+
+# GitHub Projects status option that dispatches the default ticket_to_pr
+# pipeline when an issue item is moved into it.
+agent_column = "Ready for Agent"
+
+# Optional: actor identity for the agent token. Project status webhooks authored
+# by this actor are ignored so agent write-backs do not redispatch work.
+# agent_login = "agent-bot"
+# agent_id = "123456"
+
+# Issue state and labels used when work starts or is bounced back.
+in_progress_state = "open"
+# in_progress_label = "agent-work"
+
+# Issue state and labels used when a job fails and needs attention.
+attention_state = "open"
+# attention_label = "needs-attention"
+
+# Optional: labels applied on all GitHub write-backs.
+labels = []
+
+# Optional: GitHub Projects v2 status write-back. If project_owner is empty,
+# github.owner is used. The status field must be a single-select field.
+# project_owner = "acme"
+project_number = 0
+project_status_field = "Status"
+in_progress_column = "In Progress"
+attention_column = "Todo"
 
 [worktree]
 # Where workers create their isolated git worktrees and how to prefix branches.

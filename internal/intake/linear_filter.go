@@ -14,6 +14,8 @@ import (
 
 const LinearSelfStatusChangeReason = "self-authored Linear status change ignored"
 const LinearLoopProtectionUnavailableReason = "Linear column trigger loop protection unavailable; set linear.agent_user_id or ensure the Linear API key can resolve viewer { id }"
+const GitHubSelfStatusChangeReason = "self-authored GitHub project status change ignored"
+const GitHubLoopProtectionUnavailableReason = "GitHub project trigger loop protection unavailable; set github.agent_login or github.agent_id, or ensure the GitHub token can resolve the viewer"
 
 // LinearSelfStatusChange reports whether a normalized Linear status-change
 // event was authored by the configured agent user. The agent user id comes
@@ -61,6 +63,22 @@ func LinearSelfStatusChangeForUser(ev *Event, agentUserID string) (bool, string)
 		return false, ""
 	}
 	return true, LinearSelfStatusChangeReason
+}
+
+func GitHubSelfStatusChangeForActor(ev *Event, actorID string) (bool, string) {
+	if ev == nil || ev.Type != "ticket.status_changed" {
+		return false, ""
+	}
+	actorID = strings.TrimSpace(actorID)
+	if actorID == "" {
+		return false, ""
+	}
+	for _, key := range []string{"actor_login", "actor_id"} {
+		if got := strings.TrimSpace(firstString(ev.Payload, key)); got != "" && got == actorID {
+			return true, GitHubSelfStatusChangeReason
+		}
+	}
+	return false, ""
 }
 
 func LinearAgentUserID(teamDir string) string {

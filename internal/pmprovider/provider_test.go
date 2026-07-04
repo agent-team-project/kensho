@@ -37,6 +37,16 @@ pm_tool = "none"
 	}
 }
 
+func TestConfiguredProviderNameSupportsGitHub(t *testing.T) {
+	name, source := ConfiguredProviderNameWithSource("github", "")
+	if name != ProviderGitHub || source != "pm.provider" {
+		t.Fatalf("name/source = %q/%q, want github from pm.provider", name, source)
+	}
+	if !KnownProvider(ProviderGitHub) {
+		t.Fatalf("KnownProvider(github) = false, want true")
+	}
+}
+
 func TestNoneProviderWriteBackPreservesLegacySkipAudit(t *testing.T) {
 	teamDir := testTeamDir(t, `[pm]
 provider = "none"

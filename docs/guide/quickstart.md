@@ -27,3 +27,18 @@ agent-team init \
 
 When `team.pm_tool = "linear"`, `linear.team_id` and `linear.ticket_prefix` are required and validated during init. Passing `linear.*` values without `team.pm_tool` still enables Linear for compatibility with older setup commands.
 
+## GitHub Opt-In
+
+To use GitHub Issues and GitHub Projects as the PM provider, opt in explicitly:
+
+```sh
+agent-team init \
+  --set pm.provider=github \
+  --set github.owner=<owner-or-org> \
+  --set github.repo=<repo>
+```
+
+When `pm.provider = "github"`, `github.owner` and `github.repo` are required.
+Set `github.project_number` when write-back should move the issue through a
+GitHub Projects v2 status field. GitHub API calls use `GITHUB_TOKEN` or
+`GH_TOKEN` from the environment or `.env`.

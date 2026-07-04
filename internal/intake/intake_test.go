@@ -61,6 +61,51 @@ func TestLinearSelfStatusChangeForUser(t *testing.T) {
 	}
 }
 
+func TestNormalizeGitHubProjectStatusChanged(t *testing.T) {
+	ev, err := NormalizeGitHub([]byte(`{
+  "action": "edited",
+  "sender": {"id": 1234, "login": "human-user"},
+  "repository": {"full_name": "acme/widgets"},
+  "projects_v2_item": {
+    "content_url": "https://api.github.com/repos/acme/widgets/issues/42",
+    "content": {"number": 42, "title": "Dispatch me", "html_url": "https://github.com/acme/widgets/issues/42"},
+    "project": {"title": "Delivery"}
+  },
+  "changes": {
+    "field_value": {
+      "field_name": "Status",
+      "from": {"name": "Todo"},
+      "to": {"name": "Ready for Agent"}
+    }
+  }
+}`))
+	if err != nil {
+		t.Fatalf("NormalizeGitHub: %v", err)
+	}
+	if ev.Type != "ticket.status_changed" {
+		t.Fatalf("type = %q", ev.Type)
+	}
+	if ev.Payload["source"] != "github" || ev.Payload["status"] != "Ready for Agent" || ev.Payload["previous_status"] != "Todo" {
+		t.Fatalf("payload = %+v", ev.Payload)
+	}
+	if ev.Payload["ticket"] != "42" || ev.Payload["ticket_url"] != "https://github.com/acme/widgets/issues/42" || ev.Payload["repository"] != "acme/widgets" || ev.Payload["actor_login"] != "human-user" {
+		t.Fatalf("payload = %+v", ev.Payload)
+	}
+}
+
+func TestGitHubSelfStatusChangeForActor(t *testing.T) {
+	ev := &Event{Type: "ticket.status_changed", Payload: map[string]any{"actor_login": "agent-bot", "actor_id": "1234"}}
+	if ignored, reason := GitHubSelfStatusChangeForActor(ev, "agent-bot"); !ignored || reason != GitHubSelfStatusChangeReason {
+		t.Fatalf("self login = %v %q, want ignored reason", ignored, reason)
+	}
+	if ignored, reason := GitHubSelfStatusChangeForActor(ev, "1234"); !ignored || reason != GitHubSelfStatusChangeReason {
+		t.Fatalf("self id = %v %q, want ignored reason", ignored, reason)
+	}
+	if ignored, reason := GitHubSelfStatusChangeForActor(ev, "human-user"); ignored || reason != "" {
+		t.Fatalf("other actor = %v %q, want not ignored", ignored, reason)
+	}
+}
+
 func TestNormalizeGitHubPRMerged(t *testing.T) {
 	ev, err := NormalizeGitHub([]byte(`{
   "action": "closed",

@@ -1583,7 +1583,8 @@ func renderIntakeDryRun(w io.Writer, ev *intake.Event, jsonOut bool, tmpl *templ
 }
 
 func intakeIgnoreReason(cmd *cobra.Command, target, provider string, ev *intake.Event) (string, string) {
-	if provider != "linear" {
+	name := pmprovider.NormalizeProviderName(provider)
+	if name != pmprovider.ProviderLinear && name != pmprovider.ProviderGitHub {
 		return "", ""
 	}
 	teamDir, err := resolveTeamDir(cmd, target)
@@ -1595,15 +1596,15 @@ func intakeIgnoreReason(cmd *cobra.Command, target, provider string, ev *intake.
 
 func intakeIgnoreReasonForTeamDir(teamDir, provider string, ev *intake.Event) string {
 	pm, err := pmprovider.ForName(pmprovider.NormalizeProviderName(provider))
-	if err != nil || pm.Name() != pmprovider.ProviderLinear {
+	if err != nil {
 		return ""
 	}
-	if !linearStatusChangeWouldDispatch(teamDir, ev) {
+	if !statusChangeWouldDispatch(teamDir, ev) {
 		return ""
 	}
 	agentUserID, err := pm.ResolveActorID(teamDir)
 	if err != nil || strings.TrimSpace(agentUserID) == "" {
-		return intake.LinearLoopProtectionUnavailableReason
+		return providerLoopProtectionUnavailableReason(pm.Name())
 	}
 	if ignored, reason := pm.SelfStatusChangeForActor(ev, agentUserID); ignored {
 		return reason
@@ -1611,7 +1612,7 @@ func intakeIgnoreReasonForTeamDir(teamDir, provider string, ev *intake.Event) st
 	return ""
 }
 
-func linearStatusChangeWouldDispatch(teamDir string, ev *intake.Event) bool {
+func statusChangeWouldDispatch(teamDir string, ev *intake.Event) bool {
 	if ev == nil || ev.Type != "ticket.status_changed" {
 		return false
 	}
@@ -1623,6 +1624,15 @@ func linearStatusChangeWouldDispatch(teamDir string, ev *intake.Event) bool {
 		return true
 	}
 	return len(top.Resolve(ev.Type, ev.Payload)) > 0
+}
+
+func providerLoopProtectionUnavailableReason(provider pmprovider.ProviderName) string {
+	switch provider {
+	case pmprovider.ProviderGitHub:
+		return intake.GitHubLoopProtectionUnavailableReason
+	default:
+		return intake.LinearLoopProtectionUnavailableReason
+	}
 }
 
 func appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason string, ev *intake.Event) {

@@ -575,11 +575,11 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if provider == "linear" {
-			if reason := linearIntakeIgnoreReason(teamDir, events, ev); reason != "" {
+		if provider == "linear" || provider == "github" {
+			if reason := providerIntakeIgnoreReason(teamDir, events, provider, ev); reason != "" {
 				appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason, ev)
 				resp := eventResponseMap([]EventOutcome{{
-					Instance: "intake:linear",
+					Instance: "intake:" + provider,
 					Action:   "noop",
 					Reason:   reason,
 				}})
@@ -884,17 +884,17 @@ func requestBuildIdentity(r *http.Request) (buildinfo.Info, bool) {
 	return info, true
 }
 
-func linearIntakeIgnoreReason(teamDir string, events *EventResolver, ev *intake.Event) string {
-	if !linearStatusChangeWouldDispatch(events, ev) {
+func providerIntakeIgnoreReason(teamDir string, events *EventResolver, provider string, ev *intake.Event) string {
+	if !statusChangeWouldDispatch(events, ev) {
 		return ""
 	}
-	pm, err := pmprovider.ForName(pmprovider.ProviderLinear)
+	pm, err := pmprovider.ForName(pmprovider.NormalizeProviderName(provider))
 	if err != nil {
 		return ""
 	}
 	agentUserID, err := pm.ResolveActorID(teamDir)
 	if err != nil || strings.TrimSpace(agentUserID) == "" {
-		return intake.LinearLoopProtectionUnavailableReason
+		return providerLoopProtectionUnavailableReason(pm.Name())
 	}
 	if ignored, reason := pm.SelfStatusChangeForActor(ev, agentUserID); ignored {
 		return reason
@@ -902,7 +902,7 @@ func linearIntakeIgnoreReason(teamDir string, events *EventResolver, ev *intake.
 	return ""
 }
 
-func linearStatusChangeWouldDispatch(events *EventResolver, ev *intake.Event) bool {
+func statusChangeWouldDispatch(events *EventResolver, ev *intake.Event) bool {
 	if ev == nil || ev.Type != "ticket.status_changed" || events == nil || events.topo == nil {
 		return false
 	}
@@ -910,6 +910,15 @@ func linearStatusChangeWouldDispatch(events *EventResolver, ev *intake.Event) bo
 		return true
 	}
 	return len(events.topo.Resolve(ev.Type, ev.Payload)) > 0
+}
+
+func providerLoopProtectionUnavailableReason(provider pmprovider.ProviderName) string {
+	switch provider {
+	case pmprovider.ProviderGitHub:
+		return intake.GitHubLoopProtectionUnavailableReason
+	default:
+		return intake.LinearLoopProtectionUnavailableReason
+	}
 }
 
 func appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason string, ev *intake.Event) {

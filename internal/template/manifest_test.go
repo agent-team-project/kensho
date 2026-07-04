@@ -115,7 +115,7 @@ func TestValidate_ConditionalRequiredFields(t *testing.T) {
 	}
 }
 
-func TestBundledManifestLinearIsConditional(t *testing.T) {
+func TestBundledManifestPMProvidersAreConditional(t *testing.T) {
 	m, err := LoadManifest(filepath.Join("..", "..", "template"))
 	if err != nil {
 		t.Fatalf("load bundled manifest: %v", err)
@@ -124,17 +124,26 @@ func TestBundledManifestLinearIsConditional(t *testing.T) {
 	if pm == nil {
 		t.Fatal("bundled manifest missing pm.provider")
 	}
-	if pm.Default != "none" || pm.Pattern != "^(none|linear)$" {
+	if pm.Default != "none" || pm.Pattern != "^(none|linear|github)$" {
 		t.Fatalf("pm.provider defaults = default:%v pattern:%q", pm.Default, pm.Pattern)
 	}
 	alias := m.FindParameter("team.pm_tool")
 	if alias == nil {
 		t.Fatal("bundled manifest missing team.pm_tool alias")
 	}
-	if alias.Default != "none" || alias.Pattern != "^(none|linear)$" {
+	if alias.Default != "none" || alias.Pattern != "^(none|linear|github)$" {
 		t.Fatalf("team.pm_tool alias defaults = default:%v pattern:%q", alias.Default, alias.Pattern)
 	}
-	for _, key := range []string{"linear.team_id", "linear.ticket_prefix"} {
+	for _, tc := range []struct {
+		key      string
+		provider string
+	}{
+		{key: "linear.team_id", provider: "linear"},
+		{key: "linear.ticket_prefix", provider: "linear"},
+		{key: "github.owner", provider: "github"},
+		{key: "github.repo", provider: "github"},
+	} {
+		key := tc.key
 		p := m.FindParameter(key)
 		if p == nil {
 			t.Fatalf("bundled manifest missing %s", key)
@@ -142,7 +151,7 @@ func TestBundledManifestLinearIsConditional(t *testing.T) {
 		if p.Required {
 			t.Fatalf("%s should not be unconditionally required", key)
 		}
-		if p.RequiredWhenKey != "pm.provider" || p.RequiredWhenValue != "linear" {
+		if p.RequiredWhenKey != "pm.provider" || p.RequiredWhenValue != tc.provider {
 			t.Fatalf("%s conditional = %s=%s", key, p.RequiredWhenKey, p.RequiredWhenValue)
 		}
 		if p.Default != "" {

@@ -41,16 +41,18 @@ type Request struct {
 }
 
 type Result struct {
-	Action   Action `json:"action"`
-	Issue    string `json:"issue,omitempty"`
-	State    string `json:"state,omitempty"`
-	Labels   string `json:"labels,omitempty"`
-	Comment  bool   `json:"comment,omitempty"`
-	Skipped  bool   `json:"skipped,omitempty"`
-	Changed  bool   `json:"changed,omitempty"`
-	Message  string `json:"message,omitempty"`
-	Error    string `json:"error,omitempty"`
-	AuditErr error  `json:"-"`
+	Action        Action `json:"action"`
+	Issue         string `json:"issue,omitempty"`
+	State         string `json:"state,omitempty"`
+	Labels        string `json:"labels,omitempty"`
+	Project       string `json:"project,omitempty"`
+	ProjectStatus string `json:"project_status,omitempty"`
+	Comment       bool   `json:"comment,omitempty"`
+	Skipped       bool   `json:"skipped,omitempty"`
+	Changed       bool   `json:"changed,omitempty"`
+	Message       string `json:"message,omitempty"`
+	Error         string `json:"error,omitempty"`
+	AuditErr      error  `json:"-"`
 }
 
 type Client struct {
@@ -73,6 +75,23 @@ type config struct {
 		AttentionState  string   `toml:"attention_state"`
 		Labels          []string `toml:"labels"`
 	} `toml:"linear"`
+	GitHub struct {
+		Owner              string   `toml:"owner"`
+		Repo               string   `toml:"repo"`
+		AgentColumn        string   `toml:"agent_column"`
+		AgentLogin         string   `toml:"agent_login"`
+		AgentID            string   `toml:"agent_id"`
+		InProgressState    string   `toml:"in_progress_state"`
+		AttentionState     string   `toml:"attention_state"`
+		InProgressLabel    string   `toml:"in_progress_label"`
+		AttentionLabel     string   `toml:"attention_label"`
+		Labels             []string `toml:"labels"`
+		ProjectOwner       string   `toml:"project_owner"`
+		ProjectNumber      int      `toml:"project_number"`
+		ProjectStatusField string   `toml:"project_status_field"`
+		InProgressColumn   string   `toml:"in_progress_column"`
+		AttentionColumn    string   `toml:"attention_column"`
+	} `toml:"github"`
 }
 
 func (c *Client) Name() ProviderName {
@@ -679,11 +698,19 @@ func (c *Client) graphql(ctx context.Context, apiKey, query string, variables ma
 }
 
 func appendAudit(teamDir string, j *job.Job, req Request, result Result) error {
-	eventType := "linear_writeback"
+	return appendProviderAudit(teamDir, j, req, result, "linear")
+}
+
+func appendProviderAudit(teamDir string, j *job.Job, req Request, result Result, provider string) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "pm"
+	}
+	eventType := provider + "_writeback"
 	if result.Skipped {
-		eventType = "linear_writeback_skipped"
+		eventType = provider + "_writeback_skipped"
 	} else if result.Error != "" {
-		eventType = "linear_writeback_failed"
+		eventType = provider + "_writeback_failed"
 	}
 	actor := strings.TrimSpace(req.Actor)
 	if actor == "" {
@@ -703,6 +730,12 @@ func appendAudit(teamDir string, j *job.Job, req Request, result Result) error {
 	}
 	if result.Labels != "" {
 		data["labels"] = result.Labels
+	}
+	if result.Project != "" {
+		data["project"] = result.Project
+	}
+	if result.ProjectStatus != "" {
+		data["project_status"] = result.ProjectStatus
 	}
 	if result.Error != "" {
 		data["error"] = result.Error
