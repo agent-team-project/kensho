@@ -21,6 +21,29 @@ queues, outbox, schedules, intake deliveries, pipeline status, and action hints.
 Use `team overview <team>`, `pipeline status <pipeline>`, or `job show <job-id>`
 when ownership is known.
 
+## Agent Feedback
+
+Agents can record local harness, tooling, or instruction friction without
+blocking their current task:
+
+```sh
+agent-team feedback submit "one sentence about the problem"
+agent-team feedback ls
+agent-team feedback ls --group
+agent-team feedback show <id>
+agent-team feedback resolve <id> --ticket SQU-123
+agent-team feedback resolve <id> --dismiss "not actionable"
+```
+
+Feedback is stored directly under `.agent_team/feedback/items/<id>.toml`; no
+daemon or Linear connection is required. Submissions capture agent-team context
+from `AGENT_TEAM_*`, local job/instance metadata, runtime selection, and the CLI
+build revision. Items start as `new`; default `ls` shows only new items, while
+`--status ticketed`, `--status dismissed`, or `--status all` inspect resolved
+history. `--group` collapses matching normalized-body fingerprints and shows
+count plus first/last seen timestamps so repeated field friction has frequency
+data.
+
 ## Usage Rollups
 
 Finalized daemon-managed runtimes can persist token usage onto their durable

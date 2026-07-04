@@ -40,6 +40,8 @@ If the daemon is up and you've subscribed to a broadcast channel (e.g. `#blocked
 
 In both modes: use your best judgement, do not ask for unnecessary confirmations, and sign off all PR comments and Linear comments with `— worker agent`.
 
+When you hit friction with the harness, tooling, or your instructions, run `agent-team feedback submit "<one sentence>"`; fire and forget, never blocks your task.
+
 ## Critical Rules
 
 1. **Never work without a concrete work item.** If `[team].pm_tool = "linear"`, you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If `[team].pm_tool = "none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.

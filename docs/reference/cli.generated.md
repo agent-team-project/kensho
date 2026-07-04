@@ -42,6 +42,7 @@ Subcommands:
 - `agent-team event` - Publish manual topology events to the daemon (for testing trigger matching).
 - `agent-team events` - Show daemon lifecycle events.
 - `agent-team extend` - Extend a running instance watchdog deadline.
+- `agent-team feedback` - Record and inspect local agent feedback.
 - `agent-team graph` - Render the automation graph.
 - `agent-team health` - Check daemon, instance, queue, job, and outbox health.
 - `agent-team help` - Help about any command
@@ -1239,6 +1240,96 @@ Inherited Flags:
 
 ```text
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team feedback`
+
+Record and inspect local agent feedback.
+
+Record and inspect local agent feedback under `.agent_team/feedback/items/`. Feedback is local and file-backed; it does not contact Linear or require the daemon.
+
+```text
+agent-team feedback
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team feedback ls` - List local feedback items.
+- `agent-team feedback resolve` - Resolve a local feedback item.
+- `agent-team feedback show` - Show one local feedback item.
+- `agent-team feedback submit` - Submit one local feedback item.
+
+## `agent-team feedback ls`
+
+List local feedback items.
+
+```text
+agent-team feedback ls [flags]
+```
+
+Aliases: `list`
+
+Flags:
+
+```text
+      --group           Collapse rows by fingerprint and show count plus first/last seen.
+      --repo string     Repo root containing .agent_team. (default "<repo>")
+      --status string   Filter by status: new, ticketed, dismissed, or all. (default "new")
+```
+
+## `agent-team feedback resolve`
+
+Resolve a local feedback item.
+
+Resolve a local feedback item as ticketed or dismissed. Exactly one of --ticket or --dismiss is required.
+
+```text
+agent-team feedback resolve <id> [flags]
+```
+
+Flags:
+
+```text
+      --dismiss string   Mark feedback dismissed with a reason.
+      --repo string      Repo root containing .agent_team. (default "<repo>")
+      --ticket string    Mark feedback ticketed with a ticket id or URL.
+```
+
+## `agent-team feedback show`
+
+Show one local feedback item.
+
+```text
+agent-team feedback show <id> [flags]
+```
+
+Flags:
+
+```text
+      --repo string   Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team feedback submit`
+
+Submit one local feedback item.
+
+Submit one local feedback item. The body is the only required input; context is captured automatically from the agent-team environment and local metadata.
+
+```text
+agent-team feedback submit <text> [flags]
+```
+
+Flags:
+
+```text
+      --category string   Feedback category: friction, bug, idea, or docs. (default "friction")
+      --repo string       Repo root containing .agent_team. (default "<repo>")
 ```
 
 ## `agent-team graph`

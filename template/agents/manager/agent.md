@@ -34,6 +34,8 @@ For broadcast (one publisher, many subscribers — `#blocked`, `#deploys`, `#rev
 
 Sign off all PR / Linear comments and team messages with your instance name (e.g. `— manager-billing`).
 
+When you hit friction with the harness, tooling, or your instructions, run `agent-team feedback submit "<one sentence>"`; fire and forget, never blocks your task.
+
 ## Critical Rules
 
 1. **Stay in scope.** Your scope is what's captured in `goals.md` (in your state dir). If a request falls outside it, hand it back to the human or to ticket-manager rather than expanding scope silently. Drift is the most common manager failure.
