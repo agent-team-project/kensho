@@ -88,11 +88,11 @@ func TestClaudeCompatibleBinaryRejectsCodex(t *testing.T) {
 	}
 }
 
-func TestCodexAgentTeamEnvConfigArgsSetsOnlyAgentTeamVars(t *testing.T) {
+func TestCodexAgentTeamEnvConfigArgsSetsAgentTeamVarsAndPATH(t *testing.T) {
 	args := CodexAgentTeamEnvConfigArgs([]string{
 		"AGENT_TEAM_ROOT=/tmp/team",
 		"AGENT_TEAM_INSTANCE=worker-1",
-		"PATH=/bin",
+		"PATH=/tmp/runtime/bin:/bin",
 		"BAD-KEY=value",
 		"AGENT_TEAM_STATE_DIR=/tmp/team/state/worker 1",
 	})
@@ -100,6 +100,7 @@ func TestCodexAgentTeamEnvConfigArgsSetsOnlyAgentTeamVars(t *testing.T) {
 	want := []string{
 		"-c", `shell_environment_policy.set.AGENT_TEAM_ROOT="/tmp/team"`,
 		"-c", `shell_environment_policy.set.AGENT_TEAM_INSTANCE="worker-1"`,
+		"-c", `shell_environment_policy.set.PATH="/tmp/runtime/bin:/bin"`,
 		"-c", `shell_environment_policy.set.AGENT_TEAM_STATE_DIR="/tmp/team/state/worker 1"`,
 	}
 	if len(args) != len(want) {

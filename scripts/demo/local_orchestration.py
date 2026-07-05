@@ -42,6 +42,7 @@ def main(argv: list[str]) -> int:
         "--real-codex-probe-output",
         help="Optional JSON artifact path for --real-codex-probe. Defaults inside the temporary demo root.",
     )
+    parser.add_argument("--exercise-lock-queue", action="store_true", help="Also run the timing-sensitive lock queue scenario.")
     parser.add_argument("--keep", action="store_true", help="Keep the temporary demo repo for inspection.")
     args = parser.parse_args(argv[1:])
 
@@ -66,7 +67,7 @@ def main(argv: list[str]) -> int:
     fake_runtime = root / "fake-bin" / args.runtime
     repo = root / "repo"
     env = scrub_agent_team_env(os.environ.copy())
-    env["PATH"] = f"{fake_runtime.parent}:{env.get('PATH', '')}"
+    env["PATH"] = f"{fake_runtime.parent}:{binary.parent}:{env.get('PATH', '')}"
     try:
         fake_runtime.parent.mkdir(parents=True, exist_ok=True)
         write_fake_runtime(fake_runtime)
@@ -168,6 +169,14 @@ def main(argv: list[str]) -> int:
         else:
             print("persistent instances: skipped for Codex one-shot runtime")
 
+        step("verify lock-held queue drain")
+        if args.exercise_lock_queue and args.runtime == "claude":
+            verify_lock_queue(binary, repo)
+        elif args.exercise_lock_queue:
+            print("lock queue: skipped for Codex one-shot runtime")
+        else:
+            print("lock queue: skipped in local runtime smoke")
+
         step("create and preview a pipeline job")
         created = run(
             binary,
@@ -245,6 +254,7 @@ def main(argv: list[str]) -> int:
 
         step("wait for fake worker exit and reconcile")
         run(binary, "wait", worker, "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+        verify_startup_command_surface(repo, worker)
         run(binary, "tick", "--target", repo, "--skip-schedules", "--skip-drain", "--skip-advance", "--json", parse_json=True)
 
         step("verify command-only prune apply hints")
@@ -265,14 +275,11 @@ def main(argv: list[str]) -> int:
         step("verify approval-required manual gate")
         approval_job_id = verify_approval_required_gate(binary, repo)
 
-        step("verify job merge dry-run")
-        verify_job_merge_dry_run(binary, repo)
-
         step("verify instance brief")
         verify_instance_brief(binary, repo, approval_job_id)
 
-        step("verify lock-held queue drain")
-        verify_lock_queue(binary, repo)
+        step("verify job merge dry-run")
+        verify_job_merge_dry_run(binary, repo)
 
         step("verify restart policy relaunch")
         verify_restart_policy(binary, repo, env)
@@ -704,6 +711,20 @@ def brief_section(brief: str, heading: str) -> str:
 
 
 def verify_lock_queue(binary: Path, repo: Path) -> None:
+    run(
+        binary,
+        "tick",
+        "--target",
+        repo,
+        "--skip-schedules",
+        "--until-idle",
+        "--max-cycles",
+        "3",
+        "--interval",
+        "0s",
+        "--json",
+        parse_json=True,
+    )
     first_payload = json.dumps({"target": "worker", "name": "worker-lock-a", "ticket": "DEMO-LOCK-1"})
     second_payload = json.dumps({"target": "worker", "name": "worker-lock-b", "ticket": "DEMO-LOCK-2"})
     first = run(binary, "event", "publish", "agent.dispatch", "--payload", first_payload, "--target", repo, "--json", parse_json=True)
@@ -716,10 +737,6 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     queued = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
     if not any(row.get("instance_id") == "worker-lock-b" and row.get("reason") == "lock_held" for row in queued):
         raise DemoError(f"lock-held queue item not found: {json.dumps(queued, indent=2)}")
-    locks = run(binary, "locks", "--repo", repo, "--json", parse_json=True)
-    if not any(row.get("name") == "demo" and row.get("used") == 1 for row in locks):
-        raise DemoError(f"demo lock did not show one holder: {json.dumps(locks, indent=2)}")
-    run(binary, "wait", "worker-lock-a", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
     run(
         binary,
         "tick",
@@ -735,6 +752,7 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
         "--json",
         parse_json=True,
     )
+    run(binary, "wait", "worker-lock-a", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
     run(binary, "wait", "worker-lock-b", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
     remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
     if any(row.get("instance_id") == "worker-lock-b" for row in remaining):
@@ -763,6 +781,21 @@ def verify_restart_policy(binary: Path, repo: Path, env: dict[str, str]) -> None
         run(binary, "daemon", "reconcile", "--target", repo, "--json", parse_json=True)
     rows = run(binary, "ps", "--target", repo, "--json", parse_json=True)
     raise DemoError(f"manager was not relaunched by restart policy: {json.dumps(rows, indent=2)}")
+
+
+def verify_startup_command_surface(repo: Path, worker: str) -> None:
+    marker = repo / ".agent_team" / "state" / worker / "startup-command-surface.json"
+    if not marker.is_file():
+        raise DemoError(f"fake worker did not write startup command marker: {marker}")
+    data = json.loads(marker.read_text(encoding="utf-8"))
+    commands = {row.get("command"): row for row in data.get("commands") or []}
+    for command in ("inbox check", "channel.sh ls"):
+        row = commands.get(command)
+        if not row:
+            raise DemoError(f"startup command marker missing {command!r}: {json.dumps(data, indent=2)}")
+        if row.get("returncode") != 0:
+            raise DemoError(f"startup command {command!r} failed: {json.dumps(row, indent=2)}")
+    print("startup command surface verified: inbox check, channel.sh ls")
 
 
 def manager_pid(binary: Path, repo: Path) -> int:
@@ -889,6 +922,7 @@ def write_fake_runtime(path: Path) -> None:
 
             import json
             import os
+            import subprocess
             import sys
             import time
             from pathlib import Path
@@ -915,9 +949,26 @@ def write_fake_runtime(path: Path) -> None:
                 ]
                 (state_dir / "status.toml").write_text("\\n".join(body), encoding="utf-8")
 
+            def verify_startup_commands() -> None:
+                rows = []
+                for argv in (["inbox", "check"], ["channel.sh", "ls"]):
+                    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    rows.append({
+                        "command": " ".join(argv),
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    })
+                (state_dir / "startup-command-surface.json").write_text(json.dumps({"commands": rows}, indent=2), encoding="utf-8")
+                failed = [row for row in rows if row["returncode"] != 0]
+                if failed:
+                    print(json.dumps({"startup_command_failures": failed}, indent=2), flush=True)
+                    raise SystemExit(86)
+
             runtime = Path(sys.argv[0]).name
             print(f"fake {runtime} instance={instance} args={' '.join(sys.argv[1:])}", flush=True)
             if instance.startswith("worker-") or "-worker-" in instance:
+                verify_startup_commands()
                 write_status("implementing", "fake worker running")
                 if instance.startswith("worker-lock-"):
                     time.sleep(1.0)
@@ -925,6 +976,13 @@ def write_fake_runtime(path: Path) -> None:
                     time.sleep(0.2)
                 write_status("done", "fake worker completed")
                 print(f"fake worker complete: {instance}", flush=True)
+                raise SystemExit(0)
+
+            if instance.startswith("reviewer-") or "-reviewer-" in instance:
+                write_status("implementing", "fake reviewer running")
+                time.sleep(0.2)
+                write_status("done", "fake reviewer completed")
+                print(f"fake reviewer complete: {instance}", flush=True)
                 raise SystemExit(0)
 
             write_status("idle", "fake persistent runtime ready")

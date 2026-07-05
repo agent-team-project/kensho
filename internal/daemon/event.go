@@ -23,6 +23,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	"github.com/jamesaud/agent-team/internal/runtimeshim"
 	teamtemplate "github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
@@ -2031,6 +2032,11 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
+	shimBinDir, err := runtimeshim.Install(runtimeDir, skillPaths)
+	if err != nil {
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	}
+	env = runtimeshim.PrependPath(env, shimBinDir)
 	var mailboxHook *runtimehooks.MailboxHook
 	if mailboxInjection {
 		hook, err := runtimehooks.PrepareMailboxHook(runtimeDir)

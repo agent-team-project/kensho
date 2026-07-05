@@ -100,6 +100,51 @@ func writeFixtureAgent(t *testing.T, teamDir, name string) {
 	}
 }
 
+func writeFixtureRuntimeCommandSkills(t *testing.T, teamDir, agent string) {
+	t.Helper()
+	for _, item := range []struct {
+		skill  string
+		script string
+	}{
+		{skill: "inbox", script: "inbox.sh"},
+		{skill: "channel", script: "channel.sh"},
+	} {
+		dir := filepath.Join(teamDir, "skills", item.skill, "scripts")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(teamDir, "skills", item.skill, "SKILL.md"), []byte("---\nname: "+item.skill+"\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, item.script), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := filepath.Join(teamDir, "agents", agent, "config.toml")
+	if err := os.WriteFile(cfg, []byte("[skills]\nextra = [\"inbox\", \"channel\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertEventRuntimeCommandSurface(t *testing.T, runtimeDir string, env []string) {
+	t.Helper()
+	wantBin := filepath.Join(runtimeDir, "bin")
+	path := lastEnvValue(env, "PATH")
+	if path == "" {
+		t.Fatalf("runtime env missing PATH: %v", env)
+	}
+	if got := strings.Split(path, string(os.PathListSeparator))[0]; got != wantBin {
+		t.Fatalf("PATH first entry = %q, want runtime shim bin %q; PATH=%q", got, wantBin, path)
+	}
+	for _, name := range []string{"channel.sh", "inbox"} {
+		if st, err := os.Stat(filepath.Join(wantBin, name)); err != nil {
+			t.Fatalf("runtime shim %s missing: %v", name, err)
+		} else if st.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("runtime shim %s is not executable: mode=%s", name, st.Mode())
+		}
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
@@ -1042,6 +1087,7 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
+	writeFixtureRuntimeCommandSkills(t, teamDir, "worker")
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
@@ -1077,11 +1123,15 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	if got, ok := argValue(call, "--output-last-message"); !ok || got != wantLastMessage {
 		t.Fatalf("codex spawn call last-message path = %q, %v; want %q in %#v", got, ok, wantLastMessage, call)
 	}
+	env := fake.lastEnv()
+	runtimeDir := filepath.Join(teamDir, "state", "worker-squ-42", "runtime")
+	assertEventRuntimeCommandSurface(t, runtimeDir, env)
 	for _, want := range []string{
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(teamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("worker-squ-42"),
 		"shell_environment_policy.set.AGENT_TEAM_STATE_DIR=" + strconv.Quote(filepath.Join(teamDir, "state", "worker-squ-42")),
 		"shell_environment_policy.set.AGENT_TEAM_DAEMON_SOCKET=" + strconv.Quote(SocketPath(teamDir)),
+		"shell_environment_policy.set.PATH=" + strconv.Quote(lastEnvValue(env, "PATH")),
 	} {
 		if !containsString(call, want) {
 			t.Fatalf("codex spawn call missing env config %q: %#v", want, call)
@@ -1686,6 +1736,7 @@ func TestEvent_EphemeralDispatchPreparesRuntimeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixtureAgent(t, teamDir, "worker")
+	writeFixtureRuntimeCommandSkills(t, teamDir, "worker")
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
 [linear]
 team_id = "repo-team"
@@ -1752,6 +1803,7 @@ match.target = "worker"
 			t.Fatalf("env missing %q in %v", want, env)
 		}
 	}
+	assertEventRuntimeCommandSurface(t, filepath.Join(stateDir, "runtime"), env)
 	if meta, err := ReadMetadata(root, id); err != nil || meta.Workspace != repoRoot {
 		t.Fatalf("metadata workspace = %+v err=%v, want repo root %s", meta, err, repoRoot)
 	}

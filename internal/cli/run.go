@@ -21,6 +21,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/runtimehooks"
 	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	"github.com/jamesaud/agent-team/internal/runtimeshim"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
@@ -308,6 +309,10 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			return fmt.Errorf("symlink skill %s: %w", sname, err)
 		}
 	}
+	shimBinDir, err := runtimeshim.Install(tmpdir, skillPaths)
+	if err != nil {
+		return err
+	}
 	var mailboxHook *runtimehooks.MailboxHook
 	if runtimehooks.MailboxInjectionEnabled(resolved) {
 		hook, err := runtimehooks.PrepareMailboxHook(filepath.Join(stateDir, "runtime"))
@@ -378,17 +383,19 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		return exitErr(2)
 	}
 	teamEnv = append(teamEnv, otelLaunch.Env...)
-	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, teamEnv, lastMessagePath, mailboxHook, otelLaunch)
-	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
-		return exitErr(2)
-	}
 
 	baseEnv := os.Environ()
 	if otelCfg.Configured() {
 		baseEnv = runtimeotel.StripOwnedEnv(baseEnv)
 	}
-	env := append(baseEnv, teamEnv...)
+	env := runtimeshim.PrependPath(append(baseEnv, teamEnv...), shimBinDir)
+	runtimeArgEnv := append([]string(nil), teamEnv...)
+	runtimeArgEnv = runtimeshim.PrependPath(append(runtimeArgEnv, "PATH="+os.Getenv("PATH")), shimBinDir)
+	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, runtimeArgEnv, lastMessagePath, mailboxHook, otelLaunch)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
+		return exitErr(2)
+	}
 
 	// Daemon-aware routing: one-shot dispatches (--prompt given) route
 	// through the daemon when one is running, and --detach opts into daemon

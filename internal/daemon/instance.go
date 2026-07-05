@@ -1633,13 +1633,38 @@ func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, c
 		// overlay carries the freshly generated dispatch context (current
 		// AGENT_TEAM_*, TRACEPARENT, exporter env). Appending after the
 		// snapshot lets current values win on duplicate keys.
-		return append(env, overlay...), nil
+		return mergeEnv(env, overlay), nil
 	}
 	env = os.Environ()
 	if stripOTel {
 		env = runtimeotel.StripOwnedEnv(env)
 	}
-	return append(env, overlay...), nil
+	return mergeEnv(env, overlay), nil
+}
+
+func mergeEnv(base, overlay []string) []string {
+	out := make([]string, 0, len(base)+len(overlay))
+	index := map[string]int{}
+	add := func(entry string) {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			out = append(out, entry)
+			return
+		}
+		if i, exists := index[key]; exists {
+			out[i] = entry
+			return
+		}
+		index[key] = len(out)
+		out = append(out, entry)
+	}
+	for _, entry := range base {
+		add(entry)
+	}
+	for _, entry := range overlay {
+		add(entry)
+	}
+	return out
 }
 
 func (m *InstanceManager) instanceLaunchEnv(instance string) ([]string, bool, error) {

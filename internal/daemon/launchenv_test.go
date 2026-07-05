@@ -138,6 +138,17 @@ func TestStripEnvRemovesOnlyExactKeys(t *testing.T) {
 	}
 }
 
+func TestMergeEnvOverlayWinsAndCollapsesDuplicateKeys(t *testing.T) {
+	got := mergeEnv(
+		[]string{"PATH=/old", "KEEP=base", "PATH=/snapshot", "NOVALUE"},
+		[]string{"PATH=/runtime/bin:/snapshot", "KEEP=overlay", "NEW=value", "BROKEN"},
+	)
+	want := []string{"PATH=/runtime/bin:/snapshot", "KEEP=overlay", "NOVALUE", "NEW=value", "BROKEN"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("mergeEnv = %+v, want %+v", got, want)
+	}
+}
+
 func TestLaunchEnvGitignoreGuard(t *testing.T) {
 	root := repoRootForTest(t)
 	body, err := os.ReadFile(filepath.Join(root, ".gitignore"))

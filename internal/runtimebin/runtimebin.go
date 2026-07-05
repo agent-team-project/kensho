@@ -171,18 +171,23 @@ func CodexAutonomousExecArgs() []string {
 
 // CodexAgentTeamEnvConfigArgs returns Codex -c overrides that expose the
 // daemon/session contract to shell commands without broadly inheriting the
-// parent process environment.
+// parent process environment. PATH is also allowed so launchers can make
+// generated per-session command shims visible to Codex shell commands.
 func CodexAgentTeamEnvConfigArgs(env []string) []string {
 	args := []string{}
 	for _, entry := range env {
 		key, value, ok := strings.Cut(entry, "=")
 		key = strings.TrimSpace(key)
-		if !ok || !strings.HasPrefix(key, "AGENT_TEAM_") || !validEnvKey(key) {
+		if !ok || !codexAllowedEnvKey(key) {
 			continue
 		}
 		args = append(args, "-c", "shell_environment_policy.set."+key+"="+strconv.Quote(value))
 	}
 	return args
+}
+
+func codexAllowedEnvKey(key string) bool {
+	return (key == "PATH" || strings.HasPrefix(key, "AGENT_TEAM_")) && validEnvKey(key)
 }
 
 func validEnvKey(key string) bool {
