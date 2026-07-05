@@ -271,7 +271,9 @@ tokens_per_day = 600_000_000
 jobs_in_flight = 4
 
 [budgets.platform]
-tokens_per_day = 400_000_000
+# Raised 400M->800M 2026-07-05: platform carries the epic arcs (observed
+# ~400M/day at sustained load); admission correctly queued squ-104's bounce.
+tokens_per_day = 800_000_000
 jobs_in_flight = 3
 
 [budgets.quality]
