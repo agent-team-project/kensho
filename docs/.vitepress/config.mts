@@ -1,6 +1,13 @@
 import { defineConfig } from 'vitepress'
 
+// ReadTheDocs serves under /en/<version>/ — derive the base path from its
+// canonical URL at build time; local builds stay at '/'.
+const base = process.env.READTHEDOCS_CANONICAL_URL
+  ? new URL(process.env.READTHEDOCS_CANONICAL_URL).pathname
+  : '/'
+
 export default defineConfig({
+  base,
   title: 'agent-team Developer Docs',
   description: 'Developer documentation for agent-team, a file-backed CLI and daemon for orchestrating teams of LLM agents.',
   cleanUrls: false, // ReadTheDocs static hosting does not rewrite clean URLs
