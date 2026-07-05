@@ -74,6 +74,10 @@ type Topology struct {
 	Teams map[string]*Team
 	// Budgets is keyed by the declared team name (`[budgets.<team>]`).
 	Budgets map[string]*Budget
+
+	// ReminderLevels are the default soft budget notice percentage thresholds
+	// declared under `[budgets].reminder_levels`.
+	ReminderLevels []int
 	// Authority is the optional daemon verb allowlist policy.
 	Authority *Authority
 }
@@ -650,7 +654,7 @@ type rawTopology struct {
 	Pipelines map[string]*rawPipeline `toml:"pipelines"`
 	Schedules map[string]*rawSchedule `toml:"schedules"`
 	Teams     map[string]*rawTeam     `toml:"teams"`
-	Budgets   map[string]*rawBudget   `toml:"budgets"`
+	Budgets   map[string]any          `toml:"budgets"`
 	Authority *rawAuthority           `toml:"authority"`
 }
 
@@ -743,14 +747,19 @@ func parseWithTeamValidation(body []byte, validateTeamRefs bool) (*Topology, err
 }
 
 func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
+	budgets, reminderLevels, err := finaliseBudgets(raw.Budgets)
+	if err != nil {
+		return nil, err
+	}
 	t := &Topology{
-		Instances: make(map[string]*Instance, len(raw.Instances)),
-		Locks:     make(map[string]*Lock, len(raw.Locks)),
-		Channels:  make(map[string]*Channel, len(raw.Channels)),
-		Pipelines: make(map[string]*Pipeline, len(raw.Pipelines)),
-		Schedules: make(map[string]*Schedule, len(raw.Schedules)),
-		Teams:     make(map[string]*Team, len(raw.Teams)),
-		Budgets:   make(map[string]*Budget, len(raw.Budgets)),
+		Instances:      make(map[string]*Instance, len(raw.Instances)),
+		Locks:          make(map[string]*Lock, len(raw.Locks)),
+		Channels:       make(map[string]*Channel, len(raw.Channels)),
+		Pipelines:      make(map[string]*Pipeline, len(raw.Pipelines)),
+		Schedules:      make(map[string]*Schedule, len(raw.Schedules)),
+		Teams:          make(map[string]*Team, len(raw.Teams)),
+		Budgets:        budgets,
+		ReminderLevels: reminderLevels,
 	}
 	for name, rl := range raw.Locks {
 		if rl == nil {
@@ -790,6 +799,7 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		if err != nil {
 			return nil, err
 		}
+		applyPipelineReminderDefaults(p, t.ReminderLevels)
 		t.Pipelines[name] = p
 	}
 	for name, rs := range raw.Schedules {
@@ -811,16 +821,6 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 			return nil, err
 		}
 		t.Teams[name] = team
-	}
-	for name, rb := range raw.Budgets {
-		if rb == nil {
-			continue
-		}
-		budget, err := finaliseBudget(name, rb)
-		if err != nil {
-			return nil, err
-		}
-		t.Budgets[budget.Team] = budget
 	}
 	authority, err := finaliseAuthority(raw.Authority)
 	if err != nil {
@@ -1183,6 +1183,91 @@ func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Te
 	return team, nil
 }
 
+func finaliseBudgets(raw map[string]any) (map[string]*Budget, []int, error) {
+	budgets := make(map[string]*Budget, len(raw))
+	var reminderLevels []int
+	for name, value := range raw {
+		if strings.TrimSpace(name) == "reminder_levels" {
+			levels, err := parseStepReminderLevels(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("budgets.reminder_levels: %w", err)
+			}
+			reminderLevels = levels
+			continue
+		}
+		rb, err := rawBudgetFromValue(name, value)
+		if err != nil {
+			return nil, nil, err
+		}
+		if rb == nil {
+			continue
+		}
+		budget, err := finaliseBudget(name, rb)
+		if err != nil {
+			return nil, nil, err
+		}
+		budgets[budget.Team] = budget
+	}
+	return budgets, reminderLevels, nil
+}
+
+func rawBudgetFromValue(name string, value any) (*rawBudget, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if rb, ok := value.(*rawBudget); ok {
+		return rb, nil
+	}
+	if rb, ok := value.(rawBudget); ok {
+		return &rb, nil
+	}
+	values, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("budget %q must be a table", name)
+	}
+	var rb rawBudget
+	if rawTokens, ok := values["tokens_per_day"]; ok {
+		tokens, err := rawInt64(rawTokens, fmt.Sprintf("budget %q: tokens_per_day", name))
+		if err != nil {
+			return nil, err
+		}
+		rb.TokensPerDay = &tokens
+	}
+	if rawJobs, ok := values["jobs_in_flight"]; ok {
+		jobs, err := rawInt(rawJobs, fmt.Sprintf("budget %q: jobs_in_flight", name))
+		if err != nil {
+			return nil, err
+		}
+		rb.JobsInFlight = &jobs
+	}
+	return &rb, nil
+}
+
+func rawInt64(raw any, field string) (int64, error) {
+	switch v := raw.(type) {
+	case int:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case int32:
+		return int64(v), nil
+	default:
+		return 0, fmt.Errorf("%s must be an integer", field)
+	}
+}
+
+func rawInt(raw any, field string) (int, error) {
+	v, err := rawInt64(raw, field)
+	if err != nil {
+		return 0, err
+	}
+	out := int(v)
+	if int64(out) != v {
+		return 0, fmt.Errorf("%s is too large", field)
+	}
+	return out, nil
+}
+
 func finaliseBudget(name string, rb *rawBudget) (*Budget, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -1203,6 +1288,18 @@ func finaliseBudget(name string, rb *rawBudget) (*Budget, error) {
 		jobsInFlight = *rb.JobsInFlight
 	}
 	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight}, nil
+}
+
+func applyPipelineReminderDefaults(p *Pipeline, levels []int) {
+	if p == nil || len(levels) == 0 {
+		return
+	}
+	for _, step := range p.Steps {
+		if step == nil || len(step.ReminderLevels) > 0 {
+			continue
+		}
+		step.ReminderLevels = append([]int(nil), levels...)
+	}
 }
 
 func validateTopologyTeams(t *Topology) error {

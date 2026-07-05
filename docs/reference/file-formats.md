@@ -142,6 +142,9 @@ scope = "machine"
 [channels.supervisor]
 scope = "team"
 
+[budgets]
+reminder_levels = [50, 80, 100]
+
 [[instances.worker.triggers]]
 event = "agent.dispatch"
 match.target = "worker"
@@ -206,8 +209,10 @@ historical flat namespace. Team-scoped schedules use the declaring team for the
 persisted clock key while publishing the same schedule event name.
 
 `token_budget` and `time_budget` are soft per-run allowances. Instance values
-are defaults; pipeline step values override them. `reminder_levels` controls
-which percentage crossings create `budget_notice` job events and inbox messages.
+are defaults; pipeline step values override them. `[budgets].reminder_levels`
+sets the default percentage crossings that create `budget_notice` job events
+and inbox messages; pipeline step values and job-level overrides take
+precedence.
 
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
 undeclared channels still work. Team-scoped channels always use the owning

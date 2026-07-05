@@ -918,9 +918,20 @@ ephemeral = true
 [teams.delivery]
 instances = ["worker"]
 
+[budgets]
+reminder_levels = [25, 75, 100]
+
 [budgets.delivery]
 tokens_per_day = 200_000_000
 jobs_in_flight = 4
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+token_budget = "40M"
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -934,6 +945,13 @@ jobs_in_flight = 4
 	}
 	if got := top.SortedBudgets(); len(got) != 1 || got[0] != budget {
 		t.Fatalf("SortedBudgets = %+v", got)
+	}
+	if !reflect.DeepEqual(top.ReminderLevels, []int{25, 75, 100}) {
+		t.Fatalf("reminder levels = %+v", top.ReminderLevels)
+	}
+	step := top.Pipelines["ticket_to_pr"].Steps[0]
+	if !reflect.DeepEqual(step.ReminderLevels, []int{25, 75, 100}) {
+		t.Fatalf("step reminder levels = %+v", step.ReminderLevels)
 	}
 }
 

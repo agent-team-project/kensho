@@ -209,6 +209,9 @@ func budgetNoticeMessage(jobID, instance string, notice budgetNotice) string {
 }
 
 func budgetNoticeMailboxBody(jobID string, notice budgetNotice) string {
+	if notice.Level >= 100 {
+		return fmt.Sprintf("budget_notice: %s. This job is over allowance; budget_exceeded is warning-only and nothing has been stopped. Check `agent-team budget status --self`; request more token headroom with `agent-team job extend %s --tokens <amount>` when appropriate.", budgetNoticeMessage(jobID, "", notice), jobID)
+	}
 	return fmt.Sprintf("budget_notice: %s. Check `agent-team budget status --self`; request more token headroom with `agent-team job extend %s --tokens <amount>` when appropriate.", budgetNoticeMessage(jobID, "", notice), jobID)
 }
 

@@ -762,6 +762,16 @@ func applyInstanceBudgetDefaultsToPayload(inst *topology.Instance, payload map[s
 	}
 }
 
+func applyTopologyReminderDefaultsToPayload(top *topology.Topology, payload map[string]any) {
+	if top == nil || payload == nil || len(top.ReminderLevels) == 0 || payload["reminder_levels"] != nil {
+		return
+	}
+	if payloadBudgetTokens(payload) <= 0 && strings.TrimSpace(payloadString(payload, "budget_time")) == "" {
+		return
+	}
+	payload["reminder_levels"] = append([]int(nil), top.ReminderLevels...)
+}
+
 func payloadBudgetTokens(payload map[string]any) int64 {
 	if payload == nil {
 		return 0
@@ -1530,6 +1540,10 @@ func validateRequestedChildName(declared, name string) error {
 func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, payload map[string]any) (*Metadata, error) {
 	payload = copyPayload(payload)
 	applyInstanceBudgetDefaultsToPayload(inst, payload)
+	r.mu.Lock()
+	top := r.topo
+	r.mu.Unlock()
+	applyTopologyReminderDefaultsToPayload(top, payload)
 	runtime, err := r.prepareEphemeralRuntime(inst, name)
 	if err != nil {
 		return nil, err

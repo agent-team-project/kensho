@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -224,33 +225,34 @@ func newJobTimelineCmd() *cobra.Command {
 
 func newJobCreateCmd() *cobra.Command {
 	var (
-		repo          string
-		targetAgent   string
-		pipeline      string
-		profile       string
-		id            string
-		ticketURL     string
-		kickoff       string
-		kickoffFile   string
-		budgetTokens  string
-		budgetTime    time.Duration
-		instance      string
-		dispatchNow   bool
-		workspace     string
-		runtimeKind   string
-		runtimeBin    string
-		dryRun        bool
-		commands      bool
-		wait          bool
-		waitStatuses  []string
-		waitEvents    []string
-		waitNextState []string
-		waitStep      string
-		waitTimeout   time.Duration
-		waitInterval  time.Duration
-		failOnFailed  bool
-		jsonOut       bool
-		format        string
+		repo           string
+		targetAgent    string
+		pipeline       string
+		profile        string
+		id             string
+		ticketURL      string
+		kickoff        string
+		kickoffFile    string
+		budgetTokens   string
+		budgetTime     time.Duration
+		reminderLevels []string
+		instance       string
+		dispatchNow    bool
+		workspace      string
+		runtimeKind    string
+		runtimeBin     string
+		dryRun         bool
+		commands       bool
+		wait           bool
+		waitStatuses   []string
+		waitEvents     []string
+		waitNextState  []string
+		waitStep       string
+		waitTimeout    time.Duration
+		waitInterval   time.Duration
+		failOnFailed   bool
+		jsonOut        bool
+		format         string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -354,6 +356,14 @@ func newJobCreateCmd() *cobra.Command {
 			if budgetTime > 0 {
 				j.TimeBudget = budgetTime.String()
 			}
+			if cmd.Flags().Changed("reminder-levels") {
+				levels, err := parseReminderLevelsFlag(reminderLevels)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: --reminder-levels: %v\n", err)
+					return exitErr(2)
+				}
+				j.ReminderLevels = levels
+			}
 			if pipelineDef != nil {
 				j.Pipeline = pipelineDef.Name
 				j.Steps = jobStepsFromPipeline(pipelineDef)
@@ -384,38 +394,40 @@ func newJobCreateCmd() *cobra.Command {
 			}
 			if dryRun {
 				commandOptions := jobCreateApplyCommandOptions{
-					Ticket:          ticket,
-					Repo:            repo,
-					RepoSet:         cmd.Flags().Changed("repo"),
-					Target:          targetAgent,
-					TargetSet:       cmd.Flags().Changed("target"),
-					Pipeline:        pipeline,
-					PipelineSet:     cmd.Flags().Changed("pipeline"),
-					Profile:         profile,
-					ProfileSet:      cmd.Flags().Changed("profile"),
-					ID:              id,
-					IDSet:           cmd.Flags().Changed("id"),
-					TicketURL:       ticketURL,
-					TicketURLSet:    cmd.Flags().Changed("ticket-url"),
-					BudgetTokens:    budgetTokens,
-					BudgetTokensSet: cmd.Flags().Changed("budget-tokens"),
-					BudgetTime:      budgetTime,
-					BudgetTimeSet:   cmd.Flags().Changed("budget-time"),
-					Instance:        instance,
-					InstanceSet:     cmd.Flags().Changed("instance"),
-					Dispatch:        dispatchNow,
-					Workspace:       workspace,
-					WorkspaceSet:    cmd.Flags().Changed("workspace"),
-					RuntimeKind:     runtimeKind,
-					RuntimeKindSet:  cmd.Flags().Changed("runtime"),
-					RuntimeBin:      runtimeBin,
-					RuntimeBinSet:   cmd.Flags().Changed("runtime-bin"),
-					Kickoff:         kickoff,
-					KickoffSet:      cmd.Flags().Changed("kickoff"),
-					KickoffFile:     kickoffFile,
-					KickoffFileSet:  cmd.Flags().Changed("kickoff-file"),
-					ResolvedKickoff: kickoffText,
-					PositionalWords: args[1:],
+					Ticket:            ticket,
+					Repo:              repo,
+					RepoSet:           cmd.Flags().Changed("repo"),
+					Target:            targetAgent,
+					TargetSet:         cmd.Flags().Changed("target"),
+					Pipeline:          pipeline,
+					PipelineSet:       cmd.Flags().Changed("pipeline"),
+					Profile:           profile,
+					ProfileSet:        cmd.Flags().Changed("profile"),
+					ID:                id,
+					IDSet:             cmd.Flags().Changed("id"),
+					TicketURL:         ticketURL,
+					TicketURLSet:      cmd.Flags().Changed("ticket-url"),
+					BudgetTokens:      budgetTokens,
+					BudgetTokensSet:   cmd.Flags().Changed("budget-tokens"),
+					BudgetTime:        budgetTime,
+					BudgetTimeSet:     cmd.Flags().Changed("budget-time"),
+					ReminderLevels:    append([]string(nil), reminderLevels...),
+					ReminderLevelsSet: cmd.Flags().Changed("reminder-levels"),
+					Instance:          instance,
+					InstanceSet:       cmd.Flags().Changed("instance"),
+					Dispatch:          dispatchNow,
+					Workspace:         workspace,
+					WorkspaceSet:      cmd.Flags().Changed("workspace"),
+					RuntimeKind:       runtimeKind,
+					RuntimeKindSet:    cmd.Flags().Changed("runtime"),
+					RuntimeBin:        runtimeBin,
+					RuntimeBinSet:     cmd.Flags().Changed("runtime-bin"),
+					Kickoff:           kickoff,
+					KickoffSet:        cmd.Flags().Changed("kickoff"),
+					KickoffFile:       kickoffFile,
+					KickoffFileSet:    cmd.Flags().Changed("kickoff-file"),
+					ResolvedKickoff:   kickoffText,
+					PositionalWords:   args[1:],
 				}
 				if dispatchNow {
 					if len(j.Steps) > 0 {
@@ -584,6 +596,7 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&budgetTokens, "budget-tokens", "", "Soft token allowance for this job, for example 40M.")
 	cmd.Flags().DurationVar(&budgetTime, "budget-time", 0, "Soft wall-clock allowance for this job, for example 45m. Does not arm a cutoff.")
+	cmd.Flags().StringSliceVar(&reminderLevels, "reminder-levels", nil, "Budget notice percentages for this job, for example 50,80,100.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that owns the job (default set during dispatch).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the created job immediately using the running daemon.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
@@ -602,6 +615,22 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
+}
+
+func parseReminderLevelsFlag(values []string) ([]int, error) {
+	levels := make([]int, 0, len(values))
+	for _, raw := range values {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		level, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("must be comma-separated integers")
+		}
+		levels = append(levels, level)
+	}
+	return allowance.NormalizeReminderLevels(levels)
 }
 
 func loadJobCreatePipeline(teamDir, name string) (*topology.Pipeline, error) {
@@ -9063,6 +9092,7 @@ type jobTriageItem struct {
 	Bounces                         int             `json:"bounces,omitempty"`
 	GateContent                     int             `json:"gate_content,omitempty"`
 	AuthorityViolations             int             `json:"authority_violations,omitempty"`
+	BudgetExceeded                  int             `json:"budget_exceeded,omitempty"`
 }
 
 type jobTriageQueueStats struct {
@@ -9086,6 +9116,11 @@ type jobTriageOutboxQuarantineStats struct {
 }
 
 type jobAuthorityViolationStats struct {
+	Count         int
+	LatestMessage string
+}
+
+type jobBudgetExceededStats struct {
 	Count         int
 	LatestMessage string
 }
@@ -9570,9 +9605,13 @@ func collectJobTriage(teamDir string, now time.Time, staleAfter time.Duration) (
 	if err != nil {
 		return jobTriageSnapshot{}, err
 	}
+	budgetExceededByJob, err := jobBudgetExceededByJob(teamDir, jobs)
+	if err != nil {
+		return jobTriageSnapshot{}, err
+	}
 	attention := make([]jobTriageItem, 0, len(jobs))
 	for _, j := range jobs {
-		if item, ok := triageJob(j, inspectNextJobStep(j), queueByJob[j.ID], outboxQuarantineByJob[j.ID], gateFailuresByJob[j.ID], authorityViolationsByJob[j.ID], now, staleAfter, bounceAttentionAfter); ok {
+		if item, ok := triageJob(j, inspectNextJobStep(j), queueByJob[j.ID], outboxQuarantineByJob[j.ID], gateFailuresByJob[j.ID], authorityViolationsByJob[j.ID], budgetExceededByJob[j.ID], now, staleAfter, bounceAttentionAfter); ok {
 			attention = append(attention, item)
 		}
 	}
@@ -9758,7 +9797,42 @@ func jobAuthorityViolationsByJob(teamDir string, jobs []*job.Job) (map[string]jo
 	return out, nil
 }
 
-func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, outboxQuarantineStats jobTriageOutboxQuarantineStats, gateFailures []jobGateResult, authorityStats jobAuthorityViolationStats, now time.Time, staleAfter time.Duration, bounceAttentionAfter int) (jobTriageItem, bool) {
+func jobBudgetExceededByJob(teamDir string, jobs []*job.Job) (map[string]jobBudgetExceededStats, error) {
+	out := make(map[string]jobBudgetExceededStats, len(jobs))
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		events, err := job.ListEvents(teamDir, j.ID)
+		if err != nil {
+			return nil, err
+		}
+		var stats jobBudgetExceededStats
+		for _, ev := range events {
+			if ev.Type != "budget_notice" || budgetNoticeLevel(ev.Data) < 100 {
+				continue
+			}
+			stats.Count++
+			if message := strings.TrimSpace(ev.Message); message != "" {
+				stats.LatestMessage = message
+			}
+		}
+		if stats.Count > 0 {
+			out[j.ID] = stats
+		}
+	}
+	return out, nil
+}
+
+func budgetNoticeLevel(data map[string]string) int {
+	if data == nil {
+		return 0
+	}
+	level, _ := strconv.Atoi(strings.TrimSpace(data["level"]))
+	return level
+}
+
+func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, outboxQuarantineStats jobTriageOutboxQuarantineStats, gateFailures []jobGateResult, authorityStats jobAuthorityViolationStats, budgetStats jobBudgetExceededStats, now time.Time, staleAfter time.Duration, bounceAttentionAfter int) (jobTriageItem, bool) {
 	gateInfra, gateContent := jobGateClassCounts(gateFailures)
 	item := jobTriageItem{
 		JobID:                           j.ID,
@@ -9787,6 +9861,7 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 		GateInfra:                       gateInfra,
 		GateContent:                     gateContent,
 		AuthorityViolations:             authorityStats.Count,
+		BudgetExceeded:                  budgetStats.Count,
 	}
 	if next.Step != nil {
 		item.StepID = next.Step.ID
@@ -9849,6 +9924,9 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 	if authorityStats.Count > 0 {
 		addTriageReason("authority_violation", "warning")
 	}
+	if budgetStats.Count > 0 {
+		addTriageReason("budget_exceeded", "warning")
+	}
 	switch next.State {
 	case "failed":
 		addTriageReason("failed_step", "critical")
@@ -9867,6 +9945,8 @@ func triageJob(j *job.Job, next jobNextResult, queueStats jobTriageQueueStats, o
 		item.Message = heldJobMessage(j)
 	} else if authorityStats.LatestMessage != "" && stringSliceContains(item.Reasons, "authority_violation") {
 		item.Message = authorityStats.LatestMessage
+	} else if budgetStats.LatestMessage != "" && stringSliceContains(item.Reasons, "budget_exceeded") {
+		item.Message = budgetStats.LatestMessage
 	} else if strings.TrimSpace(j.LastStatus) != "" {
 		item.Message = j.LastStatus
 	} else if strings.TrimSpace(next.Message) != "" {
@@ -10062,6 +10142,10 @@ func actionsForJobTriageItem(item jobTriageItem) []string {
 	}
 	if stringSliceContains(item.Reasons, "authority_violation") {
 		add(fmt.Sprintf("agent-team job events %s --type authority_violation", item.JobID))
+	}
+	if stringSliceContains(item.Reasons, "budget_exceeded") {
+		add(fmt.Sprintf("agent-team budget status --job %s", item.JobID))
+		add(fmt.Sprintf("agent-team job events %s --type budget_notice", item.JobID))
 	}
 	if stringSliceContains(item.Reasons, "failed") || stringSliceContains(item.Reasons, "failed_step") {
 		add(fmt.Sprintf("agent-team job retry %s --dispatch", item.JobID))
@@ -15239,38 +15323,40 @@ type jobRetryApplyCommandOptions struct {
 }
 
 type jobCreateApplyCommandOptions struct {
-	Ticket          string
-	Repo            string
-	RepoSet         bool
-	Target          string
-	TargetSet       bool
-	Pipeline        string
-	PipelineSet     bool
-	Profile         string
-	ProfileSet      bool
-	ID              string
-	IDSet           bool
-	TicketURL       string
-	TicketURLSet    bool
-	BudgetTokens    string
-	BudgetTokensSet bool
-	BudgetTime      time.Duration
-	BudgetTimeSet   bool
-	Instance        string
-	InstanceSet     bool
-	Dispatch        bool
-	Workspace       string
-	WorkspaceSet    bool
-	RuntimeKind     string
-	RuntimeKindSet  bool
-	RuntimeBin      string
-	RuntimeBinSet   bool
-	Kickoff         string
-	KickoffSet      bool
-	KickoffFile     string
-	KickoffFileSet  bool
-	ResolvedKickoff string
-	PositionalWords []string
+	Ticket            string
+	Repo              string
+	RepoSet           bool
+	Target            string
+	TargetSet         bool
+	Pipeline          string
+	PipelineSet       bool
+	Profile           string
+	ProfileSet        bool
+	ID                string
+	IDSet             bool
+	TicketURL         string
+	TicketURLSet      bool
+	BudgetTokens      string
+	BudgetTokensSet   bool
+	BudgetTime        time.Duration
+	BudgetTimeSet     bool
+	ReminderLevels    []string
+	ReminderLevelsSet bool
+	Instance          string
+	InstanceSet       bool
+	Dispatch          bool
+	Workspace         string
+	WorkspaceSet      bool
+	RuntimeKind       string
+	RuntimeKindSet    bool
+	RuntimeBin        string
+	RuntimeBinSet     bool
+	Kickoff           string
+	KickoffSet        bool
+	KickoffFile       string
+	KickoffFileSet    bool
+	ResolvedKickoff   string
+	PositionalWords   []string
 }
 
 type jobReconcileApplyCommandOptions struct {
@@ -15443,6 +15529,9 @@ func jobCreateApplyCommandArgs(opts jobCreateApplyCommandOptions) []string {
 	}
 	if opts.BudgetTimeSet && opts.BudgetTime > 0 {
 		args = append(args, "--budget-time", opts.BudgetTime.String())
+	}
+	if opts.ReminderLevelsSet && len(opts.ReminderLevels) > 0 {
+		args = append(args, "--reminder-levels", strings.Join(opts.ReminderLevels, ","))
 	}
 	if opts.InstanceSet && strings.TrimSpace(opts.Instance) != "" {
 		args = append(args, "--instance", opts.Instance)
@@ -17156,7 +17245,7 @@ func jobDetailActions(j *job.Job, teamDir string, queueItems []*daemon.QueueItem
 	}
 	sort.Strings(outboxQuarantineStats.QuarantinePaths)
 	sort.Strings(outboxQuarantineStats.QuarantineRestorablePaths)
-	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, outboxQuarantineStats, nil, jobAuthorityViolationStats{}, now, 0, 0); ok {
+	if triage, ok := triageJob(j, inspectNextJobStep(j), stats, outboxQuarantineStats, nil, jobAuthorityViolationStats{}, jobBudgetExceededStats{}, now, 0, 0); ok {
 		for _, action := range triage.Actions {
 			add(action)
 		}

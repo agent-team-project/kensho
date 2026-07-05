@@ -2631,6 +2631,7 @@ Flags:
       --kickoff-file string       Read kickoff text from a file, or '-' for stdin.
       --pipeline string           Create this job from a declared pipeline in instances.toml.
       --profile string            Job dispatch profile: default or probe.
+      --reminder-levels strings   Budget notice percentages for this job, for example 50,80,100.
       --repo string               Repo root containing .agent_team. (default "<repo>")
       --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.

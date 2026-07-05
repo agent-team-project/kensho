@@ -113,6 +113,9 @@ scope = "machine"        # machine (default), team, or job
 [channels.supervisor]
 scope = "team"           # declared channel storage is namespaced per owner
 
+[budgets]
+reminder_levels = [50, 80, 100] # default soft budget notice thresholds
+
 [[instances.worker.triggers]]
 event  = "agent.dispatch"
 match.target = "worker"
@@ -263,7 +266,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].timeout` | no | empty | Duration string used by stale-step timeout commands before falling back to repo stale-job thresholds. |
 | `steps[].token_budget` | no | target instance default | Soft token allowance for this step's runtime. It is clamped to remaining team budget headroom at dispatch and exported as `AGENT_TEAM_BUDGET_TOKENS`. |
 | `steps[].time_budget` | no | target instance default | Soft wall-clock allowance for this step's runtime, exported as `AGENT_TEAM_BUDGET_TIME`. This does not kill the runtime. |
-| `steps[].reminder_levels` | no | `[50, 80, 100]` | Percentage thresholds that create `budget_notice` job events and mailbox messages when live usage crosses them. |
+| `steps[].reminder_levels` | no | `[budgets].reminder_levels` or `[50, 80, 100]` | Percentage thresholds that create `budget_notice` job events and mailbox messages when live usage crosses them. Job-level reminder levels override this at dispatch. |
 | `steps[].max_attempts` | no | unlimited | Positive integer cap for dispatch attempts. Retry commands skip failed steps once the stored attempt count reaches this value. |
 | `steps[].retry_on_crash` | no | `false` | If `true`, daemon auto-advance may retry this step once after an instance crash/nonzero exit, but only when that instance recorded no job gate/verdict. Use only for read-only/idempotent steps such as reviewers; implementation steps should leave this false to avoid duplicate PR side effects. |
 

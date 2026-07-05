@@ -588,6 +588,7 @@ func TestJobCreateListShowClose(t *testing.T) {
 		"--kickoff", "implement the status monitor",
 		"--budget-tokens", "1.5M",
 		"--budget-time", "45m",
+		"--reminder-levels", "40,80,100",
 		"--repo", tmp,
 		"--json",
 	})
@@ -606,6 +607,9 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if created.TokenBudget != 1500000 || created.TimeBudget != "45m0s" {
 		t.Fatalf("created budgets = token %d time %q", created.TokenBudget, created.TimeBudget)
+	}
+	if !reflect.DeepEqual(created.ReminderLevels, []int{40, 80, 100}) {
+		t.Fatalf("created reminder levels = %v", created.ReminderLevels)
 	}
 
 	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "jobs", "squ-42.toml")); err != nil {
@@ -2117,6 +2121,9 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 		"--target", "worker",
 		"--id", "SQU 47 Custom",
 		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-47/review-runner",
+		"--budget-tokens", "2M",
+		"--budget-time", "30m",
+		"--reminder-levels", "25,50,100",
 		"--dry-run",
 		"--commands",
 	})
@@ -2129,6 +2136,9 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 		"--target", "worker",
 		"--id", "SQU 47 Custom",
 		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-47/review-runner",
+		"--budget-tokens", "2M",
+		"--budget-time", "30m0s",
+		"--reminder-levels", "25,50,100",
 		"review", "the", "runner",
 	}), " ") + "\n"
 	if got := commandsOut.String(); got != wantCreateCommand {
@@ -3184,6 +3194,64 @@ func TestJobTriageSurfacesAuthorityViolations(t *testing.T) {
 		t.Fatalf("message = %q", item.Message)
 	}
 	if !containsString(item.Actions, "agent-team job events "+j.ID+" --type authority_violation") {
+		t.Fatalf("actions = %+v", item.Actions)
+	}
+}
+
+func TestJobTriageSurfacesBudgetExceeded(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	j := mustNewJob(t, "SQU-921", "worker")
+	j.Status = job.StatusRunning
+	j.Instance = "worker-squ-921"
+	j.UpdatedAt = time.Now().UTC()
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if err := job.AppendEvent(teamDir, &job.Event{
+		JobID:    j.ID,
+		Type:     "budget_notice",
+		Instance: "worker-squ-921",
+		Message:  "squ-921 reached 100% of tokens budget (110 tokens/100 tokens)",
+		Origin:   origin.Envelope{Agent: "worker", Team: "platform", Job: j.ID},
+		Data: map[string]string{
+			"dimension": "tokens",
+			"level":     "100",
+			"used":      "110",
+			"budget":    "100",
+		},
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "triage", "--repo", tmp, "--reason", "budget_exceeded", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job triage: %v\nstderr=%s", err, stderr.String())
+	}
+	var snapshot jobTriageSnapshot
+	if err := json.Unmarshal(out.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode triage json: %v\nbody=%s", err, out.String())
+	}
+	if len(snapshot.Attention) != 1 {
+		t.Fatalf("attention = %+v", snapshot.Attention)
+	}
+	item := snapshot.Attention[0]
+	if item.JobID != j.ID || item.BudgetExceeded != 1 || !containsString(item.Reasons, "budget_exceeded") {
+		t.Fatalf("triage item = %+v", item)
+	}
+	if item.Severity != "warning" {
+		t.Fatalf("severity = %q", item.Severity)
+	}
+	if item.Message != "squ-921 reached 100% of tokens budget (110 tokens/100 tokens)" {
+		t.Fatalf("message = %q", item.Message)
+	}
+	if !containsString(item.Actions, "agent-team budget status --job "+j.ID) ||
+		!containsString(item.Actions, "agent-team job events "+j.ID+" --type budget_notice") {
 		t.Fatalf("actions = %+v", item.Actions)
 	}
 }

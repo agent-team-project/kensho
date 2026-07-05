@@ -2596,6 +2596,27 @@ func TestEvent_DrainQueuesArmsQueuedTimeoutBudget(t *testing.T) {
 	}
 }
 
+func TestApplyTopologyReminderDefaultsToPayload(t *testing.T) {
+	top := &topology.Topology{ReminderLevels: []int{25, 75, 100}}
+	payload := map[string]any{"budget_tokens": int64(1000)}
+	applyTopologyReminderDefaultsToPayload(top, payload)
+	if !reflect.DeepEqual(payload["reminder_levels"], []int{25, 75, 100}) {
+		t.Fatalf("reminder_levels = %+v", payload["reminder_levels"])
+	}
+
+	explicit := map[string]any{"budget_tokens": int64(1000), "reminder_levels": []int{50, 100}}
+	applyTopologyReminderDefaultsToPayload(top, explicit)
+	if !reflect.DeepEqual(explicit["reminder_levels"], []int{50, 100}) {
+		t.Fatalf("explicit reminder_levels = %+v", explicit["reminder_levels"])
+	}
+
+	noAllowance := map[string]any{"ticket": "SQU-104"}
+	applyTopologyReminderDefaultsToPayload(top, noAllowance)
+	if _, ok := noAllowance["reminder_levels"]; ok {
+		t.Fatalf("set reminder levels without an allowance: %+v", noAllowance)
+	}
+}
+
 func TestEvent_DrainQueuesWithResultForIDsSkipsUnselectedItems(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
