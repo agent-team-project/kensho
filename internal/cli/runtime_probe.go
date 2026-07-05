@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
@@ -416,14 +415,11 @@ type runtimeProbeExecCommandResult struct {
 }
 
 func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtimeProbeResult, error) {
-	target := effectiveRepoTarget(cmd, opts.Target)
-	repo, err := filepath.Abs(target)
+	resolved, err := resolvePrimaryRepo(cmd, opts.Target)
 	if err != nil {
 		return nil, err
 	}
-	if eval, err := filepath.EvalSymlinks(repo); err == nil {
-		repo = eval
-	}
+	repo := resolved.RepoRoot
 	info, err := collectRuntimeInfoForTargetWithSelection(repo, runtimeSelection{
 		Kind:   opts.RuntimeKind,
 		Binary: opts.RuntimeBinary,
@@ -440,7 +436,7 @@ func collectRuntimeProbe(cmd *cobra.Command, opts runtimeProbeOptions) (*runtime
 		result.addIssue("fail", "runtime", "binary_missing", fmt.Sprintf("runtime binary %q for %s was not found in PATH", info.Binary, info.Runtime), runtimeProbeMissingBinaryRemediation(info))
 	}
 
-	teamDir := filepath.Join(repo, loader.TeamDirName)
+	teamDir := resolved.TeamDir
 	teamResolved := false
 	if st, err := os.Stat(teamDir); err == nil && st.IsDir() {
 		teamResolved = true

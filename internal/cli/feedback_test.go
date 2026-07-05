@@ -15,6 +15,7 @@ import (
 
 func TestFeedbackSubmitCapturesDispatchContext(t *testing.T) {
 	root, teamDir := feedbackTestRepo(t)
+	chdirForFeedbackTest(t, root)
 	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	if err := job.Write(teamDir, &job.Job{
 		ID:        "squ-79",
@@ -86,7 +87,8 @@ func TestFeedbackSubmitCapturesDispatchContext(t *testing.T) {
 }
 
 func TestFeedbackListShowAndResolve(t *testing.T) {
-	_, teamDir := feedbackTestRepo(t)
+	root, teamDir := feedbackTestRepo(t)
+	chdirForFeedbackTest(t, root)
 	t.Setenv("AGENT_TEAM_ROOT", teamDir)
 	t.Setenv("AGENT_TEAM_INSTANCE", "")
 
@@ -170,7 +172,8 @@ func TestFeedbackSubmitFromLinkedWorktreeUsesPrimaryTeamDir(t *testing.T) {
 }
 
 func TestFeedbackResolveRequiresOneDispositionCLI(t *testing.T) {
-	_, teamDir := feedbackTestRepo(t)
+	root, teamDir := feedbackTestRepo(t)
+	chdirForFeedbackTest(t, root)
 	t.Setenv("AGENT_TEAM_ROOT", teamDir)
 	out, stderr, err := runFeedbackCommand("feedback", "submit", "needs disposition")
 	if err != nil {

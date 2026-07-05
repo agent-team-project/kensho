@@ -110,19 +110,29 @@ func newDoctorCmd() *cobra.Command {
 }
 
 func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, strictTemplate bool, strictActionFlag string, fix bool, jsonOut, commands bool, tmpl *texttemplate.Template, selection runtimeSelection, canaryOpts doctorCanaryOptions) error {
-	target = effectiveRepoTarget(cmd, target)
-	abs, err := filepath.Abs(target)
-	if err != nil {
-		return exitErr(2)
-	}
-	if eval, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = eval
-	}
-	teamDir := filepath.Join(abs, loader.TeamDirName)
-
 	var problems []string
 	var warnings []string
 	var actions []string
+	resolved, err := resolvePrimaryRepo(cmd, target)
+	if err != nil {
+		candidate, _ := selectedRepoTarget(cmd, target)
+		initTarget := strings.TrimSpace(candidate)
+		if initTarget == "" {
+			initTarget = "."
+		}
+		if filepath.Base(initTarget) == loader.TeamDirName {
+			initTarget = filepath.Dir(initTarget)
+		}
+		if abs, absErr := cleanAbsPath(initTarget); absErr == nil {
+			initTarget = abs
+		}
+		problems = append(problems, err.Error())
+		actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", initTarget}), " "))
+		return reportDoctor(cmd, problems, warnings, actions, nil, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
+	}
+	abs := resolved.RepoRoot
+	teamDir := resolved.TeamDir
+
 	daemonHint := "agent-teamd binary not found — install it alongside agent-team (`go install ./cmd/agent-teamd` if building from source) so `start`, `run --detach`, and other daemon-backed lifecycle commands work."
 	if _, err := findAgentTeamd(); err != nil {
 		if strictDaemon {
@@ -130,11 +140,6 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		} else {
 			warnings = append(warnings, daemonHint)
 		}
-	}
-	if st, err := os.Stat(teamDir); err != nil || !st.IsDir() {
-		problems = append(problems, fmt.Sprintf("%s not found — run `agent-team init` first.", teamDir))
-		actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", abs}), " "))
-		return reportDoctor(cmd, problems, warnings, actions, nil, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
 	}
 	if info, err := collectRuntimeInfoForConfigWithSelection(filepath.Join(teamDir, "config.toml"), selection); err != nil {
 		problems = append(problems, err.Error())

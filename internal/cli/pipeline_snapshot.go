@@ -70,10 +70,7 @@ func newPipelineSnapshotCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoRoot, err := filepath.Abs(effectiveRepoTarget(cmd, repo))
-			if err != nil {
-				return exitErr(2)
-			}
+			repoRoot := filepath.Dir(teamDir)
 			snapshot := collectPipelineSnapshot(teamDir, repoRoot, pipelineName, pipelineSnapshotOptions{
 				Redact:       !noRedact,
 				Now:          time.Now().UTC(),

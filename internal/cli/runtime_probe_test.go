@@ -66,6 +66,60 @@ func TestRuntimeProbeDoctorAlias(t *testing.T) {
 	}
 }
 
+func TestRuntimeProbeResolvesRepoFromAgentTeamRootEnv(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	bare := filepath.Join(t.TempDir(), "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatalf("mkdir bare dir: %v", err)
+	}
+	chdirForFeedbackTest(t, bare)
+	t.Setenv("AGENT_TEAM_ROOT", teamDir)
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "sh" {
+			t.Fatalf("look path bin = %q, want sh", bin)
+		}
+		return "/bin/sh", nil
+	})
+	withRuntimeProbeRunCommand(t, func(ctx context.Context, binary string, args ...string) runtimeProbeCommandResult {
+		t.Fatalf("codex doctor should be skipped")
+		return runtimeProbeCommandResult{}
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"runtime", "probe", "--runtime", "codex", "--runtime-bin", "sh", "--skip-doctor", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("runtime probe resolved from AGENT_TEAM_ROOT: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	var result runtimeProbeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode runtime probe json: %v\nbody=%s", err, out.String())
+	}
+	wantRepo, err := cleanAbsPath(root)
+	if err != nil {
+		t.Fatalf("resolve want repo: %v", err)
+	}
+	wantTeamDir, err := cleanAbsPath(teamDir)
+	if err != nil {
+		t.Fatalf("resolve want team dir: %v", err)
+	}
+	if !result.OK || result.Repo != filepath.ToSlash(wantRepo) || result.TeamDir != filepath.ToSlash(wantTeamDir) {
+		t.Fatalf("runtime probe result = %+v, want primary repo/team dir", result)
+	}
+	if containsRuntimeProbeIssue(result.Issues, "fail", "repo", "team_missing") {
+		t.Fatalf("runtime probe reported team_missing despite AGENT_TEAM_ROOT: %+v", result.Issues)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("runtime probe env fallback stderr = %q", stderr.String())
+	}
+}
+
 func TestRuntimeProbeCodexDoctorFailureJSON(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -278,7 +332,7 @@ func TestRuntimeProbeCommands(t *testing.T) {
 	}
 }
 
-func TestRuntimeProbeCommandsForMissingTeamOnlySuggestInit(t *testing.T) {
+func TestRuntimeProbeMissingTeamUsesSharedResolverError(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	tmp := t.TempDir()
@@ -303,24 +357,16 @@ func TestRuntimeProbeCommandsForMissingTeamOnlySuggestInit(t *testing.T) {
 		t.Fatal("runtime probe commands succeeded, want missing-team failure")
 	}
 	var code ExitCode
-	if !errors.As(err, &code) || int(code) != 1 {
-		t.Fatalf("err = %v, want exit 1", err)
+	if !errors.As(err, &code) || int(code) != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
 	}
-	resolvedTmp := tmp
-	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
-		resolvedTmp = eval
+	if out.Len() != 0 {
+		t.Fatalf("runtime probe missing-team commands stdout = %q, want empty", out.String())
 	}
-	want := strings.Join([]string{
-		strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", resolvedTmp}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "--json"}), " "),
-		"codex doctor --summary",
-		"",
-	}, "\n")
-	if got := out.String(); got != want {
-		t.Fatalf("runtime probe missing-team commands = %q, want %q", got, want)
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("runtime probe missing-team commands should not write stderr: %s", stderr.String())
+	for _, want := range []string{"--repo/--target", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("runtime probe missing-team stderr missing %q:\n%s", want, stderr.String())
+		}
 	}
 }
 

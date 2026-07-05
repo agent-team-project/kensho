@@ -186,6 +186,47 @@ func TestDoctor_RepoFlagOverridesTarget(t *testing.T) {
 	}
 }
 
+func TestDoctorResolvesRepoFromAgentTeamRootEnv(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin != "claude" {
+			t.Fatalf("look path bin = %q, want claude", bin)
+		}
+		return "/usr/local/bin/claude", nil
+	})
+	withDaemonFindAgentTeamd(t, "/test/bin/agent-teamd")
+
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	bare := filepath.Join(t.TempDir(), "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatalf("mkdir bare dir: %v", err)
+	}
+	chdirForFeedbackTest(t, bare)
+	t.Setenv("AGENT_TEAM_ROOT", teamDir)
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor resolved from AGENT_TEAM_ROOT: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+	}
+	var result doctorResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
+	}
+	if !result.OK || containsDoctorMessage(result.Problems, "not found") {
+		t.Fatalf("doctor result = %+v, want env-resolved repo", result)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --json env fallback stderr = %q", errOut.String())
+	}
+}
+
 func TestDoctor_WarnsWhenAgentTeamdMissing(t *testing.T) {
 	oldFind := findAgentTeamd
 	findAgentTeamd = func() (string, error) {
@@ -1460,8 +1501,10 @@ func TestDoctor_NoTeamDir(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when .agent_team/ missing")
 	}
-	if !strings.Contains(errOut.String(), "not found — run `agent-team init` first") {
-		t.Errorf("missing init hint: %s", errOut.String())
+	for _, want := range []string{"--repo/--target", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("missing resolver hint %q: %s", want, errOut.String())
+		}
 	}
 }
 
