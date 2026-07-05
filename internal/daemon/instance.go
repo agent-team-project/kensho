@@ -224,7 +224,8 @@ type InstanceManager struct {
 	// the declared ephemeral instance whose spawn this was. Hook is called
 	// without holding m.mu so the callback may safely call back into the
 	// manager.
-	reapHook func(instance string)
+	reapHook     func(instance string)
+	terminalHook func(*Metadata)
 }
 
 type tracked struct {
@@ -1768,6 +1769,7 @@ func (m *InstanceManager) isRunning(instance string) bool {
 			m.recordEvent("usage_capture_failed", &meta, usageErr.Error())
 		}
 		m.recordEvent("exit", &meta, "reconciled missing process")
+		m.notifyTerminal(&meta)
 	}
 	return false
 }
@@ -1981,6 +1983,28 @@ func (m *InstanceManager) SetReapHook(fn func(instance string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reapHook = fn
+}
+
+// SetTerminalHook installs (or replaces) a callback invoked when reconcile
+// finalises terminal metadata without a live reaper.
+func (m *InstanceManager) SetTerminalHook(fn func(*Metadata)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminalHook = fn
+}
+
+func (m *InstanceManager) notifyTerminal(meta *Metadata) {
+	if meta == nil {
+		return
+	}
+	m.mu.Lock()
+	hook := m.terminalHook
+	m.mu.Unlock()
+	if hook == nil {
+		return
+	}
+	copyMeta := *meta
+	hook(&copyMeta)
 }
 
 // reapedChan returns the per-instance reaper-completion channel snapshotted

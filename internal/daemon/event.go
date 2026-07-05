@@ -131,6 +131,7 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 		otel:     loadOrchestrationTracer(teamDir, mgr.daemonRoot),
 	}
 	mgr.SetReapHook(r.onReap)
+	mgr.SetTerminalHook(r.onTerminalMetadata)
 	r.mu.Lock()
 	r.recoverLockStateLocked(time.Now().UTC())
 	r.mu.Unlock()
@@ -2837,6 +2838,18 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
 }
 
+func (r *EventResolver) onTerminalMetadata(meta *Metadata) {
+	if r == nil || meta == nil {
+		return
+	}
+	r.recoverQueueStateNoDrain()
+	r.mu.Lock()
+	r.releaseLocksForInstanceLocked(meta.Instance)
+	r.mu.Unlock()
+	r.reconcileEphemeralJobExit(meta)
+	r.DrainQueues()
+}
+
 func (r *EventResolver) autoReapJob(id, trigger string) {
 	id = strings.TrimSpace(id)
 	if id == "" || strings.TrimSpace(r.teamDir) == "" {
@@ -3259,6 +3272,11 @@ func (r *EventResolver) loadPersistedQueue() error {
 // metadata and reloads persisted pending queue files. Daemon.Run calls this
 // after process reconciliation so queued dispatches survive daemon restart.
 func (r *EventResolver) RecoverQueueState() {
+	r.recoverQueueStateNoDrain()
+	r.DrainQueues()
+}
+
+func (r *EventResolver) recoverQueueStateNoDrain() {
 	r.mu.Lock()
 	r.tracking = map[string]*ephTracker{}
 	if r.topo != nil {
@@ -3278,7 +3296,6 @@ func (r *EventResolver) RecoverQueueState() {
 	r.recoverLockStateLocked(time.Now().UTC())
 	r.mu.Unlock()
 	_ = r.loadPersistedQueue()
-	r.DrainQueues()
 }
 
 // RunBudgetQueueDrains wakes budget_exhausted queue items whose token-window

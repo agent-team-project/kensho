@@ -112,6 +112,7 @@ func reconcileCrashOnly(daemonRoot string, m *InstanceManager, teamDir string, t
 		return err
 	}
 	now := time.Now().UTC()
+	var terminal []*Metadata
 	for _, md := range all {
 		switch md.Status {
 		case StatusRunning:
@@ -169,6 +170,8 @@ func reconcileCrashOnly(daemonRoot string, m *InstanceManager, teamDir string, t
 				ExitCode: md.ExitCode,
 				Message:  "reconciled missing process",
 			})
+			out := *md
+			terminal = append(terminal, &out)
 		case StatusStopped, StatusExited, StatusCrashed:
 			// Nothing to reconcile.
 		default:
@@ -199,6 +202,9 @@ func reconcileCrashOnly(daemonRoot string, m *InstanceManager, teamDir string, t
 		}
 	}
 	m.mu.Unlock()
+	for _, md := range terminal {
+		m.notifyTerminal(md)
+	}
 	return nil
 }
 
@@ -450,6 +456,7 @@ func (m *InstanceManager) finalizeAdoptedExit(meta Metadata) bool {
 		m.recordEvent("usage_capture_failed", &out, usageErr.Error())
 	}
 	m.recordEvent("exit", &out, "adopted process exited")
+	m.notifyTerminal(&out)
 	return true
 }
 

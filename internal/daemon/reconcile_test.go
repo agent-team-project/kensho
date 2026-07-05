@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/budget"
+	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
 )
@@ -397,6 +400,132 @@ restart = "on-failure"
 	if err := m.WaitForReaper("manager", time.Second); err != nil {
 		t.Fatalf("wait revived watcher: %v", err)
 	}
+}
+
+func TestReconcileWithTopology_ReleasesReserveAllocationAndDrainsBudgetQueue(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	root := DaemonRoot(teamDir)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+tokens_per_day = 100
+allocation = "reserve"
+`)
+	now := time.Now().UTC()
+	firstJob, err := jobstore.New("SQU-510", "worker", "reserve crash", now)
+	if err != nil {
+		t.Fatalf("job.New first: %v", err)
+	}
+	firstJob.Status = jobstore.StatusRunning
+	firstJob.Instance = "worker-squ-510"
+	firstJob.Origin = origin.Envelope{Team: "delivery", Job: firstJob.ID, Instance: firstJob.Instance}
+	if err := jobstore.Write(teamDir, firstJob); err != nil {
+		t.Fatalf("write first job: %v", err)
+	}
+	grant, err := budget.GrantTokens(teamDir, top, budget.GrantRequest{
+		Team:     "delivery",
+		JobID:    firstJob.ID,
+		Instance: firstJob.Instance,
+		Tokens:   60,
+		Now:      now,
+		Origin:   firstJob.Origin,
+	})
+	if err != nil {
+		t.Fatalf("grant first reserve: %v", err)
+	}
+	if !grant.Allowed || grant.Allocation == nil {
+		t.Fatalf("grant = %+v, want durable reserve allocation", grant)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  firstJob.Instance,
+		Agent:     "worker",
+		Job:       firstJob.ID,
+		Ticket:    firstJob.Ticket,
+		Workspace: t.TempDir(),
+		PID:       999_999_999,
+		Status:    StatusRunning,
+		StartedAt: now,
+		Origin:    firstJob.Origin,
+	}); err != nil {
+		t.Fatalf("write first metadata: %v", err)
+	}
+	secondPayload := map[string]any{
+		"target":        "worker",
+		"name":          "worker-squ-511",
+		"ticket":        "SQU-511",
+		"budget_tokens": "60",
+	}
+	secondOrigin := origin.Envelope{Team: "delivery", Job: "squ-511", Instance: "worker-squ-511"}
+	if err := WriteQueueItem(root, queueItemFromEvent("worker", &queuedEvent{
+		id:         "reserve-waiter",
+		eventType:  topology.EventAgentDispatch,
+		payload:    secondPayload,
+		queuedAt:   now,
+		uniqueName: "worker-squ-511",
+		reason:     QueueReasonBudgetExhausted,
+		origin:     secondOrigin,
+	}, QueueStatePending)); err != nil {
+		t.Fatalf("write queued reserve waiter: %v", err)
+	}
+
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	NewEventResolver(m, teamDir, top)
+
+	if err := ReconcileWithTopology(teamDir, m, top); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if got := fake.callCount(); got != 1 {
+		t.Fatalf("spawn calls = %d, want queued reserve waiter dispatched", got)
+	}
+	items, err := ListQueueItems(root)
+	if err != nil {
+		t.Fatalf("list queue: %v", err)
+	}
+	for _, item := range items {
+		if item.InstanceID == "worker-squ-511" && item.State == QueueStatePending {
+			t.Fatalf("reserve waiter remained queued after reconcile: %+v", item)
+		}
+	}
+	records, err := budget.ListAllocations(teamDir)
+	if err != nil {
+		t.Fatalf("list allocations: %v", err)
+	}
+	var firstReleased, secondOutstanding bool
+	var detail []string
+	for _, rec := range records {
+		detail = append(detail, rec.JobID+"/"+rec.Instance+"/"+rec.Status)
+		if rec.JobID == firstJob.ID && rec.Instance == firstJob.Instance && rec.Status == budget.AllocationStatusReleased {
+			firstReleased = true
+		}
+		if rec.JobID == "squ-511" && rec.Instance == "worker-squ-511" && rec.Status == budget.AllocationStatusOutstanding {
+			secondOutstanding = true
+		}
+	}
+	if !firstReleased || !secondOutstanding {
+		t.Fatalf("allocations = %v, want first released and second outstanding", detail)
+	}
+	updated, err := jobstore.Read(teamDir, firstJob.ID)
+	if err != nil {
+		t.Fatalf("read first job: %v", err)
+	}
+	if updated.Status != jobstore.StatusDone {
+		t.Fatalf("first job status = %s, want done", updated.Status)
+	}
+
+	_, _ = m.Stop("worker-squ-511")
+	_ = m.WaitForReaper("worker-squ-511", 2*time.Second)
 }
 
 func TestLaunchDeclaredFreshPrependsBrief(t *testing.T) {
