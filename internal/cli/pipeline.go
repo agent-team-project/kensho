@@ -3053,6 +3053,9 @@ func newPipelineUnblockCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if allowMissing {
+				client = localSendClient{daemonRoot: daemon.DaemonRoot(teamDir)}
+			}
 			results, err := unblockPipelineJobs(teamDir, pipelineName, client, step, body, normalizedJobUnblockSender(from), next, limit, allowMissing, dryRun)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team pipeline unblock: %v\n", err)

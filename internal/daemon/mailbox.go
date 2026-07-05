@@ -8,9 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 // Message is one entry in an instance's mailbox. Stored one-per-line as JSON
@@ -22,6 +25,165 @@ type Message struct {
 	To   string    `json:"to"`
 	Body string    `json:"body"`
 	TS   time.Time `json:"ts"`
+}
+
+const MailboxDeclaredQueuedNote = "declared but not running; queued for next spawn/resume"
+
+type MailboxTargetResolution struct {
+	Known       bool
+	Declared    bool
+	Running     bool
+	Note        string
+	Suggestions []string
+}
+
+func (r MailboxTargetResolution) Valid() bool {
+	return r.Known || r.Declared
+}
+
+func ResolveMailboxTarget(metas []*Metadata, topo *topology.Topology, target string) MailboxTargetResolution {
+	target = strings.TrimSpace(target)
+	var out MailboxTargetResolution
+	for _, meta := range metas {
+		if meta == nil || meta.Instance != target {
+			continue
+		}
+		out.Known = true
+		out.Running = meta.Status == StatusRunning
+		break
+	}
+	if topo != nil && topo.Find(target) != nil {
+		out.Declared = true
+	}
+	if out.Declared && !out.Running {
+		out.Note = MailboxDeclaredQueuedNote
+	}
+	if !out.Valid() {
+		out.Suggestions = mailboxNearMissDeclaredInstances(topo, target, 3)
+	}
+	return out
+}
+
+func MailboxUnknownTargetMessage(target string, suggestions []string) string {
+	msg := fmt.Sprintf("instance %q is not known to the daemon or declared in instances.toml", strings.TrimSpace(target))
+	if len(suggestions) == 1 {
+		return msg + fmt.Sprintf("; did you mean %q?", suggestions[0])
+	}
+	if len(suggestions) > 1 {
+		return msg + "; near declared instances: " + mailboxQuoteList(suggestions)
+	}
+	return msg
+}
+
+func mailboxNearMissDeclaredInstances(topo *topology.Topology, target string, limit int) []string {
+	if topo == nil || strings.TrimSpace(target) == "" || limit == 0 {
+		return nil
+	}
+	needle := strings.ToLower(strings.TrimSpace(target))
+	type suggestion struct {
+		name  string
+		score int
+	}
+	var matches []suggestion
+	for _, inst := range topo.SortedInstances() {
+		if inst == nil {
+			continue
+		}
+		name := strings.TrimSpace(inst.Name)
+		if name == "" {
+			continue
+		}
+		haystack := strings.ToLower(name)
+		distance := mailboxEditDistance(needle, haystack)
+		near := distance <= mailboxMaxSuggestionDistance(len(needle), len(haystack)) ||
+			strings.Contains(haystack, needle) ||
+			strings.Contains(needle, haystack)
+		if !near {
+			continue
+		}
+		matches = append(matches, suggestion{name: name, score: distance})
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score < matches[j].score
+		}
+		return matches[i].name < matches[j].name
+	})
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
+	}
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		out = append(out, match.name)
+	}
+	return out
+}
+
+func mailboxMaxSuggestionDistance(a, b int) int {
+	longest := a
+	if b > longest {
+		longest = b
+	}
+	switch {
+	case longest <= 4:
+		return 1
+	case longest <= 10:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func mailboxEditDistance(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return len([]rune(b))
+	}
+	if b == "" {
+		return len([]rune(a))
+	}
+	ar := []rune(a)
+	br := []rune(b)
+	prev := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i, ca := range ar {
+		cur := make([]int, len(br)+1)
+		cur[0] = i + 1
+		for j, cb := range br {
+			cost := 0
+			if ca != cb {
+				cost = 1
+			}
+			cur[j+1] = minInt(cur[j]+1, prev[j+1]+1, prev[j]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(br)]
+}
+
+func minInt(values ...int) int {
+	if len(values) == 0 {
+		return 0
+	}
+	min := values[0]
+	for _, value := range values[1:] {
+		if value < min {
+			min = value
+		}
+	}
+	return min
+}
+
+func mailboxQuoteList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, fmt.Sprintf("%q", value))
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // mailboxLock serialises appends to a single file from concurrent /v1/message

@@ -72,6 +72,11 @@ POST /v1/message
 ```
 
 Messages are persisted and delivered through the instance mailbox.
+The recipient must be daemon-known or declared in `instances.toml`; declared
+recipients that are not currently running are accepted and return a `note`
+such as `declared but not running; queued for next spawn/resume`.
+Unknown undeclared recipients return HTTP 400 with near-match suggestions from
+declared instance names when available.
 
 ## Logs and Events
 

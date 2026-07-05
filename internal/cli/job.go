@@ -1287,11 +1287,15 @@ func newJobSendCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if allowMissing {
+				client = localSendClient{daemonRoot: daemon.DaemonRoot(teamDir)}
+			}
 			if dryRun {
 				if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
-					From:         from,
-					AllowMissing: allowMissing,
-					DryRun:       true,
+					From:           from,
+					AllowMissing:   allowMissing,
+					DryRun:         true,
+					SkipValidation: allowMissing,
 				}); err != nil {
 					return err
 				}
@@ -1315,8 +1319,9 @@ func newJobSendCmd() *cobra.Command {
 				return renderJobSendPreview(cmd.OutOrStdout(), j, instance, from, body, jsonOut, tmpl)
 			}
 			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
-				From:         from,
-				AllowMissing: allowMissing,
+				From:           from,
+				AllowMissing:   allowMissing,
+				SkipValidation: allowMissing,
 			}); err != nil {
 				return err
 			}
@@ -1633,11 +1638,15 @@ func newJobUnblockCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if allowMissing {
+				client = localSendClient{daemonRoot: daemon.DaemonRoot(teamDir)}
+			}
 			fromLabel := normalizedJobUnblockSender(from)
 			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
-				From:         fromLabel,
-				AllowMissing: allowMissing,
-				DryRun:       dryRun,
+				From:           fromLabel,
+				AllowMissing:   allowMissing,
+				DryRun:         dryRun,
+				SkipValidation: allowMissing,
 			}); err != nil {
 				return err
 			}

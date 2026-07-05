@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 type fakeSendClient struct {
@@ -34,6 +35,14 @@ type sendCall struct {
 	to   string
 	from string
 	body string
+}
+
+func sendTestTopology(names ...string) *topology.Topology {
+	topo := &topology.Topology{Instances: map[string]*topology.Instance{}}
+	for _, name := range names {
+		topo.Instances[name] = &topology.Instance{Name: name, Agent: "manager"}
+	}
+	return topo
 }
 
 func (f *fakeSendClient) Instances() ([]*daemon.Metadata, error) {
@@ -96,6 +105,46 @@ func TestSendKnownInstance(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "sent") || !strings.Contains(stdout.String(), "msg-1") {
 		t.Fatalf("stdout = %q, want sent confirmation", stdout.String())
+	}
+}
+
+func TestSendDeclaredStoppedInstanceQueuesByDefault(t *testing.T) {
+	client := &fakeSendClient{}
+	stdout := &bytes.Buffer{}
+	if err := runSendWithClient(stdout, &bytes.Buffer{}, client, "manager", "hello there", sendOptions{
+		From:     "user",
+		JSON:     true,
+		Topology: sendTestTopology("manager"),
+	}); err != nil {
+		t.Fatalf("runSendWithClient declared: %v", err)
+	}
+	if client.sentTo != "manager" || client.sentFrom != "user" || client.sentBody != "hello there" {
+		t.Fatalf("sent = to:%q from:%q body:%q", client.sentTo, client.sentFrom, client.sentBody)
+	}
+	var body sendJSON
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode send json: %v\nbody=%s", err, stdout.String())
+	}
+	if !body.Delivered || body.Note != daemon.MailboxDeclaredQueuedNote {
+		t.Fatalf("send json = %+v, want declared queue note", body)
+	}
+}
+
+func TestSendUnknownUndeclaredSuggestsDeclaredNames(t *testing.T) {
+	client := &fakeSendClient{}
+	stderr := &bytes.Buffer{}
+	err := runSendWithClient(&bytes.Buffer{}, stderr, client, "manger", "hello", sendOptions{
+		Topology: sendTestTopology("manager", "ticket-manager"),
+	})
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), `did you mean "manager"?`) {
+		t.Fatalf("stderr = %q, want manager suggestion", stderr.String())
+	}
+	if client.sentTo != "" {
+		t.Fatalf("message should not have been sent: %+v", client)
 	}
 }
 
@@ -314,21 +363,20 @@ func TestSendDryRunCommands(t *testing.T) {
 		t.Fatalf("send selection root --repo --dry-run --commands = %q, want %q", got, wantSelection)
 	}
 
-	badSelection := NewRootCmd()
-	badSelection.SetOut(&bytes.Buffer{})
-	badSelectionErr := &bytes.Buffer{}
-	badSelection.SetErr(badSelectionErr)
-	badSelection.SetArgs([]string{"send", "--target", tmp, "--all", "--allow-missing", "--message", "hello", "--dry-run", "--commands"})
-	err := badSelection.Execute()
-	if err == nil {
-		t.Fatalf("send selection allow-missing --dry-run --commands succeeded")
+	allowMissingSelection := NewRootCmd()
+	allowMissingSelectionOut, allowMissingSelectionErr := &bytes.Buffer{}, &bytes.Buffer{}
+	allowMissingSelection.SetOut(allowMissingSelectionOut)
+	allowMissingSelection.SetErr(allowMissingSelectionErr)
+	allowMissingSelection.SetArgs([]string{"send", "--target", tmp, "--all", "--allow-missing", "--message", "hello", "--dry-run", "--commands"})
+	if err := allowMissingSelection.Execute(); err != nil {
+		t.Fatalf("send selection allow-missing --dry-run --commands: %v\nstderr=%s", err, allowMissingSelectionErr.String())
 	}
-	var badSelectionCode ExitCode
-	if !errors.As(err, &badSelectionCode) || int(badSelectionCode) != 2 {
-		t.Fatalf("bad selection err = %v, want exit 2", err)
+	wantAllowMissingSelection := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "--repo", tmp, "--message", "hello", "--all"}), " ")
+	if got := strings.TrimSpace(allowMissingSelectionOut.String()); got != wantAllowMissingSelection {
+		t.Fatalf("send selection allow-missing --dry-run --commands = %q, want %q", got, wantAllowMissingSelection)
 	}
-	if !strings.Contains(badSelectionErr.String(), "--allow-missing cannot be combined") {
-		t.Fatalf("bad selection stderr = %q, want allow-missing validation", badSelectionErr.String())
+	if !strings.Contains(allowMissingSelectionErr.String(), "--allow-missing is deprecated") {
+		t.Fatalf("allow-missing selection stderr = %q, want deprecation warning", allowMissingSelectionErr.String())
 	}
 
 	noRecipients := NewRootCmd()
@@ -348,7 +396,7 @@ func TestSendDryRunCommands(t *testing.T) {
 	missingErr := &bytes.Buffer{}
 	missing.SetErr(missingErr)
 	missing.SetArgs([]string{"send", "future", "--target", tmp, "--dry-run", "--commands", "queued"})
-	err = missing.Execute()
+	err := missing.Execute()
 	if err == nil {
 		t.Fatalf("send missing --dry-run --commands succeeded")
 	}
@@ -364,20 +412,23 @@ func TestSendDryRunCommands(t *testing.T) {
 	allowMissingOut, allowMissingErr := &bytes.Buffer{}, &bytes.Buffer{}
 	allowMissing.SetOut(allowMissingOut)
 	allowMissing.SetErr(allowMissingErr)
-	allowMissing.SetArgs([]string{"send", "future", "--target", tmp, "--allow-missing", "--dry-run", "--commands", "queued"})
+	allowMissing.SetArgs([]string{"send", "ticket-manager", "--target", tmp, "--allow-missing", "--dry-run", "--commands", "queued"})
 	if err := allowMissing.Execute(); err != nil {
 		t.Fatalf("send allow-missing --dry-run --commands: %v\nstderr=%s", err, allowMissingErr.String())
 	}
-	wantAllowMissing := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "future", "--repo", tmp, "--allow-missing", "queued"}), " ")
+	wantAllowMissing := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "ticket-manager", "--repo", tmp, "--allow-missing", "queued"}), " ")
 	if got := strings.TrimSpace(allowMissingOut.String()); got != wantAllowMissing {
 		t.Fatalf("send allow-missing --dry-run --commands = %q, want %q", got, wantAllowMissing)
+	}
+	if !strings.Contains(allowMissingErr.String(), "--allow-missing is deprecated") {
+		t.Fatalf("allow-missing stderr = %q, want deprecation warning", allowMissingErr.String())
 	}
 
 	rootScopedAllowMissing := NewRootCmd()
 	rootScopedAllowMissingOut, rootScopedAllowMissingErr := &bytes.Buffer{}, &bytes.Buffer{}
 	rootScopedAllowMissing.SetOut(rootScopedAllowMissingOut)
 	rootScopedAllowMissing.SetErr(rootScopedAllowMissingErr)
-	rootScopedAllowMissing.SetArgs([]string{"--repo", tmp, "send", "future", "--allow-missing", "--dry-run", "--commands", "queued"})
+	rootScopedAllowMissing.SetArgs([]string{"--repo", tmp, "send", "ticket-manager", "--allow-missing", "--dry-run", "--commands", "queued"})
 	if err := rootScopedAllowMissing.Execute(); err != nil {
 		t.Fatalf("send allow-missing root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedAllowMissingErr.String())
 	}
@@ -386,16 +437,22 @@ func TestSendDryRunCommands(t *testing.T) {
 	}
 }
 
-func TestSendAllowMissingQueuesWithoutKnownCheck(t *testing.T) {
+func TestSendAllowMissingStillRequiresKnownOrDeclaredTarget(t *testing.T) {
 	client := &fakeSendClient{}
-	if err := runSendWithClient(&bytes.Buffer{}, &bytes.Buffer{}, client, "future", "queued", sendOptions{AllowMissing: true}); err != nil {
-		t.Fatalf("runSendWithClient: %v", err)
+	stderr := &bytes.Buffer{}
+	err := runSendWithClient(&bytes.Buffer{}, stderr, client, "future", "queued", sendOptions{AllowMissing: true})
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
 	}
-	if client.instanceCalls != 0 {
-		t.Fatalf("Instances called %d times, want none with --allow-missing", client.instanceCalls)
+	if client.instanceCalls != 1 {
+		t.Fatalf("Instances called %d times, want validation", client.instanceCalls)
 	}
-	if client.sentTo != "future" || client.sentFrom != "(cli)" {
-		t.Fatalf("sent = to:%q from:%q", client.sentTo, client.sentFrom)
+	if !strings.Contains(stderr.String(), "not known to the daemon or declared in instances.toml") {
+		t.Fatalf("stderr = %q, want unknown target", stderr.String())
+	}
+	if client.sentTo != "" {
+		t.Fatalf("message should not have been sent: %+v", client)
 	}
 }
 
@@ -484,7 +541,7 @@ func TestSendLatestUsesLocalNewestMailboxWhenDaemonStopped(t *testing.T) {
 	}
 }
 
-func TestSendAllowMissingUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
+func TestSendDeclaredUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
@@ -494,21 +551,21 @@ func TestSendAllowMissingUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "future-worker", "queued offline", "--allow-missing", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "ticket-manager", "queued offline", "--json", "--target", tmp})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("send --allow-missing local mailbox: %v\nstderr=%s", err, stderr.String())
+		t.Fatalf("send declared local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
 
 	var body sendJSON
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode send json: %v\nbody=%s", err, out.String())
 	}
-	if !body.Delivered || body.To != "future-worker" || body.ID == "" {
+	if !body.Delivered || body.To != "ticket-manager" || body.ID == "" || body.Note != daemon.MailboxDeclaredQueuedNote {
 		t.Fatalf("send json = %+v", body)
 	}
-	messages, err := daemon.ReadMessages(root, "future-worker")
+	messages, err := daemon.ReadMessages(root, "ticket-manager")
 	if err != nil {
-		t.Fatalf("read future mailbox: %v", err)
+		t.Fatalf("read declared mailbox: %v", err)
 	}
 	if len(messages) != 1 || messages[0].ID != body.ID || messages[0].Body != "queued offline" {
 		t.Fatalf("messages = %+v, want queued local message", messages)
@@ -1247,30 +1304,6 @@ func TestSendSelectionValidation(t *testing.T) {
 			body: " ",
 			opts: sendOptions{All: true},
 			want: "message body is required",
-		},
-		{
-			name: "allow missing",
-			body: "hello",
-			opts: sendOptions{All: true, AllowMissing: true},
-			want: "--allow-missing cannot be combined",
-		},
-		{
-			name: "allow missing latest",
-			body: "hello",
-			opts: sendOptions{Latest: true, AllowMissing: true},
-			want: "--allow-missing cannot be combined",
-		},
-		{
-			name: "allow missing stale",
-			body: "hello",
-			opts: sendOptions{Stale: true, AllowMissing: true},
-			want: "--allow-missing cannot be combined",
-		},
-		{
-			name: "allow missing unhealthy",
-			body: "hello",
-			opts: sendOptions{Unhealthy: true, AllowMissing: true},
-			want: "--allow-missing cannot be combined",
 		},
 		{
 			name: "negative last",

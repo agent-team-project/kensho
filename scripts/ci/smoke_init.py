@@ -1616,6 +1616,53 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         r = subprocess.run(
             [
                 str(binary), "send",
+                "--from", "smoke-declared",
+                "--allow-missing",
+                "--json",
+                "--target", str(socket_dir),
+                "harness-reviewer", "queued for declared instance",
+            ],
+            capture_output=True, text=True,
+        )
+        try:
+            declared_send_body = json.loads(r.stdout)
+        except Exception as e:  # noqa: BLE001
+            problems.append(f"send declared stopped --json returned invalid JSON: {e}\nstdout={r.stdout}\nstderr={r.stderr}")
+            declared_send_body = {}
+        if (
+            r.returncode != 0
+            or not declared_send_body.get("delivered")
+            or declared_send_body.get("to") != "harness-reviewer"
+            or declared_send_body.get("note") != "declared but not running; queued for next spawn/resume"
+            or "--allow-missing is deprecated" not in r.stderr
+        ):
+            problems.append(f"send declared stopped failed: rc={r.returncode}\nbody={declared_send_body}\nstdout={r.stdout}\nstderr={r.stderr}")
+        declared_mailbox = team_dir / "daemon" / "harness-reviewer" / "mailbox.jsonl"
+        try:
+            declared_messages = [json.loads(line) for line in declared_mailbox.read_text().splitlines() if line.strip()]
+        except Exception as e:  # noqa: BLE001
+            problems.append(f"send declared mailbox read failed: {e}\npath={declared_mailbox}")
+            declared_messages = []
+        if not any(m.get("from") == "smoke-declared" and m.get("body") == "queued for declared instance" for m in declared_messages):
+            problems.append(f"send declared stopped missing mailbox message: {declared_messages}")
+
+        r = subprocess.run(
+            [
+                str(binary), "send",
+                "--from", "smoke-typo",
+                "--allow-missing",
+                "--json",
+                "--target", str(socket_dir),
+                "manger", "typo should fail",
+            ],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0 or "did you mean \"manager\"?" not in r.stderr or "--allow-missing is deprecated" not in r.stderr:
+            problems.append(f"send typo did not fail helpfully: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
+
+        r = subprocess.run(
+            [
+                str(binary), "send",
                 "--from", "smoke-format",
                 "--format", "{{.To}}:{{.From}}:{{.Delivered}}",
                 "--target", str(socket_dir),
