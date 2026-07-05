@@ -32,7 +32,7 @@ event = "user_invocation"
 [instances.worker]
 agent         = "worker"
 ephemeral     = true
-replicas      = 3
+replicas      = 4
 reap_worktree = "on_merge"   # reap the job worktree + local branch after its PR merges; `agent-team job keep-worktree <id>` opts one job out
 token_budget  = "40M"
 time_budget   = "45m"
@@ -49,7 +49,7 @@ match.target = "worker"
 [instances.reviewer]
 agent       = "reviewer"
 ephemeral   = true
-replicas    = 2
+replicas    = 3
 token_budget = "10M"
 time_budget  = "30m"
 description = "Adversarial content reviewer for worker PRs. Reads, verifies, reports a verdict; never pushes."
@@ -178,7 +178,7 @@ match.target = "debt-auditor"
 [instances.platform-worker]
 agent         = "worker"
 ephemeral     = true
-replicas      = 2
+replicas      = 3
 reap_worktree = "on_merge"
 token_budget  = "40M"
 time_budget   = "45m"
@@ -360,7 +360,7 @@ pipelines   = ["ticket_to_pr"]
 # 24 hours; in-flight jobs are counted by the job origin team.
 # [budgets.delivery]
 # tokens_per_day = 200_000_000
-# jobs_in_flight = 4
+# jobs_in_flight = 6
 # allocation = "oversubscribe" # default; "reserve" debits outstanding grants
 schedules   = ["feedback-triage"]
 
