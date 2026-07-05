@@ -35,6 +35,16 @@ token_budget = "40M"                # per-run cap, enforced live (see layer 2)
 
 Admission check at dispatch: team over budget → queue with `reason=budget_exhausted` (not fail). `agent-team budget status` shows spend vs cap per team/window. Uses only data that already exists at reap.
 
+### The economic model (added after phase 1 shipped)
+
+Phase 1's team budgets are a governor: admission control, invisible to the governed. The full system is an economy — every team optimizes its output under constraints, which requires three properties the governor lacks:
+
+- **Allowances delegate down a hierarchy.** Operator sets team budgets; managers attach sub-allowances to the jobs they dispatch (`job create --budget-tokens 20M --budget-time 45m`); topology sets per-agent-type defaults. A sub-allowance never exceeds the parent's remaining headroom — allocation, not creation.
+- **Constraints are visible to the constrained.** An agent cannot optimize under a limit it cannot observe. Soft threshold crossings (default 50/80/100%) deliver `budget_notice` mailbox messages — model-visible mid-run via turn-boundary hook injection — and agents can self-query their remaining allowance. Live token signal comes from the Codex JSONL stream already written to child.log (read only at reap today).
+- **Escalation is the market mechanism.** At 80%, wrapping up and requesting an extension are both rational; `job extend --tokens/--by` serves operators and managers now, approval-gated extension requests route the decision to whoever owns the parent budget later.
+
+Soft and hard are different verbs: soft 100% notifies, flags triage, and lets work finish; hard cutoff (explicit `hard = true` or a multiplier) is the token analog of the time watchdog — kill, crash-finalize, freed slot, attention write-back. Time budgets unify under the same vocabulary and levels.
+
 ### Layer 2 — live usage watchdogs
 
 The Codex JSONL stream emits `turn.completed` usage *during* the run; Claude's OTel telemetry can report live token counts. A usage watchdog is the token analog of the time watchdog: kill (crash-finalize, slot freed, attention write-back) at N tokens. Catches the chatty-wedge failure mode time budgets miss. Same extend verb (`job extend --tokens 10M`) for operator judgment.
