@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jamesaud/agent-team/internal/feedback"
 	"github.com/jamesaud/agent-team/internal/job"
 )
 
@@ -74,6 +76,90 @@ func TestRootRepoFlagWorksAfterLegacyTargetCommand(t *testing.T) {
 	}
 }
 
+func TestRepoScopedCommandsResolveFromAgentTeamRootEnv(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC)
+	if err := job.Write(teamDir, &job.Job{
+		ID:        "squ-100",
+		Ticket:    "SQU-100",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	worktree := filepath.Join(t.TempDir(), "worker")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	chdirForFeedbackTest(t, worktree)
+	t.Setenv("AGENT_TEAM_ROOT", teamDir)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "job gate set",
+			args: []string{"job", "gate", "set", "squ-100", "tests", "--status", "pass", "--json"},
+			want: `"status":"pass"`,
+		},
+		{
+			name: "job show",
+			args: []string{"job", "show", "squ-100", "--json"},
+			want: `"ID":"squ-100"`,
+		},
+		{
+			name: "send",
+			args: []string{"send", "worker-squ-100", "review is ready", "--allow-missing", "--json"},
+			want: `"delivered":true`,
+		},
+		{
+			name: "feedback submit",
+			args: []string{"feedback", "submit", "repo resolver friction"},
+			want: "submitted fb-",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, stderr, err := runRootResolverCommand(tc.args...)
+			if err != nil {
+				t.Fatalf("%s failed: %v\nstderr=%s", tc.name, err, stderr)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("%s output missing %q:\n%s", tc.name, tc.want, out)
+			}
+		})
+	}
+
+	items, err := feedback.List(teamDir)
+	if err != nil {
+		t.Fatalf("list feedback: %v", err)
+	}
+	if len(items) != 1 || items[0].Body != "repo resolver friction" {
+		t.Fatalf("feedback items = %+v, want submitted item in primary repo", items)
+	}
+}
+
+func TestRepoScopedCommandMissingRepoErrorTeachesResolutionOptions(t *testing.T) {
+	outside := t.TempDir()
+	chdirForFeedbackTest(t, outside)
+	t.Setenv("AGENT_TEAM_ROOT", "")
+
+	_, stderr, err := runRootResolverCommand("job", "show", "squ-100")
+	if err == nil {
+		t.Fatalf("job show outside repo unexpectedly succeeded")
+	}
+	for _, want := range []string{"--repo/--target", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
 func TestRootTargetAliasSelectsRepoForRepoScopedCommands(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)
@@ -111,6 +197,16 @@ func TestRootTargetAliasSelectsRepoForRepoScopedCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runRootResolverCommand(args ...string) (string, string, error) {
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), stderr.String(), err
 }
 
 func TestRootRepoFlagWinsOverDoctorTargetAlias(t *testing.T) {

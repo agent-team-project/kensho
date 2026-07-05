@@ -71,10 +71,7 @@ func newJobSnapshotCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoRoot, err := filepath.Abs(effectiveRepoTarget(cmd, repo))
-			if err != nil {
-				return err
-			}
+			repoRoot := filepath.Dir(teamDir)
 			snapshot := collectJobSnapshot(teamDir, repoRoot, j, jobSnapshotOptions{
 				EventLimit: eventLimit,
 				EventSort:  eventSortMode,

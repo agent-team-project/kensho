@@ -744,10 +744,7 @@ func collectCurrentSnapshotDiffComparable(cmd *cobra.Command, defaultRepo string
 	if err != nil {
 		return snapshotDiffComparable{}, err
 	}
-	repoRoot, err := filepath.Abs(effectiveRepoTarget(cmd, defaultRepo))
-	if err != nil {
-		return snapshotDiffComparable{}, err
-	}
+	repoRoot := filepath.Dir(teamDir)
 	now := time.Now().UTC()
 	scope := strings.TrimSpace(target.Scope)
 	switch target.Kind {

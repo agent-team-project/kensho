@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/feedback"
-	"github.com/jamesaud/agent-team/internal/loader"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +44,7 @@ func newFeedbackSubmitCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback submit: %v\n", err)
 				return exitErr(2)
 			}
-			teamDir, err := resolveFeedbackTeamDir(cmd, repo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -86,7 +84,7 @@ func newFeedbackListCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback ls: %v\n", err)
 				return exitErr(2)
 			}
-			teamDir, err := resolveFeedbackTeamDir(cmd, repo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -116,7 +114,7 @@ func newFeedbackShowCmd() *cobra.Command {
 		Short: "Show one local feedback item.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			teamDir, err := resolveFeedbackTeamDir(cmd, repo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -150,7 +148,7 @@ func newFeedbackResolveCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team feedback resolve: exactly one of --ticket or --dismiss is required.")
 				return exitErr(2)
 			}
-			teamDir, err := resolveFeedbackTeamDir(cmd, repo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -265,122 +263,6 @@ func renderFeedbackContext(w io.Writer, ctx feedback.Context) {
 	if ctx.Build != "" {
 		fmt.Fprintf(w, "  build:    %s\n", ctx.Build)
 	}
-}
-
-func resolveFeedbackTeamDir(cmd *cobra.Command, repo string) (string, error) {
-	explicitRepo := repoFlagChanged(cmd, "repo")
-	target := effectiveRepoTarget(cmd, repo)
-	if !explicitRepo {
-		if envTeamDir := strings.TrimSpace(os.Getenv("AGENT_TEAM_ROOT")); envTeamDir != "" {
-			if teamDir, ok := existingFeedbackTeamDir(envTeamDir); ok {
-				return teamDir, nil
-			}
-		}
-	}
-	if root, ok := feedbackPrimaryRepoRoot(target); ok {
-		if teamDir, ok := existingFeedbackTeamDir(filepath.Join(root, loader.TeamDirName)); ok {
-			return teamDir, nil
-		}
-	}
-	abs, err := filepath.Abs(target)
-	if err != nil {
-		return "", exitErr(2)
-	}
-	if eval, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = eval
-	}
-	if teamDir, ok := existingFeedbackTeamDir(filepath.Join(abs, loader.TeamDirName)); ok {
-		return teamDir, nil
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback: %s not found — run `agent-team init` first.\n", filepath.Join(abs, loader.TeamDirName))
-	return "", exitErr(2)
-}
-
-func existingFeedbackTeamDir(teamDir string) (string, bool) {
-	abs, err := filepath.Abs(teamDir)
-	if err != nil {
-		return "", false
-	}
-	if eval, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = eval
-	}
-	st, err := os.Stat(abs)
-	if err != nil || !st.IsDir() {
-		return "", false
-	}
-	return abs, true
-}
-
-func feedbackPrimaryRepoRoot(start string) (string, bool) {
-	abs, err := filepath.Abs(start)
-	if err != nil {
-		return "", false
-	}
-	if eval, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = eval
-	}
-	for {
-		dotGit := filepath.Join(abs, ".git")
-		if st, err := os.Stat(dotGit); err == nil {
-			if st.IsDir() {
-				return abs, true
-			}
-			if root, ok := feedbackCommonGitRoot(abs, dotGit); ok {
-				return root, true
-			}
-			return abs, true
-		}
-		parent := filepath.Dir(abs)
-		if parent == abs {
-			return "", false
-		}
-		abs = parent
-	}
-}
-
-func feedbackCommonGitRoot(repoRoot, dotGit string) (string, bool) {
-	body, err := os.ReadFile(dotGit)
-	if err != nil {
-		return "", false
-	}
-	line := strings.TrimSpace(string(body))
-	gitDirRaw, ok := strings.CutPrefix(line, "gitdir:")
-	if !ok {
-		return "", false
-	}
-	gitDir := strings.TrimSpace(gitDirRaw)
-	if gitDir == "" {
-		return "", false
-	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(repoRoot, gitDir)
-	}
-	commonDir := gitDir
-	if rawCommon, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
-		commonDir = strings.TrimSpace(string(rawCommon))
-		if !filepath.IsAbs(commonDir) {
-			commonDir = filepath.Join(gitDir, commonDir)
-		}
-	}
-	commonDir = filepath.Clean(commonDir)
-	if filepath.Base(commonDir) == ".git" {
-		return filepath.Dir(commonDir), true
-	}
-	return repoRoot, true
-}
-
-func repoFlagChanged(cmd *cobra.Command, localFlag string) bool {
-	if cmd != nil {
-		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
-			return true
-		}
-		if flagName := strings.TrimSpace(localFlag); flagName != "" {
-			if flag := cmd.Flags().Lookup(flagName); flag != nil && flag.Changed {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func formatFeedbackTime(ts time.Time) string {

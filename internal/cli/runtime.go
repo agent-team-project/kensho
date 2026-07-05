@@ -1100,10 +1100,19 @@ func runtimeConfigPathForTarget(target string) string {
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return ""
+			break
 		}
 		abs = parent
 	}
+	if envTeamDir := strings.TrimSpace(os.Getenv("AGENT_TEAM_ROOT")); envTeamDir != "" {
+		if teamDir, ok := existingTeamDir(envTeamDir); ok {
+			candidate := filepath.Join(teamDir, "config.toml")
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 func renderRuntimeInfo(w fmtWriter, info runtimeInfo) {

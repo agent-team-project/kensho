@@ -194,18 +194,13 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		return exitErr(2)
 	}
 
-	target, err := filepath.Abs(effectiveRepoTarget(cmd, cfg.target))
+	repoResolved, err := resolvePrimaryRepo(cmd, cfg.target)
 	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
 	}
-	if eval, err := filepath.EvalSymlinks(target); err == nil {
-		target = eval
-	}
-	teamDir := filepath.Join(target, loader.TeamDirName)
-	if st, err := os.Stat(teamDir); err != nil || !st.IsDir() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %s not found — run `agent-team init` first.\n", teamDir)
-		return exitErr(2)
-	}
+	target := repoResolved.RepoRoot
+	teamDir := repoResolved.TeamDir
 	rt, err := runtimeFromConfigWithOverrides(filepath.Join(teamDir, "config.toml"), runtimeSelection{
 		Kind:   cfg.runtimeKind,
 		Binary: cfg.runtimeBinary,

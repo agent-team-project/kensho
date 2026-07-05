@@ -3691,25 +3691,176 @@ func flattenForPrint(t map[string]any, prefix string) map[string]any {
 	return out
 }
 
-// resolveTeamDir resolves cfg.target into the absolute .agent_team/ path,
-// emitting a stderr message and ExitCode(2) if missing — matches the Python
-// helper of the same name.
+// resolveTeamDir resolves a repo-scoped command into the absolute .agent_team/
+// path, emitting a teaching stderr message and ExitCode(2) if missing.
 func resolveTeamDir(cmd *cobra.Command, target string) (string, error) {
-	target = effectiveRepoTarget(cmd, target)
-	abs, err := filepath.Abs(target)
+	resolved, err := resolvePrimaryRepo(cmd, target)
 	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return "", exitErr(2)
+	}
+	return resolved.TeamDir, nil
+}
+
+type primaryRepoResolution struct {
+	RepoRoot string
+	TeamDir  string
+}
+
+func resolvePrimaryRepo(cmd *cobra.Command, target string) (primaryRepoResolution, error) {
+	candidate, explicit := selectedRepoTarget(cmd, target)
+	if explicit {
+		return resolveExplicitRepo(candidate)
+	}
+	if teamDir, ok := findTeamDirInAncestors(candidate); ok {
+		return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
+	}
+	if envTeamDir := strings.TrimSpace(os.Getenv("AGENT_TEAM_ROOT")); envTeamDir != "" {
+		if teamDir, ok := existingTeamDir(envTeamDir); ok {
+			return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
+		}
+	}
+	if root, ok := primaryGitRepoRoot(candidate); ok {
+		if teamDir, ok := existingTeamDir(filepath.Join(root, loader.TeamDirName)); ok {
+			return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
+		}
+	}
+	return primaryRepoResolution{}, fmt.Errorf("no %s found for repo-scoped command; pass --repo/--target <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", loader.TeamDirName, loader.TeamDirName, loader.TeamDirName)
+}
+
+func resolveExplicitRepo(target string) (primaryRepoResolution, error) {
+	abs, err := cleanAbsPath(target)
+	if err != nil {
+		return primaryRepoResolution{}, err
+	}
+	if filepath.Base(abs) == loader.TeamDirName {
+		if teamDir, ok := existingTeamDir(abs); ok {
+			return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
+		}
+		return primaryRepoResolution{}, fmt.Errorf("%s is not an existing %s directory", abs, loader.TeamDirName)
+	}
+	teamDir := filepath.Join(abs, loader.TeamDirName)
+	if teamDir, ok := existingTeamDir(teamDir); ok {
+		return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
+	}
+	return primaryRepoResolution{}, fmt.Errorf("%s not found; pass --repo/--target <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", teamDir, loader.TeamDirName, loader.TeamDirName)
+}
+
+func selectedRepoTarget(cmd *cobra.Command, target string) (string, bool) {
+	if cmd != nil {
+		if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return value, true
+			}
+		}
+		if flag := cmd.Flags().Lookup("repo"); flag != nil && flag.Changed {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return value, true
+			}
+		}
+		if flag := cmd.Flags().Lookup("target"); flag != nil && flag.Changed {
+			value := strings.TrimSpace(flag.Value.String())
+			if value != "" && (cmd.Flags().Lookup("repo") == nil || value == strings.TrimSpace(target)) {
+				return value, true
+			}
+		}
+	}
+	return target, false
+}
+
+func findTeamDirInAncestors(start string) (string, bool) {
+	abs, err := cleanAbsPath(start)
+	if err != nil {
+		return "", false
+	}
+	for {
+		if teamDir, ok := existingTeamDir(filepath.Join(abs, loader.TeamDirName)); ok {
+			return teamDir, true
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return "", false
+		}
+		abs = parent
+	}
+}
+
+func existingTeamDir(teamDir string) (string, bool) {
+	abs, err := cleanAbsPath(teamDir)
+	if err != nil {
+		return "", false
+	}
+	st, err := os.Stat(abs)
+	if err != nil || !st.IsDir() {
+		return "", false
+	}
+	return abs, true
+}
+
+func primaryGitRepoRoot(start string) (string, bool) {
+	abs, err := cleanAbsPath(start)
+	if err != nil {
+		return "", false
+	}
+	for {
+		dotGit := filepath.Join(abs, ".git")
+		if st, err := os.Stat(dotGit); err == nil {
+			if st.IsDir() {
+				return abs, true
+			}
+			if root, ok := commonGitRepoRoot(abs, dotGit); ok {
+				return root, true
+			}
+			return abs, true
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return "", false
+		}
+		abs = parent
+	}
+}
+
+func commonGitRepoRoot(repoRoot, dotGit string) (string, bool) {
+	body, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSpace(string(body))
+	gitDirRaw, ok := strings.CutPrefix(line, "gitdir:")
+	if !ok {
+		return "", false
+	}
+	gitDir := strings.TrimSpace(gitDirRaw)
+	if gitDir == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoRoot, gitDir)
+	}
+	commonDir := gitDir
+	if rawCommon, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		commonDir = strings.TrimSpace(string(rawCommon))
+		if !filepath.IsAbs(commonDir) {
+			commonDir = filepath.Join(gitDir, commonDir)
+		}
+	}
+	commonDir = filepath.Clean(commonDir)
+	if filepath.Base(commonDir) == ".git" {
+		return filepath.Dir(commonDir), true
+	}
+	return repoRoot, true
+}
+
+func cleanAbsPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
 	}
 	if eval, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = eval
 	}
-	teamDir := filepath.Join(abs, loader.TeamDirName)
-	st, err := os.Stat(teamDir)
-	if err != nil || !st.IsDir() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %s not found — run `agent-team init` first.\n", teamDir)
-		return "", exitErr(2)
-	}
-	return teamDir, nil
+	return abs, nil
 }
 
 func effectiveRepoTarget(cmd *cobra.Command, target string) string {
