@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'agent-team Developer Docs',
   description: 'Developer documentation for agent-team, a file-backed CLI and daemon for orchestrating teams of LLM agents.',
-  cleanUrls: true,
+  cleanUrls: false, // ReadTheDocs static hosting does not rewrite clean URLs
   lastUpdated: true,
   markdown: {
     lineNumbers: true
