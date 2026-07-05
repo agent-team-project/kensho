@@ -63,6 +63,17 @@ phase_transitions = ["blocked"]
 # "0" disables idle repeats.
 idle_renotify = "0"
 
+[feedback]
+# Optional default framework-feedback route name used by triage.
+# upstream = "agent-team"
+
+# Optional local machine route. `agent-team feedback submit --route agent-team`
+# dials <root>/.agent_team/daemon.sock and delivers into that repo's feedback
+# store. `--category incident` also pings the receiving manager mailbox.
+# [feedback.routes.agent-team]
+# type = "local"
+# root = "../agent-team"
+
 [linear]
 # Used only when [pm].provider = "linear".
 #

@@ -1376,8 +1376,9 @@ agent-team feedback submit <text> [flags]
 Flags:
 
 ```text
-      --category string   Feedback category: friction, bug, idea, or docs. (default "friction")
+      --category string   Feedback category: friction, bug, idea, docs, or incident. (default "friction")
       --repo string       Repo root containing .agent_team. (default "<repo>")
+      --route string      Feedback route name from [feedback.routes] in config.toml.
 ```
 
 ## `agent-team graph`

@@ -67,6 +67,9 @@ jobs:
       - name: CLI smoke test (init + template + doctor)
         run: python3 scripts/ci/smoke_init.py bin/agent-team
 
+      - name: Local feedback delivery demo
+        run: python3 scripts/demo/local_feedback_delivery.py bin/agent-team
+
       - name: Local orchestration demo (fake Codex runtime)
         run: python3 scripts/demo/local_orchestration.py bin/agent-team --runtime codex
 

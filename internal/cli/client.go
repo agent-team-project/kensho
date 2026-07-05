@@ -16,6 +16,7 @@ import (
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/feedback"
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/topology"
 )
@@ -151,6 +152,14 @@ type messageResponse struct {
 	ID          string    `json:"id"`
 	TS          time.Time `json:"ts"`
 	Note        string    `json:"note,omitempty"`
+}
+
+type feedbackDeliverResponse struct {
+	Delivered     bool      `json:"delivered"`
+	ID            string    `json:"id"`
+	TS            time.Time `json:"ts"`
+	ManagerPinged bool      `json:"manager_pinged,omitempty"`
+	Note          string    `json:"note,omitempty"`
 }
 
 type daemonReconcileResponse struct {
@@ -305,6 +314,34 @@ func (c *daemonClient) SendMessage(to, from, body string) (*messageResponse, err
 	var out messageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("daemon: message decode: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *daemonClient) FeedbackDeliver(input feedback.DeliverInput) (*feedbackDeliverResponse, error) {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/feedback/deliver", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if value := origin.HeaderValue(input.Origin); value != "" {
+		req.Header.Set(origin.HeaderName, value)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: feedback deliver: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: feedback deliver: %s", readErrorBody(resp))
+	}
+	var out feedbackDeliverResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: feedback deliver decode: %w", err)
 	}
 	return &out, nil
 }

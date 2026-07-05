@@ -29,7 +29,7 @@ One ticket per observation. The maintainer side watches the workspace continuous
 
 The tiers above are for humans and supervising sessions. Individual agents inside a deployment have their own zero-friction path (SQU-79/SQU-80):
 
-- **Capture** — any agent, mid-job: `agent-team feedback submit "<one sentence>"`. The harness stamps instance, agent, job, ticket, pipeline step, runtime, and build identity automatically; a fingerprint groups near-duplicate reports so frequency data accrues without anyone counting. The store is local (`.agent_team/feedback/`) and PM-provider-free — no credentials, works in worktrees, works in `[pm].provider = "none"` repos.
+- **Capture** — any agent, mid-job: `agent-team feedback submit "<one sentence>"`. The harness stamps instance, agent, job, ticket, pipeline step, runtime, build identity, and source origin automatically; a fingerprint groups near-duplicate reports so frequency data accrues without anyone counting. The store is local (`.agent_team/feedback/`) and PM-provider-free — no credentials, works in worktrees, works in `[pm].provider = "none"` repos.
 - **Triage** — the `feedback-triage` schedule (every 12 hours by default) spawns an ephemeral manager running the `triage-feedback` skill: it clusters new feedback plus system pain signals (repeated bounces, infra-signature repeats, watchdog kills), then materializes tickets, folds evidence into existing ones, or dismisses with a recorded reason — and resolves every store item so nothing is re-litigated.
 - **Routing** — `[feedback]` in `config.toml` declares named destinations (`[feedback.routes.<name>]` with `kind`/`team_key`/`label`). Deployment-local issues go to the deployment's own board; framework issues go to the `upstream` route (this workspace); other projects' issues go to their named route. Materialized tickets land in Backlog — never any team's agent-dispatch column — and non-local routes are capped per sweep. Non-local Linear tickets also carry `source-project:<project.id>` plus the `agent-team-origin: ...` footer so maintainers can trace which deployment filed them.
 
@@ -50,6 +50,21 @@ label    = "feedback"
 ```
 
 Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` ticket — the triage loop is periodic by design (12h default), and incidents should not wait for it.
+
+For immediate machine-local delivery to another checked-out repo, use a local
+route instead of a Linear route:
+
+```toml
+[feedback.routes.agent-team]
+type = "local"
+root = "/path/to/agent-team"
+```
+
+Then submit with `agent-team feedback submit --route agent-team "<sentence>"`.
+The item lands in the receiving repo's feedback store, with the sender origin
+visible in `feedback show`. `--category incident` also posts a mailbox ping to
+the receiving `manager` instance. Unknown routes or unavailable target daemons
+retain the item in the sender's local store rather than dropping it.
 
 ## What you can expect back
 

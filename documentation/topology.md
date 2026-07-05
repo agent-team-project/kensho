@@ -188,7 +188,7 @@ channels    = ["supervisor"]
 enforce = false           # phase 1: audit-only, log violations without blocking
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*:own"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own", "feedback.deliver"]
 
 [authority.agents.manager]
 allow = ["*"]
@@ -438,7 +438,7 @@ defaults to false.
 enforce = false
 
 [authority.agents.worker]
-allow = ["inbox.send", "channel.*", "job.gate.*:own"]
+allow = ["inbox.send", "channel.*", "job.gate.*:own", "feedback.deliver"]
 
 [authority.teams.platform]
 allow = ["event.publish", "queue.*"]

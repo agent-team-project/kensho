@@ -1,9 +1,12 @@
 package feedback
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 func TestFingerprintNormalizesBody(t *testing.T) {
@@ -115,5 +118,59 @@ func TestResolveRequiresOneDisposition(t *testing.T) {
 	}
 	if _, err := Resolve(teamDir, item.ID, ResolveInput{Ticket: "SQU-1", Reason: "no"}); err == nil {
 		t.Fatalf("Resolve accepted both dispositions")
+	}
+}
+
+func TestSubmitReadPreservesIncidentAndOrigin(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	item, err := Submit(teamDir, SubmitInput{
+		Body:     "daemon socket is down",
+		Category: CategoryIncident,
+		Origin: origin.Envelope{
+			Project:  "source-project",
+			Team:     "platform",
+			Instance: "worker-squ-126",
+			Agent:    "worker",
+			Job:      "squ-126",
+		},
+		Now: time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	read, err := Read(teamDir, item.ID)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if read.Category != CategoryIncident {
+		t.Fatalf("category = %q, want incident", read.Category)
+	}
+	if read.Origin == nil || read.Origin.Project != "source-project" || read.Origin.Agent != "worker" || read.Origin.Job != "squ-126" {
+		t.Fatalf("origin = %+v", read.Origin)
+	}
+}
+
+func TestResolveRouteLocalSupportsTypeAndRelativeRoot(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatalf("mkdir team dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[feedback.routes.receiver]
+type = "local"
+root = "../receiver"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	route, err := ResolveRoute(teamDir, "receiver")
+	if err != nil {
+		t.Fatalf("ResolveRoute: %v", err)
+	}
+	if route.Type != "local" || route.Root != filepath.Clean(filepath.Join(root, "..", "receiver")) {
+		t.Fatalf("route = %+v", route)
+	}
+	if _, err := ResolveRoute(teamDir, "missing"); err == nil {
+		t.Fatalf("ResolveRoute accepted missing route")
 	}
 }

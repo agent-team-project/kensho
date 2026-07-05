@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +188,133 @@ func TestFeedbackResolveRequiresOneDispositionCLI(t *testing.T) {
 	if _, stderr, err := runFeedbackCommand("feedback", "resolve", id, "--ticket", "SQU-80", "--dismiss", "no"); err == nil {
 		t.Fatalf("resolve with both dispositions succeeded; stderr=%s", stderr)
 	}
+}
+
+func TestFeedbackSubmitUnknownRouteRetainsLocally(t *testing.T) {
+	root, teamDir := feedbackTestRepo(t)
+	chdirForFeedbackTest(t, root)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[project]
+id = "source-project"
+
+[runtime]
+kind = "codex"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("AGENT_TEAM_ROOT", teamDir)
+	t.Setenv("AGENT_TEAM_INSTANCE", "worker-squ-126")
+	t.Setenv("AGENT_TEAM_ORIGIN_AGENT", "worker")
+	t.Setenv("AGENT_TEAM_JOB_ID", "squ-126")
+
+	out, stderr, err := runFeedbackCommand("feedback", "submit", "target route is missing", "--route", "receiver", "--category", "incident")
+	if err != nil {
+		t.Fatalf("feedback submit fallback: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(out, "submitted fb-") || !strings.Contains(stderr, "retained locally") {
+		t.Fatalf("out=%q stderr=%q, want local retention notice", out, stderr)
+	}
+	items, err := feedback.List(teamDir)
+	if err != nil {
+		t.Fatalf("list feedback: %v", err)
+	}
+	if len(items) != 1 || items[0].Category != feedback.CategoryIncident {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Origin == nil || items[0].Origin.Project != "source-project" || items[0].Origin.Agent != "worker" {
+		t.Fatalf("origin = %+v", items[0].Origin)
+	}
+}
+
+func TestFeedbackSubmitLocalRouteDeliversToTargetDaemon(t *testing.T) {
+	sourceRoot, sourceTeamDir := feedbackTestRepo(t)
+	targetRoot, targetTeamDir := feedbackTestRepo(t)
+	if err := os.WriteFile(filepath.Join(sourceTeamDir, "config.toml"), []byte(`
+[project]
+id = "source-project"
+
+[runtime]
+kind = "codex"
+
+[feedback.routes.receiver]
+type = "local"
+root = "`+targetRoot+`"
+`), 0o644); err != nil {
+		t.Fatalf("write source config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetTeamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatalf("write target instances: %v", err)
+	}
+	startFeedbackTestDaemon(t, targetTeamDir)
+	chdirForFeedbackTest(t, sourceRoot)
+	t.Setenv("AGENT_TEAM_ROOT", sourceTeamDir)
+	t.Setenv("AGENT_TEAM_INSTANCE", "worker-squ-126")
+	t.Setenv("AGENT_TEAM_ORIGIN_AGENT", "worker")
+	t.Setenv("AGENT_TEAM_JOB_ID", "squ-126")
+	t.Setenv("AGENT_TEAM_TICKET", "SQU-126")
+
+	out, stderr, err := runFeedbackCommand("feedback", "submit", "target daemon socket is unreachable", "--route", "receiver", "--category", "incident")
+	if err != nil {
+		t.Fatalf("feedback submit route: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(out, "delivered fb-") || stderr != "" {
+		t.Fatalf("out=%q stderr=%q, want clean delivery", out, stderr)
+	}
+	if items, err := feedback.List(sourceTeamDir); err != nil {
+		t.Fatalf("list source feedback: %v", err)
+	} else if len(items) != 0 {
+		t.Fatalf("source retained items = %+v, want none", items)
+	}
+	items, err := feedback.List(targetTeamDir)
+	if err != nil {
+		t.Fatalf("list target feedback: %v", err)
+	}
+	if len(items) != 1 || items[0].Category != feedback.CategoryIncident || items[0].Body != "target daemon socket is unreachable" {
+		t.Fatalf("target items = %+v", items)
+	}
+	if items[0].Origin == nil || items[0].Origin.Project != "source-project" || items[0].Origin.Agent != "worker" {
+		t.Fatalf("target origin = %+v", items[0].Origin)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(targetTeamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager mailbox: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, items[0].ID) {
+		t.Fatalf("manager mailbox = %+v", messages)
+	}
+}
+
+func startFeedbackTestDaemon(t *testing.T, teamDir string) *daemon.Daemon {
+	t.Helper()
+	d, err := daemon.New(daemon.Config{
+		TeamDir:         teamDir,
+		LogOut:          io.Discard,
+		SpawnerOverride: fakeSpawnerForTest(t, 30*time.Second),
+	})
+	if err != nil {
+		t.Fatalf("daemon.New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		_ = d.Shutdown(context.Background())
+	})
+	go func() { _ = d.Run(ctx) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		client, err := newDaemonClient(teamDir)
+		if err == nil {
+			if _, err := client.Status(); err == nil {
+				return d
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("daemon socket never became ready at %s", daemon.SocketPath(teamDir))
+	return nil
 }
 
 func feedbackTestRepo(t *testing.T) (string, string) {

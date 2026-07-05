@@ -3,6 +3,7 @@ package feedback
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,8 +16,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
-	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
@@ -27,6 +28,7 @@ const (
 	CategoryBug      Category = "bug"
 	CategoryIdea     Category = "idea"
 	CategoryDocs     Category = "docs"
+	CategoryIncident Category = "incident"
 )
 
 type Status string
@@ -44,14 +46,15 @@ var feedbackIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 // Item is one agent-submitted feedback report stored under
 // `.agent_team/feedback/items/<id>.toml`.
 type Item struct {
-	ID          string      `toml:"id"`
-	TS          time.Time   `toml:"ts"`
-	Category    Category    `toml:"category"`
-	Body        string      `toml:"body"`
-	Status      Status      `toml:"status"`
-	Fingerprint string      `toml:"fingerprint"`
-	Context     Context     `toml:"context,omitempty"`
-	Resolution  *Resolution `toml:"resolution,omitempty"`
+	ID          string           `toml:"id"`
+	TS          time.Time        `toml:"ts"`
+	Category    Category         `toml:"category"`
+	Body        string           `toml:"body"`
+	Status      Status           `toml:"status"`
+	Fingerprint string           `toml:"fingerprint"`
+	Context     Context          `toml:"context,omitempty"`
+	Origin      *origin.Envelope `toml:"origin,omitempty"`
+	Resolution  *Resolution      `toml:"resolution,omitempty"`
 }
 
 // Context is captured automatically by the CLI; submitters only provide body
@@ -78,7 +81,16 @@ type SubmitInput struct {
 	Body     string
 	Category Category
 	Context  Context
+	Origin   origin.Envelope
 	Now      time.Time
+}
+
+// DeliverInput is the daemon wire payload for cross-repo feedback delivery.
+type DeliverInput struct {
+	Body     string          `json:"body"`
+	Category Category        `json:"category"`
+	Context  Context         `json:"context,omitempty"`
+	Origin   origin.Envelope `json:"origin,omitempty"`
 }
 
 type ResolveInput struct {
@@ -137,7 +149,7 @@ func ParseCategory(raw string) (Category, error) {
 
 func ValidCategory(category Category) bool {
 	switch category {
-	case CategoryFriction, CategoryBug, CategoryIdea, CategoryDocs:
+	case CategoryFriction, CategoryBug, CategoryIdea, CategoryDocs, CategoryIncident:
 		return true
 	default:
 		return false
@@ -194,6 +206,9 @@ func NewItem(input SubmitInput) (*Item, error) {
 		Fingerprint: fp,
 		Context:     input.Context.clean(),
 	}
+	if env := input.Origin.Clean(); !env.Empty() {
+		item.Origin = &env
+	}
 	if err := Validate(item); err != nil {
 		return nil, err
 	}
@@ -242,6 +257,14 @@ func Read(teamDir, rawID string) (*Item, error) {
 	item.TS = item.TS.UTC()
 	if item.Resolution != nil {
 		item.Resolution.TS = item.Resolution.TS.UTC()
+	}
+	if item.Origin != nil {
+		env := item.Origin.Clean()
+		if env.Empty() {
+			item.Origin = nil
+		} else {
+			item.Origin = &env
+		}
 	}
 	if err := Validate(&item); err != nil {
 		return nil, fmt.Errorf("feedback %s: %w", item.ID, err)
@@ -472,7 +495,7 @@ func CaptureContext(teamDir string, info buildinfo.Info) Context {
 		Build:    buildLabel(info),
 	}
 	if ctx.Instance != "" && strings.TrimSpace(teamDir) != "" {
-		if meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), ctx.Instance); err == nil && meta != nil {
+		if meta, err := readContextMetadata(teamDir, ctx.Instance); err == nil && meta != nil {
 			ctx.Agent = firstNonEmpty(ctx.Agent, meta.Agent)
 			ctx.Job = firstNonEmpty(ctx.Job, meta.Job)
 			ctx.Ticket = firstNonEmpty(ctx.Ticket, meta.Ticket)
@@ -497,6 +520,63 @@ func CaptureContext(teamDir string, info buildinfo.Info) Context {
 		}
 	}
 	return ctx.clean()
+}
+
+func CaptureOrigin(teamDir string, info buildinfo.Info) origin.Envelope {
+	env := origin.Envelope{
+		Project:  strings.TrimSpace(os.Getenv("AGENT_TEAM_PROJECT")),
+		Team:     strings.TrimSpace(os.Getenv("AGENT_TEAM_TEAM")),
+		Instance: firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_INSTANCE"), os.Getenv("AGENT_TEAM_INSTANCE")),
+		Agent:    strings.TrimSpace(os.Getenv("AGENT_TEAM_ORIGIN_AGENT")),
+		Job:      firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_JOB"), os.Getenv("AGENT_TEAM_JOB_ID")),
+		Trigger:  strings.TrimSpace(os.Getenv("AGENT_TEAM_ORIGIN_TRIGGER")),
+		Build:    strings.TrimSpace(os.Getenv("AGENT_TEAM_ORIGIN_BUILD")),
+	}
+	if env.Instance != "" && strings.TrimSpace(teamDir) != "" {
+		if meta, err := readContextMetadata(teamDir, env.Instance); err == nil && meta != nil {
+			fallback := meta.Origin
+			if fallback.Instance == "" {
+				fallback.Instance = meta.Instance
+			}
+			if fallback.Agent == "" {
+				fallback.Agent = meta.Agent
+			}
+			if fallback.Job == "" {
+				fallback.Job = meta.Job
+			}
+			env = origin.Merge(env, fallback)
+		}
+	}
+	if env.Project == "" && strings.TrimSpace(teamDir) != "" {
+		if id, err := origin.ProjectID(teamDir); err == nil {
+			env.Project = id
+		}
+	}
+	if env.Build == "" {
+		env.Build = info.Display()
+	}
+	return env.Clean()
+}
+
+type contextMetadata struct {
+	Instance string          `json:"instance"`
+	Agent    string          `json:"agent"`
+	Job      string          `json:"job"`
+	Ticket   string          `json:"ticket"`
+	Origin   origin.Envelope `json:"origin"`
+	Runtime  string          `json:"runtime"`
+}
+
+func readContextMetadata(teamDir, instance string) (*contextMetadata, error) {
+	body, err := os.ReadFile(filepath.Join(teamDir, "daemon", instance, "meta.json"))
+	if err != nil {
+		return nil, err
+	}
+	var meta contextMetadata
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return nil, fmt.Errorf("metadata: parse %s: %w", instance, err)
+	}
+	return &meta, nil
 }
 
 func newID(ts time.Time, fingerprint string) string {

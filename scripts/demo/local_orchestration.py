@@ -911,18 +911,22 @@ def enable_demo_schedule(repo: Path) -> None:
     if manager_trigger not in body:
         raise DemoError("bundled topology no longer has the expected manager dispatch trigger")
     body = body.replace(manager_trigger, schedule_trigger, 1)
-    worker_replicas = None
-    for candidate in (
-        'replicas      = 4\nreap_worktree = "on_merge"',
-        'replicas      = 3\nreap_worktree = "on_merge"',
-    ):
-        if candidate in body:
-            worker_replicas = candidate
-            break
-    if worker_replicas is None:
-        raise DemoError("bundled topology no longer has the expected worker replica/reap lines")
-    worker_replicas_with_lock = worker_replicas.replace("\nreap_worktree", '\nlocks         = ["demo"]\nreap_worktree')
-    body = body.replace(worker_replicas, worker_replicas_with_lock, 1)
+    worker_header = textwrap.dedent(
+        """\
+        [instances.worker]
+        agent         = "worker"
+        ephemeral     = true
+        """
+    )
+    worker_start = body.find(worker_header)
+    if worker_start == -1:
+        raise DemoError("bundled topology no longer has the expected worker header")
+    worker_reap = 'reap_worktree = "on_merge"'
+    worker_reap_at = body.find(worker_reap, worker_start)
+    next_instance_at = body.find("\n[instances.", worker_start + len(worker_header))
+    if worker_reap_at == -1 or (next_instance_at != -1 and worker_reap_at > next_instance_at):
+        raise DemoError("bundled topology no longer has the expected worker reap line")
+    body = body[:worker_reap_at] + 'locks         = ["demo"]\n' + body[worker_reap_at:]
     pipeline_header = textwrap.dedent(
         """\
         [pipelines.ticket_to_pr]

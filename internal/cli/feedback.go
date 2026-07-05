@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/feedback"
+	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +32,7 @@ func newFeedbackSubmitCmd() *cobra.Command {
 	var (
 		repo        string
 		categoryRaw string
+		route       string
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -48,11 +51,27 @@ func newFeedbackSubmitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			item, err := feedback.Submit(teamDir, feedback.SubmitInput{
+			input := feedback.SubmitInput{
 				Body:     args[0],
 				Category: category,
 				Context:  feedback.CaptureContext(teamDir, BuildInfo()),
-			})
+				Origin:   feedback.CaptureOrigin(teamDir, BuildInfo()),
+			}
+			if strings.TrimSpace(route) != "" {
+				res, fallback, err := submitFeedbackRoute(teamDir, route, input)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback submit: %v\n", err)
+					return exitErr(1)
+				}
+				if fallback != "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback submit: %s\n", fallback)
+					fmt.Fprintf(cmd.OutOrStdout(), "submitted %s\n", res.ID)
+					return nil
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "delivered %s via %s\n", res.ID, strings.TrimSpace(route))
+				return nil
+			}
+			item, err := feedback.Submit(teamDir, input)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback submit: %v\n", err)
 				return exitErr(1)
@@ -62,8 +81,49 @@ func newFeedbackSubmitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringVar(&categoryRaw, "category", string(feedback.CategoryFriction), "Feedback category: friction, bug, idea, or docs.")
+	cmd.Flags().StringVar(&categoryRaw, "category", string(feedback.CategoryFriction), "Feedback category: friction, bug, idea, docs, or incident.")
+	cmd.Flags().StringVar(&route, "route", "", "Feedback route name from [feedback.routes] in config.toml.")
 	return cmd
+}
+
+func submitFeedbackRoute(teamDir, routeName string, input feedback.SubmitInput) (*feedback.Item, string, error) {
+	route, err := feedback.ResolveRoute(teamDir, routeName)
+	if err != nil {
+		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q unavailable (%v); retained locally", strings.TrimSpace(routeName), err))
+	}
+	if route.Type != "local" {
+		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q has unsupported type %q for direct submit; retained locally", route.Name, route.Type))
+	}
+	targetTeamDir := filepath.Join(route.Root, teamDirName)
+	client, err := newDaemonClientWithTimeout(targetTeamDir, 5*time.Second)
+	if err != nil {
+		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q daemon unavailable (%v); retained locally", route.Name, err))
+	}
+	resp, err := client.FeedbackDeliver(feedback.DeliverInput{
+		Body:     input.Body,
+		Category: input.Category,
+		Context:  input.Context,
+		Origin:   input.Origin,
+	})
+	if err != nil {
+		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q delivery failed (%v); retained locally", route.Name, err))
+	}
+	return &feedback.Item{
+		ID:       resp.ID,
+		TS:       resp.TS,
+		Category: input.Category,
+		Body:     strings.TrimSpace(input.Body),
+		Status:   feedback.StatusNew,
+		Context:  input.Context,
+	}, "", nil
+}
+
+func retainFeedbackLocally(teamDir string, input feedback.SubmitInput, reason string) (*feedback.Item, string, error) {
+	item, err := feedback.Submit(teamDir, input)
+	if err != nil {
+		return nil, "", err
+	}
+	return item, reason + " as " + item.ID, nil
 }
 
 func newFeedbackListCmd() *cobra.Command {
@@ -219,6 +279,9 @@ func renderFeedbackDetail(w io.Writer, item *feedback.Item) {
 	fmt.Fprintf(w, "TS:          %s\n", formatFeedbackTime(item.TS))
 	fmt.Fprintf(w, "Fingerprint: %s\n", item.Fingerprint)
 	fmt.Fprintf(w, "Body:        %s\n", item.Body)
+	if item.Origin != nil && !item.Origin.Clean().Empty() {
+		fmt.Fprintf(w, "Origin:      %s\n", origin.HeaderValue(*item.Origin))
+	}
 	renderFeedbackContext(w, item.Context)
 	if item.Resolution != nil {
 		fmt.Fprintln(w, "Resolution:")

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/feedback"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
 )
@@ -845,6 +846,81 @@ allow = ["inbox.send"]
 	}
 	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "inbox.send" {
 		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
+func TestHTTP_FeedbackDeliverStoresOriginPingsIncidentAndAudits(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[authority.agents.worker]
+allow = ["inbox.send"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/feedback/deliver", bytes.NewReader([]byte(`{
+		"body":"target daemon socket is unreachable",
+		"category":"incident",
+		"context":{"instance":"worker-squ-126","job":"squ-126","ticket":"SQU-126"}
+	}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{
+		Project:  "source-project",
+		Team:     "platform",
+		Agent:    "worker",
+		Instance: "worker-squ-126",
+		Job:      "squ-126",
+	}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("feedback deliver: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var out struct {
+		Delivered     bool   `json:"delivered"`
+		ID            string `json:"id"`
+		ManagerPinged bool   `json:"manager_pinged"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !out.Delivered || out.ID == "" || !out.ManagerPinged {
+		t.Fatalf("response = %+v", out)
+	}
+	items, err := feedback.List(teamDir)
+	if err != nil {
+		t.Fatalf("feedback list: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != out.ID || items[0].Category != feedback.CategoryIncident {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Origin == nil || items[0].Origin.Project != "source-project" || items[0].Origin.Agent != "worker" {
+		t.Fatalf("origin = %+v", items[0].Origin)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("ReadMessages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, out.ID) || !strings.Contains(messages[0].Body, "source-project") {
+		t.Fatalf("manager messages = %+v", messages)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" {
+		t.Fatalf("lifecycle events = %+v", events)
 	}
 }
 

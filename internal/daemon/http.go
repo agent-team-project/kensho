@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/feedback"
 	"github.com/agent-team-project/agent-team/internal/intake"
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/pmprovider"
@@ -453,6 +454,52 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		}
 		if target.Note != "" {
 			resp["note"] = target.Note
+		}
+		writeJSON(w, http.StatusOK, resp)
+	})
+
+	mux.HandleFunc("/v1/feedback/deliver", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if strings.TrimSpace(teamDir) == "" {
+			writeError(w, http.StatusServiceUnavailable, "team directory not configured")
+			return
+		}
+		var body feedback.DeliverInput
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		category := body.Category
+		if category == "" {
+			category = feedback.CategoryFriction
+		}
+		sender, _ := origin.ParseHeaderValue(r.Header.Get(origin.HeaderName))
+		sender = origin.Merge(sender, body.Origin).Clean()
+		auditor.audit(r, "feedback.deliver", "feedback", sender)
+		item, err := feedback.Submit(teamDir, feedback.SubmitInput{
+			Body:     body.Body,
+			Category: category,
+			Context:  body.Context,
+			Origin:   sender,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		resp := map[string]any{
+			"delivered": true,
+			"id":        item.ID,
+			"ts":        item.TS,
+		}
+		if item.Category == feedback.CategoryIncident {
+			pinged, note := deliverIncidentFeedbackPing(m, events, teamDir, item)
+			resp["manager_pinged"] = pinged
+			if note != "" {
+				resp["note"] = note
+			}
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})
@@ -1020,6 +1067,47 @@ func eventResponseMap(outcomes []EventOutcome) map[string]any {
 		"rejected":   rejected,
 		"outcomes":   outcomes,
 	}
+}
+
+func deliverIncidentFeedbackPing(m *InstanceManager, events *EventResolver, teamDir string, item *feedback.Item) (bool, string) {
+	if m == nil || item == nil {
+		return false, "manager ping skipped"
+	}
+	target, err := resolveHTTPMailboxTarget(m, events, teamDir, "manager")
+	if err != nil {
+		return false, err.Error()
+	}
+	if !target.Valid() {
+		return false, MailboxUnknownTargetMessage("manager", target.Suggestions)
+	}
+	msg := &Message{
+		From: "feedback.deliver",
+		To:   "manager",
+		Body: formatIncidentFeedbackMessage(item),
+		TS:   time.Now().UTC(),
+	}
+	if err := AppendMessage(m.daemonRoot, "manager", msg); err != nil {
+		return false, err.Error()
+	}
+	if target.Note != "" {
+		return true, target.Note
+	}
+	return true, ""
+}
+
+func formatIncidentFeedbackMessage(item *feedback.Item) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Incident feedback delivered: %s\n", item.ID)
+	if item.Origin != nil {
+		if rendered := origin.HeaderValue(*item.Origin); rendered != "" {
+			fmt.Fprintf(&b, "Origin: %s\n", rendered)
+		}
+	}
+	if item.Context.Job != "" || item.Context.Ticket != "" || item.Context.Instance != "" {
+		fmt.Fprintf(&b, "Context: instance=%s job=%s ticket=%s\n", item.Context.Instance, item.Context.Job, item.Context.Ticket)
+	}
+	fmt.Fprintf(&b, "Body: %s", item.Body)
+	return b.String()
 }
 
 func readRequestBody(r *http.Request) []byte {
