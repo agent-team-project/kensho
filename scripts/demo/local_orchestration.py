@@ -185,7 +185,7 @@ def main(argv: list[str]) -> int:
         ).strip()
         if probe != "worker-run-prompt-probe":
             raise DemoError(f"run --prompt probe dispatched unexpected instance: {probe!r}")
-        run(binary, "wait", probe, "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+        wait_terminal(binary, repo, probe)
         verify_startup_command_surface(repo, probe)
 
         step("verify lock-held queue drain")
@@ -270,7 +270,7 @@ def main(argv: list[str]) -> int:
         print(f"worker dispatched by drain: {worker} cycles={drained.get('cycles_run')} idle={drained.get('idle')}")
 
         step("wait for fake worker exit and reconcile")
-        run(binary, "wait", worker, "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
+        wait_terminal(binary, repo, worker)
         verify_startup_command_surface(repo, worker)
         run(binary, "tick", "--target", repo, "--skip-schedules", "--skip-drain", "--skip-advance", "--json", parse_json=True)
 
@@ -333,6 +333,37 @@ class DemoError(RuntimeError):
 
 def step(message: str) -> None:
     print(f"\n==> {message}")
+
+
+def wait_terminal(binary: Path, repo: Path, instance: str, timeout: str = "45s") -> None:
+    """Wait for an instance to reach terminal, tolerating post-reap reconcile.
+
+    Reconcile can remove a terminal instance's daemon record before the wait
+    lands; "not known" therefore means already-terminal here. Every call site
+    follows up with a durable-state assertion (job status, events, queue), so
+    tolerance never masks a real failure.
+    """
+    deadline = time.time() + 60
+    while True:
+        proc = subprocess.run(
+            [str(binary), "wait", instance, "--target", str(repo), "--until", "terminal", "--timeout", timeout, "--json"],
+            capture_output=True, text=True,
+        )
+        if proc.returncode == 0:
+            return
+        not_known = "is not known to the daemon" in (proc.stderr + proc.stdout)
+        if not_known:
+            # Ambiguous: reconciled-after-terminal (success) or queued-not-yet-
+            # spawned (keep waiting). The queue disambiguates.
+            queued = subprocess.run(
+                [str(binary), "queue", "ls", "--target", str(repo), "--json"],
+                capture_output=True, text=True,
+            )
+            if instance not in queued.stdout:
+                return
+        if time.time() >= deadline:
+            raise DemoError(f"wait {instance} failed: rc={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}")
+        time.sleep(1)
 
 
 def run(binary: Path, *args: object, env: dict[str, str] | None = None, parse_json: bool = False):
@@ -769,10 +800,21 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
         "--json",
         parse_json=True,
     )
-    run(binary, "wait", "worker-lock-a", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
-    run(binary, "wait", "worker-lock-b", "--target", repo, "--until", "terminal", "--timeout", "10s", "--json", parse_json=True)
-    remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
-    if any(row.get("instance_id") == "worker-lock-b" for row in remaining):
+    # The tick above may already have reconciled terminal lock workers out of
+    # the daemon registry; "not known" is success here — the queue-drain check
+    # below is the real assertion.
+    for lock_worker in ("worker-lock-a", "worker-lock-b"):
+        wait_terminal(binary, repo, lock_worker)
+    # Lock release kicks the shared drain asynchronously after reap (SQU-76);
+    # poll rather than racing it with a single-shot read.
+    deadline = time.time() + 20
+    remaining = []
+    while time.time() < deadline:
+        remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
+        if not any(row.get("instance_id") == "worker-lock-b" for row in remaining):
+            break
+        time.sleep(0.5)
+    else:
         raise DemoError(f"lock-held queue item did not drain: {json.dumps(remaining, indent=2)}")
     print("lock queue verified: second worker queued with reason=lock_held and drained")
 
