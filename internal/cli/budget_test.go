@@ -10,6 +10,7 @@ import (
 	"time"
 
 	budgetcalc "github.com/jamesaud/agent-team/internal/budget"
+	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/usage"
@@ -94,6 +95,67 @@ func TestBudgetStatusNoBudgetsIsNoop(t *testing.T) {
 	}
 	if got := strings.TrimSpace(jsonOut.String()); got != "[]" {
 		t.Fatalf("json output = %q", got)
+	}
+}
+
+func TestBudgetStatusCommandReportsJobAllowanceFromLiveCodexLog(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j, err := job.New("SQU-104", "worker", "running", now.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.TokenBudget = 100
+	j.TimeBudget = "10m"
+	j.ReminderLevels = []int{50, 80, 100}
+	j.TokenBudgetNotices = []int{50}
+	j.Instance = "worker-squ-104"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+	logPath := filepath.Join(tmp, "codex.jsonl")
+	if err := os.WriteFile(logPath, []byte(`{"type":"turn.completed","usage":{"input_tokens":70,"output_tokens":15}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write codex log: %v", err)
+	}
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-104",
+		Agent:     "worker",
+		Job:       "squ-104",
+		Runtime:   "codex",
+		Workspace: tmp,
+		Status:    daemon.StatusRunning,
+		StartedAt: now.Add(-2 * time.Minute),
+		LogPath:   logPath,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"budget", "status", "--target", tmp, "--job", "squ-104", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("budget status job: %v\nstderr=%s", err, stderr.String())
+	}
+	var row jobBudgetStatus
+	if err := json.Unmarshal(out.Bytes(), &row); err != nil {
+		t.Fatalf("decode row: %v\nbody=%s", err, out.String())
+	}
+	if row.JobID != "squ-104" || row.Instance != "worker-squ-104" || row.Runtime != "codex" {
+		t.Fatalf("row identity = %+v", row)
+	}
+	if !row.TokensAvailable || row.TokensUsed != 85 || row.TokenBudget != 100 || row.TokensRemaining != 15 {
+		t.Fatalf("row token budget = %+v", row)
+	}
+	if row.TimeBudget != "10m0s" || row.TimeElapsed == "" || row.TimeRemaining == "" {
+		t.Fatalf("row time budget = %+v", row)
+	}
+	if len(row.TokenNoticeLevels) != 1 || row.TokenNoticeLevels[0] != 50 {
+		t.Fatalf("row notices = %+v", row.TokenNoticeLevels)
 	}
 }
 

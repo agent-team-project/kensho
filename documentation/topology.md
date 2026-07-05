@@ -102,6 +102,8 @@ agent     = "worker"
 ephemeral = true        # spawn per dispatch
 replicas  = 3            # max 3 concurrent
 reap_worktree = "never"  # opt-in cleanup: never, on_close, or on_merge
+token_budget = "40M"     # soft per-run allowance, default for dispatches
+time_budget = "45m"      # soft per-run wall-clock allowance
 locks = ["build"]        # optional named dispatch locks held while spawned
 
 [locks.build]
@@ -143,6 +145,9 @@ instructions = "Implement the ticket with tests and summarize the branch state."
 target = "worker"
 workspace = "worktree"
 runtime = "codex"
+token_budget = "40M"
+time_budget = "45m"
+reminder_levels = [50, 80, 100]
 locks = ["build"]
 
 [[pipelines.ticket_to_pr.steps]]
@@ -222,6 +227,8 @@ channel write/read maps to, while authority allowlists audit write verbs.
 | `locks` | no | empty | Named dispatch locks this instance's ephemeral children hold until exit. References must exist under `[locks]`. |
 | `replicas` | no | `1` | Max concurrent runs. Ephemeral only — for persistent, this is implicitly 1. |
 | `reap_worktree` | no | `never` | Opt-in cleanup policy for job-owned worker worktrees created by this instance. Supported values: `"never"`, `"on_close"`, or `"on_merge"`. |
+| `token_budget` | no | empty | Soft per-run token allowance applied to dispatches for this instance when the payload or pipeline step does not provide one. Integers and decimal suffix strings such as `"40M"` are accepted. |
+| `time_budget` | no | empty | Soft per-run wall-clock allowance applied to dispatches for this instance when the payload or pipeline step does not provide one. This is visibility only and does not arm the watchdog; use step `timeout` for watchdog cutoffs. |
 | `triggers` | no | empty | List of trigger blocks. Empty triggers list → instance only invokable by explicit `agent-team run <name>`. |
 
 ### Pipeline field reference
@@ -254,6 +261,9 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].approval_required` | no | `false` | Only valid with `gate = "manual"`. When true, the step must be linked to a first-class job approval request and that approval must be approved before the step can advance. Existing manual gates keep the old `job approve` behavior unless they opt in. |
 | `steps[].optional` | no | `false` | If `true`, a failed step does not block downstream dependencies. |
 | `steps[].timeout` | no | empty | Duration string used by stale-step timeout commands before falling back to repo stale-job thresholds. |
+| `steps[].token_budget` | no | target instance default | Soft token allowance for this step's runtime. It is clamped to remaining team budget headroom at dispatch and exported as `AGENT_TEAM_BUDGET_TOKENS`. |
+| `steps[].time_budget` | no | target instance default | Soft wall-clock allowance for this step's runtime, exported as `AGENT_TEAM_BUDGET_TIME`. This does not kill the runtime. |
+| `steps[].reminder_levels` | no | `[50, 80, 100]` | Percentage thresholds that create `budget_notice` job events and mailbox messages when live usage crosses them. |
 | `steps[].max_attempts` | no | unlimited | Positive integer cap for dispatch attempts. Retry commands skip failed steps once the stored attempt count reaches this value. |
 | `steps[].retry_on_crash` | no | `false` | If `true`, daemon auto-advance may retry this step once after an instance crash/nonzero exit, but only when that instance recorded no job gate/verdict. Use only for read-only/idempotent steps such as reviewers; implementation steps should leave this false to avoid duplicate PR side effects. |
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jamesaud/agent-team/internal/allowance"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/template"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
@@ -97,6 +98,10 @@ type Instance struct {
 	// persistent instances. Defaults to true for persistent instances and false
 	// for ephemeral instances.
 	Brief bool
+	// TokenBudget and TimeBudget are soft per-run allowances surfaced to the
+	// spawned agent. They do not enforce cutoffs.
+	TokenBudget int64
+	TimeBudget  time.Duration
 	// Config holds per-instance overrides for the resolved config tree —
 	// dotted-path keys flattened from `[instances.<name>.config]` in TOML.
 	// Empty when no overrides are declared.
@@ -188,6 +193,9 @@ type PipelineStep struct {
 	ApprovalRequired bool
 	Optional         bool
 	Timeout          time.Duration
+	TokenBudget      int64
+	TimeBudget       time.Duration
+	ReminderLevels   []int
 	MaxAttempts      int
 	RetryOnCrash     bool
 }
@@ -655,6 +663,8 @@ type rawInstance struct {
 	ReapWorktree string           `toml:"reap_worktree"`
 	Restart      string           `toml:"restart"`
 	Brief        *bool            `toml:"brief"`
+	TokenBudget  any              `toml:"token_budget"`
+	TimeBudget   string           `toml:"time_budget"`
 	Config       map[string]any   `toml:"config"`
 	Triggers     []map[string]any `toml:"triggers"`
 }
@@ -891,6 +901,14 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if ri.Brief != nil {
 		brief = *ri.Brief
 	}
+	tokenBudget, err := allowance.ParseTokenValue(ri.TokenBudget, "token_budget")
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
+	timeBudget, err := parseOptionalDurationString(ri.TimeBudget, "time_budget")
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
 	cfg := template.Tree{}
 	if len(ri.Config) > 0 {
 		// `config` arrives as a free-form map[string]any from BurntSushi/toml.
@@ -912,6 +930,8 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		ReapWorktree: reapWorktree,
 		Restart:      restart,
 		Brief:        brief,
+		TokenBudget:  tokenBudget,
+		TimeBudget:   timeBudget,
 		Config:       cfg,
 		Triggers:     triggers,
 	}, nil
@@ -1500,6 +1520,18 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
+		tokenBudget, err := allowance.ParseTokenValue(body["token_budget"], "token_budget")
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		timeBudget, err := parseStepTimeBudget(body["time_budget"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
+		reminderLevels, err := parseStepReminderLevels(body["reminder_levels"])
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
 		maxAttempts, err := parseStepMaxAttempts(body["max_attempts"])
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
@@ -1512,7 +1544,7 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, TokenBudget: tokenBudget, TimeBudget: timeBudget, ReminderLevels: reminderLevels, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {
@@ -1823,6 +1855,70 @@ func parseStepTimeout(raw any) (time.Duration, error) {
 		return 0, fmt.Errorf("timeout must be greater than zero")
 	}
 	return timeout, nil
+}
+
+func parseStepTimeBudget(raw any) (time.Duration, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	value, ok := raw.(string)
+	value = strings.TrimSpace(value)
+	if !ok || value == "" {
+		return 0, fmt.Errorf("time_budget must be a non-empty duration string")
+	}
+	return parseOptionalDurationString(value, "time_budget")
+}
+
+func parseOptionalDurationString(raw, field string) (time.Duration, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration: %w", field, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", field)
+	}
+	return duration, nil
+}
+
+func parseStepReminderLevels(raw any) ([]int, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var levels []int
+	switch values := raw.(type) {
+	case []any:
+		levels = make([]int, 0, len(values))
+		for _, rawLevel := range values {
+			switch v := rawLevel.(type) {
+			case int:
+				levels = append(levels, v)
+			case int64:
+				if int64(int(v)) != v {
+					return nil, fmt.Errorf("reminder_levels contains an integer that is too large")
+				}
+				levels = append(levels, int(v))
+			default:
+				return nil, fmt.Errorf("reminder_levels must be an array of integers")
+			}
+		}
+	case []int64:
+		levels = make([]int, 0, len(values))
+		for _, v := range values {
+			if int64(int(v)) != v {
+				return nil, fmt.Errorf("reminder_levels contains an integer that is too large")
+			}
+			levels = append(levels, int(v))
+		}
+	case []int:
+		levels = append([]int(nil), values...)
+	default:
+		return nil, fmt.Errorf("reminder_levels must be an array of integers")
+	}
+	return allowance.NormalizeReminderLevels(levels)
 }
 
 func parseStepGate(raw any) (string, error) {

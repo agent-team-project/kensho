@@ -346,6 +346,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
+	m.startBudgetNoticeWatcher(*meta, reaped)
 	if captured := waitForCodexSessionCapture(capture); captured != nil {
 		out = *captured
 	}
@@ -1548,6 +1549,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
+	m.startBudgetNoticeWatcher(*meta, reaped)
 	if captured := waitForCodexSessionCapture(capture); captured != nil {
 		meta = captured
 	}

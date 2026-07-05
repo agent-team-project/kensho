@@ -400,7 +400,9 @@ agent-team budget status [flags]
 Flags:
 
 ```text
+      --job string      Show one job's soft allowance status.
       --json            Emit budget status rows as JSON.
+      --self            Show the current runtime job's soft allowance status from AGENT_TEAM_JOB_ID.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --team string     Show only one team budget.
 ```
@@ -2615,6 +2617,8 @@ agent-team job create <ticket> [kickoff...] [flags]
 Flags:
 
 ```text
+      --budget-time duration      Soft wall-clock allowance for this job, for example 45m. Does not arm a cutoff.
+      --budget-tokens string      Soft token allowance for this job, for example 40M.
       --commands                  With --dry-run, print the matching job create apply command.
       --dispatch                  Dispatch the created job immediately using the running daemon.
       --dry-run                   Preview the job that would be created without writing it.
@@ -2766,6 +2770,7 @@ Flags:
   -q, --quiet           Suppress non-error output and use only the exit code.
       --repo string     Repo root containing .agent_team. (default "<repo>")
       --step string     Use this pipeline step's owning instance.
+      --tokens string   Amount to add to the job's soft token allowance, for example 10M.
 ```
 
 ## `agent-team job gate`

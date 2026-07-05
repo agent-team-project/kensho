@@ -2777,6 +2777,9 @@ trigger.event = "ticket.created"
 id = "implement"
 instructions = "Implement the ticket with regression coverage."
 target = "worker"
+token_budget = 80
+time_budget = "45m"
+reminder_levels = [50, 80, 100]
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
@@ -2791,9 +2794,37 @@ timeout = "2h"
 [teams.platform]
 instances = ["worker"]
 pipelines = ["ticket_to_pr"]
+
+[budgets.platform]
+tokens_per_day = 100
 `))
 	if err != nil {
 		t.Fatalf("parse topology: %v", err)
+	}
+	usedAt := time.Now().UTC().Add(-time.Hour)
+	usedRec := usage.Record{
+		Instance:        "worker-squ-91",
+		Agent:           "worker",
+		Runtime:         "codex",
+		TokensAvailable: true,
+		InputTokens:     70,
+		EndedAt:         usedAt,
+		Origin:          origin.Envelope{Team: "platform"},
+	}
+	if err := jobstore.Write(teamDir, &jobstore.Job{
+		ID:        "squ-91",
+		Ticket:    "SQU-91",
+		Target:    "worker",
+		Status:    jobstore.StatusDone,
+		Origin:    origin.Envelope{Team: "platform"},
+		CreatedAt: usedAt,
+		UpdatedAt: usedAt,
+		Usage: &usage.JobUsage{
+			Summary: usage.Summarize([]usage.Record{usedRec}),
+			Records: []usage.Record{usedRec},
+		},
+	}); err != nil {
+		t.Fatalf("write used job: %v", err)
 	}
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
@@ -2829,7 +2860,7 @@ pipelines = ["ticket_to_pr"]
 	if j.Origin.Project != "project-1" || j.Origin.Team != "platform" || j.Origin.Job != "squ-92" || j.Origin.Trigger != "ticket.created" {
 		t.Fatalf("job origin = %+v", j.Origin)
 	}
-	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" {
+	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" || j.Steps[0].TokenBudget != 30 || j.Steps[0].TimeBudget != "45m0s" || !reflect.DeepEqual(j.Steps[0].ReminderLevels, []int{50, 80, 100}) {
 		t.Fatalf("first step = %+v", j.Steps[0])
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
@@ -2841,6 +2872,29 @@ pipelines = ["ticket_to_pr"]
 	}
 	if meta.Origin.Project != "project-1" || meta.Origin.Team != "platform" || meta.Origin.Instance != "worker-squ-92" || meta.Origin.Trigger != "pipeline:ticket_to_pr:implement" {
 		t.Fatalf("metadata origin = %+v", meta.Origin)
+	}
+	env := fake.lastEnv()
+	if !containsString(env, "AGENT_TEAM_BUDGET_TOKENS=30") || !containsString(env, "AGENT_TEAM_BUDGET_TIME=45m0s") {
+		t.Fatalf("env missing clamped budget values: %#v", env)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-92")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) < 2 {
+		t.Fatalf("events = %+v, want pipeline and clamp events", events)
+	}
+	foundClamp := false
+	for _, event := range events {
+		if event.Type != "budget_clamped" {
+			continue
+		}
+		if event.Data["team"] == "platform" && event.Data["requested_tokens"] == "80" && event.Data["clamped_tokens"] == "30" {
+			foundClamp = true
+		}
+	}
+	if !foundClamp {
+		t.Fatalf("events missing expected clamp: %+v", events)
 	}
 }
 

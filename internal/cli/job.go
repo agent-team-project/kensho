@@ -20,6 +20,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/allowance"
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/intake"
@@ -231,6 +232,8 @@ func newJobCreateCmd() *cobra.Command {
 		ticketURL     string
 		kickoff       string
 		kickoffFile   string
+		budgetTokens  string
+		budgetTime    time.Duration
 		instance      string
 		dispatchNow   bool
 		workspace     string
@@ -336,6 +339,21 @@ func newJobCreateCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			j.Kind = kind
+			if strings.TrimSpace(budgetTokens) != "" {
+				tokens, err := allowance.ParseTokens(budgetTokens)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: --budget-tokens: %v\n", err)
+					return exitErr(2)
+				}
+				j.TokenBudget = tokens
+			}
+			if budgetTime < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job create: --budget-time must be >= 0.")
+				return exitErr(2)
+			}
+			if budgetTime > 0 {
+				j.TimeBudget = budgetTime.String()
+			}
 			if pipelineDef != nil {
 				j.Pipeline = pipelineDef.Name
 				j.Steps = jobStepsFromPipeline(pipelineDef)
@@ -379,6 +397,10 @@ func newJobCreateCmd() *cobra.Command {
 					IDSet:           cmd.Flags().Changed("id"),
 					TicketURL:       ticketURL,
 					TicketURLSet:    cmd.Flags().Changed("ticket-url"),
+					BudgetTokens:    budgetTokens,
+					BudgetTokensSet: cmd.Flags().Changed("budget-tokens"),
+					BudgetTime:      budgetTime,
+					BudgetTimeSet:   cmd.Flags().Changed("budget-time"),
 					Instance:        instance,
 					InstanceSet:     cmd.Flags().Changed("instance"),
 					Dispatch:        dispatchNow,
@@ -415,6 +437,7 @@ func newJobCreateCmd() *cobra.Command {
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
 					applyJobKindToPayload(j, payload)
+					applyJobBudgetToPayload(j, payload)
 					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
 						return exitErr(2)
@@ -559,6 +582,8 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the target agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
+	cmd.Flags().StringVar(&budgetTokens, "budget-tokens", "", "Soft token allowance for this job, for example 40M.")
+	cmd.Flags().DurationVar(&budgetTime, "budget-time", 0, "Soft wall-clock allowance for this job, for example 45m. Does not arm a cutoff.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Instance name that owns the job (default set during dispatch).")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the created job immediately using the running daemon.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --dispatch: auto, worktree, or repo.")
@@ -623,6 +648,9 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			ApprovalRequired: step.ApprovalRequired,
 			Optional:         step.Optional,
 			Timeout:          formatPipelineStepTimeout(step.Timeout),
+			TokenBudget:      step.TokenBudget,
+			TimeBudget:       formatPipelineStepTimeout(step.TimeBudget),
+			ReminderLevels:   append([]int(nil), step.ReminderLevels...),
 			MaxAttempts:      step.MaxAttempts,
 			RetryOnCrash:     step.RetryOnCrash,
 		})
@@ -661,6 +689,55 @@ func applyJobKindToPayload(j *job.Job, payload map[string]any) {
 	}
 	payload["kind"] = job.KindProbe
 	payload["workspace"] = "repo"
+}
+
+func applyJobBudgetToPayload(j *job.Job, payload map[string]any) {
+	if j == nil || payload == nil {
+		return
+	}
+	if j.TokenBudget > 0 {
+		payload["budget_tokens"] = j.TokenBudget
+	}
+	if timeBudget := strings.TrimSpace(j.TimeBudget); timeBudget != "" {
+		payload["budget_time"] = timeBudget
+	}
+	if len(j.ReminderLevels) > 0 {
+		payload["reminder_levels"] = append([]int(nil), j.ReminderLevels...)
+	}
+}
+
+func applyJobStepBudgetToPayload(j *job.Job, step *job.Step, payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	tokenBudget := int64(0)
+	timeBudget := ""
+	var reminderLevels []int
+	if j != nil {
+		tokenBudget = j.TokenBudget
+		timeBudget = strings.TrimSpace(j.TimeBudget)
+		reminderLevels = append([]int(nil), j.ReminderLevels...)
+	}
+	if step != nil {
+		if step.TokenBudget > 0 {
+			tokenBudget = step.TokenBudget
+		}
+		if strings.TrimSpace(step.TimeBudget) != "" {
+			timeBudget = strings.TrimSpace(step.TimeBudget)
+		}
+		if len(step.ReminderLevels) > 0 {
+			reminderLevels = append([]int(nil), step.ReminderLevels...)
+		}
+	}
+	if tokenBudget > 0 {
+		payload["budget_tokens"] = tokenBudget
+	}
+	if timeBudget != "" {
+		payload["budget_time"] = timeBudget
+	}
+	if len(reminderLevels) > 0 {
+		payload["reminder_levels"] = reminderLevels
+	}
 }
 
 func jobMergeFromPipeline(merge *topology.PipelineMerge) *job.Merge {
@@ -1179,6 +1256,7 @@ func newJobDispatchCmd() *cobra.Command {
 				payload["job_id"] = j.ID
 				payload["job"] = j.ID
 				applyJobKindToPayload(j, payload)
+				applyJobBudgetToPayload(j, payload)
 				if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
 					return exitErr(2)
@@ -5110,6 +5188,7 @@ func newJobReopenCmd() *cobra.Command {
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
 					applyJobKindToPayload(j, payload)
+					applyJobBudgetToPayload(j, payload)
 					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 						return exitErr(2)
@@ -11464,6 +11543,7 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
 	applyJobKindToPayload(j, payload)
+	applyJobBudgetToPayload(j, payload)
 	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 		return nil, "", exitErr(2)
@@ -13081,6 +13161,7 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
 	applyJobKindToPayload(j, payload)
+	applyJobStepBudgetToPayload(j, step, payload)
 	if j.Pipeline != "" {
 		payload["pipeline"] = j.Pipeline
 	}
@@ -15171,6 +15252,10 @@ type jobCreateApplyCommandOptions struct {
 	IDSet           bool
 	TicketURL       string
 	TicketURLSet    bool
+	BudgetTokens    string
+	BudgetTokensSet bool
+	BudgetTime      time.Duration
+	BudgetTimeSet   bool
 	Instance        string
 	InstanceSet     bool
 	Dispatch        bool
@@ -15352,6 +15437,12 @@ func jobCreateApplyCommandArgs(opts jobCreateApplyCommandOptions) []string {
 	}
 	if opts.TicketURLSet && strings.TrimSpace(opts.TicketURL) != "" {
 		args = append(args, "--ticket-url", opts.TicketURL)
+	}
+	if opts.BudgetTokensSet && strings.TrimSpace(opts.BudgetTokens) != "" {
+		args = append(args, "--budget-tokens", opts.BudgetTokens)
+	}
+	if opts.BudgetTimeSet && opts.BudgetTime > 0 {
+		args = append(args, "--budget-time", opts.BudgetTime.String())
 	}
 	if opts.InstanceSet && strings.TrimSpace(opts.Instance) != "" {
 		args = append(args, "--instance", opts.Instance)

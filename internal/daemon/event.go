@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jamesaud/agent-team/internal/allowance"
 	"github.com/jamesaud/agent-team/internal/budget"
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	jobstore "github.com/jamesaud/agent-team/internal/job"
@@ -544,6 +546,7 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	if ts := pipelineStepTimeoutString(step.Timeout); ts != "" {
 		dispatchPayload["timeout"] = ts
 	}
+	applyPipelineStepBudgetToPayload(step, dispatchPayload)
 	kickoff := jobstore.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions)
 	// Best-effort context passing: if the caller threaded the prior step's final
 	// output through the payload (auto-advance does), hand it to this step so e.g.
@@ -661,6 +664,9 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			ApprovalRequired: step.ApprovalRequired,
 			Optional:         step.Optional,
 			Timeout:          pipelineStepTimeoutString(step.Timeout),
+			TokenBudget:      step.TokenBudget,
+			TimeBudget:       pipelineStepTimeoutString(step.TimeBudget),
+			ReminderLevels:   append([]int(nil), step.ReminderLevels...),
 			MaxAttempts:      step.MaxAttempts,
 			RetryOnCrash:     step.RetryOnCrash,
 		})
@@ -727,6 +733,85 @@ func pipelineStepTimeoutString(timeout time.Duration) string {
 		return ""
 	}
 	return timeout.String()
+}
+
+func applyPipelineStepBudgetToPayload(step *topology.PipelineStep, payload map[string]any) {
+	if step == nil || payload == nil {
+		return
+	}
+	if step.TokenBudget > 0 && payloadBudgetTokens(payload) == 0 {
+		payload["budget_tokens"] = step.TokenBudget
+	}
+	if step.TimeBudget > 0 && strings.TrimSpace(payloadString(payload, "budget_time")) == "" {
+		payload["budget_time"] = step.TimeBudget.String()
+	}
+	if len(step.ReminderLevels) > 0 && payload["reminder_levels"] == nil {
+		payload["reminder_levels"] = append([]int(nil), step.ReminderLevels...)
+	}
+}
+
+func applyInstanceBudgetDefaultsToPayload(inst *topology.Instance, payload map[string]any) {
+	if inst == nil || payload == nil {
+		return
+	}
+	if inst.TokenBudget > 0 && payloadBudgetTokens(payload) == 0 {
+		payload["budget_tokens"] = inst.TokenBudget
+	}
+	if inst.TimeBudget > 0 && strings.TrimSpace(payloadString(payload, "budget_time")) == "" {
+		payload["budget_time"] = inst.TimeBudget.String()
+	}
+}
+
+func payloadBudgetTokens(payload map[string]any) int64 {
+	if payload == nil {
+		return 0
+	}
+	tokens, _ := allowance.ParseTokenValue(payload["budget_tokens"], "budget_tokens")
+	return tokens
+}
+
+func (r *EventResolver) clampPayloadBudgetToTeamHeadroom(payload map[string]any, eventOrigin origin.Envelope) map[string]any {
+	if payload == nil || strings.TrimSpace(eventOrigin.Team) == "" {
+		return payload
+	}
+	requested := payloadBudgetTokens(payload)
+	if requested <= 0 {
+		return payload
+	}
+	r.mu.Lock()
+	top := r.topo
+	r.mu.Unlock()
+	admission, err := budget.AdmissionForTeam(r.teamDir, top, eventOrigin.Team, eventJobID(payload), time.Now().UTC())
+	if err != nil || admission.Noop || admission.Status.TokensPerDay <= 0 {
+		return payload
+	}
+	remaining := admission.Status.TokensRemaining
+	if remaining <= 0 || requested <= remaining {
+		return payload
+	}
+	payload["budget_tokens"] = remaining
+	r.recordBudgetClampEvent(payload, eventOrigin, requested, remaining)
+	return payload
+}
+
+func (r *EventResolver) recordBudgetClampEvent(payload map[string]any, eventOrigin origin.Envelope, requested, clamped int64) {
+	jobID := eventJobID(payload)
+	if jobID == "" || strings.TrimSpace(r.teamDir) == "" {
+		return
+	}
+	message := fmt.Sprintf("token allowance clamped from %d to %d by team %s headroom", requested, clamped, eventOrigin.Team)
+	_ = jobstore.AppendEvent(r.teamDir, &jobstore.Event{
+		JobID:   jobID,
+		Type:    "budget_clamped",
+		Message: message,
+		Actor:   "daemon",
+		Origin:  eventOrigin,
+		Data: map[string]string{
+			"team":             eventOrigin.Team,
+			"requested_tokens": fmt.Sprint(requested),
+			"clamped_tokens":   fmt.Sprint(clamped),
+		},
+	})
 }
 
 // envInstanceMaxRuntime is the daemon-wide default runtime budget for ephemeral
@@ -1443,10 +1528,14 @@ func validateRequestedChildName(declared, name string) error {
 // The caller's payload is JSON-encoded into the prompt so the spawned child has
 // full event context to work from.
 func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, payload map[string]any) (*Metadata, error) {
+	payload = copyPayload(payload)
+	applyInstanceBudgetDefaultsToPayload(inst, payload)
 	runtime, err := r.prepareEphemeralRuntime(inst, name)
 	if err != nil {
 		return nil, err
 	}
+	eventOrigin := r.originForEvent(inst, name, eventType, payload)
+	payload = r.clampPayloadBudgetToTeamHeadroom(payload, eventOrigin)
 	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
 	prompt := fmt.Sprintf("Topology event for declared instance %q (agent=%s):\n%s",
 		inst.Name, inst.Agent, string(body))
@@ -1467,7 +1556,6 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		cleanupWorkspace()
 		return nil, err
 	}
-	eventOrigin := r.originForEvent(inst, name, eventType, payload)
 	env := append([]string(nil), runtime.env...)
 	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
 	env = append(env, originContextEnv(eventOrigin)...)
@@ -1754,6 +1842,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
 		j.PR = pr
 	}
+	applyPayloadBudgetToJob(j, payload)
 	if status != "" {
 		j.Status = status
 	}
@@ -1774,6 +1863,83 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 		return nil
 	}
 	return j
+}
+
+func applyPayloadBudgetToJob(j *jobstore.Job, payload map[string]any) {
+	if j == nil || payload == nil {
+		return
+	}
+	tokens := payloadBudgetTokens(payload)
+	timeBudget := strings.TrimSpace(payloadString(payload, "budget_time"))
+	levels := payloadReminderLevels(payload)
+	stepID := payloadString(payload, "pipeline_step")
+	if stepID != "" {
+		for i := range j.Steps {
+			if j.Steps[i].ID != stepID {
+				continue
+			}
+			if tokens > 0 {
+				j.Steps[i].TokenBudget = tokens
+			}
+			if timeBudget != "" {
+				j.Steps[i].TimeBudget = timeBudget
+			}
+			if len(levels) > 0 {
+				j.Steps[i].ReminderLevels = levels
+			}
+			return
+		}
+	}
+	if tokens > 0 {
+		j.TokenBudget = tokens
+	}
+	if timeBudget != "" {
+		j.TimeBudget = timeBudget
+	}
+	if len(levels) > 0 {
+		j.ReminderLevels = levels
+	}
+}
+
+func payloadReminderLevels(payload map[string]any) []int {
+	if payload == nil {
+		return nil
+	}
+	raw := payload["reminder_levels"]
+	if raw == nil {
+		return nil
+	}
+	var levels []int
+	switch values := raw.(type) {
+	case []int:
+		levels = append([]int(nil), values...)
+	case []int64:
+		for _, v := range values {
+			if int64(int(v)) == v {
+				levels = append(levels, int(v))
+			}
+		}
+	case []any:
+		for _, value := range values {
+			switch v := value.(type) {
+			case int:
+				levels = append(levels, v)
+			case int64:
+				if int64(int(v)) == v {
+					levels = append(levels, int(v))
+				}
+			case float64:
+				if v == math.Trunc(v) && v <= float64(int(^uint(0)>>1)) {
+					levels = append(levels, int(v))
+				}
+			}
+		}
+	}
+	normalized, err := allowance.NormalizeReminderLevels(levels)
+	if err != nil {
+		return nil
+	}
+	return normalized
 }
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
@@ -1960,6 +2126,12 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}
 	if step := payloadString(payload, "pipeline_step"); step != "" {
 		env = append(env, "AGENT_TEAM_PIPELINE_STEP="+step)
+	}
+	if tokens := payloadBudgetTokens(payload); tokens > 0 {
+		env = append(env, fmt.Sprintf("AGENT_TEAM_BUDGET_TOKENS=%d", tokens))
+	}
+	if timeBudget := payloadString(payload, "budget_time"); timeBudget != "" {
+		env = append(env, "AGENT_TEAM_BUDGET_TIME="+timeBudget)
 	}
 	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
 		env = append(env, "AGENT_TEAM_PR="+pr)

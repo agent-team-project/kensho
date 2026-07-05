@@ -586,6 +586,8 @@ func TestJobCreateListShowClose(t *testing.T) {
 		"--target", "worker",
 		"--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor",
 		"--kickoff", "implement the status monitor",
+		"--budget-tokens", "1.5M",
+		"--budget-time", "45m",
 		"--repo", tmp,
 		"--json",
 	})
@@ -601,6 +603,9 @@ func TestJobCreateListShowClose(t *testing.T) {
 	}
 	if created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-42/status-monitor" {
 		t.Fatalf("created ticket_url = %q", created.TicketURL)
+	}
+	if created.TokenBudget != 1500000 || created.TimeBudget != "45m0s" {
+		t.Fatalf("created budgets = token %d time %q", created.TokenBudget, created.TimeBudget)
 	}
 
 	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "jobs", "squ-42.toml")); err != nil {

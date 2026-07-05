@@ -147,3 +147,57 @@ func TestJobExtendRecordsAuditEvent(t *testing.T) {
 		t.Fatalf("event data = %+v, want amount/instance/deadline", ev.Data)
 	}
 }
+
+func TestJobExtendAddsTokenAllowanceWithoutRuntimeExtension(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-104",
+		Ticket:    "SQU-104",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{
+				ID:                 "implement",
+				Target:             "worker",
+				Status:             job.StatusRunning,
+				TokenBudget:        100,
+				TokenBudgetNotices: []int{50, 80},
+			},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "extend", "squ-104", "--step", "implement", "--tokens", "50", "--actor", "ops", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job extend tokens: %v\nstderr=%s", err, stderr.String())
+	}
+	var result jobExtendResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode token extend json: %v\nbody=%s", err, out.String())
+	}
+	if result.TokensAdded != 50 || result.TokenBudget != 150 || result.StepID != "implement" {
+		t.Fatalf("token result = %+v", result)
+	}
+	if result.Job == nil || len(result.Job.Steps) != 1 || result.Job.Steps[0].TokenBudget != 150 || len(result.Job.Steps[0].TokenBudgetNotices) != 0 {
+		t.Fatalf("updated job = %+v", result.Job)
+	}
+	events, err := job.ListEvents(teamDir, "squ-104")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 1 || events[0].Type != "budget_extended" || events[0].Actor != "ops" || events[0].Data["tokens_added"] != "50" || events[0].Data["token_budget"] != "150" {
+		t.Fatalf("events = %+v", events)
+	}
+}

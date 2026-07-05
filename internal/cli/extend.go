@@ -175,7 +175,9 @@ func extendAuditData(selection jobInstanceSelection, res *runtimeExtensionRespon
 	if data == nil {
 		data = map[string]string{}
 	}
-	data["amount"] = by.String()
+	if by > 0 {
+		data["amount"] = by.String()
+	}
 	if res != nil {
 		if !res.PreviousDeadline.IsZero() {
 			data["previous_deadline"] = res.PreviousDeadline.UTC().Format(time.RFC3339)

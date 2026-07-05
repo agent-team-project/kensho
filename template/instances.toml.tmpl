@@ -34,6 +34,8 @@ agent         = "worker"
 ephemeral     = true
 replicas      = 3
 reap_worktree = "on_merge"   # reap the job worktree + local branch after its PR merges; `agent-team job keep-worktree <id>` opts one job out
+token_budget  = "40M"
+time_budget   = "45m"
 description   = "Code-writing agent. Spawned on `agent.dispatch` (see assign-worker skill)."
 
 [[instances.worker.triggers]]
@@ -44,6 +46,8 @@ match.target = "worker"
 agent       = "reviewer"
 ephemeral   = true
 replicas    = 2
+token_budget = "10M"
+time_budget  = "30m"
 description = "Adversarial content reviewer for worker PRs. Reads, verifies, reports a verdict; never pushes."
 
 [[instances.reviewer.triggers]]
@@ -74,6 +78,8 @@ id           = "implement"
 target       = "worker"
 workspace    = "worktree"
 timeout      = "45m"
+token_budget = "40M"
+time_budget  = "45m"
 max_attempts = 1
 
 [[pipelines.ticket_to_pr.steps]]
@@ -81,6 +87,8 @@ id           = "review"
 target       = "reviewer"
 after        = ["implement"]
 timeout      = "30m"
+token_budget = "10M"
+time_budget  = "30m"
 max_attempts = 1
 retry_on_crash = true
 instructions = """
@@ -165,6 +173,8 @@ agent         = "worker"
 ephemeral     = true
 replicas      = 2
 reap_worktree = "on_merge"
+token_budget  = "40M"
+time_budget   = "45m"
 description   = "Platform-team code writer for framework-infrastructure jobs."
 
 [[instances.platform-worker.triggers]]
@@ -175,6 +185,8 @@ match.target = "platform-worker"
 agent       = "reviewer"
 ephemeral   = true
 replicas    = 1
+token_budget = "10M"
+time_budget  = "30m"
 description = "Platform-team adversarial reviewer."
 
 [[instances.platform-reviewer.triggers]]
@@ -194,7 +206,9 @@ target    = "platform-worker"
 workspace = "worktree"
 # Platform-team arcs are the big ones (three consecutive 30-45m+ implements);
 # 60m observed-fit, and `job extend` remains the pressure valve.
-timeout   = "60m"
+timeout      = "60m"
+token_budget = "40M"
+time_budget  = "45m"
 max_attempts = 1
 
 [[pipelines.platform_ticket_to_pr.steps]]
@@ -202,6 +216,8 @@ id           = "review"
 target       = "platform-reviewer"
 after        = ["implement"]
 timeout      = "30m"
+token_budget = "10M"
+time_budget  = "30m"
 retry_on_crash = true
 instructions = """
 Adversarial content review of the platform job PR. Same checklist as the

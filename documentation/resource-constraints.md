@@ -2,7 +2,9 @@
 
 How a large agent fleet stays inside its means. Today the framework measures well and constrains almost nothing; every governor is either manual (`slots`, `replicas`), after-the-fact (usage at reap), or time-shaped (watchdogs). This sketch maps the real constraint surface — grounded in field evidence — and phases the work.
 
-Status: brainstorm (SQU-91 epic). Nothing here is committed API.
+Status: SQU-91 epic sketch. Team admission budgets shipped first; SQU-104 adds
+soft per-job/per-step allowances and notices. Hard runtime cutoffs remain
+deferred to SQU-105.
 
 ## What actually constrains a fleet (field evidence)
 
@@ -40,7 +42,7 @@ Admission check at dispatch: team over budget → queue with `reason=budget_exha
 Phase 1's team budgets are a governor: admission control, invisible to the governed. The full system is an economy — every team optimizes its output under constraints, which requires three properties the governor lacks:
 
 - **Allowances delegate down a hierarchy — and the hierarchy is a tree invariant.** At every node, allocations to children may never exceed the node's own allocation, recursively: give a team $100 and its manager cannot promise its jobs (or future sub-teams) more than $100 combined. Operator sets team budgets; managers attach sub-allowances to the jobs they dispatch (`job create --budget-tokens 20M --budget-time 45m`); topology sets per-agent-type defaults. Two allocation semantics, declared per budget: `reserve` (granting an allowance debits parent headroom immediately — outstanding promises bounded, right for currency-like budgets) and `oversubscribe` (only consumption counts against the parent; admission gates on spend — right for sliding token windows, the phase-1 default). Topology teams are flat today, so the live tree is operator → team → job; the invariant is defined on the allocation tree, not on team nesting, so sub-teams inherit it unchanged if they ever land.
-- **Constraints are visible to the constrained.** An agent cannot optimize under a limit it cannot observe. Soft threshold crossings (default 50/80/100%) deliver `budget_notice` mailbox messages — model-visible mid-run via turn-boundary hook injection — and agents can self-query their remaining allowance. Live token signal comes from the Codex JSONL stream already written to child.log (read only at reap today).
+- **Constraints are visible to the constrained.** An agent cannot optimize under a limit it cannot observe. Soft threshold crossings (default 50/80/100%) deliver `budget_notice` mailbox messages — model-visible mid-run via turn-boundary hook injection — and agents can self-query their remaining allowance. Live token signal comes from the Codex JSONL stream already written to child.log; Claude runtimes expose time reminders only until reliable token telemetry is available.
 - **Escalation is the market mechanism.** At 80%, wrapping up and requesting an extension are both rational; `job extend --tokens/--by` serves operators and managers now, approval-gated extension requests route the decision to whoever owns the parent budget later.
 
 Soft and hard are different verbs: soft 100% notifies, flags triage, and lets work finish; hard cutoff (explicit `hard = true` or a multiplier) is the token analog of the time watchdog — kill, crash-finalize, freed slot, attention write-back. Time budgets unify under the same vocabulary and levels.
@@ -48,6 +50,11 @@ Soft and hard are different verbs: soft 100% notifies, flags triage, and lets wo
 ### Layer 2 — live usage watchdogs
 
 The Codex JSONL stream emits `turn.completed` usage *during* the run; Claude's OTel telemetry can report live token counts. A usage watchdog is the token analog of the time watchdog: kill (crash-finalize, slot freed, attention write-back) at N tokens. Catches the chatty-wedge failure mode time budgets miss. Same extend verb (`job extend --tokens 10M`) for operator judgment.
+
+SQU-104 implements the soft precursor only: the daemon tails the live Codex JSONL
+with the same parser used at reap, records `budget_notice` events, and sends
+mailbox reminders. It never kills a runtime. Claude paths never fake token
+counts; they can only trigger time-budget notices in this phase.
 
 ### Layer 3 — priority + preemption
 
