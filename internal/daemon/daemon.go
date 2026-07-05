@@ -291,6 +291,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	if d.events != nil {
 		go d.events.RunSchedules(runCtx)
+		go d.events.RunBudgetQueueDrains(runCtx)
 	}
 	if topo != nil {
 		notifications, err := loadNotificationConfig(d.cfg.TeamDir)

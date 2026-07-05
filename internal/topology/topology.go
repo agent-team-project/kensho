@@ -71,6 +71,8 @@ type Topology struct {
 	Schedules map[string]*Schedule
 	// Teams is keyed by the declared team name (`[teams.<n>]`).
 	Teams map[string]*Team
+	// Budgets is keyed by the declared team name (`[budgets.<team>]`).
+	Budgets map[string]*Budget
 	// Authority is the optional daemon verb allowlist policy.
 	Authority *Authority
 }
@@ -207,6 +209,14 @@ type Team struct {
 	Pipelines   []string
 	Schedules   []string
 	Channels    []string
+}
+
+// Budget declares admission-time resource caps for one team. A zero cap is
+// disabled for that dimension.
+type Budget struct {
+	Team         string
+	TokensPerDay int64
+	JobsInFlight int
 }
 
 // Authority is the audit/enforcement policy declared in topology. Phase 1 uses
@@ -535,6 +545,19 @@ func (t *Topology) SortedTeams() []*Team {
 	return out
 }
 
+// SortedBudgets returns budgets ordered by team for deterministic output.
+func (t *Topology) SortedBudgets() []*Budget {
+	if t == nil {
+		return nil
+	}
+	out := make([]*Budget, 0, len(t.Budgets))
+	for _, budget := range t.Budgets {
+		out = append(out, budget)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Team < out[j].Team })
+	return out
+}
+
 // PersistentNames returns the names of declared non-ephemeral instances, in
 // sorted order. `instance up` brings these up by default.
 func (t *Topology) PersistentNames() []string {
@@ -564,6 +587,14 @@ func (t *Topology) FindTeam(name string) *Team {
 		return nil
 	}
 	return t.Teams[name]
+}
+
+// FindBudget returns the budget declared for team, or nil if none.
+func (t *Topology) FindBudget(team string) *Budget {
+	if t == nil {
+		return nil
+	}
+	return t.Budgets[strings.TrimSpace(team)]
 }
 
 // TeamForSchedule returns the owning team declared for schedule, or empty.
@@ -611,6 +642,7 @@ type rawTopology struct {
 	Pipelines map[string]*rawPipeline `toml:"pipelines"`
 	Schedules map[string]*rawSchedule `toml:"schedules"`
 	Teams     map[string]*rawTeam     `toml:"teams"`
+	Budgets   map[string]*rawBudget   `toml:"budgets"`
 	Authority *rawAuthority           `toml:"authority"`
 }
 
@@ -671,6 +703,11 @@ type rawTeam struct {
 	Channels    []string `toml:"channels"`
 }
 
+type rawBudget struct {
+	TokensPerDay *int64 `toml:"tokens_per_day"`
+	JobsInFlight *int   `toml:"jobs_in_flight"`
+}
+
 type rawAuthority struct {
 	Enforce bool                         `toml:"enforce"`
 	Agents  map[string]*rawAuthorityRule `toml:"agents"`
@@ -703,6 +740,7 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		Pipelines: make(map[string]*Pipeline, len(raw.Pipelines)),
 		Schedules: make(map[string]*Schedule, len(raw.Schedules)),
 		Teams:     make(map[string]*Team, len(raw.Teams)),
+		Budgets:   make(map[string]*Budget, len(raw.Budgets)),
 	}
 	for name, rl := range raw.Locks {
 		if rl == nil {
@@ -764,6 +802,16 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		}
 		t.Teams[name] = team
 	}
+	for name, rb := range raw.Budgets {
+		if rb == nil {
+			continue
+		}
+		budget, err := finaliseBudget(name, rb)
+		if err != nil {
+			return nil, err
+		}
+		t.Budgets[budget.Team] = budget
+	}
 	authority, err := finaliseAuthority(raw.Authority)
 	if err != nil {
 		return nil, err
@@ -771,6 +819,9 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 	t.Authority = authority
 	if validateTeamRefs {
 		if err := validateLockReferences(t); err != nil {
+			return nil, err
+		}
+		if err := validateBudgetReferences(t); err != nil {
 			return nil, err
 		}
 	}
@@ -1112,6 +1163,28 @@ func finaliseTeam(name string, rt *rawTeam, t *Topology, validateRefs bool) (*Te
 	return team, nil
 }
 
+func finaliseBudget(name string, rb *rawBudget) (*Budget, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("budget team name is required")
+	}
+	tokensPerDay := int64(0)
+	if rb.TokensPerDay != nil {
+		if *rb.TokensPerDay < 0 {
+			return nil, fmt.Errorf("budget %q: tokens_per_day must be >= 0", name)
+		}
+		tokensPerDay = *rb.TokensPerDay
+	}
+	jobsInFlight := 0
+	if rb.JobsInFlight != nil {
+		if *rb.JobsInFlight < 0 {
+			return nil, fmt.Errorf("budget %q: jobs_in_flight must be >= 0", name)
+		}
+		jobsInFlight = *rb.JobsInFlight
+	}
+	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight}, nil
+}
+
 func validateTopologyTeams(t *Topology) error {
 	if t == nil {
 		return nil
@@ -1146,6 +1219,18 @@ func validateTeamReferences(t *Topology, team *Team) error {
 	for _, ref := range team.Channels {
 		if t.Channels[ref] == nil {
 			return fmt.Errorf("team %q: channels references unknown channel %q", team.Name, ref)
+		}
+	}
+	return nil
+}
+
+func validateBudgetReferences(t *Topology) error {
+	if t == nil {
+		return nil
+	}
+	for _, budget := range t.SortedBudgets() {
+		if t.Teams[budget.Team] == nil {
+			return fmt.Errorf("budget %q: references unknown team %q", budget.Team, budget.Team)
 		}
 	}
 	return nil

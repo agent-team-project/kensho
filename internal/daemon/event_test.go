@@ -19,8 +19,10 @@ import (
 
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/linearwriteback"
+	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
 	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/jamesaud/agent-team/internal/usage"
 	"github.com/jamesaud/agent-team/internal/worktreecleanup"
 	"github.com/jamesaud/agent-team/internal/worktreepolicy"
 )
@@ -202,6 +204,26 @@ func containsArgSubstring(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func writeBudgetUsageJobForEventTest(t *testing.T, teamDir, ticket, team string, rec usage.Record) {
+	t.Helper()
+	now := rec.StartedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	j, err := jobstore.New(ticket, "worker", "budget usage test", now)
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Origin = origin.Envelope{Team: team}
+	j.Instance = rec.Instance
+	rec.Origin = j.Origin
+	j.Usage, _ = usage.MergeRecord(nil, rec)
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
 }
 
 func TestEvent_PersistentMessages(t *testing.T) {
@@ -1968,6 +1990,129 @@ func TestEvent_EphemeralReplicasQueueing(t *testing.T) {
 	rej, _, _ := post("post#5")
 	if rej == "" {
 		t.Errorf("5th event should have been rejected, was not")
+	}
+}
+
+func TestEvent_JobsInFlightBudgetQueuesAndReapDrains(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+jobs_in_flight = 1
+`)
+	fake := newSequencedFakeSpawner(2*time.Second, 30*time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	first, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-squ-300",
+		"ticket": "SQU-300",
+	})
+	if err != nil {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	if len(first.Outcomes) != 1 || first.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("first outcomes = %+v", first.Outcomes)
+	}
+	second, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-squ-301",
+		"ticket": "SQU-301",
+	})
+	if err != nil {
+		t.Fatalf("second dispatch: %v", err)
+	}
+	if len(second.Outcomes) != 1 || second.Outcomes[0].Action != "queued" || second.Outcomes[0].Reason != QueueReasonBudgetExhausted {
+		t.Fatalf("second outcomes = %+v, want budget queue", second.Outcomes)
+	}
+	items, err := ListQueueItems(root)
+	if err != nil {
+		t.Fatalf("ListQueueItems: %v", err)
+	}
+	if len(items) != 1 || items[0].Reason != QueueReasonBudgetExhausted || !items[0].NextRetry.IsZero() {
+		t.Fatalf("queue items = %+v, want budget_exhausted without retry time", items)
+	}
+
+	if err := m.WaitForReaper("worker-squ-300", 5*time.Second); err != nil {
+		t.Fatalf("wait first reap: %v", err)
+	}
+	if fake.callCount() != 2 {
+		t.Fatalf("spawn calls=%d, want queued budget dispatch to drain", fake.callCount())
+	}
+	if _, err := ReadQueueItem(root, items[0].ID); !os.IsNotExist(err) {
+		t.Fatalf("queued item should be removed after budget frees, err=%v", err)
+	}
+	_, _ = m.Stop("worker-squ-301")
+	_ = m.WaitForReaper("worker-squ-301", 5*time.Second)
+}
+
+func TestEvent_TokenBudgetQueuesDispatchFromUsageRecords(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+tokens_per_day = 100
+`)
+	now := time.Now().UTC().Truncate(time.Second)
+	ended := now.Add(-time.Hour)
+	writeBudgetUsageJobForEventTest(t, teamDir, "SQU-299", "delivery", usage.Record{
+		Instance:        "worker-squ-299",
+		TokensAvailable: true,
+		InputTokens:     90,
+		OutputTokens:    20,
+		StartedAt:       ended.Add(-time.Minute),
+		EndedAt:         ended,
+	})
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target": "worker",
+		"name":   "worker-squ-302",
+		"ticket": "SQU-302",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "queued" || result.Outcomes[0].Reason != QueueReasonBudgetExhausted {
+		t.Fatalf("outcomes = %+v, want token budget queue", result.Outcomes)
+	}
+	if fake.callCount() != 0 {
+		t.Fatalf("spawn calls=%d, want none", fake.callCount())
+	}
+	items, err := ListQueueItems(root)
+	if err != nil {
+		t.Fatalf("ListQueueItems: %v", err)
+	}
+	wantRetry := ended.Add(24 * time.Hour)
+	if len(items) != 1 || items[0].Reason != QueueReasonBudgetExhausted || !items[0].NextRetry.Equal(wantRetry) {
+		t.Fatalf("queue items = %+v, want retry %s", items, wantRetry)
 	}
 }
 

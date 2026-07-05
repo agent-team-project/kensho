@@ -31,6 +31,7 @@ Subcommands:
 - `agent-team agent` - List and inspect runnable agent definitions.
 - `agent-team approval` - Manage durable job approval requests.
 - `agent-team attach` - Open an interactive runtime session against a daemon-managed persistent instance.
+- `agent-team budget` - Inspect per-team resource budgets.
 - `agent-team channel` - Manage daemon-managed pub/sub channels.
 - `agent-team channels` - List all pub/sub channels (alias for `channel ls`).
 - `agent-team completion` - Generate the autocompletion script for the specified shell
@@ -360,6 +361,48 @@ Flags:
       --tail string       Log compatibility mode: show only the last N lines before following (0 or all = all). (default "50")
       --target string     Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --unhealthy         Log compatibility mode: only attach to crashed, status-stale, or runtime-stale instances.
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team budget`
+
+Inspect per-team resource budgets.
+
+Inspect per-team resource budgets declared in `.agent_team/instances.toml` under `[budgets.&lt;team&gt;]`.
+
+```text
+agent-team budget
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team budget status` - Show spend and in-flight counts for configured team budgets.
+
+## `agent-team budget status`
+
+Show spend and in-flight counts for configured team budgets.
+
+```text
+agent-team budget status [flags]
+```
+
+Flags:
+
+```text
+      --json            Emit budget status rows as JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --team string     Show only one team budget.
 ```
 
 Inherited Flags:

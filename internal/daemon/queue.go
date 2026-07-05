@@ -20,6 +20,7 @@ const (
 
 	QueueReasonReplicaCapacity = "replica_capacity"
 	QueueReasonLockHeld        = "lock_held"
+	QueueReasonBudgetExhausted = "budget_exhausted"
 )
 
 // QueueItem is one persisted topology dispatch waiting for capacity or manual retry.

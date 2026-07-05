@@ -904,6 +904,96 @@ schedules = ["nightly"]
 	}
 }
 
+func TestParse_Budgets(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+tokens_per_day = 200_000_000
+jobs_in_flight = 4
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	budget := top.FindBudget("delivery")
+	if budget == nil {
+		t.Fatal("budget missing")
+	}
+	if budget.Team != "delivery" || budget.TokensPerDay != 200_000_000 || budget.JobsInFlight != 4 {
+		t.Fatalf("budget = %+v", budget)
+	}
+	if got := top.SortedBudgets(); len(got) != 1 || got[0] != budget {
+		t.Fatalf("SortedBudgets = %+v", got)
+	}
+}
+
+func TestParse_BudgetValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "negative tokens",
+			body: `
+[instances.worker]
+agent = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+tokens_per_day = -1
+`,
+			want: "tokens_per_day must be >= 0",
+		},
+		{
+			name: "negative jobs",
+			body: `
+[instances.worker]
+agent = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+jobs_in_flight = -1
+`,
+			want: "jobs_in_flight must be >= 0",
+		},
+		{
+			name: "unknown team",
+			body: `
+[instances.worker]
+agent = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.platform]
+jobs_in_flight = 1
+`,
+			want: `references unknown team "platform"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]byte(tt.body))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestParse_Locks(t *testing.T) {
 	top, err := Parse([]byte(`
 [locks.cargo]

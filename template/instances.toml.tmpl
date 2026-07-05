@@ -258,6 +258,13 @@ schedules   = ["debt-sweep", "harness-review"]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."
 instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-triage"]
 pipelines   = ["ticket_to_pr"]
+
+# Optional per-team admission budgets. When omitted, dispatch behavior is
+# unchanged. Token spend is computed from finalized usage records over the last
+# 24 hours; in-flight jobs are counted by the job origin team.
+# [budgets.delivery]
+# tokens_per_day = 200_000_000
+# jobs_in_flight = 4
 schedules   = ["feedback-triage"]
 
 # Optional resource scoping. Omitted scope defaults to "machine", preserving
