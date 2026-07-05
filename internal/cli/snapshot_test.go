@@ -253,7 +253,7 @@ updated_at = 2026-06-19T02:00:00Z
 	if snapshot.Runtime == nil || snapshot.Runtime.Runtime == "" {
 		t.Fatalf("runtime = %+v", snapshot.Runtime)
 	}
-	if snapshot.TeamsDoctor == nil || !snapshot.TeamsDoctor.OK || len(snapshot.TeamsDoctor.Teams) != 4 {
+	if snapshot.TeamsDoctor == nil || !snapshot.TeamsDoctor.OK || len(snapshot.TeamsDoctor.Teams) != 5 {
 		t.Fatalf("teams doctor = %+v", snapshot.TeamsDoctor)
 	}
 }
