@@ -45,7 +45,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 ## Probe Jobs
 
-If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT_TEAM_JOB_KIND` declares `probe`, this is a report-only measurement job. The probe contract overrides the normal delivery checklist: do not create a branch, do not edit files, do not open a PR, do not move or comment on the PM ticket unless explicitly told, and do not run PR/review delivery gates. Inspect what the kickoff asks for, write a concise findings summary to `.worker_agent/progress.md` and `journal.md`, send the same summary to the manager/source via `inbox send` when available, set status done, and exit.
+If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT_TEAM_JOB_KIND` declares `probe`, this is a report-only measurement job. The probe contract overrides the normal delivery checklist: do not create a branch, do not open a PR, do not move or comment on the PM ticket unless explicitly told, and do not run PR/review delivery gates. You may run read-only commands and builds/tests, but leave the workspace tree untouched — your only writes go to `$AGENT_TEAM_STATE_DIR` (write the findings report to `$AGENT_TEAM_STATE_DIR/probe-report.md`). Send the same summary to the manager/source via `inbox send` when available, set status done, and exit.
 
 ## Critical Rules
 
