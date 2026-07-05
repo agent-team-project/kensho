@@ -1687,7 +1687,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 			return nil, fmt.Errorf("event runtime: otel trace context: %w", err)
 		}
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx, traceparent)
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx, traceparent)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -1705,6 +1705,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		EnvAllow:      inst.EnvAllow,
 		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
 		Budget:        ephemeralRuntimeBudget(payload),
@@ -2405,7 +2406,7 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context, traceparent string) ([]string, string, runtimebin.Runtime, []string, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, envAllow []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context, traceparent string) ([]string, string, runtimebin.Runtime, []string, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: load agents: %w", err)
@@ -2461,6 +2462,10 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
 	}
 	env = runtimeshim.PrependPath(env, shimBinDir)
+	env, err = filterEnvAllow(env, envAllow)
+	if err != nil {
+		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	}
 	var mailboxHook *runtimehooks.MailboxHook
 	if mailboxInjection {
 		hook, err := runtimehooks.PrepareMailboxHook(runtimeDir)

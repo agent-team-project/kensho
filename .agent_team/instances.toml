@@ -48,6 +48,7 @@ ephemeral   = true
 replicas    = 3
 token_budget = "15M"
 time_budget  = "30m"
+env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Adversarial content reviewer for worker PRs. Reads, verifies, reports a verdict; never pushes."
 
 [[instances.reviewer.triggers]]
@@ -151,6 +152,7 @@ kind = "debt_sweep"
 agent       = "auditor"
 token_budget = "10M"
 ephemeral   = true
+env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Scheduled architecture/tech-debt audit: one subsystem per run, evidence-backed tickets."
 
 [[instances.debt-auditor.triggers]]
@@ -185,6 +187,7 @@ ephemeral   = true
 replicas    = 1
 token_budget = "15M"
 time_budget  = "30m"
+env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Platform-team adversarial reviewer."
 
 [[instances.platform-reviewer.triggers]]
@@ -259,6 +262,7 @@ kind = "harness_review"
 agent       = "manager"
 token_budget = "10M"
 ephemeral   = true
+env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Scheduled harness review: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
 
 [[instances.harness-reviewer.triggers]]
@@ -282,6 +286,7 @@ kind = "discord_digest"
 agent        = "comms"
 ephemeral    = true
 token_budget = "15M"
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description  = "Public-relations agent: daily shipped-work digest, release announcements, community intake."
 
 [[instances.comms.triggers]]

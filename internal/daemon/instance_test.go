@@ -400,6 +400,63 @@ func TestInstance_DispatchPersistsLaunchEnvSnapshot(t *testing.T) {
 	waitForStatusNot(t, m, "worker-squ-1", StatusRunning)
 }
 
+func TestInstance_DispatchEnvAllowFiltersChildEnvAndSnapshot(t *testing.T) {
+	t.Setenv("SAFE_FOR_ENV_ALLOW", "from-parent")
+	t.Setenv("SECRET_FOR_ENV_ALLOW", "must-not-leak")
+	t.Setenv("AGENT_TEAM_REQUIRED", "required")
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-env-allow",
+		Prompt:    "hello",
+		Workspace: t.TempDir(),
+		Env:       []string{"MARKER=dispatch", "OPENAI_API_KEY=child-only"},
+		EnvAllow:  []string{"SAFE_FOR_ENV_ALLOW", "MARKER", "OPENAI_API_KEY"},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"SAFE_FOR_ENV_ALLOW=from-parent",
+		"MARKER=dispatch",
+		"AGENT_TEAM_REQUIRED=required",
+		"OPENAI_API_KEY=child-only",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("child env missing %q: %+v", want, env)
+		}
+	}
+	if envHasKey(env, "SECRET_FOR_ENV_ALLOW") {
+		t.Fatalf("child env leaked unallowed key: %+v", env)
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "worker-env-allow")
+	if err != nil {
+		t.Fatalf("read launch env: %v", err)
+	}
+	for _, want := range []string{
+		"SAFE_FOR_ENV_ALLOW=from-parent",
+		"MARKER=dispatch",
+		"AGENT_TEAM_REQUIRED=required",
+	} {
+		if !containsString(snapshot.Env, want) {
+			t.Fatalf("snapshot env missing %q: %+v", want, snapshot.Env)
+		}
+	}
+	for _, forbidden := range []string{"SECRET_FOR_ENV_ALLOW", "OPENAI_API_KEY"} {
+		if envHasKey(snapshot.Env, forbidden) {
+			t.Fatalf("snapshot env persisted %s: %+v", forbidden, snapshot.Env)
+		}
+	}
+
+	if _, err := m.Stop("worker-env-allow"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-env-allow", StatusRunning)
+}
+
 func TestInstance_DispatchUsesRuntimeBinaryEnv(t *testing.T) {
 	t.Setenv(runtimebin.EnvBinary, "codex")
 	root := t.TempDir()

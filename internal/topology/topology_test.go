@@ -182,6 +182,46 @@ hard_multiplier = 0.5
 	}
 }
 
+func TestParse_EnvAllow(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.unset]
+agent = "worker"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+env_allow = [" PATH ", "HOME", "LC_*"]
+
+[instances.minimal]
+agent = "reviewer"
+ephemeral = true
+env_allow = []
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if top.Instances["unset"].EnvAllow != nil {
+		t.Fatalf("unset env_allow = %#v, want nil", top.Instances["unset"].EnvAllow)
+	}
+	if got, want := top.Instances["worker"].EnvAllow, []string{"PATH", "HOME", "LC_*"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("worker env_allow = %#v, want %#v", got, want)
+	}
+	if got := top.Instances["minimal"].EnvAllow; got == nil || len(got) != 0 {
+		t.Fatalf("minimal env_allow = %#v, want configured empty list", got)
+	}
+}
+
+func TestParse_RejectsInvalidEnvAllow(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+env_allow = ["["]
+`))
+	if err == nil || !strings.Contains(err.Error(), "env_allow[0]: invalid glob") {
+		t.Fatalf("Parse err = %v, want invalid env_allow glob", err)
+	}
+}
+
 func TestParse_ResourceScopesChannelsAndAuthority(t *testing.T) {
 	top, err := Parse([]byte(`
 [locks.build]

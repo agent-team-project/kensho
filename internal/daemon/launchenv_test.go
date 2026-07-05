@@ -138,6 +138,57 @@ func TestStripEnvRemovesOnlyExactKeys(t *testing.T) {
 	}
 }
 
+func TestFilterEnvAllowKeepsAllowedAndRequiredAgentTeam(t *testing.T) {
+	env := []string{
+		"PATH=/bin",
+		"HOME=/home/demo",
+		"LINEAR_API_KEY=secret",
+		"LC_ALL=C",
+		"AGENT_TEAM_ROOT=/repo/.agent_team",
+		"AGENT_TEAM_JOB_ID=squ-121",
+		"NOVALUE",
+	}
+	got, err := filterEnvAllow(env, []string{"PATH", "LC_*", "NOVALUE"})
+	if err != nil {
+		t.Fatalf("filterEnvAllow: %v", err)
+	}
+	want := []string{
+		"PATH=/bin",
+		"LC_ALL=C",
+		"AGENT_TEAM_ROOT=/repo/.agent_team",
+		"AGENT_TEAM_JOB_ID=squ-121",
+		"NOVALUE",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("filterEnvAllow = %+v, want %+v", got, want)
+	}
+}
+
+func TestFilterEnvAllowUnsetIsNoOpAndEmptyKeepsOnlyAgentTeam(t *testing.T) {
+	env := []string{"PATH=/bin", "SECRET=value", "AGENT_TEAM_ROOT=/repo/.agent_team"}
+	got, err := filterEnvAllow(env, nil)
+	if err != nil {
+		t.Fatalf("filterEnvAllow nil: %v", err)
+	}
+	if strings.Join(got, "\n") != strings.Join(env, "\n") {
+		t.Fatalf("nil allow = %+v, want no-op %+v", got, env)
+	}
+	got, err = filterEnvAllow(env, []string{})
+	if err != nil {
+		t.Fatalf("filterEnvAllow empty: %v", err)
+	}
+	want := []string{"AGENT_TEAM_ROOT=/repo/.agent_team"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("empty allow = %+v, want %+v", got, want)
+	}
+}
+
+func TestFilterEnvAllowRejectsInvalidGlob(t *testing.T) {
+	if _, err := filterEnvAllow([]string{"PATH=/bin"}, []string{"["}); err == nil {
+		t.Fatal("filterEnvAllow succeeded with invalid glob")
+	}
+}
+
 func TestMergeEnvOverlayWinsAndCollapsesDuplicateKeys(t *testing.T) {
 	got := mergeEnv(
 		[]string{"PATH=/old", "KEEP=base", "PATH=/snapshot", "NOVALUE"},

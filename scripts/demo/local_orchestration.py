@@ -911,10 +911,18 @@ def enable_demo_schedule(repo: Path) -> None:
     if manager_trigger not in body:
         raise DemoError("bundled topology no longer has the expected manager dispatch trigger")
     body = body.replace(manager_trigger, schedule_trigger, 1)
-    worker_replicas = 'replicas      = 3\nreap_worktree = "on_merge"'
-    if worker_replicas not in body:
+    worker_replicas = None
+    for candidate in (
+        'replicas      = 4\nreap_worktree = "on_merge"',
+        'replicas      = 3\nreap_worktree = "on_merge"',
+    ):
+        if candidate in body:
+            worker_replicas = candidate
+            break
+    if worker_replicas is None:
         raise DemoError("bundled topology no longer has the expected worker replica/reap lines")
-    body = body.replace(worker_replicas, 'replicas      = 3\nlocks         = ["demo"]\nreap_worktree = "on_merge"', 1)
+    worker_replicas_with_lock = worker_replicas.replace("\nreap_worktree", '\nlocks         = ["demo"]\nreap_worktree')
+    body = body.replace(worker_replicas, worker_replicas_with_lock, 1)
     pipeline_header = textwrap.dedent(
         """\
         [pipelines.ticket_to_pr]

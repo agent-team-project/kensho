@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ var DefaultStrippedEnvKeys = []string{
 	"OTEL_EXPORTER_OTLP_METRICS_HEADERS",
 	"OTEL_EXPORTER_OTLP_LOGS_HEADERS",
 }
+
+const requiredLaunchEnvPrefix = "AGENT_TEAM_"
 
 // LaunchEnvPath returns the active launch-env snapshot path for teamDir.
 func LaunchEnvPath(teamDir string) string {
@@ -72,6 +75,48 @@ func stripEnv(env []string, deny []string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+func envEntryKey(item string) string {
+	key := item
+	if before, _, ok := strings.Cut(item, "="); ok {
+		key = before
+	}
+	return key
+}
+
+func filterEnvAllow(env []string, allow []string) ([]string, error) {
+	if allow == nil {
+		return env, nil
+	}
+	patterns := make([]string, 0, len(allow))
+	for i, raw := range allow {
+		pattern := strings.TrimSpace(raw)
+		if pattern == "" {
+			return nil, fmt.Errorf("env_allow[%d]: must be non-empty", i)
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("env_allow[%d]: invalid glob: %w", i, err)
+		}
+		patterns = append(patterns, pattern)
+	}
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		key := envEntryKey(item)
+		if strings.HasPrefix(key, requiredLaunchEnvPrefix) || envKeyAllowed(key, patterns) {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func envKeyAllowed(key string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if ok, err := path.Match(pattern, key); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // StripEnv removes deny-listed KEY=VALUE entries by exact, case-sensitive key.

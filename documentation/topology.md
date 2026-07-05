@@ -241,6 +241,7 @@ channel write/read maps to, while authority allowlists audit write verbs.
 | `time_budget` | no | empty | Soft per-run wall-clock allowance applied to dispatches for this instance when the payload or pipeline step does not provide one. This is visibility unless `hard` or `hard_multiplier` is set; use step `timeout` for routine wall-clock watchdog cutoffs. |
 | `hard` | no | `false` | Opt into a hard cutoff at the declared token/time allowance. Crossing it records `budget_exceeded_hard`, marks the runtime crashed, and terminates it with watchdog semantics. Use for runaway protection, not normal pacing. |
 | `hard_multiplier` | no | empty | Opt into a hard cutoff at allowance multiplied by this number, for example `1.5`. Must be at least `1`. A multiplier is useful when soft notices should remain the primary control and only larger overruns should be killed. |
+| `env_allow` | no | unset | Glob allowlist for child process env keys. When unset, launch env behavior is unchanged. When set, only matching keys plus daemon-required `AGENT_TEAM_*` keys are inherited. |
 | `triggers` | no | empty | List of trigger blocks. Empty triggers list → instance only invokable by explicit `agent-team run <name>`. |
 
 ### Pipeline field reference

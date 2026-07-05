@@ -53,6 +53,7 @@ Fields:
 | `brief` | Generate and inject a recoverable catch-up brief for persistent instances |
 | `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
+| `env_allow` | Glob allowlist for inherited environment keys; unset is a no-op, and `AGENT_TEAM_*` is always kept |
 | `triggers` | Event matchers |
 
 ## Locks

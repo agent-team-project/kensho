@@ -221,6 +221,10 @@ cutoffs are for runaway protection: crossing one records `budget_exceeded_hard`,
 crash-finalizes the runtime, frees its slot, and lets normal failure
 write-back/attention handling run.
 
+Instance `env_allow = ["GLOB", ...]` is an opt-in child environment allowlist.
+When unset, launch env behavior is unchanged. When set, only matching env keys
+plus daemon-required `AGENT_TEAM_*` keys are inherited by the launched runtime.
+
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
 undeclared channels still work. Team-scoped channels always use the owning
 topology team for storage; actor team is authority-audit input only.

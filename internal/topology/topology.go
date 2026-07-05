@@ -8,6 +8,7 @@ package topology
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -115,6 +116,10 @@ type Instance struct {
 	TimeBudget     time.Duration
 	HardBudget     bool
 	HardMultiplier float64
+	// EnvAllow is an optional glob allowlist for the launched process
+	// environment. nil means unset/no-op; an empty non-nil slice means only the
+	// daemon-required AGENT_TEAM_* environment survives.
+	EnvAllow []string
 	// Config holds per-instance overrides for the resolved config tree —
 	// dotted-path keys flattened from `[instances.<name>.config]` in TOML.
 	// Empty when no overrides are declared.
@@ -683,6 +688,7 @@ type rawInstance struct {
 	TimeBudget     string           `toml:"time_budget"`
 	Hard           bool             `toml:"hard"`
 	HardMultiplier any              `toml:"hard_multiplier"`
+	EnvAllow       []string         `toml:"env_allow"`
 	Config         map[string]any   `toml:"config"`
 	Triggers       []map[string]any `toml:"triggers"`
 }
@@ -928,6 +934,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
 	}
+	envAllow, err := finaliseEnvAllow(name, ri.EnvAllow)
+	if err != nil {
+		return nil, err
+	}
 	cfg := template.Tree{}
 	if len(ri.Config) > 0 {
 		// `config` arrives as a free-form map[string]any from BurntSushi/toml.
@@ -953,9 +963,28 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		TimeBudget:     timeBudget,
 		HardBudget:     ri.Hard,
 		HardMultiplier: hardMultiplier,
+		EnvAllow:       envAllow,
 		Config:         cfg,
 		Triggers:       triggers,
 	}, nil
+}
+
+func finaliseEnvAllow(instance string, raw []string) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	for i, item := range raw {
+		pattern := strings.TrimSpace(item)
+		if pattern == "" {
+			return nil, fmt.Errorf("instance %q: env_allow[%d]: must be non-empty", instance, i)
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("instance %q: env_allow[%d]: invalid glob: %w", instance, i, err)
+		}
+		out = append(out, pattern)
+	}
+	return out, nil
 }
 
 func normalizeRestartPolicy(raw string) (string, error) {

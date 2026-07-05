@@ -805,6 +805,96 @@ func TestEvent_EphemeralDispatchInjectsClaudeOTel(t *testing.T) {
 	}
 }
 
+func TestEvent_EphemeralDispatchEnvAllowFiltersInheritedEnv(t *testing.T) {
+	t.Setenv("SAFE_FOR_EVENT_ALLOW", "from-parent")
+	t.Setenv("LINEAR_API_KEY", "must-not-leak")
+	t.Setenv("GITHUB_TOKEN", "must-not-leak")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+env_allow = ["PATH", "HOME", "SAFE_FOR_EVENT_ALLOW"]
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+`)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-env-allow",
+		"job_id":  "squ-121",
+		"ticket":  "SQU-121",
+		"kickoff": "check env allow",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-env-allow")
+		_ = m.WaitForReaper("worker-env-allow", 5*time.Second)
+	})
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"SAFE_FOR_EVENT_ALLOW=from-parent",
+		"AGENT_TEAM_ROOT=" + teamDir,
+		"AGENT_TEAM_INSTANCE=worker-env-allow",
+		"AGENT_TEAM_JOB_ID=squ-121",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q: %#v", want, env)
+		}
+	}
+	for _, forbidden := range []string{"LINEAR_API_KEY=", "GITHUB_TOKEN="} {
+		if containsEnvPrefix(env, forbidden) {
+			t.Fatalf("env leaked %q: %#v", forbidden, env)
+		}
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "worker-env-allow")
+	if err != nil {
+		t.Fatalf("read launch env: %v", err)
+	}
+	if containsEnvPrefix(snapshot.Env, "LINEAR_API_KEY=") || containsEnvPrefix(snapshot.Env, "GITHUB_TOKEN=") {
+		t.Fatalf("snapshot leaked filtered secrets: %#v", snapshot.Env)
+	}
+}
+
+func TestEvent_EphemeralDispatchEnvAllowUnsetIsNoOp(t *testing.T) {
+	t.Setenv("UNSET_ENV_ALLOW_SECRET", "still-present")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+
+	result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":  "worker",
+		"name":    "worker-env-unset",
+		"kickoff": "no env allow",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("outcomes = %+v, want one dispatched worker", result.Outcomes)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("worker-env-unset")
+		_ = m.WaitForReaper("worker-env-unset", 5*time.Second)
+	})
+	if !containsString(fake.lastEnv(), "UNSET_ENV_ALLOW_SECRET=still-present") {
+		t.Fatalf("unset env_allow changed inherited env: %#v", fake.lastEnv())
+	}
+}
+
 func TestEvent_EphemeralCodexDispatchWiresMailboxHook(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

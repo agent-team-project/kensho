@@ -315,7 +315,7 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		Worktree: workspace,
 		Build:    buildinfo.Current(""),
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx, "")
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx, "")
 	if err != nil {
 		return nil, false, err
 	}
@@ -327,6 +327,7 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		RuntimeBinary: rt.Binary,
 		Args:          args,
 		Env:           env,
+		EnvAllow:      inst.EnvAllow,
 		EnvComplete:   envComplete,
 		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,

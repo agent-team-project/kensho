@@ -144,7 +144,10 @@ type DispatchInput struct {
 	// EnvComplete means Env is already the full process environment. The
 	// normal dispatch path treats Env as an overlay on top of a persisted
 	// launch snapshot or os.Environ.
-	EnvComplete  bool
+	EnvComplete bool
+	// EnvAllow, when non-nil, filters the final process environment by glob
+	// before spawn and snapshot persistence. AGENT_TEAM_* is always retained.
+	EnvAllow     []string
 	StripOTelEnv bool
 	Stdin        string
 	// Budget, if > 0, is a hard wall-clock runtime budget for the dispatched
@@ -296,7 +299,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
 
-	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv)
+	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv, in.EnvAllow)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: launch env: %w", err)
 	}
@@ -1465,7 +1468,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: %w", err)
 	}
-	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv)
+	env, err := m.launchPreparedEnv(in.Name, in.Env, in.EnvComplete, in.StripOTelEnv, in.EnvAllow)
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
@@ -1625,9 +1628,9 @@ func (m *InstanceManager) applyCurrentOTelConfigWithArgs(instance string, env []
 	return append(env, launch.Env...), launch.CodexArgs
 }
 
-func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, complete, stripOTel bool) ([]string, error) {
+func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, complete, stripOTel bool, envAllow []string) ([]string, error) {
 	if complete {
-		return append([]string(nil), overlay...), nil
+		return filterEnvAllow(append([]string(nil), overlay...), envAllow)
 	}
 	env, ok, err := m.instanceLaunchEnv(instance)
 	if err != nil {
@@ -1641,13 +1644,13 @@ func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, c
 		// overlay carries the freshly generated dispatch context (current
 		// AGENT_TEAM_*, TRACEPARENT, exporter env). Appending after the
 		// snapshot lets current values win on duplicate keys.
-		return mergeEnv(env, overlay), nil
+		return filterEnvAllow(mergeEnv(env, overlay), envAllow)
 	}
 	env = os.Environ()
 	if stripOTel {
 		env = runtimeotel.StripOwnedEnv(env)
 	}
-	return mergeEnv(env, overlay), nil
+	return filterEnvAllow(mergeEnv(env, overlay), envAllow)
 }
 
 func mergeEnv(base, overlay []string) []string {
