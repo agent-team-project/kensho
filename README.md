@@ -1,676 +1,225 @@
 # agent-team
 
-A CLI for declaring teams of LLM agents and skills, then instantiating them into any repo from a parameterized template. Each **agent** is a directory under `.agent_team/agents/`; `agent-team run <agent>` launches the selected runtime with the team context registered for that session.
+`agent-team` is a massive public self-improving agent experiment: an
+agent-team deployment that builds `agent-team` itself.
 
-The model is templates-as-images: a template is a versioned, parameterized directory of agents + skills. You pull it (or use the one bundled in the binary), supply parameters once at `init`, and the resolved tree lands in `.agent_team/`. Multiple repos share the same template with different parameters; one repo can host multiple instances of the same agent.
+The project runs its own manager, workers, reviewers, auditors, docs writers,
+and comms agents against this repository. Agents pick up tickets, open PRs,
+review each other, record gate results, file feedback, sweep for debt, and
+propose prompt and harness improvements. Humans sit at exactly two gates:
+setting direction and approving merges.
 
-A starter "software engineering team" template (a `ticket-manager`, a `manager`, ephemeral `worker`s, plus Linear / PR / assign-worker skills) is bundled as the default. Use it as-is, parameterize it, or write your own template and point `init` at it.
+The software underneath that experiment is a Go CLI plus a per-repo daemon for
+declaring, running, observing, and recovering teams of LLM agents.
 
-**Status**: pre-v1. Public API is unstable.
+**Status:** pre-v1. The project is actively dogfooded, released, and changing.
+Command shapes and file schemas are product surface, but still allowed to move.
 
-## Vocabulary
+## What It Is
 
-- **template** — a versioned, parameterized directory of agents + skills with a `template.toml` manifest. Bundled in the binary, or fetched from a local path / git URL into a cache.
-- **agent** — a definition. A directory at `.agent_team/agents/<name>/` containing `agent.md` (frontmatter + prompt) and `config.toml` (skill assignment). Authored, static, reusable.
-- **instance** — a named runtime spawn of an agent. Identified by the `--name=` flag at spawn time. One agent can have many instances; each has its own state dir.
-- **workspace** — the working directory an instance operates in. For code-writing agents (the bundled `worker`): a fresh git worktree per spawn. For others: the repo root.
-- **state** — persistent per-instance files (journal, goals, progress) at `.agent_team/state/<instance-name>/`.
+`agent-team` vendors an editable `.agent_team/` directory into any repo and uses
+that repo-local state as the control plane for agent work.
+
+- **Templates** package agents, skills, topology, and parameters. `agent-team
+  init` renders one into `.agent_team/`.
+- **Agents and skills** are plain files under `.agent_team/agents/` and
+  `.agent_team/skills/`.
+- **Topology** in `.agent_team/instances.toml` declares persistent managers,
+  ephemeral workers, schedules, teams, triggers, budgets, and pipelines.
+- **Jobs** connect tickets, branches, worktrees, PRs, validation gates, pipeline
+  steps, queues, logs, and status.
+- **`agent-teamd`** owns runtime lifecycle for daemon-backed work: dispatch,
+  stop, resume, queue, mailbox, schedule, and log capture.
+- **Provider integrations** support ticketless jobs, Linear, and GitHub
+  Issues/Projects.
+- **Runtime profiles** support Claude and Codex, with direct runs still
+  available for simple sessions.
+
+Everything is file-backed and repo-scoped. There is no database, marketplace, or
+global agent registry required for normal operation.
+
+## Five-Minute Quickstart
+
+This starts from a fresh source checkout and a scratch consumer repo. You need
+Go 1.22+ and a supported LLM runtime (`claude` or `codex`) on `PATH` before
+dispatching real agent work.
+
+```sh
+git clone https://github.com/agent-team-project/agent-team.git
+cd agent-team
+
+go build -o bin/agent-team ./cmd/agent-team
+go build -o bin/agent-teamd ./cmd/agent-teamd
+export PATH="$PWD/bin:$PATH"
+
+mkdir -p /tmp/agent-team-demo
+cd /tmp/agent-team-demo
+git init
+
+agent-team init
+agent-team doctor --commands
+agent-team daemon start
+agent-team job create "fix the flaky login test" --dispatch --workspace worktree
+agent-team job show <job-id> --events all
+agent-team logs --job <job-id> --follow
+```
+
+`agent-team init` defaults to `[pm].provider = "none"`, so the quoted job text
+is the work item. To use a board as the dispatch control plane, initialize with
+Linear or GitHub provider settings instead:
+
+```sh
+agent-team init \
+  --set pm.provider=linear \
+  --set linear.team_id=<your-team-uuid> \
+  --set linear.ticket_prefix=APP
+```
+
+```sh
+agent-team init \
+  --set pm.provider=github \
+  --set github.owner=<owner-or-org> \
+  --set github.repo=<repo>
+```
+
+Move a Linear card or GitHub Project item into the configured agent column
+(`Ready for Agent` by default) to dispatch the default ticket-to-PR pipeline.
+
+For a no-LLM local orchestration walkthrough, run the fake-runtime demo from the
+source checkout:
+
+```sh
+python3 scripts/demo/local_orchestration.py bin/agent-team
+```
+
+## The Bundled Experiment
+
+The default template ships the team that this repo uses on itself. It is meant
+to be edited, replaced, or used as a starting point.
+
+| Team | What It Runs |
+| --- | --- |
+| `delivery` | Manager, ticket-manager, workers, reviewers, and the default ticket-to-PR pipeline. |
+| `platform` | Separate worker/reviewer pool for framework infrastructure work. |
+| `quality` | Architecture debt audits and harness-review work. |
+| `pr` | Public digest, release-announcement, community-feedback, and docs-writing agents. |
+
+The core delivery loop is event-driven:
+
+```text
+ticket enters Ready for Agent
+  -> implement worker in a worktree
+  -> adversarial reviewer
+  -> manual approval gate
+  -> merge / bounce / follow-up
+```
+
+Four scheduled loops keep the system improving around that delivery path:
+
+| Loop | Cadence | Purpose |
+| --- | --- | --- |
+| Feedback triage | 12h | Cluster agent feedback and file, fold, or dismiss follow-up tickets. |
+| Debt sweep | weekly | Audit one subsystem and file at most three evidence-backed tech-debt tickets. |
+| Harness review | weekly | Turn bounce patterns, failures, and feedback into prompt/skill improvement tickets. |
+| Discord digest | daily | Draft or publish a shipped-work digest through the sanctioned comms path. |
+
+Budgets and watchdogs are part of the model. Topology can declare per-team,
+per-job, and per-step token/time allowances; the daemon records usage, sends
+soft budget notices, and can opt into hard cutoffs for runaway work.
+
+## Architecture
+
+```text
+template ref or bundled default
+  -> agent-team init
+  -> .agent_team/{config.toml,instances.toml,agents,skills}
+  -> agent-teamd
+  -> events, schedules, jobs, queues, pipelines
+  -> runtime instances in repo/worktree workspaces
+  -> PRs, ticket write-back, logs, gates, usage, status
+```
+
+The CLI is the operator surface. The daemon is the local runtime control plane.
+The repo filesystem is the database. Agents can fail, daemons can restart, and
+operators can still inspect and repair work from the files under `.agent_team/`.
 
 ## Install
 
-`agent-team` ships as two single-file Go binaries: the user-facing `agent-team` CLI and the per-repo `agent-teamd` daemon. Pick whichever install path fits your setup.
-
-**1. `go install`** (works today; needs Go 1.22+):
+From source:
 
 ```sh
 go install github.com/agent-team-project/agent-team/cmd/agent-team@latest
 go install github.com/agent-team-project/agent-team/cmd/agent-teamd@latest
 ```
 
-This drops both binaries into `$(go env GOPATH)/bin` (typically `~/go/bin`). Make sure that directory is on your `PATH`.
-
-**2. Prebuilt release tarball** (works after the first tagged release):
-
-Grab the archive for your OS/arch from [GitHub Releases](https://github.com/agent-team-project/agent-team/releases), unpack, and put both binaries on your `PATH`:
+From a release tarball:
 
 ```sh
-# example for macOS arm64 — adjust the URL for your platform
 curl -fsSL https://github.com/agent-team-project/agent-team/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
   | tar -xz -C /usr/local/bin agent-team agent-teamd
 ```
 
-**3. Homebrew** *(coming soon — tap not yet published)*:
+Replace the archive name for your OS and architecture. Current release assets
+cover Darwin and Linux on amd64/arm64. Homebrew publishing is not enabled yet.
 
-```sh
-# not yet available — pending tap repo creation; see SQU-31
-# brew install agent-team-project/agent-team/agent-team
-```
-
-Verify any install with:
+Verify:
 
 ```sh
 agent-team --version
+agent-team daemon status
 ```
 
-## Lifecycle
+## Documentation
 
-```
-template pull  →  init  →  run  →  upgrade
-```
+Start with the guide pages:
 
-1. **(Optional) `template pull`** — fetch a template into the local cache. Git refs are shallow-fetched and cached by resolved commit SHA. Skip this for the bundled default, or let `init` pull a git ref on demand.
-2. **`init`** — instantiate a template into the current repo from the bundled default, a local path, a cached ref, or a git ref. Resolves required parameters (`--set k=v` or interactive prompt), writes `.agent_team/` with `.tmpl` files rendered, and records template provenance in `.template.lock`.
-3. **`run`** — launch the selected runtime as one of the agents.
-4. **`upgrade`** — `upgrade --check` compares the repo's template lock to a resolved ref; `upgrade --apply --dry-run` previews clean three-way changes and conflicts; `upgrade --apply --dry-run --commands` prints the clean apply command; `upgrade --apply` updates only files that still match the locked template version.
+- [Quickstart](./docs/guide/quickstart.md)
+- [Concepts](./docs/guide/concepts.md)
+- [Architecture](./docs/guide/architecture.md)
+- [Messaging](./docs/guide/messaging.md)
+- [Board Control Plane](./docs/guide/board-control-plane.md)
+- [Observability and Recovery](./docs/guide/observability-and-recovery.md)
 
-The full design is in [`documentation/templates.md`](./documentation/templates.md).
+Deeper references live in:
 
-## Feature tour
+- [Templates](./docs/authoring/templates.md)
+- [Topology](./docs/authoring/topology.md)
+- [Daemon Runtime](./docs/runtime/daemon.md)
+- [Jobs](./docs/workflows/jobs.md)
+- [Pipelines and Teams](./docs/workflows/pipelines-and-teams.md)
+- [CLI Reference](./docs/reference/cli.md)
+- [Roadmap Context](./docs/contributing/roadmap.md)
+- [Changelog](./CHANGELOG.md)
 
-Beyond direct `init` + `run`, the current surface is a repo-local control plane
-for durable agent work:
-
-- **Messaging**: `agent-team send`, `job send`, `pipeline send`, and
-  `team send` append durable mailbox messages. New dispatches receive unread
-  mail in their kickoff, running sessions can receive mail at runtime hook
-  boundaries, and `send --interrupt` is available for a hard steer that stops
-  and managed-resumes the captured session.
-- **Board control**: Linear-backed repos and GitHub Projects-backed repos can
-  treat a board column as the dispatch gesture. The bundled pipeline listens
-  for `ticket.status_changed` events whose status matches the configured
-  provider `agent_column`, writes best-effort status updates back to the PM
-  provider, ignores agent-authored webhook loops when the provider actor is
-  configured or cached, and no-ops re-entry unless
-  `redispatch_on_reentry = true`.
-- **Observability**: status files, daemon metadata, lifecycle events, logs,
-  usage rollups, job gates, gate signatures, snapshots, and build identity all
-  stay file-backed and visible through CLI commands such as `ps`, `monitor`,
-  `usage`, `job gates`, `signatures test`, `snapshot`, and `daemon status`.
-- **Operator recovery**: jobs and pipelines expose dry-run-first controls for
-  bounce-back, unblocking, watchdog extension, retry, stale timeout, manual
-  gates, PR landing, and cleanup. Use `overview`, `next`, `health`, `repair`,
-  `job bounce`, `job extend`, `pipeline retry`, and `job merge` from the work
-  unit or team scope that owns the problem.
-
-See the guide pages for [messaging](./docs/guide/messaging.md), the
-[board control plane](./docs/guide/board-control-plane.md), and
-[observability and recovery](./docs/guide/observability-and-recovery.md).
-
-## Developer Docs Website
-
-The developer documentation lives in [`docs/`](./docs/) and builds with VitePress:
+The developer docs site is generated with VitePress:
 
 ```sh
+agent-team docs site --commands
 npm install
 npm run docs:dev
 npm run docs:build
 ```
 
-Use the CLI helper when you need the exact local paths, URL, or commands:
-
-```sh
-agent-team docs site
-agent-team docs site --commands
-```
-
-After changing CLI commands or flags, regenerate a command reference from the
-live Cobra tree:
+After changing CLI commands or flags, regenerate the reference from the live
+Cobra tree:
 
 ```sh
 agent-team docs cli --output docs/reference/cli.generated.md
 agent-team docs cli --check docs/reference/cli.generated.md
 ```
 
-For a no-LLM local orchestration walkthrough, build both binaries and run the
-fake-runtime demo:
+## Development
+
+The main contributor loop is:
 
 ```sh
+go test ./...
 go build -o bin/agent-team ./cmd/agent-team
 go build -o bin/agent-teamd ./cmd/agent-teamd
-python3 scripts/demo/local_orchestration.py bin/agent-team
-python3 scripts/demo/local_orchestration.py bin/agent-team --runtime codex
-python3 scripts/demo/local_orchestration.py bin/agent-team --runtime codex --real-codex-probe
+python3 scripts/ci/smoke_init.py bin/agent-team
 ```
 
-Build the local container image used by generated Compose intake deployments:
-
-```sh
-docker build -t agent-team:local .
-```
-
-Pushes to `main` and `v*` tags publish the same image recipe to
-`ghcr.io/agent-team-project/agent-team`, sign published digests with keyless cosign,
-and attach SBOM/provenance attestations.
-
-The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.
-
-## Quickstart
-
-Ticketless setup needs no external services:
-
-```sh
-mkdir my-app && cd my-app
-git init
-agent-team init
-agent-team daemon start
-agent-team job create "fix the flaky login test" --dispatch --workspace worktree
-agent-team job show <job-id>
-agent-team logs --job <job-id> --follow
-```
-
-`init` defaults `[team].pm_tool` to `"none"`, so workers use the job kickoff text as the work item. The `job create` output prints the normalized `<job-id>` to use with `job show` and `logs`.
-
-To back the team with Linear, opt in during init:
-
-```sh
-agent-team init \
-    --set team.pm_tool=linear \
-    --set linear.team_id=<your-team-uuid> \
-    --set linear.ticket_prefix=APP \
-    --set linear.agent_column="Ready for Agent"
-```
-
-Passing `linear.*` values without `team.pm_tool` also enables Linear for compatibility with older quickstarts. If `team.pm_tool=linear`, missing `linear.team_id` or `linear.ticket_prefix` fails clearly; otherwise Linear stays disabled.
-The bundled PM pipeline dispatches when a ticket moves into the configured provider `agent_column`; `ticket.created` remains the documented zero-config alternative in `.agent_team/instances.toml`.
-
-To back the team with GitHub Issues and GitHub Projects, opt in during init:
-
-```sh
-agent-team init \
-    --set pm.provider=github \
-    --set github.owner=<owner-or-org> \
-    --set github.repo=<repo> \
-    --set github.agent_column="Ready for Agent"
-```
-
-When `[github].project_number` is configured, write-back can also move the
-issue's Projects v2 item through `[github].project_status_field` (default
-`Status`) to `[github].in_progress_column` or `[github].attention_column`.
-The GitHub helper reads `GITHUB_TOKEN` or `GH_TOKEN` from env or `.env`.
-
-`init` writes a starter `.agent_team/` into the current repo:
-
-```
-.agent_team/
-├── .template.lock             # template ref + source content hash
-├── config.toml                # resolved parameter values and team-wide skills
-├── agents/
-│   ├── <name>/
-│   │   ├── agent.md           # frontmatter + prompt body
-│   │   ├── config.toml        # [skills].extra: which skills this agent uses
-│   │   └── skills/            # optional agent-private skills
-│   └── ...
-├── skills/
-│   ├── <name>/SKILL.md        # shared skills (referenced by any agent)
-│   └── ...
-└── state/                     # per-instance state, written at runtime
-    └── <instance-name>/       # journal.md, goals.md, etc.
-```
-
-Edit anything you like, then:
-
-```sh
-agent-team run manager     # or any other agent name from .agent_team/agents/
-```
-
-…and you're in a runtime session as that agent. With the default Claude-compatible runtime, the rest of the team is registered as subagents it can dispatch.
-
-## One-shot run
-
-For try-out, CI, or a fresh sandbox — anywhere the two-step `init` + `run` is friction — collapse both into a single command:
-
-```sh
-agent-team template run bundled manager \
-    --runtime codex \
-    --last-message \
-    -p "kickoff message"
-```
-
-This instantiates the template into a tempdir under `~/.agent-team/runs/<timestamp>-<agent>/` (or `$XDG_CACHE_HOME/agent-team/runs/...`), spawns the agent against it, and removes the tempdir when the agent exits. Pass `--runtime claude|codex` and `--runtime-bin <path>` for one-off runtime selection, `--last-message` for clean Codex one-shot output, `--keep` to preserve the tempdir, or `--target <dir>` to use a specific directory (which is always preserved). Add `--set pm.provider=linear --set linear.team_id=<uuid> --set linear.ticket_prefix=<PREFIX>` when the one-shot run should use Linear.
-
-The daemon is bypassed; the selected runtime is exec'd directly. For long-lived setups where you want `instance ps` / `logs --follow` visibility, use `init` + `run` separately.
-
-## Commands
-
-Most repo-scoped commands accept the global `--repo <dir>` selector. Legacy repo-root `--target <dir>` flags remain for compatibility; `agent-team job create --target <agent>` still means the target agent for that job.
-
-```sh
-agent-team init [<ref>] [--set k=v]... [--no-input] [--force] [--dry-run] [--commands] [--format '{{.TeamDir}} {{.Kind}}'] [--json]
-                                                # instantiate a template into the current repo
-agent-team start [<instance>...] [-q] [--all] [--latest | --last N] [--runtime codex] [--agent manager] [--status stopped] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--prompt "..."] [--prompt-file <path|->] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--attach --tail N|all] [--json]
-                                                # start daemon, then start/resume persistent or daemon-known instances
-agent-team stop [<instance>...] [-q] [--all] [--latest | --last N] [--runtime codex] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [-f] [--rm] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--wait --wait-timeout 30s] [--timeout 10s] [--json]
-                                                # stop persistent instances, or all daemon-managed instances
-agent-team kill [<instance>...] [-q] [--all] [--latest | --last N] [--runtime codex] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--rm] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--timeout 2s] [--wait --wait-timeout 30s] [--json]
-                                                # force-stop persistent instances, or all daemon-managed instances
-agent-team restart [<instance>...] [-q] [--all] [--latest | --last N] [--runtime codex] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--prompt "..."] [--prompt-file <path|->] [-f] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--timeout 30s] [--wait --wait-timeout 30s] [--attach --tail N|all] [--json]
-                                                # restart persistent or daemon-known instances
-agent-team reload [--format '{{len .Topology.Instances}} {{.Reconcile.Changed}}'] [--json]
-                                                # re-read instances.toml in the daemon and reconcile runtime metadata
-agent-team graph [delivery|ticket_to_pr] [--team delivery | --pipeline ticket_to_pr] [--format text|mermaid|dot] [--routes] [--job squ-42] [--commands] [--json]
-                                                # render the full automation graph, or narrow to one team or pipeline
-agent-team topology show [--json] | graph [--format text|mermaid|dot] [--routes] [--json] | summary [--json] | reload [--format '{{len .Instances}}'] [--json]
-                                                # inspect declared topology, render topology graphs, summarize workflow/team route health, or reload the daemon view
-agent-team plan [--json] [--summary] [--stop-extras] [--commands] [--format '{{.Instance}} {{.Action}}'] [--agent manager] [--instance manager] [--runtime codex] [--status running] [--phase idle] [--action start]
-                                                # preview desired instance state from topology and daemon metadata
-agent-team sync [-q] [--dry-run] [--commands] [--stop-extras] [--agent manager] [--instance manager] [--runtime codex] [--status unknown] [--phase idle] [--action start] [--summary] [--format '{{.Instance}} {{.Action}}'] [--ready-timeout 3s] [--wait --timeout 30s] [--json]
-                                                # reload topology, reconcile metadata, start/resume persistent instances, and optionally stop running extras
-agent-team tick [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--commands] [--preview-routes] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Queue.Dispatched}} {{len .Advance}}'] [--json]
-                                                # run one maintenance cycle, watch cycles, or tick until no immediate job-status/schedule/outbox/queue/pipeline work remains
-agent-team drain [--interval 2s] [--max-cycles N] [--skip-reconcile] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.CyclesRun}} {{.Idle}}'] [--json]
-                                                # script-friendly shortcut for tick --until-idle, including agent outbox drain
-agent-team pipeline tick <pipeline> [--dry-run] [--commands] [--preview-routes] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Pipeline}} {{len .Tick.Advance}}'] [--json]
-                                                # run or preview one pipeline-scoped queue/ready-step maintenance cycle
-agent-team pipeline drain <pipeline> [--interval 2s] [--max-cycles N] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Pipeline}} {{.Idle}}'] [--json]
-                                                # drain pending queue and ready-step work for one pipeline until idle
-agent-team repair [--dry-run] [--commands] [--last-message] [--fallbacks] [--preview-routes] [--jobs] [--timeout-jobs|--timeout-pipelines] [--timeout-step <id>] [--timeout-pipeline name] [--timeout-target-agent worker] [--timeout-message "..."] [--timeout-message-file <path|->] [--retry-pipelines] [--retry-pipeline name] [--retry-step <id>] [--retry-message "..."] [--retry-message-file <path|->] [--retry-force] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Queue.Action}}'] [--json]
-                                                # recover common unhealthy orchestration state by starting/reconciling the daemon, retrying dead queue items, ticking work, and optionally waiting for handoff
-agent-team overview [-w] [--no-clear] [--interval 2s] [--source queue] [--reason dead] [--sort source|reason|command] [--limit N] [--schedule-limit N] [--last-message] [--fallbacks] [--commands] [--format '{{.State}}'] [--json]
-                                                # show a read-only operator overview with health, topology, inbox, jobs, outbox/quarantine, queue, pipelines, schedules, and action hints
-agent-team next [-w] [--no-clear] [--interval 2s] [--team delivery] [--source inbox|outbox|queue] [--reason unread|dead] [--sort source|reason|command] [--details] [--last-message] [--fallbacks] [--commands] [--limit N] [--schedule-limit N] [--format '{{.State}}'] [--json]
-                                                # print the recommended next operator commands from the current overview
-agent-team status [-w] [--no-clear] [--summary [--resources] [--plan [--stop-extras] [--action start]] [--events N [--event-action stop] [--since 10m]] [--strict-topology]] [--commands] [--latest | --last N] [--format '{{.Instance}} {{.Status}}'] [--json] [--interval 2s] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
-                                                # show/watch daemon health and current instance snapshot
-agent-team daemon start [-q] [--detach=false] [--ready-timeout 3s] [--http-addr 127.0.0.1:0] [--format '{{.Action}} {{.PID}}'] [--json]
-                                                # boot agent-teamd; detached by default, foreground with --detach=false
-agent-team daemon status [-q] [--wait [--down] --timeout 30s --interval 200ms] [--commands] [--format '{{.Ready}} {{.PID}}'] [--json]
-                                                # show agent-teamd process, API readiness, pid/socket/log paths
-agent-team daemon logs [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
-                                                # show/follow the agent-teamd daemon log
-agent-team daemon stop [-q] [--timeout 5s] [--format '{{.Action}} {{.Changed}}'] [--json]
-                                                # stop agent-teamd, escalating after the grace period
-agent-team daemon restart [-q] [--timeout 5s] [--ready-timeout 3s] [--http-addr 127.0.0.1:0] [--detach=false] [--format '{{.Action}} {{.Changed}}'] [--json]
-                                                # bounce agent-teamd and reconcile existing daemon metadata
-agent-team daemon adopt <instance> (--pid <pid>|--pid-file <path>) [--agent manager] [--workspace <path>] [--runtime claude|codex] [--session-id <id>] [--job squ-42] [--step <id>] [--dry-run] [--commands] [--format '{{.Metadata.Instance}} {{.Metadata.PID}}'] [--json]
-                                                # track an externally started live process in daemon metadata and, with --job, sync durable job ownership
-agent-team daemon reconcile [--format '{{.Changed}} {{len .Instances}}'] [--json]
-                                                # refresh daemon metadata against the live process table without restarting
-agent-team health [-q] [-w] [--no-clear] [--wait --timeout 30s] [--latest | --last N] [--last-message] [--fallbacks] [--commands] [--format '{{.Healthy}} {{.Summary.Running}}'] [--jobs] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--strict-topology] [--json]
-                                                # check daemon, declarations, crashes, stale status, queue dead letters/quarantine, job quarantine, outbox quarantine, job health, and optional topology drift
-agent-team monitor [-w] [--no-clear] [-a] [--summary [--resources]] [--last-message] [--fallbacks] [--commands] [--plan [--stop-extras] [--action start]] [--jobs] [--schedules] [--latest | --last N] [--events N [--events-sort newest] [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|runtime-stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|runtime-stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
-                                                # combined health, inbox, instance, resource, event-history, and job-status snapshot; uses local metadata if the daemon is down
-agent-team runtime [--runtime claude|codex] [--runtime-bin <path>] [--format '{{.Runtime}} {{.Available}}'] [--json] | set <claude|codex> [--runtime-bin <path>] [--dry-run] [--commands] [--format '{{.Runtime}} {{.Binary}}'] [--json] | unset [--dry-run] [--commands] [--format '{{.Changed}}'] [--json] | profile [--runtime claude|codex] [--runtime-bin <path>] [--format '{{.Runtime}} {{.Available}}'] [--json] | ls [--format '{{.Runtime}} {{.Selected}} {{.Available}}'] [--json] | metadata ls [<instance>...] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--commands] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json] | metadata show <instance> [--commands] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json] | probe [--runtime claude|codex] [--runtime-bin <path>] [--skip-doctor] [--exec|--exec-socket-check|--exec-http-check] [--daemon-http-addr 127.0.0.1:0] [--exec-prompt "..."|--exec-prompt-file <path|->] [--start-daemon] [--require-daemon] [--commands] [--format '{{.OK}} {{len .Issues}}'] [--json] | adopt <instance> (--pid <pid>|--pid-file <path>) [--agent worker] [--job squ-42] [--step <id>] [--runtime codex] [--dry-run] [--commands] [--json] | resume-plan [<instance>...] [--job squ-42] [--step <id>] [--status crashed] [--runtime codex] [--action start|attach|resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--last-message] [--commands [--fallbacks]] [--format '{{.Instance}} {{.RecommendedAction}}'] [--json]
-                                                # inspect, list, probe, adopt, or plan recovery for selected LLM runtime metadata
-agent-team adopt <instance> (--pid <pid>|--pid-file <path>) [--agent worker] [--job squ-42] [--step <id>] [--runtime codex] [--dry-run] [--commands] [--json]
-                                                # shortcut for adopting an external runtime process into daemon metadata
-agent-team resume-plan [<instance>...] [--job squ-42] [--step <id>] [--status crashed] [--runtime codex] [--action start|attach|resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--last-message] [--commands [--fallbacks]] [--format '{{.Instance}} {{.RecommendedAction}}'] [--json]
-                                                # shortcut for runtime resume recovery commands from daemon metadata
-agent-team shortcuts [--all] [--format '{{.Alias}} -> {{.Command}}'] [--json]
-                                                # list top-level aliases and Docker-like shortcuts; --all includes nested command-group aliases
-agent-team docs cli [--output docs/reference/cli.generated.md | --check docs/reference/cli.generated.md] | site [--commands] [--json]
-                                                # generate/check markdown CLI reference, or show local developer docs site commands
-agent-team snapshot [--events N|-1] [--events-sort newest] [--intake-deliveries N|-1] [--schedule-limit N] [--no-redact] [--commands] [--format '{{.Repo}} {{len .Jobs}}'] [--json | --output snapshot.json] | diff <before.json> <after.json> | diff <snapshot.json> (--current-after|--current-before) [--events N|-1] [--events-sort newest] [--timeline N|all] [--intake-deliveries N|-1] [--schedule-limit N] [--no-redact] [--section provenance|git|runtime|health|plan|triage|next|actions|commands|instances|jobs|job_quarantine|inbox|outbox|outbox_quarantine|queue|queue_quarantine|quarantine|schedules|intake|events|timeline|timelines|pipelines|pipeline_metrics|advance|ready_advance|section_errors] [--action added|removed|changed] [--commands] [--summary] [--sort section|action|id] [--limit N] [--format '{{.Summary.TotalChanges}}'] [--json | --output diff.json] [--exit-code]
-                                                # capture a redacted read-only diagnostic report with command provenance, health, plan, jobs, job quarantine, job-status previews, inbox, outbox/quarantine, queue/quarantine, schedules, runtime, and recent events
-agent-team watch [--no-clear] [-a] [--summary [--resources]] [--last-message] [--fallbacks] [--plan [--stop-extras] [--action start]] [--jobs] [--schedules] [--latest | --last N] [--events N [--events-sort newest] [--event-action stop] [--since 10m]] [--sort status|agent|phase|stale|runtime-stale|unhealthy|started|stopped|exited|name] [--stats-sort cpu|mem|rss|status|agent|phase|stale|runtime-stale|unhealthy|name] [--format '{{.Health.Healthy}} {{len .Instances}}'] [--json] [--interval 2s] [--strict-topology] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
-                                                # continuously redraw the combined operator monitor with health, inbox, instances, resources, and optional jobs/schedules/events
-agent-team ps [-a] [-w] [--no-clear] [-q] [--summary] [--latest | --last N] [--sort status|agent|phase|stale|runtime-stale|unhealthy|started|stopped|exited|name] [--json] [--format '{{.Instance}} {{.Status}}'] [--status running] [--runtime codex] [--phase blocked] [--stale] [--runtime-stale] [--unhealthy] [--agent worker] [--instance worker-1]
-                                                # list/watch/filter instances, or summarize lifecycle and phase counts
-agent-team stats [<instance>...] [--all] [--latest | --last N] [-w] [--no-clear] [--summary] [--sort cpu|mem|rss|status|agent|phase|stale|runtime-stale|unhealthy|name] [--json] [--format '{{.Instance}} {{.CPUPercent}} {{.RSS}}'] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy]
-                                                # show/watch CPU and memory usage, or summarize resources and phases
-agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manager] [--instance manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--format '{{.Instance}} {{if .Runtime}}{{.Runtime.Lifecycle}}{{end}}'] [--json]
-                                                # show runtime metadata, state, status, and topology; reads persisted runtime metadata if the daemon is down
-agent-team logs [<instance> | --latest | --last N] [--all | --agent manager] [--status running] [--runtime codex] [--phase idle] [--job SQU-42] [--stale] [--runtime-stale] [--unhealthy] [--no-prefix] [--last-message] [--clean] [--list [--format '{{.Instance}} {{.LogPath}}'] [--json]] [--daemon] [-f] [--tail N|all] [--since 10m] [--grep 'error|panic']
-                                                # list/show/follow instance or daemon logs; --last-message shows the clean Codex final response sidecar, --clean filters known Codex diagnostic noise from raw logs
-agent-team attach <instance> [--dry-run] [--commands] [--no-resume]
-                                                # preview or run an interactive managed-resume handoff; dry-run can print apply or unmanaged fallback commands
-agent-team exec <instance> [--dry-run] [--commands] [--no-resume]
-                                                # Docker-like alias for attach
-agent-team events [-f] [--tail N] [--sort newest] [--latest | --last N] [--since 24h] [--summary] [--runtime codex] [--job SQU-42] [--step <id>] [--format '{{.Action}} {{.Instance}}'] [--action dispatch] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--json]
-                                                # show/follow lifecycle events; phase/stale/unhealthy narrow by current status.toml; reads local history if the daemon is down
-agent-team wait [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--until terminal|running|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--commands] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json]
-                                                # wait for lifecycle or work-phase conditions, using persisted metadata if the daemon is down
-agent-team send [<instance>] [message...] [--message "..."] [--message-file <path|->] [--all] [--latest | --last N] [--agent manager] [--runtime codex] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--from user] [--allow-missing] [--dry-run] [--commands] [--format '{{.To}} {{.ID}}'] [--json]
-                                                # send a daemon mailbox message; phase/stale/runtime-stale/unhealthy selectors use current metadata; appends locally if the daemon is down
-agent-team inbox ls [--team delivery] [--unread] [--sort instance|unread|latest|total] [--limit N] [--commands] [--format '{{.Instance}} {{.Unread}}'] [--json] | show <instance> [--unread] [--tail N] [--commands] [--format '{{.ID}} {{.Body}}'] [--json] | ack <instance> <message-id>|--all [--dry-run] [--commands] [--format '{{.Instance}} {{.Acked}}'] [--json] | prune <instance>...|--all [--team delivery] [--older-than 24h] [--limit N] [--dry-run] [--commands] [--format '{{.Instance}} {{.Dropped}}'] [--json]
-                                                # inspect daemon mailbox summaries, show instance messages, or advance an inbox cursor
-agent-team dispatch <target> <ticket> [kickoff...] [--name <instance>] [--source <instance>] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--kickoff "..."] [--kickoff-file <path|->] [--dry-run] [--commands] [--format <template>] [--json]
-                                                # publish an agent.dispatch topology event, or preview local topology matches without a daemon
-agent-team job create <ticket> [kickoff...] [--target worker] [--ticket-url <url>] [--kickoff "..."] [--kickoff-file <path|->] [--pipeline ticket_to_pr] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--instance <name>] [--dry-run] [--commands] [--json]
-agent-team job ls [-w] [--summary] [--commands] [--sort id|status|target|runtime|updated|created] [--limit N] [--status queued|running|blocked|done|failed] [--held|--unheld] [--target-agent worker] [--pipeline name] [--instance name] [--runtime codex] [--json]
-agent-team job show|inspect <job-id> [--events N|all] [--events-sort newest] [--commands] [--json] | show|inspect <job-id> [--format '{{.ID}} {{.Status}}'] | doctor [--quarantine [--dry-run]] [--commands] [--format '{{.OK}} {{.Summary.Valid}}'] [--json] | quarantine [--summary] [--restorable|--unrestorable] [--sort path|restorable] [--limit N] [--commands] [--format '{{.ID}} {{.Restorable}}'] [--json] | quarantine show <path> [--commands] [--format '{{.ID}}'] [--json] | quarantine restore <path> [--dry-run] [--commands] [--force] [--format '{{.Action}}'] [--json] | quarantine drop <path> [--dry-run] [--commands] [--format '{{.Action}}'] [--json] | snapshot <job-id> [--events N|-1] [--events-sort newest] [--tail N|-1] [--no-redact] [--commands] [--format '{{.Job.ID}} {{.Job.Status}}'] [--output snapshot.json|--json] | triage [-w] [--min-severity critical|warning|info] [--reason queue_dead] [--no-clear] [--commands] [--format '{{.Summary.Total}} {{len .Attention}}'] [--json] | next <job-id> [--state ready|failed|held|all] [--step <id>] [--commands] [--format '{{.State}} {{.Step.ID}}'] [--json] | explain <job-id> [-w] [--no-clear] [--interval 2s] [--state ready|failed|held|all] [--step <id>] [--commands] [--format '{{.State}} {{len .Steps}}'] [--json] | ready [-w] [--no-clear] [--interval 2s] [--state ready|queued|held|all] [--step <id>] [--sort updated] [--limit N] [--commands] [--format '{{.JobID}} {{.State}}'] [--json] | events <job-id>|--all [-f] [--interval 1s] [--tail N|all] [--sort newest] [--summary] [--type closed] [--status done] [--actor cli] [--instance worker-squ-42] [--since 24h] [--format '{{.Type}} {{.Status}}'] [--json] | timeline <job-id> [--source all|job|lifecycle] [--since 24h] [--tail N|all] [--sort newest] [--format '{{.Source}} {{.Kind}}'] [--json]
-agent-team job queue <job-id> [-w] [--no-clear] [--interval 2s] [--summary] [--state pending|dead] [--event-type agent.dispatch] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue show <job-id> <id> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue quarantine <job-id> [--summary] [--state pending|dead] [--event-type agent.dispatch] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.Restorable}}'] [--json] | queue quarantine show <job-id> <path> [--commands] [--json] | queue quarantine restore <job-id> <path>|--all [--dry-run] [--commands] [--state pending|dead] [--sort attempts] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | queue quarantine drop <job-id> <path>|--all [--dry-run] [--commands] [--state pending|dead] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | queue retry <job-id> <id>|--all [--runtime codex] [--dry-run] [--commands] [--state pending|dead] [--ready] [--sort attempts] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | queue drop <job-id> <id>|--all [--runtime codex] [--dry-run] [--commands] [--state pending|dead] [--ready] [--sort attempts] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | queue prune <job-id> [--state dead|pending|all] [--event-type agent.dispatch] [--runtime codex] [--ready] [--older-than 24h] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # list, inspect, restore, retry, drop, or prune active/quarantined daemon queue items owned by one durable job
-agent-team job outbox <job-id> [--summary] [--state pending|processed|failed] [--type agent.dispatch] [--source manager] [--sort state] [--limit N] [--commands] [--format '{{.ID}} {{.State}}'] [--json] | outbox show <job-id> <id> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | outbox retry <job-id> <id>|--all [--dry-run] [--commands] [--state failed] [--type agent.dispatch] [--source manager] [--sort id] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | outbox drop <job-id> <id>|--all [--dry-run] [--commands] [--state failed] [--type agent.dispatch] [--source manager] [--sort id] [--limit N] [--format '{{.ID}} {{.Action}}'] [--json] | outbox prune <job-id> [--state processed|failed|pending|all] [--older-than 24h] [--type agent.dispatch] [--source manager] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json] | outbox quarantine <job-id> [--summary] [--state failed] [--restorable|--unrestorable] [--commands] [--json] | outbox quarantine show <job-id> <path> [--commands] [--json] | outbox quarantine restore|drop <job-id> <path>|--all [--dry-run] [--commands] [--json]
-                                                # list, inspect, restore, retry, drop, or prune active/quarantined sandboxed outbox events owned by one durable job
-agent-team job reopen|retry <job-id> [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--json]
-                                                # reopen a failed/closed job and optionally dispatch another attempt immediately
-agent-team job dispatch <job-id> [--source <instance>] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-event dispatched] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format <template>] [--json]
-agent-team job adopt <job-id> (--pid <pid>|--pid-file <path>) [--step <id>] [--instance <name>] [--runtime claude|codex] [--session-id <id>] [--dry-run] [--commands] [--format '{{.Job.ID}} {{.Metadata.Instance}}'] [--json]
-agent-team job advance <job-id> [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.Job.ID}} {{.Step.ID}}'] [--json]
-agent-team job approve <job-id> [message...] [--message "..."] [--message-file <path|->] [--step review] [--advance] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.Job.ID}} {{.Step.ID}}'] [--json]
-agent-team job reject <job-id> [reason...] [--message "..."] [--message-file <path|->] [--step review] [--dry-run] [--commands] [--format '{{.ID}} {{.Status}}'] [--json]
-agent-team job update <job-id> [--status running] [--instance name] [--branch name] [--worktree path] [--pr url] [--clear pr] [--advance] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.ID}} {{.Status}}'] [--json]
-agent-team job step <job-id> <step-id> [--status done|failed|blocked|running|queued] [--skip] [--advance] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.ID}} {{.Status}}'] [--json]
-agent-team job send <job-id> [message...] [--message "..."] [--message-file <path|->] [--step <id>] [--from cli] [--allow-missing] [--dry-run] [--commands] [--format '{{.ID}}'] [--json]
-agent-team job note <job-id> [message...] [--message "..."] [--message-file <path|->] [--actor cli] [--dry-run] [--commands] [--json]
-agent-team job block <job-id> [reason...] [--message "..."] [--message-file <path|->] [--actor cli] [--dry-run] [--commands] [--json]
-agent-team job unblock <job-id> [answer...] [--message "..."] [--message-file <path|->] [--step <id>] [--status running|queued] [--dry-run] [--commands] [--json]
-agent-team job close <job-id> [message...] [--status done|failed] [--actor cli] [--message "..."] [--message-file <path|->] [--dry-run] [--commands] [--json]
-agent-team job cancel <job-id> [reason...] [--message "..."] [--message-file <path|->] [--actor cli] [--step <id>] [--stop|--kill] [--timeout 2s] [--wait-timeout 5m] [--rm] [--dry-run] [--commands] [--json]
-agent-team job wait <job-id> [--status running|terminal] [--event closed] [--next-state ready|blocked|all] [--step <id>] [--timeout 5m] [--interval 500ms] [--fail-on-failed] [--format '{{.ID}} {{.Status}}'] [--json]
-agent-team job resume-plan <job-id> [--step <id>] [--status crashed] [--runtime codex] [--action resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--last-message] [--commands [--fallbacks]] [--format '{{.RecommendedCommand}}'] [--json]
-agent-team job runtime ls <job-id> [--step <id>] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
-agent-team job ps <job-id> [--step <id>] [-w] [-q] [--runtime codex] [--status running] [--summary] [--format '{{.Instance}} {{.Status}}'] [--json]
-agent-team job stats <job-id> [--step <id>] [-w] [-a] [--runtime codex] [--status crashed] [--summary] [--format '{{.Instance}} {{.CPUPercent}}'] [--json]
-agent-team job cleanup <job-id>|--all [--dry-run] [--commands] [--merged] [--force-branch] [--verify-pr] [--format '{{.Total}} {{.Cleaned}}'] [--json]
-agent-team job keep-worktree <job-id> [reason...] [--actor cli] [--format '{{.ID}} {{.ReapWorktree}}'] [--json]
-agent-team job rm <job-id> [<job-id>...] [--force] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json]
-agent-team job prune [--status done|failed|terminal] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json]
-agent-team job hold <job-id>|--all [reason...] [--message "..."] [--message-file <path|->] [--state ready|failed|all] [--for 2h|--until <rfc3339>] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team job release <job-id>|--all [message...] [--message "..."] [--message-file <path|->] [--expired] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team job timeout <job-id>|--all [--pipeline name] [--step <id>] [--target-agent worker] [--limit N] [--message "..."] [--message-file <path|->] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team job start|stop|kill [--step <id>] [--dry-run] [--commands]|wait|logs [--step <id>] [--last-message|--clean]|attach [--step <id>]|send [--step <id>]|unblock [--step <id>]|update|hold|release|timeout [--all --pipeline name --target-agent worker] [--message "..."] [--message-file <path|->]|close [--message "..."]|cancel [--step <id> --stop|--kill]|adopt|reopen|rm|prune|reconcile ...
-                                                # create, monitor, dispatch, control, and clean up durable work units
-agent-team pipeline ls [--format '{{.Name}}'] [--json] | show <pipeline> [--format '{{.Name}}'] [--json] | graph <pipeline> [--format text|mermaid|dot] [--routes] [--json] | doctor [<pipeline>|--all] [--strict] [--strict-runtime] [--commands] [--format '{{.OK}}'] [--json] | status [<pipeline>|--all] [-w] [--no-clear] [--interval 2s] [--commands] [--format '{{.Pipeline}}'] [--json] | triage [<pipeline>|--all] [-w] [--min-severity warning] [--reason queue_dead] [--commands] [--format '{{.Summary.Total}} {{len .Attention}}'] [--json] | explain [<pipeline>|--all] [-w] [--no-clear] [--interval 2s] [--state ready|failed|held|all] [--step <id>] [--sort updated] [--limit N] [--commands] [--format '{{.Pipeline}} {{len .Jobs}}'] [--json] | snapshot <pipeline> [--timeline N|all] [--timeline-sort newest] [--commands] [--format '{{.Pipeline}} {{len .Jobs}}'] [--json|--output <file>] [--no-redact] | next [<pipeline>|--all] [-w] [--no-clear] [--interval 2s] [--team delivery] [--reason failed_steps] [--sort queue] [--limit N] [--commands] [--format '{{.Pipeline}} {{.Action}}'] [--json] | wait [<pipeline>|--all] [--job SQU-42] [--status terminal|done|failed] [--event pipeline_done] [--next-state ready|blocked|all] [--step <id>] [--timeout 5m] [--interval 500ms] [--fail-on-failed] [--format '{{.ID}} {{.Status}}'] [--json] | jobs [<pipeline>|--all] [--summary] [--status running] [--target-agent worker] [--instance worker-squ-42] [--ticket SQU-42] [--branch branch] [--pr 42] [--held|--unheld] [--runtime codex] [--sort updated] [--format '{{.ID}}'] [--json] | ready [<pipeline>|--all] [-w] [--no-clear] [--interval 2s] [--state ready|held|all] [--step <id>] [--sort updated] [--limit N] [--commands] [--format '{{.JobID}}'] [--json] | hold <pipeline>|--all [--state ready|failed|all] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json] | release <pipeline>|--all [--limit N] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | advance <pipeline>|--all [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}}'] [--json] | approve <pipeline>|--all [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--message "..."] [--message-file <path|->] [--dry-run] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json] | reject <pipeline>|--all [--step <id>] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | unblock <pipeline>|--all [message...] [--step <id>] [--status running|queued] [--limit N] [--allow-missing] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | retry <pipeline>|--all [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--force] [--dry-run] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json] | run <pipeline> <ticket> [kickoff...] [--ticket-url <url>] [--kickoff "..."] [--kickoff-file <path|->] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.ID}}'] [--json]
-                                                # inspect declared pipeline workflows from instances.toml
-agent-team pipeline tick <pipeline> [--dry-run] [--commands] [--preview-routes] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Pipeline}} {{.Tick.Queue.WouldDispatch}}'] [--json]
-                                                # run one queue/ready-step maintenance cycle for one pipeline
-agent-team pipeline repair <pipeline> [--dry-run] [--commands] [--preview-routes] [--timeout-jobs|--timeout-pipelines] [--timeout-step <id>] [--timeout-target-agent worker] [--timeout-message "..."] [--timeout-message-file <path|->] [--retry-pipelines] [--retry-step <id>] [--retry-message "..."] [--retry-message-file <path|->] [--retry-force] [--runtime claude|codex] [--runtime-bin <path>] [--skip-daemon] [--skip-queue] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Pipeline}} {{.Queue.Action}}'] [--json]
-                                                # repair queue, stale work, failed steps, and ready steps for one pipeline
-agent-team pipeline hold <pipeline>|--all [reason...] [--message "..."] [--message-file <path|->] [--state ready|failed|all] [--for 2h|--until <rfc3339>] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team pipeline release <pipeline>|--all [message...] [--message "..."] [--message-file <path|->] [--expired] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team pipeline timeout <pipeline>|--all [--step <id>] [--target-agent worker] [--limit N] [--message "..."] [--message-file <path|->] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # mark stale running pipeline steps failed so retry can reopen them
-agent-team pipeline approve <pipeline>|--all [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # approve blocked manual pipeline gates
-agent-team pipeline reject <pipeline>|--all [--step <id>] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # reject blocked manual pipeline gates
-agent-team pipeline unblock <pipeline>|--all [answer...] [--message "..."] [--message-file <path|->] [--step <id>] [--status running|queued] [--limit N] [--allow-missing] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # send one answer to blocked pipeline step owners and mark them ready to continue
-agent-team pipeline skip <pipeline>|--all --step <id> [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # mark matching non-running pipeline steps intentionally skipped
-agent-team pipeline cancel <pipeline>|--all [--message "..."] [--message-file <path|->] [--actor cli] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # cancel non-terminal pipeline jobs without stopping instances
-agent-team pipeline retry <pipeline>|--all [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--force] [--limit N] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # reset failed pipeline steps for another attempt
-agent-team pipeline adopt <pipeline> <job-id> [--step <id>] [--instance <name>] [--pid <pid>|--pid-file <path>] [--workspace <path>] [--runtime claude|codex] [--runtime-bin <path>] [--dry-run] [--commands] [--format '{{.Job.ID}} {{.Metadata.Instance}}'] [--json]
-                                                # adopt a live external process for a pipeline-owned job after checking pipeline ownership
-agent-team pipeline resume-plan [<pipeline>|--all] [--step <id>] [--status crashed] [--runtime codex] [--action start|attach|resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--last-message] [--commands [--fallbacks]] [--format '{{.Instance}} {{.RecommendedAction}}'] [--json]
-                                                # show pipeline-owned runtime resume, attach, start, and log fallback commands
-agent-team pipeline runtime ls [<pipeline>|--all] [--summary] [--latest | --last N] [--status running] [--runtime codex] [--agent worker] [--instance worker-squ-42] [--runtime-stale] [--unhealthy] [--sort instance|status|runtime|agent|stale|unhealthy|job|started|stopped|exited] [--format '{{.Instance}} {{.Runtime}} {{.Status}}'] [--json]
-                                                # list raw daemon runtime metadata for one or all pipeline-owned workflows
-agent-team pipeline send <pipeline> [message...] [--message "..."] [--message-file <path|->] [--all] [--latest|--last N] [--runtime codex] [--stale] [--runtime-stale] [--unhealthy] [--dry-run] [--commands] [--format '{{.To}} {{.ID}}'] [--json]
-                                                # send a mailbox message to pipeline-owned daemon-known instances
-agent-team pipeline ps [<pipeline>|--all] [-w] [-q] [--runtime codex] [--status running] [--summary] [--format '{{.Instance}} {{.Status}}'] [--json]
-                                                # list daemon-aware instance rows for one or all pipeline-owned workflows
-agent-team pipeline stats [<pipeline>|--all] [-w] [--runtime codex] [--status crashed] [--summary] [--sort cpu|mem|rss] [--format '{{.Instance}} {{.CPUPercent}}'] [--json]
-                                                # show CPU and memory usage for one or all pipeline-owned workflows
-agent-team pipeline logs [<pipeline>|--all] [--list] [--runtime codex] [--job SQU-42] [--step <id>] [--latest|--last N] [--last-message] [--clean] [--tail N] [--format '{{.Instance}} {{.LogPath}}'] [--json]
-                                                # read daemon-captured logs for one or all pipeline-owned workflows
-agent-team pipeline events [<pipeline>|--all] [-f] [--runtime codex] [--job SQU-42] [--step <id>] [--tail N] [--sort newest] [--summary] [--action stop] [--format '{{.Action}} {{.Instance}}'] [--json]
-                                                # read lifecycle events for one or all pipeline-owned workflows
-agent-team pipeline job-events [<pipeline>|--all] [-f] [--interval 1s] [--tail N|all] [--sort newest] [--summary] [--type updated] [--status running] [--actor cli] [--instance worker-squ-42] [--format '{{.JobID}} {{.Type}}'] [--json]
-                                                # read durable job audit events for one or all pipeline-owned workflows
-agent-team pipeline timeline [<pipeline>|--all] [--source all|job|lifecycle] [--since 24h] [--tail N|all] [--sort newest] [--summary] [--format '{{.JobID}} {{.Source}} {{.Kind}}'] [--json]
-                                                # read combined audit and lifecycle timelines for one or all pipeline-owned workflows
-agent-team pipeline cleanup <pipeline> [--dry-run] [--commands] [--merged] [--force-branch] [--verify-pr] [--format '{{.Pipeline}} {{.Cleaned}}'] [--json]
-                                                # clean up job-owned worktrees and branches for done jobs in one pipeline
-agent-team pipeline queue [<pipeline>|--all] [--state dead] [--job SQU-42] [--runtime codex] [--summary] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue show <pipeline> <id> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue quarantine [<pipeline>|--all] [--summary] [--state dead] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.Restorable}}'] [--json] | queue quarantine show <pipeline> <path> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue quarantine restore <pipeline> <path>|--all [--state dead] [--job SQU-42] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | queue quarantine drop <pipeline> <path>|--all [--state dead] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | queue retry|drop <pipeline> <id>|--all [--state pending|dead] [--job SQU-42] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | queue prune <pipeline> [--state dead] [--job SQU-42] [--event-type agent.dispatch] [--runtime codex] [--ready] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # inspect, restore, retry, drop, or prune active/quarantined queue items owned by one pipeline
-agent-team pipeline outbox [<pipeline>|--all] [--summary] [--state pending|processed|failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--commands] [--format '{{.ID}}'] [--json] | outbox show <pipeline> <id> [--commands] [--json] | outbox retry <pipeline> <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | outbox drop <pipeline> <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | outbox prune <pipeline> [--state processed|failed|pending|all] [--older-than 24h] [--type agent.dispatch] [--source manager] [--job SQU-42] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json] | outbox quarantine [<pipeline>|--all] [--summary] [--state failed] [--job SQU-42] [--restorable|--unrestorable] [--commands] [--json] | outbox quarantine show <pipeline> <path> [--commands] [--json] | outbox quarantine restore|drop <pipeline> <path>|--all [--dry-run] [--commands] [--json]
-                                                # inspect, restore, repair, and prune active/quarantined sandboxed outbox events owned by one pipeline
-agent-team team ls [--json] | show <team> [--json] | graph <team> [--format text|mermaid|dot] [--routes] [--json] | doctor <team>|--all [--strict] [--strict-runtime] [--commands] [--format '{{.OK}}'] [--json] | overview <team> [-w] [--no-clear] [--interval 2s] [--source queue] [--reason dead] [--sort source|reason|command] [--limit N] [--schedule-limit N] [--last-message] [--fallbacks] [--commands] [--format '{{.State}}'] [--json] | next <team> [-w] [--source queue] [--reason dead] [--details] [--last-message] [--fallbacks] [--commands] [--limit N] [--format '{{.State}}'] [--json] | resume-plan <team> [--step <id>] [--status crashed] [--runtime codex] [--action start|attach|resume|logs] [--runtime-stale|--unhealthy] [--sort stale] [--limit N] [--summary] [--last-message] [--commands] [--format '{{.Instance}} {{.RecommendedAction}}'] [--json] | run <team> <ticket> [kickoff...] [--pipeline name] [--ticket-url <url>] [--kickoff "..."] [--kickoff-file <path|->] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--format '{{.ID}}'] [--json] | up|down|restart <team> [--runtime codex] [--dry-run] [--commands] [--format '{{.Instance}} {{.Action}}'] [--json] | sync <team> [-q] [--dry-run] [--stop-extras] [--runtime codex] [--action start] [--summary] [--format '{{.Instance}} {{.Action}}'] [--wait --timeout 30s] [--json] | plan <team> [--stop-extras] [--runtime codex] [--action start] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--json] | ps <team> [-w] [--no-clear] [--interval 2s] [--summary] [--latest|--last N] [--runtime codex] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--sort status|agent|phase|stale|runtime-stale|unhealthy|started|stopped|exited|name] [--agent worker] [--instance worker-1] [--format '{{.Instance}} {{.Status}}'] [--json] | stats <team> [-w] [-a] [--runtime codex] [--summary] [--sort cpu|mem|rss] [--format '{{.Instance}} {{.CPUPercent}}'] [--json] | jobs <team> [--summary] [--status running] [--target-agent worker] [--instance worker-squ-42] [--ticket SQU-42] [--branch branch] [--pr 42] [--held|--unheld] [--runtime codex] [--sort updated] [--format '{{.ID}}'] [--json] | wait-jobs <team> [--job SQU-42] [--status terminal|done|failed] [--event pipeline_done] [--next-state ready|blocked|all] [--step <id>] [--timeout 5m] [--interval 500ms] [--fail-on-failed] [--format '{{.ID}} {{.Status}}'] [--json] | triage <team> [--min-severity warning] [--reason queue_dead] [--commands] [-w] [--format '{{.Summary.Total}} {{len .Attention}}'] [--json] | explain <team> [-w] [--no-clear] [--interval 2s] [--state ready|failed|all] [--step <id>] [--sort updated] [--limit N] [--commands] [--format '{{.Pipeline}} {{len .Jobs}}'] [--json] | ready <team> [-w] [--no-clear] [--interval 2s] [--state ready|all] [--step <id>] [--sort updated] [--limit N] [--commands] [--format '{{.JobID}}'] [--json] | hold <team> [--state ready|failed|all] [--limit N] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | release <team> [--limit N] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | advance <team> [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}}'] [--json] | approve <team> [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-timeout 5m] [--fail-on-failed]] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json] | retry <team> [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--force] [--limit N] [--dry-run] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json] | timeout <team> [--jobs] [--step <id>] [--target-agent worker] [--limit N] [--dry-run] [--format '{{.JobID}} {{.Action}}'] [--json] | cleanup <team> [--dry-run|--merged] [--force-branch] [--verify-pr] [--format '{{.Team}} {{.Cleaned}}'] [--json] | queue <team> [--state dead] [--job SQU-42] [--runtime codex] [--summary] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue show <team> <id> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue quarantine <team> [--summary] [--state dead] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.Restorable}}'] [--json] | queue quarantine show <team> <path> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | queue quarantine restore <team> <path>|--all [--state dead] [--job SQU-42] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | queue quarantine drop <team> <path>|--all [--state dead] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | queue retry|drop <team> <id>|--all [--state pending|dead] [--job SQU-42] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--dry-run] [--format '{{.ID}} {{.Action}}'] [--json] | send <team> [message...] [--message "..."] [--message-file <path|->] [--all] [--latest|--last N] [--runtime codex] [--stale] [--runtime-stale] [--unhealthy] [--dry-run] [--format '{{.To}} {{.ID}}'] [--json] | wait <team> [<instance>...] [--runtime codex] [--stale] [--runtime-stale] [--unhealthy] [--until running] [--until-phase idle] [--dry-run] [--summary] [--format '{{.Instance}} {{.Status}}'] [--json] | prune <team> [--dry-run] [--commands] [--runtime codex] [--older-than 24h] [--status exited|crashed] [--stale] [--runtime-stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Action}}'] [--json] | logs <team> [--runtime codex] [--job SQU-42] [--step <id>] [--last-message|--clean] [--list] [--format '{{.Instance}} {{.LogPath}}'] [-f] [--tail N] | events <team> [-f] [--runtime codex] [--job SQU-42] [--step <id>] [--tail N] [--sort newest] [--summary] [--action stop] [--format '{{.Action}} {{.Instance}}'] [--json] | monitor <team> [-w] [-a] [--summary [--resources]] [--runtime codex] [--last-message] [--fallbacks] [--commands] [--plan] [--jobs] [--schedules] [--events N] [--events-sort newest] [--format '{{.Team.Name}}'] [--json] | tick <team> [-w | --until-idle] [--interval 2s] [--max-cycles N] [--dry-run] [--preview-routes] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Team.Name}} {{.Tick.Queue.Dispatched}}'] [--json] | drain <team> [--max-cycles N] [--interval 2s] [--skip-schedules] [--skip-drain] [--skip-advance] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Team.Name}} {{.Idle}}'] [--json] | repair <team> [--dry-run] [--commands] [--last-message] [--fallbacks] [--preview-routes] [--jobs] [--timeout-jobs|--timeout-pipelines] [--timeout-step <id>] [--timeout-message "..."] [--timeout-message-file <path|->] [--retry-pipelines] [--retry-step <id>] [--retry-message "..."] [--retry-message-file <path|->] [--retry-force] [--skip-daemon] [--skip-queue] [--skip-tick] [--until-idle] [--all-ready-steps] [--limit N] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Team.Name}} {{.Queue.Action}}'] [--json] | snapshot <team> [--events N|-1] [--events-sort newest] [--schedule-limit N] [--no-redact] [--commands] [--json | --output snapshot.json] | pipelines <team> [-w] [--no-clear] [--interval 2s] [--commands] [--format '{{.Pipeline}}'] [--json] | schedules <team> [--due|--next] [--limit N] [--commands] [--format '{{.Name}}'] [--json] | health <team> [--runtime codex] [--jobs] [--last-message] [--fallbacks] [--commands] [-q] [--format '{{.Health.Healthy}}'] [--json]
-agent-team team job-events <team> [-f] [--interval 1s] [--tail N|all] [--sort newest] [--summary] [--type updated] [--status running] [--actor cli] [--instance worker-squ-42] [--format '{{.JobID}} {{.Type}}'] [--json]
-                                                # read durable job audit events for team-owned work
-agent-team team timeline <team> [--source all|job|lifecycle] [--since 24h] [--tail N|all] [--sort newest] [--summary] [--format '{{.JobID}} {{.Source}} {{.Kind}}'] [--json]
-                                                # read combined audit and lifecycle timelines for team-owned work
-agent-team team run <team> <ticket> [kickoff...] [--pipeline name] [--ticket-url <url>] [--kickoff "..."] [--kickoff-file <path|->] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step implement] [--wait-timeout 5m] [--fail-on-failed]] [--dry-run] [--commands] [--format '{{.ID}}'] [--json]
-agent-team team hold <team> [reason...] [--message "..."] [--message-file <path|->] [--state ready|failed|all] [--for 2h|--until <rfc3339>] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team release <team> [message...] [--message "..."] [--message-file <path|->] [--expired] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team cleanup <team> [--dry-run] [--commands] [--merged] [--force-branch] [--verify-pr] [--format '{{.Team}} {{.Cleaned}}'] [--json]
-agent-team team adopt <team> <job-id> [--step <id>] [--instance <name>] [--pid <pid>|--pid-file <path>] [--workspace <path>] [--runtime claude|codex] [--runtime-bin <path>] [--dry-run] [--commands] [--format '{{.Job.ID}} {{.Metadata.Instance}}'] [--json]
-                                                # adopt a live external process for a team-owned job after checking team ownership
-agent-team team timeout <team> [--jobs] [--step <id>] [--target-agent worker] [--limit N] [--message "..."] [--message-file <path|->] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # mark stale running team-owned work failed so retry can reopen it
-agent-team team approve <team> [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team reject <team> [--step <id>] [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team unblock <team> [answer...] [--message "..."] [--message-file <path|->] [--step <id>] [--status running|queued] [--limit N] [--allow-missing] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team skip <team> --step <id> [--message "..."] [--message-file <path|->] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team cancel <team> [--message "..."] [--message-file <path|->] [--actor cli] [--limit N] [--dry-run] [--commands] [--format '{{.JobID}} {{.Action}}'] [--json]
-agent-team team retry <team> [--step <id>] [--dispatch] [--workspace auto|worktree|repo] [--runtime claude|codex] [--runtime-bin <path>] [--message "..."] [--message-file <path|->] [--force] [--limit N] [--dry-run] [--commands] [--preview-routes] [--format '{{.JobID}} {{.Action}}'] [--json]
-                                                # inspect declared teams and summarize team-owned instances, jobs, queue, schedules, pipelines, and scoped queue pruning
-agent-team team queue retry|drop <team> <id>|--all [--state pending|dead] [--job SQU-42] [--event-type agent.dispatch] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json]
-                                                # retry or drop only team-owned active queue entries
-agent-team team queue prune <team> [--state dead|pending|all] [--job SQU-42] [--event-type agent.dispatch] [--runtime codex] [--ready] [--older-than 24h] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # age-prune only team-owned queue entries
-agent-team team outbox <team> [--summary] [--state pending|processed|failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--commands] [--format '{{.ID}}'] [--json] | show <team> <id> [--commands] [--json] | retry <team> <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | drop <team> <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | prune <team> [--state processed|failed|pending|all] [--older-than 24h] [--type agent.dispatch] [--source manager] [--job SQU-42] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json] | quarantine <team> [--summary] [--state failed] [--job SQU-42] [--restorable|--unrestorable] [--commands] [--json] | quarantine show <team> <path> [--commands] [--json] | quarantine restore|drop <team> <path>|--all [--dry-run] [--commands] [--json]
-                                                # inspect, repair, and prune sandboxed outbox events owned by one team
-Job tables support live refresh with `job ls --watch`, `pipeline jobs --watch`, `pipeline jobs <pipeline> --watch`, and `team jobs <team> --watch`; add `--summary`, `--limit 20`, `--no-clear`, or `--interval 5s` for aggregate or bounded operator dashboards. Use `job ls --commands`, `pipeline jobs --commands`, or `team jobs <team> --commands` when scripts need only follow-up commands for the visible filtered rows.
-Pipeline status rows include `QUEUE` and `OUTBOX` columns for pipeline-owned pending/dead/quarantined dispatches and sandboxed agent outbox events. They also support `--sort jobs --limit 10`, `--sort queue --limit 10`, `--sort quarantined --limit 10`, or `--sort outbox --limit 10` on `pipeline status --all`, `pipeline next --limit 10`, and `team pipelines <team>` when a large workspace needs the busiest workflows or recovery first. Add `--commands` to `pipeline status` or `team pipelines` when scripts need the row actions as one runnable command per line.
-agent-team schedule ls [--format '{{.Name}} {{.Every}}'] [--json] | due [--commands] [--format '{{.Name}} {{.DueReason}}'] [--json] | next [--limit N] [--commands] [--format '{{.Name}} {{.NextRun}}'] [--json] | fire [--dry-run] [--commands] [--preview-triggers] [--wait [--wait-status running|terminal] [--wait-next-state queued --wait-step triage] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Fired}} {{len .Schedules}}'] [--json] | show <schedule> [--format '{{.Name}} {{.Every}}'] [--json] | run <schedule> [--payload <json> | --payload-file <path|->] [--dry-run] [--commands] [--preview-triggers] [--wait [--wait-status running|terminal] [--wait-next-state queued --wait-step triage] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Event.Type}}'] [--json]
-                                                # inspect due/upcoming schedules, fire all due schedule events, or manually publish one declared schedule event
-agent-team queue ls [-w] [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--runtime codex] [--reason lock_held] [--ready] [--sort attempts] [--limit N] [--commands] [--json] | show <id> [--commands] | doctor [--quarantine [--dry-run]] [--commands] [--format '{{.OK}}'] [--json] | quarantine ls [--summary] [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--commands] [--format '{{.ID}} {{.Restorable}}'] [--json] | quarantine show <path> [--commands] [--format '{{.ID}} {{.State}}'] [--json] | quarantine restore <path>|--all [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--sort attempts] [--limit N] [--dry-run] [--commands] [--force] [--format '{{.ID}} {{.Action}}'] [--json] | quarantine drop <path>|--all [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--restorable|--unrestorable] [--sort attempts] [--limit N] [--dry-run] [--commands] [--older-than 24h] [--format '{{.ID}} {{.Action}}'] [--json] | drain [--dry-run] [--commands] [--json] | drop <id>|--all [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | retry <id>|--all [--state pending|dead] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--runtime codex] [--ready] [--sort attempts] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Action}}'] [--json] | prune [--state dead|pending|all] [--instance worker] [--event-type agent.dispatch] [--job SQU-42] [--runtime codex] [--ready] [--older-than 24h] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # inspect, validate, drain, retry, drop, and prune persisted daemon dispatch queue items; filter lock contention with --reason lock_held
-agent-team locks [--format '{{.Name}} {{.Used}}/{{.Slots}}'] [--json]
-                                                # inspect declared dispatch lock slots and active holders
-agent-team outbox ls [--summary] [--state pending|processed|failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--commands] [--format '{{.ID}}'] [--json] | show <id> [--commands] [--json] | drain [--dry-run] [--commands] [--format '{{.WouldPublish}}'] [--json] | doctor [--quarantine [--dry-run]] [--commands] [--format '{{.OK}}'] [--json] | quarantine ls [--summary] [--state pending|processed|failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--restorable|--unrestorable] [--sort modified] [--limit N] [--commands] [--json] | quarantine show <path> [--commands] [--json] | quarantine restore <path>|--all [--state pending|processed|failed] [--job SQU-42] [--dry-run] [--commands] [--force] [--json] | quarantine drop <path>|--all [--restorable|--unrestorable] [--older-than 24h] [--dry-run] [--commands] [--json] | retry <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | drop <id>|--all [--state failed] [--type agent.dispatch] [--source manager] [--job SQU-42] [--sort created] [--limit N] [--dry-run] [--commands] [--json] | prune [--state processed|failed|pending|all] [--older-than 24h] [--type agent.dispatch] [--source manager] [--job SQU-42] [--limit N] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # inspect, validate, quarantine, publish, retry, or drop sandboxed agent outbox events written when daemon transport is unavailable
-agent-team intake linear|github (--payload <json> | --payload-file <path|->) [--dry-run] [--commands] [--preview-triggers] [--format '{{.Event.Type}}'] [--json] [github: --reconcile-job [--advance [--wait [--wait-status running|terminal] [--wait-next-state running --wait-step review] [--wait-timeout 5m] [--fail-on-failed]]] [--cleanup-merged [--verify-pr]]] | schedule <name> [--payload <json> | --payload-file <path|->] [--dry-run] [--commands] [--preview-triggers] [--wait [--wait-status running|terminal] [--wait-next-state queued --wait-step triage] [--wait-timeout 5m] [--fail-on-failed]] [--format '{{.Event.Type}}'] [--json] | serve [--addr 127.0.0.1:8787] [--dry-run] [--commands] [--preview-triggers] [--linear-secret <secret>] [--github-secret <secret>] [--require-linear-secret] [--require-github-secret] [--linear-max-age 1m] [--github-replay-window 24h] [--max-body-bytes 1048576] [--prune-ok-older-than 168h] [--prune-recovered-older-than 168h] [--github-reconcile-job [--github-cleanup-merged [--github-verify-pr]]] | summary [--provider linear|github] [--status ok|error] [--replay-status ok|error|none|any] [--request-id <id>] [--unresolved] [--commands] [--format '{{.Unresolved}} {{.Replayable}}'] [--json] | duplicates [--provider linear|github] [--request-id <id>] [--commands] [--format '{{.Provider}} {{.RequestID}}'] [--json] | doctor [--commands] [--format '{{.OK}}'] [--json] | deliveries [--tail 20|all] [--provider linear|github] [--status ok|error] [--replay-status ok|error|none|any] [--request-id <id>] [--unresolved] [--commands] [--format '{{.ID}} {{.Status}}'] [--json] | replay <delivery-id> [--dry-run] [--commands] [--preview-triggers] [--format '{{.Event.Type}}'] [--json] | replay --all [--provider linear|github] [--status ok|error|all] [--limit N] [--dedupe-request-id] [--dry-run] [--commands] [--preview-triggers] [--format '{{.DeliveryID}} {{.OK}}'] [--json] | prune [--status ok|error|all] [--replay-status ok|error|none|any] [--older-than 24h] [--dry-run] [--commands] [--format '{{.ID}} {{.Dropped}}'] [--json]
-                                                # normalize external webhook or schedule events, run a local /linear and /github listener, summarize/validate/inspect/prune delivery history with ACTION hints, and replay one or many normalized deliveries; successful replays mark failures recovered
-agent-team intake service systemd|launchd|compose|kubernetes [--bin /usr/local/bin/agent-team] [--addr 127.0.0.1:8787] [--env-file <path>] [--secret-name <name>] [--workspace-claim <pvc>] [--github-reconcile-job [--github-cleanup-merged [--github-verify-pr]]]
-                                                # print a systemd unit, launchd plist, compose service, or Kubernetes manifests for running intake serve against the current repo
-agent-team channels [--sort messages] [--limit N] [--format '{{.Name}}'] [--json]
-                                                # list pub/sub channels; reads local channel state if the daemon is down
-agent-team channel show <name> [--tail N] [--format '{{.Channel.Name}} {{len .Messages}}'] [--json]
-                                                # show a channel summary and recent messages
-agent-team channel publish <name> [body...] [--message "..."] [--message-file <path|->] [--sender user] [--format '{{.Seq}}'] [--json]
-                                                # publish to a channel; appends locally if the daemon is down
-agent-team event publish <type> [--payload <json> | --payload-file <path|->] [--dry-run] [--commands] [--format '{{len .Matched}} {{len .Dispatched}}'] [--json]
-                                                # manually publish a topology event through the daemon; dry-run can print the matching apply command
-agent-team channel rm <name> [-f] [--dry-run] [--commands] [--format '{{.Action}}'] [--json]
-                                                # delete a channel and its durable state; dry-run can print the force apply command
-agent-team rm [<instance>...] [-q] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--agent manager] [--dry-run] [--commands] [--summary] [-f] [--format '{{.Instance}} {{.Path}}'] [--json]
-                                                # remove instance state and daemon metadata, using persisted metadata if the daemon is down
-agent-team prune [-q] [--dry-run] [--commands] [--runtime codex] [--older-than 24h] [--agent manager] [--status exited] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--summary] [--format '{{.Instance}} {{.Path}}'] [--json] # remove finished or runtime-stale persisted daemon metadata and state
-agent-team agent ls [--format '{{.Name}} {{.Runtime}} {{len .Skills}}'] [--json] | show <agent> [--format '{{.Name}} {{.Summary}} {{.Runtime}}'] [--json] | doctor [<agent>|--all] [--strict] [--strict-runtime] [--commands] [--format '{{.OK}}'] [--json]
-                                                # list, inspect, or validate runnable agent definitions, skills, and runtime defaults before launching them
-agent-team run <agent> [-n <instance>] [--runtime claude|codex] [--runtime-bin <path>] [-d | --attach --tail N|all] [--ready-timeout 3s] [--set k=v]... [-p "..."|--prompt-file <path|->] [--format '{{.Instance}} {{.PID}}'] [--json]
-                                                # launch the selected LLM runtime as <agent>; --detach dispatches via daemon
-agent-team upgrade (--check|--apply) [--to <ref>] [--strict] [--dry-run] [--commands] [--format '{{.Differs}}'] [--json]
-                                                # compare or apply clean three-way template changes; --dry-run previews apply actions
-agent-team doctor [--canary [agent] [--canary-timeout 30s]] [--strict] [--strict-daemon] [--strict-runtime] [--strict-template] [--runtime codex] [--runtime-bin <path>] [--commands] [--format '{{.OK}}'] [--json]
-                                                # validate layout, config, provenance, skill wiring, durable jobs, pipeline workflows, selected/runtime-default binaries, daemon binary availability, and optional daemon-dispatched runtime canary
-agent-team --version                            # print version
-
-agent-team template ls [--format '{{.Ref}}'] [--json]
-                                                # list bundled + cached templates
-agent-team template show [<ref>] [--format '{{.Ref}} {{.ContentHash}}'] [--json]
-                                                # print manifest (default: bundled)
-agent-team template pull <ref> [--as <n>] [--dry-run] [--commands] [--format '{{.CacheKey}} {{.Action}}'] [--json]
-                                                # copy a local template or shallow-fetch a git ref into the cache
-agent-team template rm <ref> [--dry-run] [--commands] [--format '{{.Ref}} {{.Action}}'] [--json]
-                                                # remove a cached template
-agent-team template smoke [<ref>] [--set k=v]... [--strict] [--strict-runtime] [--strict-daemon] [--strict-template] [--keep] [--commands] [--format '{{.OK}} {{len .Steps}}'] [--json]
-                                                # init a template into a temp repo and run doctor/agent/pipeline/team validation
-agent-team template run <ref> <agent> [--target <dir>] [--keep] [--runtime claude|codex] [--runtime-bin <path>] [--last-message] [--set k=v]... [-p "..."|--prompt-file <path|->]
-                                                # one-shot: init into a (temp)dir + spawn the agent
-
-agent-team instance ls                          # list instance state dirs (.agent_team/state/*)
-agent-team instance show <name>                 # show an instance's state files
-agent-team instance up [<name>...] [--all] [--latest | --last N] [--agent manager] [--status stopped] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--prompt "..."] [--prompt-file <path|->] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--json]
-                                                # start or resume selected instances; dry-run can print the matching apply command
-agent-team instance down [<name>...] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [-f] [--rm] [--dry-run] [--commands] [--summary] [--format '{{.Instance}} {{.Action}}'] [--json]
-                                                # stop selected instances; dry-run can print the matching apply command
-agent-team instance rm [<name>...] [--all] [--finished] [--latest | --last N] [--runtime codex] [--status stopped] [--phase done] [--stale] [--runtime-stale] [--unhealthy] [--agent manager] [--dry-run] [--commands] [--summary] [-f] [--json]
-                                                # delete instance state and daemon metadata
-```
-
-Shortcuts: `agent-team up` = `start`, `agent-team down` = `stop`, `agent-team ls` = `ps`, `agent-team top` = `stats`, and `agent-team exec` = `attach`. Run `agent-team shortcuts` for the live top-level alias list, or `agent-team shortcuts --all` to include nested command-group aliases. `agent-team adopt` and `agent-team resume-plan` are top-level shortcuts for the common runtime recovery paths. Collection command groups also accept natural aliases such as `agents`, `jobs`, `pipelines`, `queues`, `schedules`, `teams`, `mailbox`, and `outboxes`.
-
-Resume-plan commands print one recommended command per row with `--commands`; add `--fallbacks` to include every viable managed start, attach dry-run, log, last-message, and direct runtime resume command for each selected plan.
-
-Lifecycle actions (`start`, `stop`, `kill`, `restart`), desired-state previews (`plan`), topology convergence (`sync`), cleanup (`rm`, `prune`), and completion waits (`wait`) accept `--summary` to show aggregate counts for the same selected instances; `--summary --json` emits a `{ "summary": ... }` object for scripts. Add `--commands` to lifecycle and wait dry-runs when scripts should receive only the matching apply or replay command for actionable previews, to `status` when scripts need daemon and health remediation commands from the compact fleet view, or to `daemon status` when scripts need start/restart/logs/ps/monitor follow-ups for the current daemon state. `status --json` includes raw top-level `actions`, and `daemon status --json` includes the same raw daemon action list for dashboards and automation. Use `doctor --strict` in CI when daemon, runtime, and template provenance warnings should fail together, or `doctor --strict-runtime` when only selected/runtime-default binaries should be enforced; add `doctor --commands` when a valid repo should tell scripts to start or repair the daemon before dispatching work. Use `doctor --canary [agent]` after daemon restarts to dispatch a throwaway no-op runtime smoke test through agent-teamd, classify daemon PATH/runtime auth/provider failures, and remove the canary instance state. Use `pipeline doctor [<pipeline>|--all]` after editing workflow declarations to catch dependency cycles, unroutable step targets, unavailable step runtime defaults, and schedule-triggered pipelines with no matching schedule source; add `--strict` (or `--strict-runtime`) when unavailable step runtimes should fail the check, or `--commands` when scripts should receive graph/detail follow-ups for affected pipelines. Use `team doctor <team>|--all` after editing `instances.toml` for the same workflow checks scoped to team-owned pipelines, plus team pipeline or schedule routes that point outside the team; its `--strict` and `--strict-runtime` flags apply the same runtime-default failure policy inside the team boundary, and `--commands` prints team graph/detail follow-ups. Use `graph --routes` for a repo-wide read-only text, Mermaid, DOT, or JSON map; use `graph <team> --routes` when you only want team-owned instances, schedules, pipelines, and step dispatch routes, or `graph <pipeline>` when you only need one workflow dependency graph. Use `--team` or `--pipeline` when a name is shared by both resource types. Use `team wait <team>` for the same wait output scoped to team-owned instances; it defaults to waiting for persistent team members and live team-owned ephemeral children to be `running`, and `--dry-run --commands` prints the scoped replay command for the selected instances. Use `runtime metadata ls --summary` for repo-wide raw daemon metadata counts without declared placeholders, `team ps <team> --summary` for lifecycle and phase counts scoped to team-owned persistent members and live ephemeral children, `team runtime ls <team> --summary` for team-owned raw daemon metadata counts, `team stats <team>` for scoped CPU/RSS snapshots, `team monitor <team> --summary [--resources]` for compact scoped health, `team monitor <team> --jobs --schedules --events N --events-sort newest` for a scoped operator dashboard, and `team prune <team>` to remove only finished or runtime-stale daemon-known instances owned by that team.
-
-Use `agent doctor [<agent>|--all]` after editing agent prompts, skills, or frontmatter to validate agent definitions directly. Add `--strict` or `--strict-runtime` to promote agent `runtime` / `runtime_bin` default warnings to failures, including target-agent defaults when a pipeline step relies on the agent's own runtime frontmatter instead of declaring a step runtime override. Add `--commands` for focused follow-ups; `--json` includes the same top-level `actions` list for dashboards and handoffs.
-
-Use `overview` when you want the shortest non-mutating answer to “what needs attention next?” It summarizes health, topology, inbox, jobs, job quarantine, outbox, queue, pipelines, schedules, intake deliveries, and next command hints in one screen; use `team overview <team>` for the same view scoped to one declared team, add `--last-message` when runtime recovery hints should carry clean Codex final-message fallbacks into their resume-plan commands, add `--fallbacks` when those hints should run resume-plan in command-mode fallback expansion, and add `--source`, `--reason`, `--sort`, or `--limit` when the action hint list should be narrowed while the diagnostic counts remain complete. Add `--commands` to either overview when scripts need only one selected action command per line. If the view was scoped with `--target` or `--repo`, those command-only `agent-team` follow-ups preserve that repo selector. Use `next` when you only want the recommended commands, `next --team <team>` for scoped actions, or `team next <team>` when staying inside the team command namespace; add `--last-message` for the same Codex final-message preference, add `--fallbacks` when runtime recovery recommendations should emit `resume-plan --commands --fallbacks`, add `--source` or `--reason` to narrow those recommendations for scripts, add `--sort source`, `--sort reason`, or `--sort command` before `--limit` when scripts need deterministic grouping, add `--details` when text output should show the source/reason beside each command, and add `--commands` when scripts need only one command per line. If `next --commands` was scoped with `--target` or `--repo`, emitted `agent-team` follow-ups preserve that selected repo too. Use `next --source inbox --reason unread` when you only want unread mailbox inspection actions, `next --source outbox` when you only want pending or failed agent outbox actions, or `next --source runtime --reason stale` when you only want stale recorded runtime PID recovery; outbox recommendations prefer `job outbox <job-id>` when every pending or failed event resolves to one durable job. Missing declared persistent instances recommend `sync --dry-run` or `team sync <team> --dry-run` so desired-state fixes can be previewed before starting agents; add `--commands` to either dry-run sync when scripts should receive only the matching apply command. Use `pipeline next [<pipeline>]` when you only want pipeline-scoped recommendations without the full status table; add `--team <team>` to render team-scoped commands for multi-team repos, and add `--commands` when scripts need only the selected pipeline commands. Use `monitor --jobs --schedules` or `job triage` plus `schedule next` when you need fuller live detail; monitor output also includes inbox counts so unread operator messages are visible beside health, instances, jobs, schedules, and events, and `monitor --last-message` gives Codex runtime recovery hints the same clean final-response log fallback as health, overview, and resume-plan. Add `monitor --fallbacks` when runtime recovery hints should point at fallback-expanded resume-plan command output. Add `monitor --commands` when scripts need one command per line from the visible recovery sections, or `monitor --summary --commands` for compact health plus optional plan/job follow-ups; with `--plan` it includes the matching `sync --dry-run` apply command, and with `--jobs` it includes job attention and ready-step commands. Add `snapshot --commands`, `team snapshot <team> --commands`, or `job snapshot <id> --commands` when a diagnostic capture should print its captured follow-up commands directly. `job triage` and `monitor --jobs` include durable job triage, status-file job update previews, and pipeline status summaries, so unreconciled blocked workers and ready pipeline steps are visible before a maintenance tick; triage rows include ACTION hints for common recovery commands, and `job show <id>` shows the matching queue/outbox/status previews and per-job action hints; add `job show <id> --commands` when scripts should receive only those commands while preserving an explicit `--repo` selector. Use `job explain <id>` when you need to understand why a pipeline job can or cannot advance: it lists every step with dependency blockers, gates, readiness, instances, and suggested next commands; add `--state ready|blocked|failed`, `--step <id>`, or both to focus one state or stage, and add `--commands` when scripts need those nested actions as one repo-scoped command per line. Use `pipeline triage [<pipeline>]` for that same attention view scoped to one workflow or all pipeline-owned jobs, including pipeline-owned queue/quarantine summaries, status-file previews, ready steps, and pipeline-scoped recovery hints. Use `pipeline explain <pipeline>` for step-by-step diagnostics across every job in one workflow; add `--state failed`, `--state blocked`, `--sort state`, `--limit N`, or `--json` for large histories and automation, or add `--commands` to flatten pipeline/job/step actions for scripts. Use `pipeline resume-plan [<pipeline>]` when crashed, stopped, or stale-running runtimes need attach, resume, start, or log commands without scanning ad hoc daemon metadata; omit the pipeline or pass `--all` to inspect every pipeline-owned job, or pass one pipeline to stay inside a workflow. Add `--step <id>` to focus one stage, `--unhealthy` for both crashed and stale recorded running PIDs, or `--runtime-stale` to isolate recorded running PIDs that are no longer live. Resume-plan output includes derived pipeline and step ownership when metadata can be matched back to a durable job; add `--last-message` when Codex log fallbacks should point to the clean final-response sidecar instead of raw daemon logs. `--stale` remains a compatibility alias for `resume-plan` runtime PID filtering. Use `runtime metadata ls` when scripts need repo-wide raw persisted daemon metadata, and use `pipeline runtime ls [<pipeline>]` when they need job/worktree/PR ownership, stale runtime PID flags, or summary counts narrowed to pipeline-owned runtimes without declared-but-not-started placeholders. Use `pipeline snapshot <pipeline> --output workflow.json` when you need a compact handoff artifact for one workflow; it includes pipeline status, step explanations, owned jobs, scoped inbox summaries, job-owned queue/quarantine/outbox state, a bounded combined audit/lifecycle timeline, git context, and dry-run advance route previews. Add `--timeline all` or `--timeline N` to control the captured timeline rows. Use `team explain <team>` for the same diagnostic view scoped to all pipelines owned by a team; it accepts the same `--sort`, `--limit`, `--state`, `--step`, and `--commands` controls. Pipeline status, health, overview, and next-action hints include those explain commands when failed or blocked steps need inspection. Use `job timeline <id>` when you need one chronological view that merges durable job audit events with matching daemon lifecycle rows; use `pipeline timeline <pipeline>` or `team timeline <team>` for the same combined view scoped across a workflow or declared team. Use `job snapshot <id> --json` or `--output` when you need a post-mortem artifact for one job; it captures job state, audit events, lifecycle rows, combined timeline rows, inbox summaries for the job or step owner instances, queue and outbox ownership, runtime metadata, state files, and optional log tails with `--tail`. Use `team triage <team>` for the same attention view scoped to one team's jobs and queue. Use `team ready <team>` when you only need the next advanceable or blocked pipeline steps owned by one team, `team advance <team> --dry-run --preview-routes` to preview dispatches before advancing them, `team approve <team> --dry-run --dispatch --preview-routes` to preview manual-gate approvals, and `team retry <team> --dry-run --dispatch --preview-routes` to preview scoped failed-step recovery. Pipeline steps can declare `label`, `description`, `instructions`, `workspace = "repo"|"worktree"`, `runtime = "codex"|"claude"`, and `runtime_bin` for readable CLI, graph, durable job diagnostics, step-specific runtime guidance, and stage-specific execution defaults while keeping short stable ids for commands. Pipeline steps can declare gates: `gate = "manual"` waits for operator approval, and `gate = "pr"` waits until the job has PR metadata before it can advance; add `max_attempts = N` when failed-step retry should stop after N dispatch attempts, then use `pipeline retry --force`, `team retry --force`, or repair `--retry-force` only for an intentional override after fixing the cause. `job update <job-id> --pr <url> --advance --dry-run` previews the PR metadata update and the newly unblocked step dispatch in one command. `pipeline approve <pipeline> --dry-run --dispatch --preview-routes` and `team approve <team> --dry-run --dispatch --preview-routes` approve manual gates in batches while preserving dry-run route inspection; use `--wait --wait-status running` with either command when the approval-and-dispatch handoff should block until each approved job has a live owner. Use `pipeline reject <pipeline> --dry-run` or `team reject <team> --dry-run` before failing a scoped batch of manual gates, `pipeline skip <pipeline> --step <id> --dry-run` or `team skip <team> --step <id> --dry-run` before intentionally bypassing a non-running stage, and `pipeline cancel <pipeline> --dry-run` or `team cancel <team> --dry-run` before marking obsolete non-terminal jobs failed without stopping their instances. `health` always includes pipeline workflow doctor problems and unresolved intake delivery failures; add `health --jobs` in scripts when stuck/failed jobs should make the health check fail too. With `--jobs`, health also previews status-file job updates, summarizes pipeline status, includes action hints on job and pipeline issues, and fails if an unreconciled worker status reports a blocked job. Failed pipeline-step hints prefer `pipeline retry <pipeline> --dry-run --dispatch --preview-routes` or the matching team-scoped retry command before mutation, and also include `repair --retry-pipelines --dry-run --preview-routes` when the retry belongs in a broader repair pass. Use `job reconcile status` when workers have written `status.toml` and you want to refresh the owning durable jobs without dispatching anything. Use `tick` to act on ready work: it reconciles stale daemon metadata and job status files, fires due schedules, publishes pending agent outbox events, asks the daemon to dispatch ready queued events, and advances ready pipeline jobs. `tick --dry-run` previews job-status, schedule, outbox, queue, and pipeline work without mutating state; add `--preview-routes` to include route and dispatch payload previews for ready pipeline steps, or `--all-ready-steps` when independent pipeline stages should fan out in one cycle. Add `--wait --wait-status running` to a one-shot `tick` when a script should block until the jobs advanced by that cycle have live owners; use `--wait-next-state running --wait-step <id>`, `--wait-event`, `--wait-timeout`, or `--fail-on-failed` for other bounded handoff points. Add `--runtime codex` or `--runtime-bin <path>` when tick-driven pipeline advancement should use a one-off runtime override. Use `pipeline tick <pipeline> --dry-run --preview-routes` when the one-cycle queue and ready-step preview should stay inside one workflow; add `--wait --wait-next-state running --wait-step <id>` when the scoped one-shot tick should block on a specific advanced stage. `team tick <team>` scopes schedule, queue, and pipeline work to one declared team; add `--dry-run` to preview the same team-owned work without a daemon, add `--wait --wait-next-state running --wait-step <id>` for a stage-aware one-shot bounded handoff after scoped advancement, and add `--all-ready-steps` for the same team-scoped parallel stage fan-out. Both global and team tick support `--watch` for foreground loops and `--until-idle --max-cycles N` for finite CI/script drains; `drain`, `pipeline drain <pipeline>`, and `team drain <team>` are the shorter drain-until-idle commands for scripts and operator cleanup. Add `--wait --wait-next-state running --wait-step <id>` when the drain should wait for jobs advanced across those cycles to have a specific live stage owner after the loop reaches idle. `--json` emits one JSON object per cycle for watch mode, or an aggregate cycle result for until-idle/drain mode.
-
-Add `--summary` to `job timeline`, `pipeline timeline`, or `team timeline` when scripts need aggregate counts by source, kind, status, job, actor, instance, and agent instead of row output. Use `job timeline --all` for a combined audit/lifecycle view across every durable job, including ad hoc jobs that do not belong to a pipeline or team; add `--job`, `--kind`, `--status`, `--actor`, `--agent`, or `--instance` to narrow large timeline handoffs before rendering, summarizing, or tailing. `pipeline snapshot <pipeline> --commands` is also supported for workflow-scoped diagnostic captures, matching global, team, and job snapshots.
-
-Add `--dry-run --commands` to `job reconcile status`, `job reconcile events`, or `job reconcile queue` when scripts should print the matching apply command only after an actionable preview. Use `--pipeline <name>` with optional `--target-agent <agent>` on any of those reconcile commands when only one workflow or role should reconcile status files, terminal runtime events, or queue state.
-
-Add `--commands` to `job triage`, `pipeline triage`, or `team triage` when scripts need only attention-row recovery commands after severity or reason filtering. Ready-step command output stays under `job ready --commands`, `pipeline ready --commands`, and `team ready --commands`.
-
-Use `pipeline run <pipeline> <ticket> --dispatch --wait --wait-next-state running --wait-step implement` or `team run <team> <ticket> --dispatch --wait --wait-next-state running --wait-step implement` when create-and-run automation should block until the first stage has a live owner; add `--commands` to the matching dry-run when scripts need only the create-and-run apply command. Use `pipeline approve <pipeline> --dispatch --wait --wait-status running` or `team approve <team> --dispatch --wait --wait-status running` when manual-gate approval should block until each approved job has a live owner. Use `pipeline retry <pipeline> --dispatch --wait --wait-status running` or `team retry <team> --dispatch --wait --wait-status running` when failed-step recovery should block until each retried job has a live owner. Use `tick --wait --wait-next-state running --wait-step implement`, `pipeline tick <pipeline> --wait --wait-next-state running --wait-step implement`, or `team tick <team> --wait --wait-next-state running --wait-step implement` when a maintenance cycle should wait on a specific stage owner. Add `--wait-next-state running --wait-step <id>` when approval, retry, or maintenance handoffs should wait on a specific stage.
-
-Use `pipeline advance <pipeline> --wait --wait-status running` or `team advance <team> --wait --wait-status running` when already-ready work should block until the advanced jobs have live owners. Use `drain --wait --wait-next-state running --wait-step implement`, `pipeline drain <pipeline> --wait --wait-next-state running --wait-step implement`, or `team drain <team> --wait --wait-next-state running --wait-step implement` when a finite drain should wait on a specific stage after reaching idle. Use `schedule fire --wait --wait-next-state queued --wait-step triage`, `schedule run nightly --wait --wait-next-state queued --wait-step triage`, or `intake schedule nightly --wait --wait-next-state queued --wait-step triage` when manually fired schedule pipelines should block until their created jobs reach a lifecycle, event, or stage condition. Add `--commands` to `schedule fire --dry-run` or `schedule run nightly --dry-run` when scripts need only the apply command after the preview. Use `--wait-next-state ready --wait-step review` when the same handoff should stop once the next stage is ready.
-
-Pipeline-scoped next-action hints include `pipeline repair <pipeline> --retry-pipelines --dry-run --preview-routes` for failed steps and `pipeline repair <pipeline> --timeout-jobs --dry-run --preview-routes` for stale running work when one workflow owns the recovery.
-
-Runtime next-action hints prefer `pipeline resume-plan <pipeline>` or `pipeline resume-plan --all` when every crashed or runtime-stale instance maps to pipeline-owned jobs; mixed ad hoc/runtime-only metadata still falls back to the broader `resume-plan` command.
-
-Resume-plan commands accept `--sort instance|action|runtime|status|stale|job|pipeline|step|agent` before rendering and `--limit N` after filtering and sorting. Use `--sort stale --limit 10` to put dead recorded PIDs first in a bounded recovery list, `--sort step` for pipeline-stage review, or `--sort action` when scripts group by recovery command type. Add `--commands` when scripts need only one recommended recovery command per line after the selected filters, sort, and limit. Positive `--limit` values cannot be combined with `--summary`. Broad runtime recovery hints from `overview` and `next` include bounded resume-plan commands by default.
-
-Use `repair --dry-run` when `health` reports dead-letter queue items or stale daemon state. Queue health issues include retry/repair action hints, quarantined-file inspection hints, and repair dry-runs show those issue actions before the planned repair steps; when every dead-letter item belongs to one durable job, global `health` / `overview` recommend the matching `job queue retry <job-id> --all --sort attempts --limit 10` path instead of a broad queue retry, when several dead-letter items belong to one declared pipeline they recommend `pipeline queue retry <pipeline> --all --sort attempts --limit 10`, and team `overview` / `next` prefer `team queue retry <team> --all --job <job-id> --sort attempts --limit 10 --dry-run` over a team-wide retry. Use `queue ls --runtime codex`, `queue ls --sort attempts --limit 10`, `queue ls --summary --runtime codex`, `queue retry --all --runtime codex --sort attempts --limit 10 --dry-run`, `queue drop --all --runtime codex --sort attempts --limit 10 --dry-run`, `queue prune --runtime codex --limit 10 --dry-run`, or `queue prune --ready --limit 10 --dry-run` to isolate queued Codex dispatches or due pending work in mixed-runtime repos; use `job queue <job-id> --runtime codex`, `job queue <job-id> --sort attempts --limit 10`, `job queue retry <job-id> --all --runtime codex --sort attempts --limit 10 --dry-run`, `job queue drop <job-id> --all --runtime codex --sort attempts --limit 10 --dry-run`, `job queue prune <job-id> --runtime codex --limit 10 --dry-run`, or `job queue prune <job-id> --ready --limit 10 --dry-run` when the operator action should stay inside one durable job. Add `--commands` to global or scoped queue/outbox list/show views when scripts should receive only the visible row actions, and to queue/outbox retry, drop, prune, doctor quarantine, or quarantine restore/drop dry-runs when scripts should receive only the matching apply command. Active queue rows and `queue show` prefer the runtime recorded in the dispatch payload and fall back to daemon metadata for concrete instances. Use `queue doctor` when queue list, drain, retry, or repair fails to parse persisted queue files; `overview` / `next` recommend it for queue parse failures, and top-level `doctor` includes the same queue validation plus quarantine warnings. Start with `queue doctor --quarantine --dry-run` to preview problem files that would be moved under `.agent_team/daemon/queue/quarantine/`, then rerun without `--dry-run` to remove those files from the active queue without deleting them; add `--commands` to the dry-run to print that apply command. Use `outbox doctor` when sandboxed-agent outbox listing or draining fails to parse persisted outbox files; top-level `doctor` includes the same active outbox validation. Start with `outbox doctor --quarantine --dry-run` to preview problem files that would be moved under `.agent_team/outbox/quarantine/`, then rerun without `--dry-run` to remove those files from active outbox processing without deleting them; add `--commands` to the doctor dry-run to print that apply command, or use `outbox quarantine ls`, `outbox quarantine show <path>`, `outbox quarantine restore <path> --dry-run`, or `outbox quarantine drop <path> --dry-run` after inspection, adding `--commands` when you want only the matching restore/drop apply command, `job outbox quarantine <job-id>` plus scoped `show`, `restore`, and `drop` when a single durable job owns the preserved outbox files, `pipeline outbox quarantine <pipeline>` when a workflow owns the preserved files, or `team outbox quarantine <team>` when one declared team owns the files. `overview` and `next --source outbox --reason quarantined` surface preserved outbox files and prefer `job outbox quarantine <job-id>` or `team outbox quarantine <team>` when ownership is unambiguous. Use `queue quarantine ls --job SQU-42`, `--instance worker`, `--restorable`, `--unrestorable`, or `--sort attempts --limit 10` to narrow preserved files before inspection, then `queue quarantine show <path>` and `queue quarantine restore <path> --dry-run` before moving one validated entry back to pending/dead; use `job queue quarantine <job-id>` and its scoped `show`, `restore`, and `drop` subcommands when a single durable job owns the preserved files. `job show <job-id>` and `job triage` also surface job-owned quarantined queue files with scoped dry-run recovery actions, and global `health` / `overview` recommend `job queue quarantine <job-id>` when every quarantined file resolves to one job or `pipeline queue quarantine <pipeline>` when several preserved files resolve to one declared workflow. Use `queue quarantine drop <path> --dry-run`, `queue quarantine drop --all --job SQU-42 --sort attempts --limit 10 --dry-run`, or `queue quarantine drop --all --unrestorable --sort modified --limit 10 --dry-run` before discarding inspected files, adding `--commands` when a queue quarantine dry-run should print only the matching restore/drop apply command. Queue summaries split quarantined files into `restorable` and `unrestorable` counts so recovery scripts can choose the right listing; runtime-filtered queue summaries exclude quarantined files whose runtime cannot be known from the quarantine index. `health`, `overview`, `next`, queue summaries, pipeline snapshots, and team-scoped status/health/monitor views surface quarantined files until you inspect, restore, or drop them; use `pipeline queue quarantine` to inspect quarantined files across all workflows, or `pipeline queue quarantine <pipeline>` plus its scoped filters, `show`, filtered `restore --all --sort attempts --limit 10`, and filtered `drop --all --sort modified --limit 10` subcommands to act only on files owned by one workflow. Use `team queue quarantine <team>` for the same quarantine recovery commands inside one team's ownership boundary. Use `pipeline outbox <pipeline> --state failed`, `pipeline outbox <pipeline> --state pending`, `pipeline outbox <pipeline> --state failed --commands`, `pipeline outbox retry <pipeline> <id> --dry-run`, `pipeline outbox drop <pipeline> <id> --dry-run`, or `pipeline outbox quarantine restore <pipeline> --all --dry-run` when sandboxed agent events should be inspected or repaired inside one workflow. Use `team queue <team> --sort attempts --limit 10` to focus the highest-retry team-owned items before recovery, and `team queue retry <team> --all --sort attempts --limit 10 --dry-run`, `team queue drop <team> --all --sort attempts --limit 10 --dry-run`, `team queue prune <team> --dry-run --older-than 24h --runtime codex --limit 10`, or `team queue prune <team> --dry-run --ready --limit 10` to act only on matching active queue entries owned by one team. Dry-runs also surface unresolved intake delivery failures with replay commands, but `repair` does not replay webhooks automatically. Add `--preview-routes` to include route and dispatch payload previews for pipeline steps the repair tick would advance, and add `--all-ready-steps` when repair should fan out independent ready stages during that tick. Add `--timeout-jobs --dry-run` to preview marking stale pipeline steps and stale step-less jobs failed before retry, or `--timeout-pipelines --dry-run` when only pipeline-step expiration should run. Add `--retry-pipelines --dry-run --preview-routes` to preview failed pipeline-step resets and dispatch routes as part of repair; add `--retry-step <id>` to limit repair to one failed stage, omit `--dry-run` to reset and dispatch them after daemon reconciliation, use `--retry-message` to record the operator reason, and add `--retry-force` only to intentionally override capped step retries. Add `--runtime codex` or `--runtime-bin <path>` when repair-driven retry or advance dispatches should override the repo default runtime. Add `--wait --wait-status running` when repair should block until retried and final tick-advanced jobs have live owners, or `--wait --wait-next-state running --wait-step <id>` when the handoff should match a specific repaired stage. Add `--jobs` to include durable job triage and status-file previews in the before/after health snapshots. `repair` starts and reconciles the daemon, retries dead-letter queue entries, optionally times out stale running work, optionally retries failed pipeline steps, then runs a maintenance tick; add `--skip-daemon`, `--skip-queue`, or `--skip-tick` to narrow the recovery action. Use `team repair <team>` for the same recovery loop scoped to team-owned queue items, schedules, and pipelines; it also accepts runtime overrides, `--timeout-jobs` for team-owned stale work, `--retry-force` for scoped capped-step overrides, and `--all-ready-steps` for scoped parallel stage fan-out.
-
-`health` reports job, queue, and outbox quarantine as warnings with the same scoped recovery actions used by overview and next-action hints.
-
-Use `repair --last-message` or `team repair <team> --last-message` when repair health snapshots should prefer clean Codex final-response sidecar commands for stale runtime recovery hints. Add `--fallbacks` when those hints should point at fallback-expanded `resume-plan --commands --fallbacks` output.
-
-Use `job doctor` when job list/show/triage fails to parse durable job files. Start with `job doctor --quarantine --dry-run` to preview problem files that would be moved under `.agent_team/jobs/quarantine/`, then rerun without `--dry-run` to remove those files from the active job set without deleting them; add `--commands` to the dry-run to print that apply command. Add `--commands` to top-level, job, queue, outbox, or intake doctor commands when scripts need only recommended follow-up commands; top-level doctor command output also points at pipeline/team JSON detail checks for workflow topology findings and daemon start/restart/log actions when the repo is otherwise valid. Inspect preserved files with `job quarantine`, use `job quarantine --summary --json` for scriptable counts, restore a fixed and validated TOML file with `job quarantine restore <path> --dry-run`, or drop a stale preserved file with `job quarantine drop <path> --dry-run`; add `--commands` to job quarantine lists when scripts need visible restore/drop dry-run commands, and to restore/drop dry-runs when scripts need only the matching apply command. `overview`, `next --reason quarantined`, and `next --reason job_quarantined` surface preserved job files until they are restored or dropped.
-
-Add `--timeout-pipeline`, `--timeout-target-agent`, or `--timeout-step` with either timeout mode to keep stale-work repair scoped to one workflow, agent role, or stage; dead-letter queue retry and the early `job_events` repair phase use the same job scope before applying terminal runtime metadata, and queue retry also honors the step scope when queued dispatches carry `pipeline_step`. Team repair accepts the same timeout filters inside the team's ownership boundary.
-
-For scoped sandboxed-agent outbox repair and cleanup, use `pipeline outbox <pipeline> --state failed --commands`, `team outbox <team> --state failed --commands`, `pipeline outbox retry <pipeline> --all --state failed --sort created --limit 10 --dry-run`, `pipeline outbox drop <pipeline> --all --state failed --sort created --limit 10 --dry-run`, `pipeline outbox prune <pipeline> --older-than 24h --limit 10 --dry-run`, `team outbox retry <team> --all --state failed --sort created --limit 10 --dry-run`, `team outbox drop <team> --all --state failed --sort created --limit 10 --dry-run`, `team outbox prune <team> --older-than 24h --limit 10 --dry-run`, or `team outbox quarantine restore <team> --all --dry-run` before mutating a batch; add `--commands` to list/show views or retry, drop, prune, and quarantine restore/drop dry-runs when automation should receive only the matching command lines.
-
-Add `--retry-pipeline <name>` with `--retry-pipelines` when failed-step repair should stay inside one workflow; combine it with `--retry-step <id>` when only one stage in that workflow should be reset. Dead-letter queue retry and the `job_events` phase also honor the retry pipeline scope, and queue retry honors the retry step scope for queued pipeline-step dispatches. Team repair accepts the same retry filters inside the team's ownership boundary.
-
-Add `--dry-run --commands` to global, pipeline, or team repair when automation should print only the matching apply command for actionable repair previews.
-
-Use `pipeline repair <pipeline> --dry-run --preview-routes` when the entire recovery loop should stay inside one workflow; it scopes dead-letter queue retry, optional stale-work timeout, optional failed-step retry, and the final ready-step advance to that pipeline. Add `--wait --wait-status running` when the scoped repair should block until retried and newly advanced jobs have live owners, or `--wait --wait-next-state running --wait-step <id>` when the repair handoff should match a specific stage; global `repair --retry-pipelines --wait` and `team repair <team> --retry-pipelines --wait` apply the same stage-aware handoff to their dispatched retry and final tick advance rows.
-
-Use `intake summary` for a compact delivery ledger rollup before replaying or pruning webhook history. It distinguishes successful, failed, unresolved, recovered, replayable, and replay-failed deliveries, includes per-provider counts, and prints the same recovery/prune action hints as the detailed delivery rows. Add `--commands` to `intake summary`, `intake deliveries`, `intake duplicates`, or `intake doctor` when scripts need only replay, prune, duplicate-inspection, or warning follow-up commands; `intake doctor --json` includes the same top-level `actions` list. Use `intake doctor` when summary or replay fails to parse history; it reports corrupt JSONL lines, duplicate IDs, invalid statuses, and unreplayable failure rows without mutating the ledger. Top-level `doctor` includes the same intake ledger validation.
-
-Use `job create <ticket> --dry-run --dispatch`, `team run <team> <ticket> --dry-run --dispatch`, `pipeline run <pipeline> <ticket> --dry-run --dispatch`, `pipeline advance <pipeline> --dry-run --preview-routes`, `pipeline tick <pipeline> --dry-run --preview-routes`, `job approve <job-id> --dry-run --advance`, `pipeline approve <pipeline> --dry-run --dispatch --preview-routes`, `job reject <job-id> --dry-run`, `pipeline reject <pipeline> --dry-run`, `job unblock <job-id> <answer...> --dry-run`, `pipeline unblock <pipeline> <answer...> --dry-run`, `team unblock <team> <answer...> --dry-run`, `pipeline skip <pipeline> --step <id> --dry-run`, `team skip <team> --step <id> --dry-run`, `pipeline cancel <pipeline> --dry-run`, `team cancel <team> --dry-run`, `pipeline send <pipeline> --dry-run`, `team send <team> --dry-run`, `job send <job-id> --dry-run`, `job dispatch <job-id> --dry-run`, `job advance <job-id> --dry-run`, `job step <job-id> <step-id> --dry-run --advance`, `job update <job-id> --advance --dry-run`, `job reconcile github --advance --dry-run`, `intake github --reconcile-job --advance --dry-run`, `job retry <job-id> --dry-run --dispatch`, or `dispatch <target> <ticket> --dry-run` before starting the daemon when you want to inspect local topology routes and the exact payload that would be published. Add `--commands` to `job create --dry-run`, `job reconcile github --dry-run`, `pipeline run --dry-run`, `team run --dry-run`, or live `intake linear|github|schedule --dry-run` when scripts need only the matching create, reconcile, create-and-dispatch, or publish apply command. `team run` selects the team's only declared pipeline automatically, or accepts `--pipeline` when a team has several. Add `--wait` to `job create --dispatch`, `job dispatch`, `job advance`, `job update --advance`, `job step --advance`, `job approve --advance`, `job reconcile github --advance`, `intake github --reconcile-job --advance`, `job retry --dispatch`, `pipeline run`, `team run`, `pipeline approve --dispatch`, `team approve --dispatch`, one-shot `tick`, `pipeline tick <pipeline>`, or `team tick`, `drain`, `pipeline drain <pipeline>`, or `team drain <team>` when the command should block until the advanced job reaches a lifecycle status, event, or supported next-step state/stage. Use `job adopt <job-id> --pid <pid> --dry-run --json` or `job adopt <job-id> --pid-file runtime.pid --dry-run --json` when a live process started outside the daemon should become the owning instance for an existing durable job; add `--commands` when scripts need only the follow-up inspect/log/resume-plan commands. When the job records a pipeline, those follow-ups also include pipeline status/logs/resume-plan scoped to the inferred or explicit stage. Pipeline jobs default instance and agent from the active step, accept `--step <id>` to override the inferred stage, then fall back to job-level ownership, while workspace/branch/PR default from the job. Use `job start|stop|kill <job-id> --step <id>`, `job cancel <job-id> --step <id> --stop|--kill`, `job unblock <job-id> --step <id> <answer...>`, `job logs <job-id> --step <id>`, `job attach|exec <job-id> --step <id>`, or `job send <job-id> --step <id>` when a pipeline job has distinct stage owners; add `--dry-run --commands` to job start/stop/kill when scripts need only the selected lifecycle apply command. Without `--step`, lifecycle/log/send commands use the only running step instance when that is unambiguous, unblock uses the only blocked step instance when that is unambiguous, and all commands then fall back to the job-level instance. Use `job hold <job-id> [reason...]` when a job should stay in its current lifecycle status but stop advancing through ready loops; add `--for 2h` or `--until 2026-06-24T18:00:00Z` for time-boxed holds. Use `job hold --all --dry-run` before a repo-wide incident freeze, including non-pipeline jobs; add `--state`, `--limit`, `--for`, or `--until` to narrow the batch, and add `--commands` when scripts should receive only the matching apply command. Held jobs appear as next-step state `held` in job, pipeline, and team views until `job release <job-id> [message...]`; use `job ls --expired-hold`, `pipeline jobs --expired-hold`, `pipeline jobs <pipeline> --expired-hold`, or `team jobs <team> --expired-hold` to find holds whose `hold_until` has passed. `overview`, `next --reason expired_holds`, and team-scoped overview/next views recommend the matching expired-release dry-run, such as `job release --all --expired --dry-run`; add `--commands` to print just the apply command for actionable release previews. Use `job step <job-id> <step-id> --skip`, `pipeline skip <pipeline> --step <id>`, or `team skip <team> --step <id>` when a pipeline stage is intentionally bypassed; skip records the step as done with `skipped = true` so dependents can continue without pretending the stage ran. Batch skip refuses running steps, so time out or stop active work first when a live owner exists; add `--commands` to pipeline or team skip dry-runs when scripts should receive the matching apply command. Use `job reject <job-id> [reason...] --dry-run` before failing a blocked manual gate; omit `--dry-run` to record a `manual_gate_rejected` audit event and mark the gate step failed. Use `job unblock <job-id> <answer...>` when a blocked worker needs operator input: it accepts blocked status-file previews from `job triage` or `job show`, sends the answer to the owning instance, marks the durable job running, and records an audit event; use `--message-file <path|->` for longer answers. Use `pipeline unblock <pipeline> <answer...> --dry-run` or `team unblock <team> <answer...> --dry-run` when the same operator answer applies to every blocked worker in a workflow or team; add `--step <id>` to target one stage, and omit `--dry-run` only after the selected owner list is correct. Older blocked status files are ignored after the unblock until the worker writes a newer status. Add `--dry-run` to preview the target and status transition without sending a mailbox message. Use `job retry <job-id> --dispatch` for the common failed-job recovery path: it records a reopen event, then immediately sends the job back through daemon dispatch; add `--wait --wait-status running` for a bounded handoff. For pipeline jobs, it resets the first failed step whose dependencies are satisfied, then advances the next ready step. Use `job timeout <job-id> --dry-run` for one stale running job or `job timeout --all --dry-run --limit N` for a bounded sweep that marks stale pipeline steps or stale step-less running jobs failed without stopping processes; add `--commands` when scripts should receive only the matching timeout apply command. Use `job cancel <job-id> "reason" --dry-run`, `pipeline cancel <pipeline> --message "..." --dry-run`, or `team cancel <team> --message "..." --dry-run` before marking obsolete work failed; batch cancellation only updates durable job files, so use per-job `--stop` or `--kill` when the owning instance should stop in the same command, and add `--commands` to job, pipeline, or team cancel dry-runs when scripts should receive the matching apply command. Use `job cleanup <job-id> --dry-run` to preview one job-owned worktree and branch removal after a PR merge, `job cleanup --all --dry-run` to preview every done job that still owns cleanup metadata, `pipeline cleanup <pipeline> --dry-run` to scope that preview to one workflow, or `team cleanup <team> --dry-run` to scope it to one declared team. `job triage` reports those terminal jobs as `cleanup_ready`, and `overview` / `next` recommend the matching batch dry-run when cleanup-ready jobs exist. After confirming merge, pass `--merged`; add `--verify-pr` to check the recorded GitHub PR with `gh`, and add `--force-branch` only when the PR is merged but the local branch is not recognized as merged by git.
-
-For job, pipeline, or team unblock dry-runs, add `--commands` when scripts should print only the matching apply command for the selected blocked owners.
-
-For job, pipeline, or team approve dry-runs, add `--commands` when scripts should print only the matching apply command for the selected manual gates.
-
-For pipeline or team retry dry-runs, add `--commands` when scripts should print only the matching apply command for eligible failed-step resets.
-
-For top-level or job block, cancel, close, dispatch, advance, note, reopen/retry, send, update, or step dry-runs, add `--commands` when scripts should print only the matching block, cancel, close, dispatch, note, reopen/retry, send, metadata, or step apply command.
-
-For pipeline or team send dry-runs, add `--commands` when scripts should print only the matching scoped send apply command for actionable recipients.
-
-For top-level dispatch dry-runs, add `--commands` when scripts should print only the matching dispatch apply command for matched topology routes.
-
-Add `--dry-run --commands` to global, job, pipeline, or team queue and outbox retry/drop/prune, to job, pipeline, or team hold/release, timeout, and cleanup, to job rm/prune, to job block, cancel, close, dispatch, advance, approve, reject, note, reopen/retry, send, unblock, update, or step, or to pipeline/team advance, approve, reject, unblock, retry, skip, and cancel, when automation should print only the matching apply command for actionable previews.
-
-`job create --dispatch`, `job dispatch`, `job retry --dispatch`, `job advance`, `job update --advance`, `job step --advance`, `job approve --advance`, `job reconcile github --advance`, `intake github --reconcile-job --advance`, `pipeline run --dispatch`, `team run --dispatch`, `pipeline advance`, `team advance`, `pipeline approve --dispatch`, `team approve --dispatch`, `pipeline retry --dispatch`, `team retry --dispatch`, `repair`, `pipeline repair`, `team repair <team>`, one-shot `tick`, `pipeline tick <pipeline>`, or `team tick`, and finite `drain`, `pipeline drain <pipeline>`, or `team drain <team>` also accept `--wait`, `--wait-status`, `--wait-event`, `--wait-timeout`, and `--fail-on-failed` for bounded handoffs; single-job pipeline handoffs, GitHub intake PR-gate handoffs, pipeline/team run, advance, approve, retry, global/pipeline/team repair, and maintenance tick/drain also accept `--wait-next-state` and `--wait-step`.
-
-For scoped stale-work sweeps without a team declaration, add `--pipeline` or `--target-agent` to `job timeout --all`.
-
-Use `snapshot --output diagnostics.json` when you need one read-only artifact for debugging or handoff. It captures overview and next-action details, git branch/commit/dirty state, health, desired-state plan, instance rows, jobs, job triage, job quarantine inventory, status-derived job update previews, pipeline status summaries, pipeline explain step diagnostics, ready pipeline advance previews, team doctor findings, inbox summaries, outbox events, outbox quarantine inventory, queue items, queue quarantine inventory, schedules, intake deliveries, runtime profile, and recent lifecycle events; sensitive payload keys and latest inbox bodies are redacted by default, and section-level failures are recorded in the JSON instead of aborting the whole report. Use `pipeline snapshot <pipeline> --output workflow.json` for a compact artifact scoped to one pipeline's status, explained jobs, owned jobs, inbox summaries, job-owned queue, queue-quarantine, outbox, and outbox-quarantine state, bounded audit/lifecycle timeline, and dry-run advance route previews; add `--timeline-sort newest` when the timeline should read from latest to oldest. Use `team snapshot <team>` for the same artifact scoped to one declared team's overview, next actions, git context, instances, jobs, inbox summaries, outbox events, outbox quarantine inventory, queue items, queue quarantine inventory, pipelines, pipeline explain diagnostics, team doctor findings, schedules, and lifecycle events. Use `job snapshot <job-id> --output job.json` for a post-mortem artifact scoped to one durable job's runtime state, inboxes, queue ownership, outbox/quarantine ownership, and event tails and combined timeline rows ordered with `--events-sort newest`. Add `--format '{{.Repo}} {{len .Jobs}}'`, `pipeline snapshot --format '{{.Pipeline}} {{len .Jobs}}'`, `team snapshot --format '{{.Team.Name}} {{len .Jobs}}'`, or `job snapshot --format '{{.Job.ID}} {{.Job.Status}}'` when scripts need concise fields instead of the summary table or full JSON. Add `snapshot --commands`, `pipeline snapshot <pipeline> --commands`, `team snapshot <team> --commands`, or `job snapshot <job-id> --commands` when scripts need the captured follow-up commands as one repo-scoped command per line. Use `snapshot diff before.json after.json` to compare saved global, team, pipeline, or job artifacts after a tick, repair, or manual intervention; use `snapshot diff before.json --current-after` or `snapshot diff after.json --current-before` when one side should be collected from the current repo state for the saved artifact's scope. Add `--events-sort newest` or `--timeline N|all` to current diffs when the live side needs a bounded latest-event or pipeline timeline comparison. Diff summarizes provenance, git, runtime, health, plan, triage, next-action, follow-up action, instance, job, job quarantine, inbox, outbox, outbox quarantine, queue, queue quarantine, schedule, intake, event, timeline, pipeline metric, ready-advance, and section-error changes. Add `--output diff.json` to save the structured comparison as a handoff artifact, add `--section provenance`, `--section git`, `--section runtime`, `--section health`, `--section plan`, `--section triage`, `--section next`, `--section actions`/`commands`, `--section job_quarantine`, `--section outbox_quarantine`, `--section queue_quarantine`, `--section quarantine`, `--section inbox`, `--section outbox`, `--section queue`, `--section intake`, `--section timeline`/`timelines`, `--section pipeline_metrics`, `--section ready_advance`, or another section name to narrow the comparison, add `--action added`, `--action removed`, or `--action changed` when a script should compare only selected change kinds, add `--commands` when scripts need selected added or changed follow-up commands from the `next` or `actions` diff rows as one repo-scoped command per line, add `--summary` when logs only need metadata and counters, add `--sort action` to group added/removed/changed rows before limiting, add `--limit 20` to keep emitted change details bounded while preserving summary counters, add `--format '{{.Summary.TotalChanges}}'` for script-friendly output, and add `--exit-code` when scripts should fail if the selected artifacts differ. Use `--no-redact` only for local debugging when raw payload values are required.
-
-`status --summary --events N`, `monitor --summary --events N`, and `watch --summary --events N` add compact recent lifecycle event counts; combine `--events` with `--event-action` and `--since` to narrow event tails before summarizing, and add `--events-sort newest` on monitor/watch dashboards when the visible event section should show newest items first. `status --summary` text, enriched status-summary JSON, `monitor`, and `watch` include runtime resume capability counts so dashboards can distinguish daemon-managed recovery, managed resume candidates, and direct runtime fallback candidates. `status --summary --resources`, `monitor --summary --resources`, and `watch --summary --resources` add aggregate CPU, memory, RSS, lifecycle, and phase counts. `status --summary --plan`, `monitor --summary --plan`, and `watch --summary --plan` add compact desired-state action counts from topology. Combining `--summary` with `--resources`, `--plan`, and `--events` produces one compact operator snapshot instead of full tables.
-
-`<ref>` for `init` and `template show` accepts:
-
-- **omitted / `bundled` / `default`** — the default template embedded in the binary.
-- **a local path** (`./eng-team`, `/abs/path`) — useful when authoring a template.
-- **a cached name** — anything previously `template pull`'d.
-- **a Git ref after pull** — `agent-team template pull github.com/foo/bar@v0.1.0`, then `agent-team init github.com/foo/bar@v0.1.0`. HTTPS, SSH, `git@host:path.git@ref`, and `file://...@ref` sources are supported; use `--as <cache-ref>` to store under a custom cache key.
-
-## How `run` works
-
-`agent-team run <agent>` reads every `.agent_team/agents/<name>/agent.md`, parses the YAML frontmatter (`description`) and body (the prompt), resolves each agent's skill set from `agents/<name>/skills/`, `[skills].extra` in `agents/<name>/config.toml`, plus team-wide `[skills].team` in `.agent_team/config.toml`, builds a tmpdir of symlinks satisfying the runtime's extra-directory discovery, and exec's the selected runtime.
-
-The default runtime is Claude-compatible:
-
-```sh
-claude --agents '<json>' --add-dir <tmpdir> --append-system-prompt-file <kickoff> <forwarded-args>
-```
-
-With `--detach`, with `--attach`, or with `--prompt` when the daemon is already running, the CLI sends that same resolved argv/env to `agent-teamd`. `--detach` returns a log-follow hint, while `--attach` follows the daemon-captured log immediately.
-
-Runtime selection is repo-configurable, environment-overridable, and command-overridable. Use `agent-team runtime set codex` to persist a repo default, `agent-team runtime unset` to remove it, or put this in `.agent_team/config.toml` directly:
-
-```toml
-[runtime]
-kind = "codex"   # or "claude"
-binary = "codex" # optional wrapper/binary override
-```
-
-Health thresholds are repo-configurable too:
-
-```toml
-[health]
-status_stale_after = "10m"
-job_stale_after = "24h"
-```
-
-Daemon supervisor notifications are configured in the same file. By default,
-only blocked transitions are published to `#supervisor`; add `"idle"` to notify
-when a persistent instance moves from a busy phase back to idle.
-
-```toml
-[notifications]
-phase_transitions = ["blocked"]
-idle_renotify = "0"
-```
-
-Precedence is `--runtime` / `--runtime-bin`, then environment, then repo config, then built-in defaults. Use command flags for one-off launches or to inspect what a short-lived override would do:
-
-```sh
-agent-team runtime set codex --runtime-bin codex
-agent-team runtime set codex --runtime-bin codex --dry-run --commands
-agent-team runtime unset --dry-run
-agent-team runtime unset --dry-run --commands
-agent-team runtime --runtime codex
-agent-team run worker --runtime codex --prompt "summarize the queued jobs" --last-message
-agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --prompt "check status" --detach
-agent-team job dispatch squ-42 --runtime codex --runtime-bin /opt/bin/codex-wrapper
-agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
-agent-team tick --runtime codex --dry-run --preview-routes --commands
-agent-team repair --retry-pipelines --runtime codex --dry-run --preview-routes
-agent-team queue ls --summary --runtime codex
-```
-
-Environment variables are useful for a whole shell:
-
-- `AGENT_TEAM_RUNTIME=claude` (default) enables the full daemon, resume, subagent registry, and queue/event dispatch path.
-- `AGENT_TEAM_RUNTIME=codex` launches Codex sessions with `codex` or `codex exec`. The chosen agent prompt and task are passed as the initial Codex prompt, and team agents are listed as coordination context. One-shot Codex runs stream that prompt through `codex exec -` stdin so large agent prompts do not live in argv. Direct interactive runs work without the daemon; one-shot runs with `--prompt` can also use `--detach`, `--attach`, `--json`, or `--format` for daemon-managed logs and process metadata. Add `--last-message` to a Codex `run --prompt` invocation to bypass the daemon, wait for completion, suppress Codex diagnostics on success, and print only the clean final response. Daemon-managed Codex `exec` runs add `--json`, capture the first `thread.started` event as the instance `SessionID`, and write `.agent_team/state/<instance>/last-message.txt`, so `agent-team logs <instance> --last-message` can show the same clean response for daemon-managed runs. With a captured session, `start` and `restart` can resume Codex through `codex exec resume <session> -` using the per-instance launch-env snapshot and a generated brief on stdin; missing workspace or rollout preflight falls back to fresh-spawn-plus-brief and records `resume_fallback`. `attach` uses the interactive `codex resume <session>` handoff and then returns the instance to daemon-managed resume unless `--no-resume` is passed. The adapter sets Codex shell-environment policy entries for `AGENT_TEAM_*` variables so bundled status, inbox, and channel scripts can find the repo team root and instance state without broadly inheriting the parent process environment. Codex still does not support native runtime subagent registration because it does not expose Claude's `--agents` contract.
-- `AGENT_TEAM_RUNTIME_BIN=/path/to/wrapper` overrides the binary for the selected runtime.
-
-Run `agent-team runtime` to confirm the selected profile, resolved binary path, config source, and supported capabilities. Use `agent-team runtime probe --runtime codex --json` before dispatching Codex work when you need one screen that combines agent-team runtime selection, daemon socket readiness, and `codex doctor` reachability/auth/sandbox checks; `agent-team runtime doctor` and `agent-team runtime check` are aliases for the same probe. Add `--commands` when scripts need only the recommended follow-up commands; when the probe is scoped with `--target` or `--repo`, command-only `agent-team` follow-ups preserve that selected repo. Add `--require-daemon --wait-daemon --timeout 10s` when a dispatch preflight should wait for and require daemon readiness, add `--start-daemon --require-daemon` when the preflight should start the detached daemon if needed, add `--exec --timeout 2m` when you also want a real Codex `exec -` smoke test that verifies stdin prompt handling and last-message sidecar capture, prefer `--start-daemon --daemon-http-addr 127.0.0.1:0 --exec-http-check --timeout 2m` when the Codex sandbox must prove it can reach `agent-teamd` through opt-in localhost HTTP via `AGENT_TEAM_DAEMON_URL`, use `--start-daemon --exec-socket-check --timeout 2m` as the Unix-socket fallback through `AGENT_TEAM_DAEMON_SOCKET`, or add `--output runtime-probe.json` to preserve the full diagnostic artifact.
-See [`docs/runtime/profiles.md`](./docs/runtime/profiles.md) for the Claude/Codex capability matrix and troubleshooting notes.
-
-The launcher creates `.agent_team/state/<instance>/` (defaults the instance name to the agent name; pass `--name` for a unique identifier) and exports the same session contract for every runtime:
-
-- `AGENT_TEAM_ROOT` — absolute path to `.agent_team/`
-- `AGENT_TEAM_INSTANCE` — the instance name
-- `AGENT_TEAM_STATE_DIR` — absolute path to `.agent_team/state/<instance>/`
-- `AGENT_TEAM_DAEMON_SOCKET` — resolved Unix socket path for `agent-teamd` (`.agent_team/daemon.sock` or the long-path fallback under `/tmp/agent-team-<uid>/`)
-- `AGENT_TEAM_DAEMON_URL` — optional loopback HTTP base URL when the daemon was started with `--http-addr`, useful for runtimes whose sandbox blocks Unix sockets
-
-For the Claude-compatible runtime, the named agent's prompt becomes the session's system prompt and all other agents stay registered as subagents so the named agent can dispatch them via the Task tool.
-
-Subagents are session-scoped — they exist only for the duration of the spawned `claude` process. Nothing is written into `.claude/agents/`. No plugin install, no marketplace, no global state.
-
-## The bundled default template
-
-`agent-team init` (no ref) uses the default template baked into the binary — a software-engineering team:
-
-- **`ticket-manager`** — searches, creates, routes, and transitions PM tickets when Linear or GitHub is configured.
-- **`manager`** — persistent agent. Tracks goals and dispatches workers. State lives at `.agent_team/state/<instance-name>/`. Multiple instances can run side-by-side (e.g. `--name=manager-billing`, `--name=manager-release`), each with their own state directory.
-- **`worker`** — ephemeral. One instance per ticket, each in a fresh git worktree, each delivers a PR. No persistent state — the worktree is the workspace.
-- **Skills**: `linear` (GraphQL wrapper), `github` (REST/GraphQL wrapper), `pull-request` (gh CLI wrapper), `assign-worker` (worker-spawn mechanics, agent-private to the manager).
-
-Required parameters depend on the selected PM provider: `linear.team_id` and
-`linear.ticket_prefix` for Linear, or `github.owner` and `github.repo` for
-GitHub. Run `agent-team template show` for the full manifest.
-
-`agent-team init --template empty` skips the bundled content and gives you just the directory scaffold + a stub `config.toml`.
-
-## Design docs
-
-- [`documentation/templates.md`](./documentation/templates.md) — full templates-as-images model: parameter declarations, layered config resolution, `upgrade` semantics, worked example.
-- [`documentation/orchestrator.md`](./documentation/orchestrator.md) — the `agent-teamd` daemon: persistent instance lifecycle, runtime-agnostic execution, daemon API.
-- [`documentation/topology.md`](./documentation/topology.md) — declarative topology (`instances.toml`): declared instances, pipelines, teams, event triggers.
-- [`documentation/operating-model.md`](./documentation/operating-model.md) — field-tested operating defaults for production-volume teams: pipeline shape, gate discipline, capacity planning.
-- [`documentation/recoverable-managers.md`](./documentation/recoverable-managers.md) — design for daemon-owned recoverable managers (restart policy, catch-up briefs, Codex managed resume).
-
-## Working on agent-team itself
-
-Contributor orientation: [`CLAUDE.md`](./CLAUDE.md).
+The CI job also validates agent frontmatter, TOML, shell scripts, generated docs,
+and the init smoke path. See [CLAUDE.md](./CLAUDE.md) for contributor
+orientation and [testing](./docs/contributing/testing.md) for the full local
+validation story.
