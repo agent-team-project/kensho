@@ -42,7 +42,6 @@ def main(argv: list[str]) -> int:
         "--real-codex-probe-output",
         help="Optional JSON artifact path for --real-codex-probe. Defaults inside the temporary demo root.",
     )
-    parser.add_argument("--exercise-lock-queue", action="store_true", help="Also run the timing-sensitive lock queue scenario.")
     parser.add_argument("--keep", action="store_true", help="Keep the temporary demo repo for inspection.")
     args = parser.parse_args(argv[1:])
 
@@ -190,12 +189,10 @@ def main(argv: list[str]) -> int:
         verify_startup_command_surface(repo, probe)
 
         step("verify lock-held queue drain")
-        if args.exercise_lock_queue and args.runtime == "claude":
+        if args.runtime == "claude":
             verify_lock_queue(binary, repo)
-        elif args.exercise_lock_queue:
-            print("lock queue: skipped for Codex one-shot runtime")
         else:
-            print("lock queue: skipped in local runtime smoke")
+            print("lock queue: skipped for Codex one-shot runtime")
 
         step("create and preview a pipeline job")
         created = run(
