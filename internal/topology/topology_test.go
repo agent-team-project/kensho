@@ -335,6 +335,8 @@ func TestParse_Pipelines(t *testing.T) {
 agent = "worker"
 ephemeral = true
 reap_worktree = "on_close"
+token_budget = "40M"
+time_budget = "45m"
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -371,6 +373,9 @@ after = ["implement"]
 gate = "pr"
 optional = true
 timeout = "30m"
+token_budget = "10M"
+time_budget = "20m"
+reminder_levels = [50, 75, 100]
 max_attempts = 2
 retry_on_crash = true
 `))
@@ -399,11 +404,11 @@ retry_on_crash = true
 	if p.InfraSignatures["disk_exhaustion"] != "No space left on device" || p.InfraSignatures["missing_binary"] != "error: test binary .* not found" {
 		t.Fatalf("pipeline infra signatures = %+v", p.InfraSignatures)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
+	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
-	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" {
-		t.Fatalf("worker ReapWorktree = %+v, want on_close", worker)
+	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
+		t.Fatalf("worker = %+v, want reap policy plus budgets", worker)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
 	if len(matched) != 1 || matched[0].Name != "ticket_to_pr" {
@@ -913,9 +918,20 @@ ephemeral = true
 [teams.delivery]
 instances = ["worker"]
 
+[budgets]
+reminder_levels = [25, 75, 100]
+
 [budgets.delivery]
 tokens_per_day = 200_000_000
 jobs_in_flight = 4
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+token_budget = "40M"
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -929,6 +945,13 @@ jobs_in_flight = 4
 	}
 	if got := top.SortedBudgets(); len(got) != 1 || got[0] != budget {
 		t.Fatalf("SortedBudgets = %+v", got)
+	}
+	if !reflect.DeepEqual(top.ReminderLevels, []int{25, 75, 100}) {
+		t.Fatalf("reminder levels = %+v", top.ReminderLevels)
+	}
+	step := top.Pipelines["ticket_to_pr"].Steps[0]
+	if !reflect.DeepEqual(step.ReminderLevels, []int{25, 75, 100}) {
+		t.Fatalf("step reminder levels = %+v", step.ReminderLevels)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jamesaud/agent-team/internal/allowance"
 	"github.com/jamesaud/agent-team/internal/mergepolicy"
 	"github.com/jamesaud/agent-team/internal/origin"
 	"github.com/jamesaud/agent-team/internal/usage"
@@ -73,6 +74,11 @@ type Job struct {
 	CreatedAt              time.Time       `toml:"created_at"`
 	UpdatedAt              time.Time       `toml:"updated_at"`
 	Usage                  *usage.JobUsage `toml:"usage,omitempty"`
+	TokenBudget            int64           `toml:"token_budget,omitempty"`
+	TimeBudget             string          `toml:"time_budget,omitempty"`
+	ReminderLevels         []int           `toml:"reminder_levels,omitempty"`
+	TokenBudgetNotices     []int           `toml:"token_budget_notices,omitempty"`
+	TimeBudgetNotices      []int           `toml:"time_budget_notices,omitempty"`
 	Steps                  []Step          `toml:"steps,omitempty"`
 }
 
@@ -96,33 +102,38 @@ type Drift struct {
 
 // Step is a pipeline step snapshot recorded on a job.
 type Step struct {
-	ID               string         `toml:"id"`
-	Label            string         `toml:"label,omitempty"`
-	Description      string         `toml:"description,omitempty"`
-	Instructions     string         `toml:"instructions,omitempty"`
-	Target           string         `toml:"target"`
-	Workspace        string         `toml:"workspace,omitempty"`
-	Runtime          string         `toml:"runtime,omitempty"`
-	RuntimeBin       string         `toml:"runtime_bin,omitempty"`
-	Status           Status         `toml:"status"`
-	Instance         string         `toml:"instance,omitempty"`
-	After            []string       `toml:"after,omitempty"`
-	Gate             string         `toml:"gate,omitempty"`
-	ApprovalRequired bool           `toml:"approval_required,omitempty"`
-	ApprovalID       string         `toml:"approval_id,omitempty"`
-	ApprovalStatus   ApprovalStatus `toml:"approval_status,omitempty"`
-	Optional         bool           `toml:"optional,omitempty"`
-	Timeout          string         `toml:"timeout,omitempty"`
-	Attempts         int            `toml:"attempts,omitempty"`
-	MaxAttempts      int            `toml:"max_attempts,omitempty"`
-	RetryOnCrash     bool           `toml:"retry_on_crash,omitempty"`
-	Skipped          bool           `toml:"skipped,omitempty"`
-	SkipReason       string         `toml:"skip_reason,omitempty"`
-	QueueReason      string         `toml:"queue_reason,omitempty"`
-	QueuedAt         time.Time      `toml:"queued_at,omitempty"`
-	RunningAt        time.Time      `toml:"running_at,omitempty"`
-	StartedAt        time.Time      `toml:"started_at,omitempty"`
-	FinishedAt       time.Time      `toml:"finished_at,omitempty"`
+	ID                 string         `toml:"id"`
+	Label              string         `toml:"label,omitempty"`
+	Description        string         `toml:"description,omitempty"`
+	Instructions       string         `toml:"instructions,omitempty"`
+	Target             string         `toml:"target"`
+	Workspace          string         `toml:"workspace,omitempty"`
+	Runtime            string         `toml:"runtime,omitempty"`
+	RuntimeBin         string         `toml:"runtime_bin,omitempty"`
+	Status             Status         `toml:"status"`
+	Instance           string         `toml:"instance,omitempty"`
+	After              []string       `toml:"after,omitempty"`
+	Gate               string         `toml:"gate,omitempty"`
+	ApprovalRequired   bool           `toml:"approval_required,omitempty"`
+	ApprovalID         string         `toml:"approval_id,omitempty"`
+	ApprovalStatus     ApprovalStatus `toml:"approval_status,omitempty"`
+	Optional           bool           `toml:"optional,omitempty"`
+	Timeout            string         `toml:"timeout,omitempty"`
+	Attempts           int            `toml:"attempts,omitempty"`
+	MaxAttempts        int            `toml:"max_attempts,omitempty"`
+	RetryOnCrash       bool           `toml:"retry_on_crash,omitempty"`
+	Skipped            bool           `toml:"skipped,omitempty"`
+	SkipReason         string         `toml:"skip_reason,omitempty"`
+	QueueReason        string         `toml:"queue_reason,omitempty"`
+	QueuedAt           time.Time      `toml:"queued_at,omitempty"`
+	RunningAt          time.Time      `toml:"running_at,omitempty"`
+	StartedAt          time.Time      `toml:"started_at,omitempty"`
+	FinishedAt         time.Time      `toml:"finished_at,omitempty"`
+	TokenBudget        int64          `toml:"token_budget,omitempty"`
+	TimeBudget         string         `toml:"time_budget,omitempty"`
+	ReminderLevels     []int          `toml:"reminder_levels,omitempty"`
+	TokenBudgetNotices []int          `toml:"token_budget_notices,omitempty"`
+	TimeBudgetNotices  []int          `toml:"time_budget_notices,omitempty"`
 }
 
 // StepDispatchKickoff combines a job-level kickoff with optional step-specific
@@ -318,6 +329,9 @@ func Validate(j *Job) error {
 	if err := usage.ValidateJobUsage(j.Usage); err != nil {
 		return err
 	}
+	if err := validateBudgetFields("job", j.TokenBudget, j.TimeBudget, j.ReminderLevels, j.TokenBudgetNotices, j.TimeBudgetNotices); err != nil {
+		return err
+	}
 	if j.CreatedAt.IsZero() {
 		return errors.New("created_at is required")
 	}
@@ -387,6 +401,40 @@ func Validate(j *Job) error {
 		}
 		if step.Skipped && step.Status != StatusDone {
 			return fmt.Errorf("steps[%d]: skipped steps must have status %q", i, StatusDone)
+		}
+		if err := validateBudgetFields(fmt.Sprintf("steps[%d]", i), step.TokenBudget, step.TimeBudget, step.ReminderLevels, step.TokenBudgetNotices, step.TimeBudgetNotices); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBudgetFields(prefix string, tokenBudget int64, timeBudget string, reminderLevels, tokenBudgetNotices, timeBudgetNotices []int) error {
+	if tokenBudget < 0 {
+		return fmt.Errorf("%s: token_budget must be >= 0", prefix)
+	}
+	if strings.TrimSpace(timeBudget) != "" {
+		duration, err := time.ParseDuration(timeBudget)
+		if err != nil {
+			return fmt.Errorf("%s: invalid time_budget %q: %w", prefix, timeBudget, err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("%s: time_budget must be greater than zero", prefix)
+		}
+	}
+	if len(reminderLevels) > 0 {
+		if _, err := allowance.NormalizeReminderLevels(reminderLevels); err != nil {
+			return fmt.Errorf("%s: %w", prefix, err)
+		}
+	}
+	if len(tokenBudgetNotices) > 0 {
+		if _, err := allowance.NormalizeReminderLevels(tokenBudgetNotices); err != nil {
+			return fmt.Errorf("%s: token_budget_notices %w", prefix, err)
+		}
+	}
+	if len(timeBudgetNotices) > 0 {
+		if _, err := allowance.NormalizeReminderLevels(timeBudgetNotices); err != nil {
+			return fmt.Errorf("%s: time_budget_notices %w", prefix, err)
 		}
 	}
 	return nil

@@ -131,6 +131,8 @@ event = "user_invocation"
 agent = "worker"
 ephemeral = true
 replicas = 3
+token_budget = "40M"
+time_budget = "45m"
 locks = ["build"]
 
 [locks.build]
@@ -139,6 +141,9 @@ scope = "machine"
 
 [channels.supervisor]
 scope = "team"
+
+[budgets]
+reminder_levels = [50, 80, 100]
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -156,6 +161,9 @@ id = "implement"
 target = "worker"
 workspace = "worktree"
 runtime = "codex"
+token_budget = "40M"
+time_budget = "45m"
+reminder_levels = [50, 80, 100]
 locks = ["build"]
 
 [[pipelines.ticket_to_pr.steps]]
@@ -199,6 +207,12 @@ is unavailable, the daemon persists the dispatch in the normal queue with
 locks, channels, and schedules; omitted scope is `machine`, preserving the
 historical flat namespace. Team-scoped schedules use the declaring team for the
 persisted clock key while publishing the same schedule event name.
+
+`token_budget` and `time_budget` are soft per-run allowances. Instance values
+are defaults; pipeline step values override them. `[budgets].reminder_levels`
+sets the default percentage crossings that create `budget_notice` job events
+and inbox messages; pipeline step values and job-level overrides take
+precedence.
 
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
 undeclared channels still work. Team-scoped channels always use the owning

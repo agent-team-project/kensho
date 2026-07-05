@@ -34,6 +34,7 @@ When launched by daemon dispatch, prefer the job context exported in your enviro
 - `AGENT_TEAM_TICKET_URL` — canonical ticket URL when the dispatcher has one.
 - `AGENT_TEAM_PIPELINE` / `AGENT_TEAM_PIPELINE_STEP` — present when this worker owns one pipeline step.
 - `AGENT_TEAM_BRANCH` / `AGENT_TEAM_WORKTREE` — present for daemon-created worktree runs.
+- `AGENT_TEAM_BUDGET_TOKENS` / `AGENT_TEAM_BUDGET_TIME` — soft allowance visibility; budget_notice inbox messages are reminders only, so check `agent-team budget status --self` and request token headroom with `agent-team job extend $AGENT_TEAM_JOB_ID --tokens <amount>` when needed.
 
 If the daemon is up and you've subscribed to a broadcast channel (e.g. `#blocked` or `#review-requests` via `subscribes:` in your frontmatter), check it the same way: `channel.sh recv "#name"` for unread, `channel.sh ack "#name" <cursor>` after handling, `channel.sh publish "#name" "<body>"` to fan out an update to every listener. Channels are for broadcasts; inbox is for direct messages.
 

@@ -341,7 +341,8 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	m.mu.Unlock()
 	out := *meta
 	m.recordEvent("dispatch", &out, "instance dispatched")
-	capture := m.startCodexSessionCapture(rt.Kind, *meta)
+	capture := m.startCodexSessionCapture(rt.Kind, out)
+	m.startBudgetNoticeWatcher(out, reaped)
 	go m.reap(in.Name, proc, reaped)
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
@@ -1542,8 +1543,10 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	m.instances[in.Name] = &tracked{meta: meta, process: proc, watchdogUpdate: watchdogUpdate, reaped: reaped}
 	m.mu.Unlock()
 
-	m.recordEvent("dispatch", meta, "instance dispatched")
-	capture := m.startCodexSessionCapture(rt.Kind, *meta)
+	out := *meta
+	m.recordEvent("dispatch", &out, "instance dispatched")
+	capture := m.startCodexSessionCapture(rt.Kind, out)
+	m.startBudgetNoticeWatcher(out, reaped)
 	go m.reap(in.Name, proc, reaped)
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
@@ -1839,6 +1842,10 @@ func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- 
 	} else if usageErr := persistMetadataUsageToJob(m.daemonRoot, &eventMeta); usageErr != nil {
 		m.recordEvent("usage_capture_failed", &eventMeta, usageErr.Error())
 	}
+	// Fast runtimes can exit before the live watcher reaches its first tick.
+	// Run one final sweep after usage capture and before `reaped` closes so
+	// terminal token crossings are still durable.
+	_ = m.checkBudgetNotices(eventMeta, now)
 	if eventAction != "" {
 		m.recordEvent(eventAction, &eventMeta, "instance process exited")
 	}

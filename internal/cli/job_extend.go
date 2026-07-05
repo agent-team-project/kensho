@@ -9,14 +9,17 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/allowance"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 
 type jobExtendResult struct {
-	Job       *job.Job            `json:"job"`
-	Extension extendCommandResult `json:"extension"`
-	StepID    string              `json:"step_id,omitempty"`
+	Job         *job.Job            `json:"job"`
+	Extension   extendCommandResult `json:"extension"`
+	StepID      string              `json:"step_id,omitempty"`
+	TokensAdded int64               `json:"tokens_added,omitempty"`
+	TokenBudget int64               `json:"token_budget,omitempty"`
 }
 
 func newJobExtendCmd() *cobra.Command {
@@ -24,6 +27,7 @@ func newJobExtendCmd() *cobra.Command {
 		repo    string
 		stepID  string
 		by      time.Duration
+		tokens  string
 		actor   string
 		quiet   bool
 		jsonOut bool
@@ -42,8 +46,25 @@ func newJobExtendCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
 				return exitErr(2)
 			}
-			if by <= 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job extend: --by must be > 0.")
+			if by < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job extend: --by must be >= 0.")
+				return exitErr(2)
+			}
+			tokenDelta := int64(0)
+			if strings.TrimSpace(tokens) != "" {
+				var err error
+				tokenDelta, err = allowance.ParseTokens(tokens)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: --tokens: %v\n", err)
+					return exitErr(2)
+				}
+				if tokenDelta <= 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job extend: --tokens must be > 0.")
+					return exitErr(2)
+				}
+			}
+			if by == 0 && tokenDelta == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job extend: pass --by and/or --tokens.")
 				return exitErr(2)
 			}
 			if quiet && jsonOut {
@@ -63,23 +84,42 @@ func newJobExtendCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
 				return exitErr(2)
 			}
-			instance := strings.TrimSpace(selection.Instance)
-			if instance == "" {
-				printMissingJobInstanceError(cmd.ErrOrStderr(), "extend", j, selection.StepID, "dispatch or adopt it first")
-				return exitErr(2)
-			}
-			res, err := extendInstanceWatchdog(teamDir, instance, by, actor)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
-				return exitErr(1)
+			var res *runtimeExtensionResponse
+			row := extendCommandResult{}
+			if by > 0 {
+				instance := strings.TrimSpace(selection.Instance)
+				if instance == "" {
+					printMissingJobInstanceError(cmd.ErrOrStderr(), "extend", j, selection.StepID, "dispatch or adopt it first")
+					return exitErr(2)
+				}
+				res, err = extendInstanceWatchdog(teamDir, instance, by, actor)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
+					return exitErr(1)
+				}
+				row = extendCommandResultFromResponse(res, time.Now().UTC())
 			}
 			now := time.Now().UTC()
-			row := extendCommandResultFromResponse(res, now)
-			applyJobExtendUpdate(j, selection, by, now)
-			if err := writeJobWithAudit(teamDir, j, "extended", actor, j.LastStatus, extendAuditData(selection, res, by)); err != nil {
+			if by > 0 {
+				applyJobExtendUpdate(j, selection, by, now)
+			}
+			newTokenBudget := int64(0)
+			if tokenDelta > 0 {
+				newTokenBudget = applyJobTokenExtendUpdate(j, selection, tokenDelta, now)
+			}
+			data := extendAuditData(selection, res, by)
+			if tokenDelta > 0 {
+				data["tokens_added"] = fmt.Sprint(tokenDelta)
+				data["token_budget"] = fmt.Sprint(newTokenBudget)
+			}
+			eventType := "extended"
+			if by == 0 && tokenDelta > 0 {
+				eventType = "budget_extended"
+			}
+			if err := writeJobWithAudit(teamDir, j, eventType, actor, j.LastStatus, data); err != nil {
 				return err
 			}
-			result := jobExtendResult{Job: j, Extension: row, StepID: strings.TrimSpace(selection.StepID)}
+			result := jobExtendResult{Job: j, Extension: row, StepID: strings.TrimSpace(selection.StepID), TokensAdded: tokenDelta, TokenBudget: newTokenBudget}
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			}
@@ -89,18 +129,18 @@ func newJobExtendCmd() *cobra.Command {
 			if quiet {
 				return nil
 			}
-			renderJobExtendResult(cmd.OutOrStdout(), j, row, selection.StepID)
+			renderJobExtendResult(cmd.OutOrStdout(), j, row, selection.StepID, tokenDelta, newTokenBudget)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&stepID, "step", "", "Use this pipeline step's owning instance.")
 	cmd.Flags().DurationVar(&by, "by", 0, "Amount to add to the running watchdog deadline, for example 30m.")
+	cmd.Flags().StringVar(&tokens, "tokens", "", "Amount to add to the job's soft token allowance, for example 10M.")
 	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in the job audit event.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the extension result with a Go template, e.g. '{{.Job.ID}} {{.Extension.NewDeadline}}'.")
-	_ = cmd.MarkFlagRequired("by")
 	return cmd
 }
 
@@ -116,6 +156,28 @@ func applyJobExtendUpdate(j *job.Job, selection jobInstanceSelection, by time.Du
 		j.LastStatus = fmt.Sprintf("extended by %s", by)
 	}
 	j.UpdatedAt = now
+}
+
+func applyJobTokenExtendUpdate(j *job.Job, selection jobInstanceSelection, tokens int64, now time.Time) int64 {
+	if j == nil || tokens <= 0 {
+		return 0
+	}
+	if stepID := strings.TrimSpace(selection.StepID); stepID != "" {
+		if idx := jobStepIndex(j, stepID); idx >= 0 {
+			j.Steps[idx].TokenBudget += tokens
+			j.Steps[idx].TokenBudgetNotices = nil
+			j.LastEvent = "budget_extended"
+			j.LastStatus = fmt.Sprintf("extended token budget for step %s by %d", stepID, tokens)
+			j.UpdatedAt = now
+			return j.Steps[idx].TokenBudget
+		}
+	}
+	j.TokenBudget += tokens
+	j.TokenBudgetNotices = nil
+	j.LastEvent = "budget_extended"
+	j.LastStatus = fmt.Sprintf("extended token budget by %d", tokens)
+	j.UpdatedAt = now
+	return j.TokenBudget
 }
 
 func writeExtendAuditForMetadata(teamDir string, res *runtimeExtensionResponse, by time.Duration, actor string, now time.Time) error {
@@ -152,8 +214,11 @@ func jobInstanceSelectionForMetadata(j *job.Job, instance string) jobInstanceSel
 	return selection
 }
 
-func renderJobExtendResult(w fmtWriter, j *job.Job, row extendCommandResult, stepID string) {
-	fmt.Fprintf(w, "Job: %s extended %s by %s", j.ID, row.Instance, row.By)
+func renderJobExtendResult(w fmtWriter, j *job.Job, row extendCommandResult, stepID string, tokensAdded, tokenBudget int64) {
+	fmt.Fprintf(w, "Job: %s", j.ID)
+	if row.By != "" {
+		fmt.Fprintf(w, " extended %s by %s", row.Instance, row.By)
+	}
 	if stepID = strings.TrimSpace(stepID); stepID != "" {
 		fmt.Fprintf(w, " step=%s", stepID)
 	}
@@ -162,6 +227,9 @@ func renderJobExtendResult(w fmtWriter, j *job.Job, row extendCommandResult, ste
 	}
 	if row.RuntimeRemaining != "" {
 		fmt.Fprintf(w, " remaining=%s", row.RuntimeRemaining)
+	}
+	if tokensAdded > 0 {
+		fmt.Fprintf(w, " tokens_added=%d token_budget=%d", tokensAdded, tokenBudget)
 	}
 	fmt.Fprintln(w)
 }
