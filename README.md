@@ -6,8 +6,10 @@ agent-team deployment that builds `agent-team` itself.
 The project runs its own manager, workers, reviewers, auditors, docs writers,
 and comms agents against this repository. Agents pick up tickets, open PRs,
 review each other, record gate results, file feedback, sweep for debt, and
-propose prompt and harness improvements. Humans sit at exactly two gates:
-setting direction and approving merges.
+propose prompt and harness improvements. Humans set direction; everything
+else — implementation, adversarial review, and the merge decision itself — is
+agents, with distinct agents at each gate so no change is written, reviewed,
+and merged by the same mind.
 
 The software underneath that experiment is a Go CLI plus a per-repo daemon for
 declaring, running, observing, and recovering teams of LLM agents.

@@ -29,3 +29,4 @@ bin/
 .agent_team/state/
 .agent_team/jobs/
 .agent_team/feedback/
+.agent_team/budget/
