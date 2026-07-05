@@ -21,6 +21,7 @@ export default defineConfig({
       provider: 'local'
     },
     nav: [
+      { text: 'Getting Started', link: '/getting-started' },
       { text: 'Guide', link: '/guide/' },
       { text: 'Runtime', link: '/runtime/daemon' },
       { text: 'Workflows', link: '/workflows/jobs' },
@@ -32,6 +33,7 @@ export default defineConfig({
       {
         text: 'Guide',
         items: [
+          { text: 'Getting Started', link: '/getting-started' },
           { text: 'Overview', link: '/guide/' },
           { text: 'Self-Improving Experiment', link: '/experiment' },
           { text: 'Quickstart', link: '/guide/quickstart' },

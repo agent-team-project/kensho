@@ -8,7 +8,7 @@ hero:
   actions:
     - theme: brand
       text: Start Reading
-      link: /guide/
+      link: /getting-started
     - theme: alt
       text: Use Cases
       link: /use-cases/
@@ -41,5 +41,8 @@ It covers:
 - diagnostics, repair loops, snapshots, and operator workflows
 - local development, tests, smoke checks, and contribution expectations
 - practical use cases that show how the pieces fit together
+
+Start with [Getting Started](./getting-started.md) if you are installing
+`agent-team` into a repo for the first time.
 
 `agent-team` is pre-v1. Treat command shapes and file schemas as active product surface, but still subject to change.

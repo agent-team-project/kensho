@@ -48,7 +48,8 @@ global agent registry required for normal operation.
 
 This starts from a fresh source checkout and a scratch consumer repo. You need
 Go 1.22+ and a supported LLM runtime (`claude` or `codex`) on `PATH` before
-dispatching real agent work.
+dispatching real agent work. See [Getting Started](./docs/getting-started.md)
+for the full install and runtime-auth walkthrough.
 
 ```sh
 git clone https://github.com/agent-team-project/agent-team.git
@@ -61,18 +62,33 @@ export PATH="$PWD/bin:$PATH"
 mkdir -p /tmp/agent-team-demo
 cd /tmp/agent-team-demo
 git init
+git config user.name "Agent Team Demo"
+git config user.email agent-team-demo@example.com
 
-agent-team init
+agent-team init --set pm.provider=none --set team.pm_tool=none --no-input
+git add .agent_team
+git commit -m "Add agent team"
 agent-team doctor --commands
-agent-team daemon start
-agent-team job create "fix the flaky login test" --dispatch --workspace worktree
-agent-team job show <job-id> --events all
-agent-team logs --job <job-id> --follow
+agent-team daemon start --json
+agent-team job create "Probe this repo layout and report the available agents" \
+  --id gs-probe \
+  --profile probe \
+  --target worker \
+  --dispatch \
+  --workspace worktree \
+  --runtime codex \
+  --wait \
+  --wait-status running \
+  --wait-timeout 30s \
+  --json
+agent-team job show gs-probe --events all
+agent-team logs --job gs-probe --tail 80 --clean
 ```
 
-`agent-team init` defaults to `[pm].provider = "none"`, so the quoted job text
-is the work item. To use a board as the dispatch control plane, initialize with
-Linear or GitHub provider settings instead:
+The initial commit matters because worker dispatch creates Git worktrees. In
+ticketless mode, the quoted job text is the work item. To use a board as the
+dispatch control plane, initialize with Linear or GitHub provider settings
+instead:
 
 ```sh
 agent-team init \
@@ -179,6 +195,7 @@ agent-team daemon status
 
 Start with the guide pages:
 
+- [Getting Started](./docs/getting-started.md)
 - [Quickstart](./docs/guide/quickstart.md)
 - [Concepts](./docs/guide/concepts.md)
 - [Architecture](./docs/guide/architecture.md)
