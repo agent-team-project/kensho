@@ -18,11 +18,15 @@ agent-team inbox ack manager --all
 agent-team channel publish standup "worker squ-42 is blocked on review"
 ```
 
-`send` targets daemon-known instances by name or by selectors such as
-`--agent`, `--runtime`, `--status`, `--phase`, `--latest`, `--last`,
-`--stale`, `--runtime-stale`, and `--unhealthy`. `job send`, `pipeline send`,
-and `team send` keep the recipient set tied to durable work ownership, which is
-usually safer than naming instances by hand.
+`send` targets daemon-known instances or names declared in `instances.toml`.
+When a declared instance is not running, the message is queued in its durable
+mailbox for the next spawn or resume. Unknown undeclared names fail with
+near-match suggestions so typos do not create stray mailboxes. Selectors such
+as `--agent`, `--runtime`, `--status`, `--phase`, `--latest`, `--last`,
+`--stale`, `--runtime-stale`, and `--unhealthy` operate on daemon-known
+instances. `job send`, `pipeline send`, and `team send` keep the recipient set
+tied to durable work ownership, which is usually safer than naming instances by
+hand.
 
 Messages live under the daemon state, so `inbox`, `overview`, `next`,
 `monitor`, `snapshot`, `job snapshot`, `pipeline snapshot`, and team-scoped

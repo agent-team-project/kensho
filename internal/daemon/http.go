@@ -431,17 +431,30 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "`body` is required")
 			return
 		}
+		target, err := resolveHTTPMailboxTarget(m, events, teamDir, body.To)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !target.Valid() {
+			writeError(w, http.StatusBadRequest, MailboxUnknownTargetMessage(body.To, target.Suggestions))
+			return
+		}
 		auditor.audit(r, "inbox.send", "inbox:"+body.To, origin.Envelope{Instance: body.From})
 		msg := &Message{From: body.From, To: body.To, Body: body.Body, TS: time.Now().UTC()}
 		if err := AppendMessage(m.daemonRoot, body.To, msg); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"delivered": true,
 			"id":        msg.ID,
 			"ts":        msg.TS,
-		})
+		}
+		if target.Note != "" {
+			resp["note"] = target.Note
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
 
 	// `/v1/logs/{instance}` — chunked text stream of the instance's child.log.
@@ -1496,6 +1509,20 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 	default:
 		writeError(w, http.StatusNotFound, "unknown channel verb: "+verb)
 	}
+}
+
+func resolveHTTPMailboxTarget(m *InstanceManager, events *EventResolver, teamDir, target string) (MailboxTargetResolution, error) {
+	var topo *topology.Topology
+	if events != nil {
+		topo = events.Topology()
+	} else if strings.TrimSpace(teamDir) != "" {
+		loaded, err := topology.LoadFromTeamDir(teamDir)
+		if err != nil {
+			return MailboxTargetResolution{}, fmt.Errorf("load topology: %w", err)
+		}
+		topo = loaded
+	}
+	return ResolveMailboxTarget(m.List(), topo, target), nil
 }
 
 func scopedChannelNameForRequest(events *EventResolver, requested string, actor origin.Envelope) (string, error) {

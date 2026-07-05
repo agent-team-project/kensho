@@ -648,8 +648,14 @@ func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
 
 func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances."worker-1"]
+agent = "worker"
+`)
 	m := NewInstanceManager(root, nil)
-	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
 	defer srv.Close()
 
 	resp := mustPost(t, srv.URL+"/v1/message", `{"to":"worker-1","from":"manager","body":"hello"}`)
@@ -659,6 +665,7 @@ func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 	var rb struct {
 		Delivered bool   `json:"delivered"`
 		ID        string `json:"id"`
+		Note      string `json:"note"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rb); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -668,6 +675,9 @@ func TestHTTP_Message_AppendsToMailbox(t *testing.T) {
 	}
 	if rb.ID == "" {
 		t.Errorf("missing id")
+	}
+	if rb.Note != MailboxDeclaredQueuedNote {
+		t.Fatalf("note = %q, want declared queue note", rb.Note)
 	}
 
 	got, err := ReadMessages(root, "worker-1")
@@ -722,8 +732,17 @@ func TestHTTP_DirectDispatchOTelDisabledStripsInheritedEnv(t *testing.T) {
 }
 
 func TestHTTP_Message_Validation(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.x]
+agent = "worker"
+
+[instances.manager]
+agent = "manager"
+`)
 	m := NewInstanceManager(t.TempDir(), nil)
-	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
 	defer srv.Close()
 
 	cases := []struct {
@@ -750,6 +769,16 @@ func TestHTTP_Message_Validation(t *testing.T) {
 			t.Errorf("status: got %d want 200, body=%s", resp.StatusCode, readBody(t, resp))
 		}
 	})
+
+	t.Run("unknown undeclared target rejected with suggestion", func(t *testing.T) {
+		resp := mustPost(t, srv.URL+"/v1/message", `{"to":"manger","body":"y"}`)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status: got %d want 400, body=%s", resp.StatusCode, readBody(t, resp))
+		}
+		if body := readBody(t, resp); !strings.Contains(body, `did you mean \"manager\"?`) {
+			t.Fatalf("body = %s, want manager suggestion", body)
+		}
+	})
 }
 
 func TestHTTP_Message_MethodGuard(t *testing.T) {
@@ -774,6 +803,9 @@ func TestHTTP_AuthorityViolationAuditOnly(t *testing.T) {
 		t.Fatalf("write job: %v", err)
 	}
 	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
 [authority.agents.manager]
 allow = ["inbox.send"]
 `)

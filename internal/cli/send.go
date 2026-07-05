@@ -14,6 +14,7 @@ import (
 
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -47,8 +48,8 @@ func newSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send [<instance>] <message...>",
 		Short: "Send a mailbox message to a daemon-managed instance.",
-		Long: "Send a direct message through the daemon mailbox. By default the target must already be " +
-			"known to the daemon, which catches typos. Use --allow-missing to intentionally queue a message for a future instance. " +
+		Long: "Send a direct message through the daemon mailbox. The target must be daemon-known or declared in instances.toml; " +
+			"declared instances that are not currently running are queued for their next spawn or resume. Unknown undeclared targets fail with typo suggestions. " +
 			"Use --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy to send the same message to a selected set of daemon-known instances.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -74,10 +75,6 @@ func newSendCmd() *cobra.Command {
 			}
 			if force && !interrupt {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --force requires --interrupt.")
-				return exitErr(2)
-			}
-			if interrupt && allowMissing {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --interrupt cannot be combined with --allow-missing.")
 				return exitErr(2)
 			}
 			if latest && last > 0 {
@@ -138,6 +135,14 @@ func newSendCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			topo, err := topology.LoadFromTeamDir(teamDir)
+			if err != nil {
+				return fmt.Errorf("load topology: %w", err)
+			}
+			opts.Topology = topo
+			if allowMissing {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --allow-missing is deprecated and no longer changes recipient validation; declared instances queue automatically.")
+			}
 			client, err := sendClientForTeamDir(teamDir)
 			if err != nil {
 				return err
@@ -157,10 +162,6 @@ func newSendCmd() *cobra.Command {
 			if commands {
 				scope := operatorCommandScopeFromCommand(cmd, target, "target")
 				if opts.selectingSet() {
-					if allowMissing {
-						fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --allow-missing cannot be combined with --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy.")
-						return exitErr(2)
-					}
 					targets, err := selectSendTargets(client, opts)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team send: %v\n", err)
@@ -196,19 +197,15 @@ func newSendCmd() *cobra.Command {
 						Force:          force,
 					})
 				}
-				known := true
-				if !allowMissing {
-					var err error
-					known, err = sendTargetKnown(client, to)
-					if err != nil {
-						return err
-					}
-					if !known {
-						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team send: instance %q is not known to the daemon; use --allow-missing to queue anyway.\n", to)
-						return exitErr(2)
-					}
+				target, err := resolveSendTarget(client, to, opts.Topology)
+				if err != nil {
+					return err
 				}
-				return renderScopedSendApplyCommand(cmd.OutOrStdout(), known || allowMissing, scopedSendApplyCommandOptions{
+				if !target.Valid() {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team send: %s\n", daemon.MailboxUnknownTargetMessage(to, target.Suggestions))
+					return exitErr(2)
+				}
+				return renderScopedSendApplyCommand(cmd.OutOrStdout(), true, scopedSendApplyCommandOptions{
 					BaseArgs:       []string{"agent-team", "send", to},
 					RepoFlag:       "repo",
 					Repo:           scope.Repo,
@@ -245,7 +242,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to daemon-known instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Send to daemon-known running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to daemon-known instances that are crashed, status-stale, or runtime-stale.")
-	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Allow queueing a message for an instance the daemon does not know yet.")
+	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Deprecated no-op; declared instances queue automatically.")
 	cmd.Flags().BoolVar(&interrupt, "interrupt", false, "Deliver the message, gracefully stop the instance, and managed-resume the same captured session.")
 	cmd.Flags().BoolVar(&force, "force", false, "With --interrupt, allow fresh fallback when no captured session can be resumed.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
@@ -338,6 +335,8 @@ type sendOptions struct {
 	DryRun          bool
 	JSON            bool
 	Format          *template.Template
+	Topology        *topology.Topology
+	SkipValidation  bool
 }
 
 func (o sendOptions) selectingSet() bool {
@@ -397,6 +396,7 @@ type sendJSON struct {
 	From        string    `json:"from"`
 	ID          string    `json:"id"`
 	TS          time.Time `json:"ts"`
+	Note        string    `json:"note,omitempty"`
 }
 
 func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body string, opts sendOptions) error {
@@ -414,19 +414,23 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 		fmt.Fprintln(stderr, "agent-team send: message body is required.")
 		return exitErr(2)
 	}
-	if !opts.AllowMissing {
-		known, err := sendTargetKnown(client, to)
+	var target daemon.MailboxTargetResolution
+	var err error
+	if !opts.SkipValidation {
+		resolved, err := resolveSendTarget(client, to, opts.Topology)
 		if err != nil {
 			return err
 		}
-		if !known {
-			fmt.Fprintf(stderr, "agent-team send: instance %q is not known to the daemon; use --allow-missing to queue anyway.\n", to)
+		if !resolved.Valid() {
+			fmt.Fprintf(stderr, "agent-team send: %s\n", daemon.MailboxUnknownTargetMessage(to, resolved.Suggestions))
 			return exitErr(2)
 		}
+		target = resolved
 	}
 	if opts.DryRun {
 		row := sendDryRunRow(to, from)
 		row.Interrupted = opts.Interrupt
+		row.Note = target.Note
 		if opts.JSON {
 			return json.NewEncoder(stdout).Encode(row)
 		}
@@ -434,16 +438,13 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 			return renderSendFormat(stdout, []sendJSON{row}, opts.Format)
 		}
 		if opts.Interrupt {
-			fmt.Fprintf(stdout, "  would-interrupt   %-20s\n", to)
+			fmt.Fprintf(stdout, "  would-interrupt   %-20s%s\n", to, sendNoteSuffix(target.Note))
 		} else {
-			fmt.Fprintf(stdout, "  would-send   %-20s\n", to)
+			fmt.Fprintf(stdout, "  would-send   %-20s%s\n", to, sendNoteSuffix(target.Note))
 		}
 		return nil
 	}
-	var (
-		res *messageResponse
-		err error
-	)
+	var res *messageResponse
 	if opts.Interrupt {
 		res, err = client.InterruptMessage(to, from, body, opts.Force)
 	} else {
@@ -460,6 +461,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 			From:        from,
 			ID:          res.ID,
 			TS:          res.TS,
+			Note:        firstNonEmpty(res.Note, target.Note),
 		})
 	}
 	row := sendJSON{
@@ -469,14 +471,15 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 		From:        from,
 		ID:          res.ID,
 		TS:          res.TS,
+		Note:        firstNonEmpty(res.Note, target.Note),
 	}
 	if opts.Format != nil {
 		return renderSendFormat(stdout, []sendJSON{row}, opts.Format)
 	}
 	if row.Interrupted {
-		fmt.Fprintf(stdout, "  interrupted   %-20s id=%s\n", to, res.ID)
+		fmt.Fprintf(stdout, "  interrupted   %-20s id=%s%s\n", to, res.ID, sendNoteSuffix(row.Note))
 	} else {
-		fmt.Fprintf(stdout, "  sent   %-20s id=%s\n", to, res.ID)
+		fmt.Fprintf(stdout, "  sent   %-20s id=%s%s\n", to, res.ID, sendNoteSuffix(row.Note))
 	}
 	return nil
 }
@@ -497,10 +500,6 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 	}
 	if opts.Latest && opts.Limit > 0 {
 		fmt.Fprintln(stderr, "agent-team send: choose one of --latest or --last.")
-		return exitErr(2)
-	}
-	if opts.AllowMissing {
-		fmt.Fprintln(stderr, "agent-team send: --allow-missing cannot be combined with --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy.")
 		return exitErr(2)
 	}
 	targets, err := selectSendTargets(client, opts)
@@ -855,15 +854,18 @@ func sendPhaseForInstance(phaseByInstance map[string]string, instance string) st
 	return psPhaseKey(instanceRow{Phase: phaseByInstance[instance]})
 }
 
-func sendTargetKnown(client sendClient, to string) (bool, error) {
+func resolveSendTarget(client sendClient, to string, topo *topology.Topology) (daemon.MailboxTargetResolution, error) {
 	metas, err := client.Instances()
 	if err != nil {
-		return false, err
+		return daemon.MailboxTargetResolution{}, err
 	}
-	for _, meta := range metas {
-		if meta.Instance == to {
-			return true, nil
-		}
+	return daemon.ResolveMailboxTarget(metas, topo, to), nil
+}
+
+func sendNoteSuffix(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
 	}
-	return false, nil
+	return " (" + note + ")"
 }

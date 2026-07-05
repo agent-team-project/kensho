@@ -7879,7 +7879,7 @@ Flags:
 
 Send a mailbox message to a daemon-managed instance.
 
-Send a direct message through the daemon mailbox. By default the target must already be known to the daemon, which catches typos. Use --allow-missing to intentionally queue a message for a future instance. Use --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy to send the same message to a selected set of daemon-known instances.
+Send a direct message through the daemon mailbox. The target must be daemon-known or declared in instances.toml; declared instances that are not currently running are queued for their next spawn or resume. Unknown undeclared targets fail with typo suggestions. Use --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy to send the same message to a selected set of daemon-known instances.
 
 ```text
 agent-team send [<instance>] <message...> [flags]
@@ -7890,7 +7890,7 @@ Flags:
 ```text
       --agent strings         Send to daemon-known instances for this agent. Can repeat or comma-separate.
   -a, --all                   Send to every daemon-known instance.
-      --allow-missing         Allow queueing a message for an instance the daemon does not know yet.
+      --allow-missing         Deprecated no-op; declared instances queue automatically.
       --commands              With --dry-run, print the matching send apply command when the preview has actionable recipients. agent-team follow-ups preserve the selected repo scope.
       --dry-run               Preview matching recipients without appending mailbox messages.
       --force                 With --interrupt, allow fresh fallback when no captured session can be resumed.

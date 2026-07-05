@@ -150,6 +150,7 @@ type messageResponse struct {
 	Interrupted bool      `json:"interrupted,omitempty"`
 	ID          string    `json:"id"`
 	TS          time.Time `json:"ts"`
+	Note        string    `json:"note,omitempty"`
 }
 
 type daemonReconcileResponse struct {
