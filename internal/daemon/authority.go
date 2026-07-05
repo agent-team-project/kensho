@@ -66,6 +66,10 @@ func AuditAuthority(opts AuthorityAuditOptions) {
 		"resource": resource,
 		"agent":    actor.Agent,
 		"team":     actor.Team,
+		// The actor's ORIGIN job verbatim — the jobstore event's Origin.Job is
+		// backfilled from the target job for completeness, but an absent actor
+		// job is signal (it is why :own failed) and must stay observable.
+		"actor_job": actor.Job,
 	}
 	jobID := targetJob
 	if jobID == "" {

@@ -7712,9 +7712,11 @@ func cliAuthorityActor(teamDir string, j *job.Job) origin.Envelope {
 		fromEnv, _ = origin.ParseHeaderValue(raw)
 	}
 	projectID, _ := origin.ProjectID(teamDir)
+	// The actor's job comes from its origin identity ONLY — never defaulted
+	// from the target job, or a caller with no recorded job would silently
+	// pass every :own check (SQU-92 round 4).
 	actor := origin.Merge(fromEnv, origin.Envelope{
 		Project: projectID,
-		Job:     j.ID,
 		Build:   build.Display(),
 	})
 	if strings.TrimSpace(actor.Instance) != "" {

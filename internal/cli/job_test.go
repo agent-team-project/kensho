@@ -14542,15 +14542,19 @@ func TestJobStepSkipMarksDoneAndUnblocksDependents(t *testing.T) {
 
 func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 	cases := []struct {
-		name          string
-		actor         string
-		originJobID   string
-		wantViolation bool
+		name             string
+		actor            string
+		originJobID      string
+		missingOriginJob bool
+		wantViolation    bool
 	}{
 		{name: "worker-own-job", actor: "worker"},
 		{name: "reviewer-own-job", actor: "reviewer"},
 		{name: "worker-cross-job", actor: "worker", originJobID: "SQU-actor", wantViolation: true},
 		{name: "reviewer-cross-job", actor: "reviewer", originJobID: "SQU-actor", wantViolation: true},
+		// SQU-92 round 4: an agent identity with NO recorded origin job must
+		// audit — absent identity never satisfies :own.
+		{name: "worker-missing-origin-job", actor: "worker", missingOriginJob: true, wantViolation: true},
 		{name: "manager-any-job", actor: "manager", originJobID: "SQU-actor"},
 	}
 	for _, tc := range cases {
@@ -14564,7 +14568,7 @@ func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 				t.Fatalf("write job: %v", err)
 			}
 			originJobID := tc.originJobID
-			if originJobID == "" {
+			if originJobID == "" && !tc.missingOriginJob {
 				originJobID = j.ID
 			}
 			setJobAuthorityOriginEnv(t, tc.actor, originJobID)
@@ -14595,7 +14599,7 @@ func TestJobGateSetAuthorityAuditAllowlist(t *testing.T) {
 			}
 			if tc.wantViolation {
 				ev := jobViolations[0]
-				if ev.JobID != j.ID || ev.Data["verb"] != "job.gate.set" || ev.Data["resource"] != "job:"+j.ID+":gate:review" || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Origin.Job != originJobID {
+				if ev.JobID != j.ID || ev.Data["verb"] != "job.gate.set" || ev.Data["resource"] != "job:"+j.ID+":gate:review" || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Data["actor_job"] != originJobID {
 					t.Fatalf("job authority event = %+v", ev)
 				}
 				if daemonViolations[0].Origin.Agent != tc.actor || daemonViolations[0].Origin.Team != "platform" {
@@ -14680,15 +14684,19 @@ func TestJobMergeSquashUsesRecordedPR(t *testing.T) {
 
 func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 	cases := []struct {
-		name          string
-		actor         string
-		originJobID   string
-		wantViolation bool
+		name             string
+		actor            string
+		originJobID      string
+		missingOriginJob bool
+		wantViolation    bool
 	}{
 		{name: "worker-own-job", actor: "worker"},
 		{name: "reviewer-own-job", actor: "reviewer"},
 		{name: "worker-cross-job", actor: "worker", originJobID: "SQU-actor", wantViolation: true},
 		{name: "reviewer-cross-job", actor: "reviewer", originJobID: "SQU-actor", wantViolation: true},
+		// SQU-92 round 4: an agent identity with NO recorded origin job must
+		// audit — absent identity never satisfies :own.
+		{name: "worker-missing-origin-job", actor: "worker", missingOriginJob: true, wantViolation: true},
 		{name: "manager-any-job", actor: "manager", originJobID: "SQU-actor"},
 	}
 	for _, tc := range cases {
@@ -14706,7 +14714,7 @@ func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 				t.Fatalf("write job: %v", err)
 			}
 			originJobID := tc.originJobID
-			if originJobID == "" {
+			if originJobID == "" && !tc.missingOriginJob {
 				originJobID = j.ID
 			}
 			setJobAuthorityOriginEnv(t, tc.actor, originJobID)
@@ -14737,7 +14745,7 @@ func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 			}
 			if tc.wantViolation {
 				ev := jobViolations[0]
-				if ev.JobID != j.ID || ev.Data["verb"] != "job.merge" || ev.Data["resource"] != "job:"+j.ID || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Origin.Job != originJobID {
+				if ev.JobID != j.ID || ev.Data["verb"] != "job.merge" || ev.Data["resource"] != "job:"+j.ID || ev.Origin.Agent != tc.actor || ev.Origin.Team != "platform" || ev.Data["actor_job"] != originJobID {
 					t.Fatalf("job authority event = %+v", ev)
 				}
 				if daemonViolations[0].Origin.Agent != tc.actor || daemonViolations[0].Origin.Team != "platform" {
