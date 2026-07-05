@@ -48,6 +48,12 @@ Phase 1's team budgets are a governor: admission control, invisible to the gover
 
 Soft and hard are different verbs: soft 100% notifies, flags triage, and lets work finish; hard cutoff (explicit `hard = true` or a multiplier) is the token analog of the time watchdog — kill, crash-finalize, freed slot, attention write-back. Time budgets unify under the same vocabulary and levels.
 
+SQU-106 implements the allocation half of this model for flat topology teams:
+`[budgets.<team>].allocation` defaults to `oversubscribe`, while `reserve`
+atomically records outstanding child allowance grants and gates on consumed +
+allocated + requested headroom. `agent-team budget status` now shows both
+consumed tokens and outstanding allocated promises.
+
 ### Layer 2 — live usage watchdogs
 
 The Codex JSONL stream emits `turn.completed` usage *during* the run; Claude's OTel telemetry can report live token counts. A usage watchdog is the token analog of the time watchdog: kill (crash-finalize, slot freed, attention write-back) at N tokens. Catches the chatty-wedge failure mode time budgets miss. Same extend verb (`job extend --tokens 10M`) for operator judgment.

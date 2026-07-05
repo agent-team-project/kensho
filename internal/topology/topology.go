@@ -44,6 +44,13 @@ const (
 	ScopeJob     = "job"
 )
 
+// Budget allocation modes control whether child allowances debit parent
+// headroom at grant time or are only visible as outstanding promises.
+const (
+	BudgetAllocationOversubscribe = "oversubscribe"
+	BudgetAllocationReserve       = "reserve"
+)
+
 // Event types recognised by the daemon's resolver. Webhook aliases
 // (`ticket_webhook`, `pr_webhook`) remain supported for older topology files;
 // normalized intake events (`ticket.created`, `pr.merged`, etc.) match those
@@ -233,6 +240,7 @@ type Budget struct {
 	Team         string
 	TokensPerDay int64
 	JobsInFlight int
+	Allocation   string
 }
 
 // Authority is the audit/enforcement policy declared in topology. Phase 1 uses
@@ -726,6 +734,7 @@ type rawTeam struct {
 type rawBudget struct {
 	TokensPerDay *int64 `toml:"tokens_per_day"`
 	JobsInFlight *int   `toml:"jobs_in_flight"`
+	Allocation   string `toml:"allocation"`
 }
 
 type rawAuthority struct {
@@ -1252,6 +1261,13 @@ func rawBudgetFromValue(name string, value any) (*rawBudget, error) {
 		}
 		rb.JobsInFlight = &jobs
 	}
+	if rawAllocation, ok := values["allocation"]; ok {
+		allocation, ok := rawAllocation.(string)
+		if !ok {
+			return nil, fmt.Errorf("budget %q: allocation must be a string", name)
+		}
+		rb.Allocation = allocation
+	}
 	return &rb, nil
 }
 
@@ -1299,7 +1315,26 @@ func finaliseBudget(name string, rb *rawBudget) (*Budget, error) {
 		}
 		jobsInFlight = *rb.JobsInFlight
 	}
-	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight}, nil
+	allocation, err := NormalizeBudgetAllocation(rb.Allocation)
+	if err != nil {
+		return nil, fmt.Errorf("budget %q: %w", name, err)
+	}
+	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight, Allocation: allocation}, nil
+}
+
+// NormalizeBudgetAllocation validates a budget allocation mode. Empty means
+// oversubscribe so existing topology files keep their phase-1 behavior.
+func NormalizeBudgetAllocation(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return BudgetAllocationOversubscribe, nil
+	}
+	switch value {
+	case BudgetAllocationOversubscribe, BudgetAllocationReserve:
+		return value, nil
+	default:
+		return "", fmt.Errorf("allocation must be reserve or oversubscribe")
+	}
 }
 
 func applyPipelineReminderDefaults(p *Pipeline, levels []int) {

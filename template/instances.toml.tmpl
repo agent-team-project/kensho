@@ -296,6 +296,7 @@ pipelines   = ["ticket_to_pr"]
 # [budgets.delivery]
 # tokens_per_day = 200_000_000
 # jobs_in_flight = 4
+# allocation = "oversubscribe" # default; "reserve" debits outstanding grants
 schedules   = ["feedback-triage"]
 
 # Optional resource scoping. Omitted scope defaults to "machine", preserving

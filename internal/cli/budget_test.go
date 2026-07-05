@@ -13,6 +13,7 @@ import (
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/jamesaud/agent-team/internal/usage"
 )
 
@@ -95,6 +96,43 @@ func TestBudgetStatusNoBudgetsIsNoop(t *testing.T) {
 	}
 	if got := strings.TrimSpace(jsonOut.String()); got != "[]" {
 		t.Fatalf("json output = %q", got)
+	}
+}
+
+func TestBudgetStatusCommandRendersAllocatedColumn(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	appendBudgetFixture(t, teamDir, `
+[budgets.delivery]
+tokens_per_day = 100
+allocation = "oversubscribe"
+`)
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("LoadFromTeamDir: %v", err)
+	}
+	if _, err := budgetcalc.GrantTokens(teamDir, top, budgetcalc.GrantRequest{
+		Team:     "delivery",
+		JobID:    "squ-104",
+		Instance: "worker-squ-104",
+		Tokens:   125,
+		Now:      time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("GrantTokens: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"budget", "status", "--target", tmp, "--team", "delivery"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("budget status: %v\nstderr=%s", err, stderr.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, "ALLOCATED") || !strings.Contains(text, "125") {
+		t.Fatalf("text output = %q, want allocated column with 125", text)
 	}
 }
 

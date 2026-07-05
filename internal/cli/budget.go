@@ -119,11 +119,12 @@ func renderBudgetStatus(w io.Writer, rows []budget.TeamStatus) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TEAM\tTOKENS\tTOKEN_CAP\tTOKEN_RESET\tJOBS\tJOB_CAP")
+	fmt.Fprintln(tw, "TEAM\tTOKENS\tALLOCATED\tTOKEN_CAP\tTOKEN_RESET\tJOBS\tJOB_CAP")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%s\n",
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%s\t%s\t%d\t%s\n",
 			row.Team,
 			row.TokensUsed,
+			row.TokensAllocated,
 			formatBudgetCap(row.TokensPerDay),
 			formatBudgetTime(row.TokenAvailableAt),
 			row.JobsInFlight,

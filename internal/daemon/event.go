@@ -823,28 +823,39 @@ func payloadBudgetHardMultiplier(payload map[string]any) float64 {
 	return 0
 }
 
-func (r *EventResolver) clampPayloadBudgetToTeamHeadroom(payload map[string]any, eventOrigin origin.Envelope) map[string]any {
+func (r *EventResolver) grantPayloadBudgetLocked(payload map[string]any, eventOrigin origin.Envelope, now time.Time) (budget.GrantResult, error) {
+	result := budget.GrantResult{Allowed: true, Noop: true, Team: strings.TrimSpace(eventOrigin.Team), GrantedTokens: payloadBudgetTokens(payload)}
 	if payload == nil || strings.TrimSpace(eventOrigin.Team) == "" {
-		return payload
+		return result, nil
 	}
 	requested := payloadBudgetTokens(payload)
 	if requested <= 0 {
-		return payload
+		return result, nil
 	}
-	r.mu.Lock()
-	top := r.topo
-	r.mu.Unlock()
-	admission, err := budget.AdmissionForTeam(r.teamDir, top, eventOrigin.Team, eventJobID(payload), time.Now().UTC())
-	if err != nil || admission.Noop || admission.Status.TokensPerDay <= 0 {
-		return payload
+	grant, err := budget.GrantTokens(r.teamDir, r.topo, budget.GrantRequest{
+		Team:               eventOrigin.Team,
+		JobID:              eventJobID(payload),
+		StepID:             payloadString(payload, "pipeline_step"),
+		Instance:           eventOrigin.Instance,
+		Tokens:             requested,
+		ClampOversubscribe: true,
+		GateOversubscribe:  true,
+		Now:                now,
+		Origin:             eventOrigin,
+	})
+	if err != nil {
+		return grant, err
 	}
-	remaining := admission.Status.TokensRemaining
-	if remaining <= 0 || requested <= remaining {
-		return payload
+	if !grant.Allowed {
+		return grant, nil
 	}
-	payload["budget_tokens"] = remaining
-	r.recordBudgetClampEvent(payload, eventOrigin, requested, remaining)
-	return payload
+	if grant.GrantedTokens > 0 && grant.GrantedTokens != requested {
+		payload["budget_tokens"] = grant.GrantedTokens
+	}
+	if grant.Clamped {
+		r.recordBudgetClampEvent(payload, eventOrigin, requested, grant.GrantedTokens)
+	}
+	return grant, nil
 }
 
 func (r *EventResolver) recordBudgetClampEvent(payload map[string]any, eventOrigin origin.Envelope, requested, clamped int64) {
@@ -1027,7 +1038,12 @@ func (r *EventResolver) actuatePersistent(inst *topology.Instance, eventType str
 }
 
 func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {
-	payload = payloadWithInstanceReapPolicy(inst, payload)
+	payload = copyPayload(payloadWithInstanceReapPolicy(inst, payload))
+	applyInstanceBudgetDefaultsToPayload(inst, payload)
+	r.mu.Lock()
+	top := r.topo
+	r.mu.Unlock()
+	applyTopologyReminderDefaultsToPayload(top, payload)
 	childName, requested, err := childNameForEvent(inst.Name, payload)
 	if err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
@@ -1151,6 +1167,40 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonLockHeld, QueueReasonLockHeld, "", "")
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonLockHeld}
 	}
+	grant, err := r.grantPayloadBudgetLocked(payload, eventOrigin, now)
+	if err != nil {
+		r.releaseLocksForInstanceLocked(childName)
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "budget_error", err.Error(), "", "")
+		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+	}
+	if !grant.Allowed {
+		r.releaseLocksForInstanceLocked(childName)
+		if len(tr.queue) >= r.queueCap {
+			r.mu.Unlock()
+			reason := fmt.Sprintf("budget exhausted and queue is full (%d)", r.queueCap)
+			r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "queue_full", reason, "", "")
+			return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: reason}
+		}
+		ev := &queuedEvent{
+			id:         newSessionID(),
+			eventType:  eventType,
+			payload:    payload,
+			queuedAt:   now,
+			uniqueName: childName,
+			reason:     QueueReasonBudgetExhausted,
+			origin:     eventOrigin,
+			nextRetry:  grant.NextTokenRetry,
+		}
+		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
+			r.mu.Unlock()
+			return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+		}
+		tr.queue = append(tr.queue, ev)
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonBudgetExhausted, QueueReasonBudgetExhausted, "", "")
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonBudgetExhausted}
+	}
 	tr.running++
 	r.mu.Unlock()
 
@@ -1161,6 +1211,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		r.releaseLocksForInstanceLocked(childName)
 		tr.running--
 		r.mu.Unlock()
+		_, _ = budget.ReleaseAllocations(r.teamDir, budget.ReleaseRequest{JobID: eventJobID(payload), Instance: childName, Now: time.Now().UTC()})
 		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "dispatch_failed", err.Error(), "", "")
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
@@ -1592,7 +1643,6 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		return nil, err
 	}
 	eventOrigin := r.originForEvent(inst, name, eventType, payload)
-	payload = r.clampPayloadBudgetToTeamHeadroom(payload, eventOrigin)
 	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
 	prompt := fmt.Sprintf("Topology event for declared instance %q (agent=%s):\n%s",
 		inst.Name, inst.Agent, string(body))
@@ -2762,6 +2812,20 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if meta.ExitCode != nil {
 		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
 	}
+	if released, err := budget.ReleaseJobInstanceAllocations(r.teamDir, j, meta.Instance, now); err != nil {
+		data["budget_release_error"] = err.Error()
+	} else if len(released) > 0 {
+		var tokens, consumed, unspent int64
+		for _, rec := range released {
+			tokens += rec.Tokens
+			consumed += rec.ConsumedTokens
+			unspent += rec.ReleasedTokens
+		}
+		data["budget_allocations_released"] = fmt.Sprint(len(released))
+		data["budget_tokens_allocated"] = fmt.Sprint(tokens)
+		data["budget_tokens_consumed"] = fmt.Sprint(consumed)
+		data["budget_tokens_released"] = fmt.Sprint(unspent)
+	}
 	if err := r.writeJobWithAudit(j, eventType, "daemon", message, data); err != nil {
 		return
 	}
@@ -3118,6 +3182,21 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
 			continue
 		}
+		grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, now)
+		if err != nil {
+			ev.lastError = err.Error()
+			ev.reason = "budget_error"
+			r.releaseLocksForInstanceLocked(ev.uniqueName)
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
+		if !grant.Allowed {
+			ev.reason = QueueReasonBudgetExhausted
+			ev.nextRetry = grant.NextTokenRetry
+			r.releaseLocksForInstanceLocked(ev.uniqueName)
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
 		tr.queue = append(tr.queue[:i:i], tr.queue[i+1:]...)
 		tr.running++
 		return ev
@@ -3129,6 +3208,7 @@ func (r *EventResolver) recordQueueFailure(declared string, ev *queuedEvent, spa
 	if ev == nil {
 		return
 	}
+	_, _ = budget.ReleaseAllocations(r.teamDir, budget.ReleaseRequest{JobID: eventJobID(ev.payload), Instance: ev.uniqueName, Now: time.Now().UTC()})
 	r.mu.Lock()
 	r.releaseLocksForInstanceLocked(ev.uniqueName)
 	r.mu.Unlock()
@@ -3251,7 +3331,7 @@ func (r *EventResolver) budgetAdmissionLocked(team string, payload map[string]an
 	if r == nil {
 		return budget.Admission{Allowed: true, Noop: true, Team: strings.TrimSpace(team)}, nil
 	}
-	return budget.AdmissionForTeam(r.teamDir, r.topo, team, eventJobID(payload), now)
+	return budget.AdmissionForTeamWithRequest(r.teamDir, r.topo, team, eventJobID(payload), payloadBudgetTokens(payload), now)
 }
 
 func (r *EventResolver) budgetsConfigured() bool {
@@ -3598,6 +3678,21 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		r.mu.Unlock()
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: QueueReasonLockHeld}, nil
 	}
+	grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, time.Now().UTC())
+	if err != nil {
+		r.releaseLocksForInstanceLocked(ev.uniqueName)
+		r.mu.Unlock()
+		return EventOutcome{}, err
+	}
+	if !grant.Allowed {
+		r.releaseLocksForInstanceLocked(ev.uniqueName)
+		ev.reason = QueueReasonBudgetExhausted
+		ev.nextRetry = grant.NextTokenRetry
+		tr.queue = append(tr.queue, ev)
+		_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+		r.mu.Unlock()
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: QueueReasonBudgetExhausted}, nil
+	}
 	tr.running++
 	r.mu.Unlock()
 
@@ -3609,6 +3704,7 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 			tr.running--
 		}
 		r.mu.Unlock()
+		_, _ = budget.ReleaseAllocations(r.teamDir, budget.ReleaseRequest{JobID: eventJobID(ev.payload), Instance: ev.uniqueName, Now: time.Now().UTC()})
 		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()}, nil
 	}
 	r.updateLockLeasePID(meta.Instance, meta.PID)

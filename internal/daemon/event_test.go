@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamesaud/agent-team/internal/budget"
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/linearwriteback"
 	"github.com/jamesaud/agent-team/internal/origin"
@@ -2114,6 +2115,87 @@ tokens_per_day = 100
 	if len(items) != 1 || items[0].Reason != QueueReasonBudgetExhausted || !items[0].NextRetry.Equal(wantRetry) {
 		t.Fatalf("queue items = %+v, want retry %s", items, wantRetry)
 	}
+}
+
+func TestEvent_ReserveTokenAllocationQueuesUntilRelease(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+tokens_per_day = 100
+allocation = "reserve"
+`)
+	fake := newSequencedFakeSpawner(100*time.Millisecond, 30*time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	first, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":        "worker",
+		"name":          "worker-squ-410",
+		"ticket":        "SQU-410",
+		"budget_tokens": int64(60),
+	})
+	if err != nil {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	if len(first.Outcomes) != 1 || first.Outcomes[0].Action != "dispatched" {
+		t.Fatalf("first outcomes = %+v", first.Outcomes)
+	}
+	second, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+		"target":        "worker",
+		"name":          "worker-squ-411",
+		"ticket":        "SQU-411",
+		"budget_tokens": int64(60),
+	})
+	if err != nil {
+		t.Fatalf("second dispatch: %v", err)
+	}
+	if len(second.Outcomes) != 1 || second.Outcomes[0].Action != "queued" || second.Outcomes[0].Reason != QueueReasonBudgetExhausted {
+		t.Fatalf("second outcomes = %+v, want budget queue", second.Outcomes)
+	}
+	rows, err := budget.Statuses(teamDir, top, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("budget statuses: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TokensAllocated != 60 || rows[0].TokensRemaining != 40 {
+		t.Fatalf("rows before release = %+v, want one outstanding 60-token reserve", rows)
+	}
+	if err := m.WaitForReaper("worker-squ-410", 5*time.Second); err != nil {
+		t.Fatalf("wait first reap: %v", err)
+	}
+	if fake.callCount() != 2 {
+		t.Fatalf("spawn calls=%d, want queued reserve dispatch to drain", fake.callCount())
+	}
+	items, err := ListQueueItems(root)
+	if err != nil {
+		t.Fatalf("ListQueueItems: %v", err)
+	}
+	for _, item := range items {
+		if item.InstanceID == "worker-squ-411" && item.State == QueueStatePending {
+			t.Fatalf("queued reserve item should have drained: %+v", item)
+		}
+	}
+	rows, err = budget.Statuses(teamDir, top, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("budget statuses after drain: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TokensAllocated != 60 {
+		t.Fatalf("rows after drain = %+v, want second 60-token allocation outstanding", rows)
+	}
+	_, _ = m.Stop("worker-squ-411")
+	_ = m.WaitForReaper("worker-squ-411", 5*time.Second)
 }
 
 func TestEvent_DispatchLockContentionQueuesAndReapDrains(t *testing.T) {

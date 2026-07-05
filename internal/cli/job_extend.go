@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/jamesaud/agent-team/internal/allowance"
+	"github.com/jamesaud/agent-team/internal/budget"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -104,7 +106,18 @@ func newJobExtendCmd() *cobra.Command {
 				applyJobExtendUpdate(j, selection, by, now)
 			}
 			newTokenBudget := int64(0)
+			tokenGrant := budget.GrantResult{}
 			if tokenDelta > 0 {
+				grant, err := grantJobTokenExtension(teamDir, j, selection, tokenDelta, now)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
+					return exitErr(1)
+				}
+				if !grant.Allowed {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: token budget exhausted for team %s\n", grant.Team)
+					return exitErr(1)
+				}
+				tokenGrant = grant
 				newTokenBudget = applyJobTokenExtendUpdate(j, selection, tokenDelta, now)
 			}
 			data := extendAuditData(selection, res, by)
@@ -117,6 +130,9 @@ func newJobExtendCmd() *cobra.Command {
 				eventType = "budget_extended"
 			}
 			if err := writeJobWithAudit(teamDir, j, eventType, actor, j.LastStatus, data); err != nil {
+				if tokenGrant.Allocation != nil {
+					_, _ = budget.ReleaseAllocations(teamDir, budget.ReleaseRequest{ID: tokenGrant.Allocation.ID, Now: now})
+				}
 				return err
 			}
 			result := jobExtendResult{Job: j, Extension: row, StepID: strings.TrimSpace(selection.StepID), TokensAdded: tokenDelta, TokenBudget: newTokenBudget}
@@ -206,6 +222,94 @@ func applyJobTokenExtendUpdate(j *job.Job, selection jobInstanceSelection, token
 	j.LastStatus = fmt.Sprintf("extended token budget by %d", tokens)
 	j.UpdatedAt = now
 	return j.TokenBudget
+}
+
+func grantJobTokenExtension(teamDir string, j *job.Job, selection jobInstanceSelection, tokens int64, now time.Time) (budget.GrantResult, error) {
+	result := budget.GrantResult{Allowed: true, Noop: true, GrantedTokens: tokens, RequestedTokens: tokens}
+	if j == nil || tokens <= 0 {
+		return result, nil
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		return budget.GrantResult{}, err
+	}
+	team := jobBudgetTeamForExtension(top, j, selection)
+	if team == "" {
+		return result, nil
+	}
+	env := j.Origin
+	if env.Team == "" {
+		env.Team = team
+	}
+	env.Job = j.ID
+	env.Instance = tokenExtensionInstance(j, selection)
+	env.Trigger = "job.extend"
+	return budget.GrantTokens(teamDir, top, budget.GrantRequest{
+		Team:     team,
+		JobID:    j.ID,
+		StepID:   strings.TrimSpace(selection.StepID),
+		Instance: env.Instance,
+		Tokens:   tokens,
+		Now:      now,
+		Origin:   env,
+	})
+}
+
+func jobBudgetTeamForExtension(top *topology.Topology, j *job.Job, selection jobInstanceSelection) string {
+	if j == nil {
+		return ""
+	}
+	if team := strings.TrimSpace(j.Origin.Team); team != "" {
+		return team
+	}
+	if top == nil {
+		return ""
+	}
+	if pipeline := strings.TrimSpace(j.Pipeline); pipeline != "" {
+		for _, team := range top.SortedTeams() {
+			if stringSliceContains(team.Pipelines, pipeline) {
+				return team.Name
+			}
+		}
+	}
+	instance := tokenExtensionInstance(j, selection)
+	for _, team := range top.SortedTeams() {
+		if instanceMatchesAny(instance, team.Instances) || stringSliceContains(team.Instances, j.Target) {
+			return team.Name
+		}
+	}
+	return ""
+}
+
+func tokenExtensionInstance(j *job.Job, selection jobInstanceSelection) string {
+	if instance := strings.TrimSpace(selection.Instance); instance != "" {
+		return instance
+	}
+	if j == nil {
+		return ""
+	}
+	if stepID := strings.TrimSpace(selection.StepID); stepID != "" {
+		for _, step := range j.Steps {
+			if step.ID == stepID {
+				return strings.TrimSpace(step.Instance)
+			}
+		}
+	}
+	return strings.TrimSpace(j.Instance)
+}
+
+func instanceMatchesAny(instance string, names []string) bool {
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		return false
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if instance == name || strings.HasPrefix(instance, name+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 func writeExtendAuditForMetadata(teamDir string, res *runtimeExtensionResponse, by time.Duration, actor string, now time.Time) error {

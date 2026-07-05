@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
+	budgetcalc "github.com/jamesaud/agent-team/internal/budget"
 	"github.com/jamesaud/agent-team/internal/daemon"
 	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/jamesaud/agent-team/internal/topology"
 )
 
 func TestExtendCommandUpdatesRuntimeMetadataAndRenderers(t *testing.T) {
@@ -199,5 +202,70 @@ func TestJobExtendAddsTokenAllowanceWithoutRuntimeExtension(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "budget_extended" || events[0].Actor != "ops" || events[0].Data["tokens_added"] != "50" || events[0].Data["token_budget"] != "150" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobExtendTokensReserveModeRequiresHeadroom(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	appendBudgetFixture(t, teamDir, `
+[budgets.delivery]
+tokens_per_day = 100
+allocation = "reserve"
+`)
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("LoadFromTeamDir: %v", err)
+	}
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-106",
+		Ticket:    "SQU-106",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Origin:    origin.Envelope{Team: "delivery"},
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{
+			{
+				ID:          "implement",
+				Target:      "worker",
+				Status:      job.StatusRunning,
+				Instance:    "worker-squ-106",
+				TokenBudget: 80,
+			},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	if _, err := budgetcalc.GrantTokens(teamDir, top, budgetcalc.GrantRequest{
+		Team:     "delivery",
+		JobID:    "squ-106",
+		StepID:   "implement",
+		Instance: "worker-squ-106",
+		Tokens:   80,
+		Now:      now,
+		Origin:   j.Origin,
+	}); err != nil {
+		t.Fatalf("GrantTokens: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "extend", "squ-106", "--step", "implement", "--tokens", "30", "--actor", "ops", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job extend unexpectedly succeeded; out=%s stderr=%s", out.String(), stderr.String())
+	}
+	persisted, err := job.Read(teamDir, "squ-106")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if persisted.Steps[0].TokenBudget != 80 {
+		t.Fatalf("token budget = %d, want unchanged 80", persisted.Steps[0].TokenBudget)
 	}
 }

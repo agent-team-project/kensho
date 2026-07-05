@@ -971,6 +971,7 @@ reminder_levels = [25, 75, 100]
 [budgets.delivery]
 tokens_per_day = 200_000_000
 jobs_in_flight = 4
+allocation = "reserve"
 
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
@@ -987,7 +988,7 @@ token_budget = "40M"
 	if budget == nil {
 		t.Fatal("budget missing")
 	}
-	if budget.Team != "delivery" || budget.TokensPerDay != 200_000_000 || budget.JobsInFlight != 4 {
+	if budget.Team != "delivery" || budget.TokensPerDay != 200_000_000 || budget.JobsInFlight != 4 || budget.Allocation != BudgetAllocationReserve {
 		t.Fatalf("budget = %+v", budget)
 	}
 	if got := top.SortedBudgets(); len(got) != 1 || got[0] != budget {
@@ -1035,6 +1036,20 @@ instances = ["worker"]
 jobs_in_flight = -1
 `,
 			want: "jobs_in_flight must be >= 0",
+		},
+		{
+			name: "invalid allocation",
+			body: `
+[instances.worker]
+agent = "worker"
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.delivery]
+allocation = "strict"
+`,
+			want: "allocation must be reserve or oversubscribe",
 		},
 		{
 			name: "unknown team",

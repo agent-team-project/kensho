@@ -118,6 +118,10 @@ scope = "team"           # declared channel storage is namespaced per owner
 [budgets]
 reminder_levels = [50, 80, 100] # default soft budget notice thresholds
 
+[budgets.delivery]
+tokens_per_day = 200_000_000
+allocation = "oversubscribe"    # default; "reserve" debits outstanding grants
+
 [[instances.worker.triggers]]
 event  = "agent.dispatch"
 match.target = "worker"
@@ -269,7 +273,7 @@ Pipelines live under `[pipelines.<name>]`. A pipeline trigger creates or updates
 | `steps[].approval_required` | no | `false` | Only valid with `gate = "manual"`. When true, the step must be linked to a first-class job approval request and that approval must be approved before the step can advance. Existing manual gates keep the old `job approve` behavior unless they opt in. |
 | `steps[].optional` | no | `false` | If `true`, a failed step does not block downstream dependencies. |
 | `steps[].timeout` | no | empty | Duration string used by stale-step timeout commands before falling back to repo stale-job thresholds. |
-| `steps[].token_budget` | no | target instance default | Soft token allowance for this step's runtime. It is clamped to remaining team budget headroom at dispatch and exported as `AGENT_TEAM_BUDGET_TOKENS`. |
+| `steps[].token_budget` | no | target instance default | Soft token allowance for this step's runtime. In `oversubscribe` budget mode it is clamped to remaining consumed team headroom at dispatch; in `reserve` mode the full requested allowance must fit consumed + outstanding headroom or the dispatch queues. The granted value is exported as `AGENT_TEAM_BUDGET_TOKENS`. |
 | `steps[].time_budget` | no | target instance default | Soft wall-clock allowance for this step's runtime, exported as `AGENT_TEAM_BUDGET_TIME`. This does not kill the runtime unless hard cutoffs are enabled. |
 | `steps[].hard` | no | target/job default | Opt into a hard cutoff at the step's token/time allowance. Crossing it records `budget_exceeded_hard`, crash-finalizes the instance, frees its slot, and lets normal failure attention/write-back run. |
 | `steps[].hard_multiplier` | no | target/job default | Opt into a hard cutoff at allowance multiplied by this number. Must be at least `1`; use values above `1` for runaway protection while preserving soft notice workflow. |
@@ -402,6 +406,22 @@ Teams live under `[teams.<name>]`. They group declared instances, pipelines, and
 | `channels` | no | empty | Declared channel names owned by the team. References must exist under `[channels]`. |
 
 At least one of `instances`, `pipelines`, `schedules`, or `channels` is required.
+
+### Budget field reference
+
+Budgets live under `[budgets.<team>]`; `<team>` must match a declared team.
+They gate dispatch admission and are also rendered by `agent-team budget status`.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| `tokens_per_day` | no | disabled | Sliding 24-hour token cap from finalized usage records. |
+| `jobs_in_flight` | no | disabled | Max active jobs attributed to this team. Later steps of the same job do not block themselves. |
+| `allocation` | no | `oversubscribe` | Token allowance semantics: `oversubscribe` preserves phase-1 behavior, gating on consumed tokens and clamping dispatch allowances to consumed headroom while still showing outstanding allocated promises; `reserve` records each granted allowance as an outstanding child allocation and gates on consumed + outstanding + requested so the tree invariant is enforced. |
+
+`agent-team budget status` shows `TOKENS` (consumed finalized usage) and
+`ALLOCATED` (outstanding child allowances). In `reserve` mode, token remaining
+subtracts both; in `oversubscribe` mode, remaining subtracts consumed usage only,
+so `ALLOCATED` may exceed the cap by design.
 
 ### Authority field reference
 

@@ -18,10 +18,12 @@ const Window = 24 * time.Hour
 // TeamStatus is one team's current budget position.
 type TeamStatus struct {
 	Team             string        `json:"team"`
+	Allocation       string        `json:"allocation"`
 	WindowStart      time.Time     `json:"window_start"`
 	WindowEnd        time.Time     `json:"window_end"`
 	TokensPerDay     int64         `json:"tokens_per_day,omitempty"`
 	TokensUsed       int64         `json:"tokens_used"`
+	TokensAllocated  int64         `json:"tokens_allocated,omitempty"`
 	TokensRemaining  int64         `json:"tokens_remaining,omitempty"`
 	TokensExhausted  bool          `json:"tokens_exhausted,omitempty"`
 	TokenAvailableAt time.Time     `json:"token_available_at,omitempty"`
@@ -34,13 +36,14 @@ type TeamStatus struct {
 
 // Admission is the admission-control decision for a prospective dispatch.
 type Admission struct {
-	Allowed        bool
-	Noop           bool
-	Team           string
-	Status         TeamStatus
-	TokenExhausted bool
-	JobsExhausted  bool
-	NextTokenRetry time.Time
+	Allowed         bool
+	Noop            bool
+	Team            string
+	Status          TeamStatus
+	RequestedTokens int64
+	TokenExhausted  bool
+	JobsExhausted   bool
+	NextTokenRetry  time.Time
 }
 
 // Statuses returns current status rows for every configured budget. Missing
@@ -56,7 +59,7 @@ func Statuses(teamDir string, top *topology.Topology, now time.Time) ([]TeamStat
 	}
 	rows := make([]TeamStatus, 0, len(top.Budgets))
 	for _, b := range top.SortedBudgets() {
-		rows = append(rows, statusForBudget(b, inputs.recordsByTeam[b.Team], inputs.runningByTeam[b.Team], now))
+		rows = append(rows, statusForBudget(b, inputs.recordsByTeam[b.Team], inputs.runningByTeam[b.Team], inputs.allocatedByTeam[b.Team], now))
 	}
 	return rows, nil
 }
@@ -65,39 +68,49 @@ func Statuses(teamDir string, top *topology.Topology, now time.Time) ([]TeamStat
 // currentJobID is excluded from the jobs_in_flight count so later steps of an
 // already-running pipeline job do not block themselves.
 func AdmissionForTeam(teamDir string, top *topology.Topology, team, currentJobID string, now time.Time) (Admission, error) {
+	return AdmissionForTeamWithRequest(teamDir, top, team, currentJobID, 0, now)
+}
+
+// AdmissionForTeamWithRequest evaluates whether a dispatch owned by team can
+// start now with requestedTokens of child allowance. Reserve-mode budgets gate
+// on consumed + outstanding allocated + requested. Oversubscribe mode preserves
+// phase-1 consumption gating and ignores requested allowance for admission.
+func AdmissionForTeamWithRequest(teamDir string, top *topology.Topology, team, currentJobID string, requestedTokens int64, now time.Time) (Admission, error) {
 	team = strings.TrimSpace(team)
 	if top == nil || len(top.Budgets) == 0 || team == "" {
-		return Admission{Allowed: true, Noop: true, Team: team}, nil
+		return Admission{Allowed: true, Noop: true, Team: team, RequestedTokens: requestedTokens}, nil
 	}
 	b := top.FindBudget(team)
 	if b == nil {
-		return Admission{Allowed: true, Noop: true, Team: team}, nil
+		return Admission{Allowed: true, Noop: true, Team: team, RequestedTokens: requestedTokens}, nil
 	}
 	now = normalizeNow(now)
 	inputs, err := collectInputs(teamDir, top, now, currentJobID)
 	if err != nil {
 		return Admission{}, err
 	}
-	status := statusForBudget(b, inputs.recordsByTeam[b.Team], inputs.runningByTeam[b.Team], now)
-	tokenExhausted := b.TokensPerDay > 0 && status.TokensUsed >= b.TokensPerDay
+	status := statusForBudget(b, inputs.recordsByTeam[b.Team], inputs.runningByTeam[b.Team], inputs.allocatedByTeam[b.Team], now)
+	tokenExhausted := tokenAdmissionExhausted(b, status, requestedTokens)
 	jobsExhausted := b.JobsInFlight > 0 && status.JobsInFlight >= b.JobsInFlight
 	return Admission{
-		Allowed:        !tokenExhausted && !jobsExhausted,
-		Team:           team,
-		Status:         status,
-		TokenExhausted: tokenExhausted,
-		JobsExhausted:  jobsExhausted,
-		NextTokenRetry: status.TokenAvailableAt,
+		Allowed:         !tokenExhausted && !jobsExhausted,
+		Team:            team,
+		Status:          status,
+		RequestedTokens: requestedTokens,
+		TokenExhausted:  tokenExhausted,
+		JobsExhausted:   jobsExhausted,
+		NextTokenRetry:  nextAdmissionRetry(status, tokenExhausted),
 	}, nil
 }
 
 type inputs struct {
-	recordsByTeam map[string][]usage.Record
-	runningByTeam map[string]int
+	recordsByTeam   map[string][]usage.Record
+	runningByTeam   map[string]int
+	allocatedByTeam map[string]int64
 }
 
 func collectInputs(teamDir string, top *topology.Topology, now time.Time, excludeRunningJobID string) (inputs, error) {
-	out := inputs{recordsByTeam: map[string][]usage.Record{}, runningByTeam: map[string]int{}}
+	out := inputs{recordsByTeam: map[string][]usage.Record{}, runningByTeam: map[string]int{}, allocatedByTeam: map[string]int64{}}
 	jobs, err := jobstore.List(teamDir)
 	if err != nil {
 		return out, err
@@ -137,10 +150,17 @@ func collectInputs(teamDir string, top *topology.Topology, now time.Time, exclud
 			out.recordsByTeam[team] = append(out.recordsByTeam[team], rec)
 		}
 	}
+	allocations, err := ListAllocations(teamDir)
+	if err != nil {
+		return out, err
+	}
+	for _, b := range top.SortedBudgets() {
+		out.allocatedByTeam[b.Team] = outstandingTokens(allocations, b.Team)
+	}
 	return out, nil
 }
 
-func statusForBudget(b *topology.Budget, records []usage.Record, running int, now time.Time) TeamStatus {
+func statusForBudget(b *topology.Budget, records []usage.Record, running int, allocated int64, now time.Time) TeamStatus {
 	if b == nil {
 		return TeamStatus{}
 	}
@@ -148,20 +168,28 @@ func statusForBudget(b *topology.Budget, records []usage.Record, running int, no
 	used := tokensUsed(records)
 	row := TeamStatus{
 		Team:            b.Team,
+		Allocation:      b.Allocation,
 		WindowStart:     now.Add(-Window),
 		WindowEnd:       now,
 		TokensPerDay:    b.TokensPerDay,
 		TokensUsed:      used,
+		TokensAllocated: allocated,
 		JobsInFlightCap: b.JobsInFlight,
 		JobsInFlight:    running,
 		Usage:           summary,
 	}
 	if b.TokensPerDay > 0 {
-		if used < b.TokensPerDay {
-			row.TokensRemaining = b.TokensPerDay - used
+		committed := used
+		if b.Allocation == topology.BudgetAllocationReserve {
+			committed += allocated
+		}
+		if committed < b.TokensPerDay {
+			row.TokensRemaining = b.TokensPerDay - committed
 		} else {
 			row.TokensExhausted = true
-			row.TokenAvailableAt = nextTokenAvailableAt(records, b.TokensPerDay, used)
+			if used >= b.TokensPerDay {
+				row.TokenAvailableAt = nextTokenAvailableAt(records, b.TokensPerDay, used)
+			}
 		}
 	}
 	if b.JobsInFlight > 0 {
@@ -172,6 +200,29 @@ func statusForBudget(b *topology.Budget, records []usage.Record, running int, no
 		}
 	}
 	return row
+}
+
+func tokenAdmissionExhausted(b *topology.Budget, status TeamStatus, requestedTokens int64) bool {
+	if b == nil || b.TokensPerDay <= 0 {
+		return false
+	}
+	switch b.Allocation {
+	case topology.BudgetAllocationReserve:
+		committed := status.TokensUsed + status.TokensAllocated
+		if requestedTokens > 0 {
+			return committed+requestedTokens > b.TokensPerDay
+		}
+		return committed >= b.TokensPerDay
+	default:
+		return status.TokensUsed >= b.TokensPerDay
+	}
+}
+
+func nextAdmissionRetry(status TeamStatus, exhausted bool) time.Time {
+	if !exhausted {
+		return time.Time{}
+	}
+	return status.TokenAvailableAt
 }
 
 func tokensUsed(records []usage.Record) int64 {
