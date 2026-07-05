@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jamesaud/agent-team/internal/budget"
 	"github.com/jamesaud/agent-team/internal/buildinfo"
 	jobstore "github.com/jamesaud/agent-team/internal/job"
 	"github.com/jamesaud/agent-team/internal/jobwrite"
@@ -57,8 +59,9 @@ const DefaultQueueCap = 10
 const MaxQueueAttempts = 3
 
 const (
-	kickoffMailboxHeading  = "## Unread messages (delivered at dispatch)"
-	kickoffMailboxMaxBytes = 8 * 1024
+	kickoffMailboxHeading   = "## Unread messages (delivered at dispatch)"
+	kickoffMailboxMaxBytes  = 8 * 1024
+	budgetDrainPollInterval = time.Second
 )
 
 // EventResolver routes inbound events to declared instances per the topology.
@@ -920,6 +923,32 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 			InstanceID: childName,
 			Reason:     reason,
 		}
+	}
+	admission, err := r.budgetAdmissionLocked(eventOrigin.Team, payload, now)
+	if err != nil {
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "budget_error", err.Error(), "", "")
+		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+	}
+	if !admission.Allowed {
+		ev := &queuedEvent{
+			id:         newSessionID(),
+			eventType:  eventType,
+			payload:    payload,
+			queuedAt:   now,
+			uniqueName: childName,
+			reason:     QueueReasonBudgetExhausted,
+			origin:     eventOrigin,
+			nextRetry:  admission.NextTokenRetry,
+		}
+		if err := WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending)); err != nil {
+			r.mu.Unlock()
+			return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: err.Error()}
+		}
+		tr.queue = append(tr.queue, ev)
+		r.mu.Unlock()
+		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonBudgetExhausted, QueueReasonBudgetExhausted, "", "")
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonBudgetExhausted}
 	}
 	if tr.running >= inst.Replicas {
 		if len(tr.queue) >= r.queueCap {
@@ -2364,10 +2393,14 @@ func (r *EventResolver) onReap(spawned string) {
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
 		r.reconcileEphemeralJobExit(meta)
 	}
+	drainQueues := freedLocks > 0
+	if r.budgetsConfigured() {
+		drainQueues = true
+	}
 	// Freed lock slots may unblock lock_held waiters queued under other
 	// declared instances; the same-instance pop above cannot reach them, so
 	// run the shared drain pass (the same path as `agent-team queue drain`).
-	if freedLocks > 0 {
+	if drainQueues {
 		defer r.DrainQueues()
 	}
 	if next == nil {
@@ -2781,6 +2814,21 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
 			continue
 		}
+		admission, err := r.budgetAdmissionLocked(ev.origin.Team, ev.payload, now)
+		if err != nil {
+			ev.lastError = err.Error()
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
+		if !admission.Allowed {
+			ev.reason = QueueReasonBudgetExhausted
+			ev.nextRetry = admission.NextTokenRetry
+			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+			continue
+		}
+		if ev.reason == QueueReasonBudgetExhausted {
+			ev.nextRetry = time.Time{}
+		}
 		if len(ev.locks) == 0 {
 			ev.locks = r.dispatchLocksLocked(inst, ev.payload)
 		}
@@ -2877,6 +2925,65 @@ func (r *EventResolver) RecoverQueueState() {
 	r.mu.Unlock()
 	_ = r.loadPersistedQueue()
 	r.DrainQueues()
+}
+
+// RunBudgetQueueDrains wakes budget_exhausted queue items whose token-window
+// retry time is due. Job-slot budget queues are kicked by onReap when a running
+// job finishes.
+func (r *EventResolver) RunBudgetQueueDrains(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	r.drainReadyBudgetQueues(time.Now().UTC())
+	ticker := time.NewTicker(budgetDrainPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			r.drainReadyBudgetQueues(now.UTC())
+		}
+	}
+}
+
+func (r *EventResolver) drainReadyBudgetQueues(now time.Time) {
+	if r == nil || r.mgr == nil || !r.budgetsConfigured() || !r.hasReadyBudgetQueueItem(now) {
+		return
+	}
+	r.DrainQueues()
+}
+
+func (r *EventResolver) hasReadyBudgetQueueItem(now time.Time) bool {
+	items, err := ListQueueItems(r.mgr.daemonRoot)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item == nil || item.State != QueueStatePending || item.Reason != QueueReasonBudgetExhausted {
+			continue
+		}
+		if item.NextRetry.IsZero() {
+			continue
+		}
+		if !item.NextRetry.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *EventResolver) budgetAdmissionLocked(team string, payload map[string]any, now time.Time) (budget.Admission, error) {
+	if r == nil {
+		return budget.Admission{Allowed: true, Noop: true, Team: strings.TrimSpace(team)}, nil
+	}
+	return budget.AdmissionForTeam(r.teamDir, r.topo, team, eventJobID(payload), now)
+}
+
+func (r *EventResolver) budgetsConfigured() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.topo != nil && len(r.topo.Budgets) > 0
 }
 
 // DrainQueues attempts ready queued items while replica capacity is available.
@@ -2978,6 +3085,10 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 					continue
 				}
 				if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
+					continue
+				}
+				admission, err := r.budgetAdmissionLocked(ev.origin.Team, ev.payload, now)
+				if err != nil || !admission.Allowed {
 					continue
 				}
 				locks := ev.locks
@@ -3181,6 +3292,22 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
 		r.mu.Unlock()
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: ev.reason}, nil
+	}
+	admission, err := r.budgetAdmissionLocked(ev.origin.Team, ev.payload, time.Now().UTC())
+	if err != nil {
+		r.mu.Unlock()
+		return EventOutcome{}, err
+	}
+	if !admission.Allowed {
+		ev.reason = QueueReasonBudgetExhausted
+		ev.nextRetry = admission.NextTokenRetry
+		tr.queue = append(tr.queue, ev)
+		_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
+		r.mu.Unlock()
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: QueueReasonBudgetExhausted}, nil
+	}
+	if ev.reason == QueueReasonBudgetExhausted {
+		ev.nextRetry = time.Time{}
 	}
 	if len(ev.locks) == 0 {
 		ev.locks = r.dispatchLocksLocked(inst, ev.payload)

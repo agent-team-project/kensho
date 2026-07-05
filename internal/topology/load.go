@@ -48,7 +48,7 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 	if templateLayer == nil && repoLayer == nil {
 		return nil, nil
 	}
-	merged := &Topology{Instances: map[string]*Instance{}, Locks: map[string]*Lock{}, Channels: map[string]*Channel{}, Pipelines: map[string]*Pipeline{}, Schedules: map[string]*Schedule{}, Teams: map[string]*Team{}}
+	merged := &Topology{Instances: map[string]*Instance{}, Locks: map[string]*Lock{}, Channels: map[string]*Channel{}, Pipelines: map[string]*Pipeline{}, Schedules: map[string]*Schedule{}, Teams: map[string]*Team{}, Budgets: map[string]*Budget{}}
 	if templateLayer != nil {
 		for name, inst := range templateLayer.Instances {
 			merged.Instances[name] = inst
@@ -67,6 +67,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		}
 		for name, team := range templateLayer.Teams {
 			merged.Teams[name] = team
+		}
+		for name, budget := range templateLayer.Budgets {
+			merged.Budgets[name] = budget
 		}
 		merged.Authority = templateLayer.Authority
 	}
@@ -89,6 +92,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		for name, team := range repoLayer.Teams {
 			merged.Teams[name] = team
 		}
+		for name, budget := range repoLayer.Budgets {
+			merged.Budgets[name] = budget
+		}
 		if repoLayer.Authority != nil {
 			merged.Authority = repoLayer.Authority
 		}
@@ -97,6 +103,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		return nil, err
 	}
 	if err := validateLockReferences(merged); err != nil {
+		return nil, err
+	}
+	if err := validateBudgetReferences(merged); err != nil {
 		return nil, err
 	}
 	return merged, nil

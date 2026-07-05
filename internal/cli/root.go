@@ -81,6 +81,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newWaitCmd())
 	root.AddCommand(newStatsCmd())
 	root.AddCommand(newUsageCmd())
+	root.AddCommand(newBudgetCmd())
 	root.AddCommand(newSendCmd())
 	root.AddCommand(newInboxCmd())
 	root.AddCommand(newDispatchCmd())
