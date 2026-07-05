@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/runtimeotel"
 )
 
 // LaunchEnv is the daemon's boot-time process snapshot. Restart uses this to

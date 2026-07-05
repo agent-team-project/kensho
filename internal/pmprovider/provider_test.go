@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestConfiguredProviderNamePrefersPMProvider(t *testing.T) {

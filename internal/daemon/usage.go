@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/jobwrite"
-	"github.com/jamesaud/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/jobwrite"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 func captureUsageForMetadata(meta *Metadata, now time.Time) error {

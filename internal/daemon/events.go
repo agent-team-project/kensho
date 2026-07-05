@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 // LifecycleEvent is one append-only daemon lifecycle record. Stored as JSONL

@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"text/template"
 
-	"github.com/jamesaud/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/loader"
 	"github.com/spf13/cobra"
 )
 

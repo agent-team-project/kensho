@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
 )
 
 func TestLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {

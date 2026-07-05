@@ -1373,26 +1373,26 @@ agent = "manager"
 
 [[instances.pr-reviewer.triggers]]
 event = "pr_webhook"
-match.repository = "jamesaud/agent-team"
+match.repository = "agent-team-project/agent-team"
 match.event = ["opened", "merged"]
 `))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	matched := top.Resolve("pr.opened", map[string]any{
-		"repository": "jamesaud/agent-team",
+		"repository": "agent-team-project/agent-team",
 	})
 	if len(matched) != 1 || matched[0].Name != "pr-reviewer" {
 		t.Fatalf("expected pr.opened to match legacy trigger, got %v", names(matched))
 	}
 	matched = top.Resolve("pr.merged", map[string]any{
-		"repository": "jamesaud/agent-team",
+		"repository": "agent-team-project/agent-team",
 	})
 	if len(matched) != 1 || matched[0].Name != "pr-reviewer" {
 		t.Fatalf("expected pr.merged to match legacy trigger, got %v", names(matched))
 	}
 	matched = top.Resolve("pr.closed", map[string]any{
-		"repository": "jamesaud/agent-team",
+		"repository": "agent-team-project/agent-team",
 	})
 	if len(matched) != 0 {
 		t.Fatalf("pr.closed should miss legacy event filter, got %v", names(matched))

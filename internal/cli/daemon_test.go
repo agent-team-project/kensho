@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func withDaemonStartDetachedLaunch(t *testing.T, fn func(string, daemonDetachedLaunch, time.Duration) (daemonLifecycleJSON, error)) {

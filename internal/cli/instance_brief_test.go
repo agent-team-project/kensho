@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestInstanceBrief_EmptyStateRendersAndWrites(t *testing.T) {

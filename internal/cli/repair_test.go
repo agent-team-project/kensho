@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {

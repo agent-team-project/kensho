@@ -66,7 +66,7 @@ Anything not passed is preserved from the prior write. For `job`, `ticket`, `pr`
 ```sh
 "$AGENT_TEAM_ROOT"/skills/status/scripts/status.sh set awaiting_review \
   --desc "PR open, awaiting review" \
-  --pr "https://github.com/jamesaud/agent-team/pull/26"
+  --pr "https://github.com/agent-team-project/agent-team/pull/26"
 ```
 
 **Hitting a blocker:**

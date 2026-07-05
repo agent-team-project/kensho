@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	jobstore "github.com/jamesaud/agent-team/internal/job"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
 )
 
 const (

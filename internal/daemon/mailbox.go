@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 // Message is one entry in an instance's mailbox. Stored one-per-line as JSON

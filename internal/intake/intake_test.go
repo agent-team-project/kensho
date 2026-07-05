@@ -109,11 +109,11 @@ func TestGitHubSelfStatusChangeForActor(t *testing.T) {
 func TestNormalizeGitHubPRMerged(t *testing.T) {
 	ev, err := NormalizeGitHub([]byte(`{
   "action": "closed",
-  "repository": {"full_name": "jamesaud/agent-team"},
+  "repository": {"full_name": "agent-team-project/agent-team"},
   "pull_request": {
     "number": 42,
     "title": "Add queue",
-    "html_url": "https://github.com/jamesaud/agent-team/pull/42",
+    "html_url": "https://github.com/agent-team-project/agent-team/pull/42",
     "merged": true,
     "head": {"ref": "worktree-worker-squ-42"},
     "base": {"ref": "main"}
@@ -125,7 +125,7 @@ func TestNormalizeGitHubPRMerged(t *testing.T) {
 	if ev.Type != "pr.merged" {
 		t.Fatalf("type = %q", ev.Type)
 	}
-	if ev.Payload["pr"] != "42" || ev.Payload["repository"] != "jamesaud/agent-team" || ev.Payload["merged"] != true {
+	if ev.Payload["pr"] != "42" || ev.Payload["repository"] != "agent-team-project/agent-team" || ev.Payload["merged"] != true {
 		t.Fatalf("payload = %+v", ev.Payload)
 	}
 }

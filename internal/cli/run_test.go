@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	"github.com/jamesaud/agent-team/internal/runtimehooks"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/runtimehooks"
+	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 
@@ -365,7 +365,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	if err := json.Unmarshal([]byte(cap.agentsJSON), &agents); err != nil {
 		t.Fatalf("invalid --agents JSON: %v", err)
 	}
-	wantAgents := []string{"auditor", "manager", "reviewer", "ticket-manager", "worker"}
+	wantAgents := []string{"auditor", "comms", "manager", "reviewer", "ticket-manager", "worker"}
 	got := make([]string, 0, len(agents))
 	for k := range agents {
 		got = append(got, k)

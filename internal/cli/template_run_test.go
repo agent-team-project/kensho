@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 // runsRootEnv repoints runsRootDir() at a tempdir so auto-created run dirs

@@ -13,10 +13,10 @@ import (
 	texttemplate "text/template"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	jobpkg "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/loader"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	jobpkg "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
 

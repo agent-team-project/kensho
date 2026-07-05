@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 func TestCompactTerminalArchivesJobAndEvents(t *testing.T) {

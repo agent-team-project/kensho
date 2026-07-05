@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 type Category string

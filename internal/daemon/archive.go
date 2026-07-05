@@ -3,7 +3,7 @@ package daemon
 import (
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/archive"
+	"github.com/agent-team-project/agent-team/internal/archive"
 )
 
 const archiveRecordTypeMetadata = "daemon_metadata"

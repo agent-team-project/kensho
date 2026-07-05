@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 func TestDoctor_FailsOnEmptyLinearKeys(t *testing.T) {

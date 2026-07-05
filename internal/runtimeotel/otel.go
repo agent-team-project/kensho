@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 )
 
 const (

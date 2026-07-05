@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/pmprovider"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
 )
 
 func (r *EventResolver) writeLinearDispatchInProgress(j *jobstore.Job, stepID string) {

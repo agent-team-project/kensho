@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	budgetcalc "github.com/jamesaud/agent-team/internal/budget"
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/topology"
+	budgetcalc "github.com/agent-team-project/agent-team/internal/budget"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 func TestExtendCommandUpdatesRuntimeMetadataAndRenderers(t *testing.T) {

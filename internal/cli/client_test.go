@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 // newTestClient wires a daemonClient at an httptest server. The unix-socket

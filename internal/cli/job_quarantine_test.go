@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func writeQuarantinedJobFile(t *testing.T, teamDir, stamp, name string, body []byte) string {

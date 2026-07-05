@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/runtimeotel"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/runtimeotel"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 // PidLiveCheck reports whether the given PID is alive on this system. We use

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 

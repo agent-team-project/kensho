@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 func TestPs_NoInstancesNoDaemon(t *testing.T) {

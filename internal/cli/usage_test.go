@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 func TestUsageCommandRollsUpByRuntimeAndFiltersSince(t *testing.T) {

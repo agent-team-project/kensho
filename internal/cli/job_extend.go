@@ -9,10 +9,10 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/allowance"
-	"github.com/jamesaud/agent-team/internal/budget"
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/allowance"
+	"github.com/agent-team-project/agent-team/internal/budget"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 

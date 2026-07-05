@@ -3,7 +3,7 @@ package cli
 import (
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 func declaredEphemeralOwner(topo *topology.Topology, instance, agent string) (*topology.Instance, bool) {

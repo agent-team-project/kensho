@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 func TestLifecycleHelpShowsTopLevelStartStop(t *testing.T) {

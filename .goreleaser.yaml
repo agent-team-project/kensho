@@ -27,7 +27,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/jamesaud/agent-team/internal/cli.Version={{.Version}}
+      - -X github.com/agent-team-project/agent-team/internal/cli.Version={{.Version}}
 
   - id: agent-teamd
     main: ./cmd/agent-teamd
@@ -42,7 +42,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/jamesaud/agent-team/internal/cli.Version={{.Version}}
+      - -X github.com/agent-team-project/agent-team/internal/cli.Version={{.Version}}
 
 archives:
   - id: agent-team
@@ -89,14 +89,14 @@ changelog:
 
 release:
   github:
-    owner: jamesaud
+    owner: agent-team-project
     name: agent-team
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
 
 # TODO(SQU-31): enable Homebrew tap publishing once the user has:
-#   1. Created the tap repo `jamesaud/homebrew-agent-team` on GitHub.
+#   1. Created the tap repo `agent-team-project/homebrew-agent-team` on GitHub.
 #   2. Generated a PAT with `repo` scope on that tap repo.
 #   3. Saved it as the `HOMEBREW_TAP_GITHUB_TOKEN` repository secret on this repo.
 #   4. Uncommented the block below.
@@ -106,11 +106,11 @@ release:
 # brews:
 #   - name: agent-team
 #     repository:
-#       owner: jamesaud
+#       owner: agent-team-project
 #       name: homebrew-agent-team
 #       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
 #     directory: Formula
-#     homepage: "https://github.com/jamesaud/agent-team"
+#     homepage: "https://github.com/agent-team-project/agent-team"
 #     description: "Declare and launch Claude Code subagents and skills, vendored into any repo."
 #     license: "MIT"
 #     install: |

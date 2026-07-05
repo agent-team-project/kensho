@@ -1,4 +1,4 @@
-module github.com/jamesaud/agent-team
+module github.com/agent-team-project/agent-team
 
 go 1.22
 

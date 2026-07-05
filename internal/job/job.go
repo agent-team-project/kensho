@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/allowance"
-	"github.com/jamesaud/agent-team/internal/mergepolicy"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/usage"
-	"github.com/jamesaud/agent-team/internal/worktreepolicy"
+	"github.com/agent-team-project/agent-team/internal/allowance"
+	"github.com/agent-team-project/agent-team/internal/mergepolicy"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/worktreepolicy"
 )
 
 var ticketIdentifierPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])([a-z][a-z0-9]{1,9}-[0-9]+)(?:$|[^a-z0-9])`)

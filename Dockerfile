@@ -13,7 +13,7 @@ COPY . .
 
 ARG VERSION=dev
 RUN set -eux; \
-    ldflags="-s -w -X github.com/jamesaud/agent-team/internal/cli.Version=${VERSION}"; \
+    ldflags="-s -w -X github.com/agent-team-project/agent-team/internal/cli.Version=${VERSION}"; \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="${ldflags}" -o /out/agent-team ./cmd/agent-team; \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="${ldflags}" -o /out/agent-teamd ./cmd/agent-teamd
 

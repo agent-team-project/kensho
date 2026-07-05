@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/spf13/cobra"
 )
 

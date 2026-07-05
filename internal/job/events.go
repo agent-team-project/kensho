@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 // Event is one durable audit record for a job.

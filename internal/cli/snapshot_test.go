@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestSnapshotCommandJSONCollectsRepoState(t *testing.T) {
@@ -253,7 +253,7 @@ updated_at = 2026-06-19T02:00:00Z
 	if snapshot.Runtime == nil || snapshot.Runtime.Runtime == "" {
 		t.Fatalf("runtime = %+v", snapshot.Runtime)
 	}
-	if snapshot.TeamsDoctor == nil || !snapshot.TeamsDoctor.OK || len(snapshot.TeamsDoctor.Teams) != 3 {
+	if snapshot.TeamsDoctor == nil || !snapshot.TeamsDoctor.OK || len(snapshot.TeamsDoctor.Teams) != 4 {
 		t.Fatalf("teams doctor = %+v", snapshot.TeamsDoctor)
 	}
 }

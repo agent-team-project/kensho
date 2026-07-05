@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 // Config is the runtime config for one daemon instance.

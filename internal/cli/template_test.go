@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	"github.com/jamesaud/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/template"
 )
 
 func TestTemplateShow_Bundled(t *testing.T) {

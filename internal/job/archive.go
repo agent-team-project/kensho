@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/archive"
+	"github.com/agent-team-project/agent-team/internal/archive"
 )
 
 const archiveRecordTypeJob = "job"

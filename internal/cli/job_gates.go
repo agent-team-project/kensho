@@ -10,8 +10,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
 

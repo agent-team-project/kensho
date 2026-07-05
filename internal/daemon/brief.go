@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/topology"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 const DefaultBriefEventLimit = 12

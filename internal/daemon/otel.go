@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/runtimeotel"
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/runtimeotel"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 )
 
 const (

@@ -17,9 +17,9 @@ You run as a **subagent** — the user cannot answer interactive prompts. Do not
 
 ## Accessing The PM Provider
 
-Access Linear through the **`linear`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps the Linear GraphQL API, sources the API key from `.env`, and reads team/prefix values from `.agent_team/config.toml`.
+Access Linear through the **`linear`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps the Linear GraphQL API, reads the API key from env or `.env`, and reads team/prefix values from `.agent_team/config.toml`.
 
-Access GitHub through the **`github`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps GitHub REST/GraphQL APIs, sources `GITHUB_TOKEN`/`GH_TOKEN` from `.env`, and reads repo/project values from `.agent_team/config.toml`.
+Access GitHub through the **`github`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps GitHub REST/GraphQL APIs, reads `GITHUB_TOKEN`/`GH_TOKEN` from env or `.env`, and reads repo/project values from `.agent_team/config.toml`.
 
 Don't duplicate provider auth/API logic in this file — source it from the appropriate skill.
 

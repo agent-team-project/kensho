@@ -16,13 +16,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/intake"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/pmprovider"
-	"github.com/jamesaud/agent-team/internal/runtimeotel"
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/intake"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
+	"github.com/agent-team-project/agent-team/internal/runtimeotel"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 // Handler builds the daemon's http.Handler. Routes are explicit (no library

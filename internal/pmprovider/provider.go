@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/intake"
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/intake"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 type ProviderName string

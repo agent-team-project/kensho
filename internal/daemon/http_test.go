@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 func TestHTTP_Dispatch_StopList(t *testing.T) {

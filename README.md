@@ -23,19 +23,19 @@ A starter "software engineering team" template (a `ticket-manager`, a `manager`,
 **1. `go install`** (works today; needs Go 1.22+):
 
 ```sh
-go install github.com/jamesaud/agent-team/cmd/agent-team@latest
-go install github.com/jamesaud/agent-team/cmd/agent-teamd@latest
+go install github.com/agent-team-project/agent-team/cmd/agent-team@latest
+go install github.com/agent-team-project/agent-team/cmd/agent-teamd@latest
 ```
 
 This drops both binaries into `$(go env GOPATH)/bin` (typically `~/go/bin`). Make sure that directory is on your `PATH`.
 
 **2. Prebuilt release tarball** (works after the first tagged release):
 
-Grab the archive for your OS/arch from [GitHub Releases](https://github.com/jamesaud/agent-team/releases), unpack, and put both binaries on your `PATH`:
+Grab the archive for your OS/arch from [GitHub Releases](https://github.com/agent-team-project/agent-team/releases), unpack, and put both binaries on your `PATH`:
 
 ```sh
 # example for macOS arm64 — adjust the URL for your platform
-curl -fsSL https://github.com/jamesaud/agent-team/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
+curl -fsSL https://github.com/agent-team-project/agent-team/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
   | tar -xz -C /usr/local/bin agent-team agent-teamd
 ```
 
@@ -43,7 +43,7 @@ curl -fsSL https://github.com/jamesaud/agent-team/releases/latest/download/agent
 
 ```sh
 # not yet available — pending tap repo creation; see SQU-31
-# brew install jamesaud/agent-team/agent-team
+# brew install agent-team-project/agent-team/agent-team
 ```
 
 Verify any install with:
@@ -139,7 +139,7 @@ docker build -t agent-team:local .
 ```
 
 Pushes to `main` and `v*` tags publish the same image recipe to
-`ghcr.io/jamesaud/agent-team`, sign published digests with keyless cosign,
+`ghcr.io/agent-team-project/agent-team`, sign published digests with keyless cosign,
 and attach SBOM/provenance attestations.
 
 The site covers architecture, templates, agents and skills, topology, daemon runtime, jobs, queues, teams, intake, diagnostics, file formats, CLI groups, testing, and use cases.

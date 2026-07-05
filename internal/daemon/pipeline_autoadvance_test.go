@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 // autoAdvanceTeamDir is a fixture team with both a worker and a reviewer agent,

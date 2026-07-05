@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 var ErrLiveProcessReference = errors.New("worktree has live process references")

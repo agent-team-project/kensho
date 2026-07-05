@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/spf13/cobra"
 )
 

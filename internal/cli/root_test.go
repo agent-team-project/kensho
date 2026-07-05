@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/feedback"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/feedback"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestRootRepoFlagSelectsRepoForRepoScopedCommands(t *testing.T) {

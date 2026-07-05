@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 // Status is an instance's lifecycle state, surfaced via GET /v1/instances.

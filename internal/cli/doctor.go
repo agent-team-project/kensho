@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/loader"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/pmprovider"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	"github.com/jamesaud/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/template"
 	"github.com/spf13/cobra"
 )
 

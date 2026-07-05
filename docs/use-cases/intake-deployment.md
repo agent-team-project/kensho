@@ -219,21 +219,21 @@ For a container host, generate a Compose service that mounts the repo and runs t
 docker build -t agent-team:local .
 ```
 
-CI publishes the same image recipe to `ghcr.io/jamesaud/agent-team` on pushes to `main` and `v*` release tags, then signs published digests with keyless cosign. Use that image when you want a registry-hosted base instead of a local build.
+CI publishes the same image recipe to `ghcr.io/agent-team-project/agent-team` on pushes to `main` and `v*` release tags, then signs published digests with keyless cosign. Use that image when you want a registry-hosted base instead of a local build.
 
 Verify a published image before pinning it in deployment manifests:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/jamesaud/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-identity-regexp 'https://github.com/agent-team-project/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/jamesaud/agent-team:latest
+  ghcr.io/agent-team-project/agent-team:latest
 
 cosign verify-attestation \
   --type slsaprovenance \
-  --certificate-identity-regexp 'https://github.com/jamesaud/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-identity-regexp 'https://github.com/agent-team-project/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/jamesaud/agent-team:latest
+  ghcr.io/agent-team-project/agent-team:latest
 ```
 
 ```sh
@@ -280,7 +280,7 @@ For a Kubernetes host, generate manifests that reference a workspace PVC contain
 
 ```sh
 agent-team intake service kubernetes \
-  --image ghcr.io/jamesaud/agent-team:latest \
+  --image ghcr.io/agent-team-project/agent-team:latest \
   --bin agent-team \
   --name agent-team-intake-my-repo \
   --secret-name agent-team-intake-secrets \

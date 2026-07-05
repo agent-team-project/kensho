@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 func TestLoadNotificationConfigDefaultsAndOverrides(t *testing.T) {
@@ -244,7 +244,7 @@ description = "` + description + `"
 job = "squ-37"
 ticket = "SQU-37"
 branch = "squ-37"
-pr = "https://github.com/jamesaud/agent-team/pull/37"
+pr = "https://github.com/agent-team-project/agent-team/pull/37"
 `
 	if err := os.WriteFile(filepath.Join(dir, "status.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write status: %v", err)

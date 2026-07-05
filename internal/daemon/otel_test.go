@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/topology"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {

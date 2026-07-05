@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 type fakeReloadClient struct {

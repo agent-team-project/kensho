@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/feedback"
+	"github.com/agent-team-project/agent-team/internal/feedback"
 	"github.com/spf13/cobra"
 )
 

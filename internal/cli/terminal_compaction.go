@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 type terminalCompactionResult struct {

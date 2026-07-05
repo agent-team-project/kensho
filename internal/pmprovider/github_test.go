@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestGitHubWriteBackMissingTokenAuditsSkip(t *testing.T) {

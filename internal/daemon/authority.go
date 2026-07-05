@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 const authorityViolationAction = "authority_violation"

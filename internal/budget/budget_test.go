@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/topology"
-	"github.com/jamesaud/agent-team/internal/usage"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 func TestStatusesComputesSlidingTokenWindowAndRunningJobs(t *testing.T) {

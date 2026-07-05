@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/budget"
-	jobstore "github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/linearwriteback"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	"github.com/jamesaud/agent-team/internal/topology"
-	"github.com/jamesaud/agent-team/internal/usage"
-	"github.com/jamesaud/agent-team/internal/worktreecleanup"
-	"github.com/jamesaud/agent-team/internal/worktreepolicy"
+	"github.com/agent-team-project/agent-team/internal/budget"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/linearwriteback"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/worktreecleanup"
+	"github.com/agent-team-project/agent-team/internal/worktreepolicy"
 )
 
 // fixtureTopo parses a small topology used across the event/topology tests.

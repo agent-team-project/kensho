@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
-	"github.com/jamesaud/agent-team/internal/loader"
-	"github.com/jamesaud/agent-team/internal/runtimebin"
-	"github.com/jamesaud/agent-team/internal/runtimeotel"
+	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/runtimeotel"
 	"github.com/spf13/cobra"
 )
 

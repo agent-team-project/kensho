@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/jamesaud/agent-team/internal/cli"
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/cli"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 func main() {

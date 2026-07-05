@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jamesaud/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/job"
 	"github.com/spf13/cobra"
 )
 

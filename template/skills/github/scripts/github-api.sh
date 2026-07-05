@@ -57,6 +57,47 @@ if missing:
 PY
 }
 
+read_env_value() {
+    python3 - "$@" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+names = sys.argv[2:]
+wanted = set(names)
+values = {}
+
+try:
+    lines = path.read_text().splitlines()
+except OSError:
+    sys.exit(1)
+
+for raw in lines:
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("export "):
+        line = line[len("export "):].lstrip()
+    key, sep, value = line.partition("=")
+    if not sep:
+        continue
+    key = key.strip()
+    if key not in wanted:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    values[key] = value
+
+for name in names:
+    value = values.get(name, "").strip()
+    if value:
+        print(value)
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
 resolve_token() {
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         return 0
@@ -78,15 +119,9 @@ resolve_token() {
 
     for env_file in "${env_files[@]:-}"; do
         [ -z "$env_file" ] && continue
-        set -a
-        # shellcheck disable=SC1090
-        source "$env_file"
-        set +a
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
-            return 0
-        fi
-        if [ -n "${GH_TOKEN:-}" ]; then
-            GITHUB_TOKEN="$GH_TOKEN"
+        local token
+        if token="$(read_env_value "$env_file" GITHUB_TOKEN GH_TOKEN)"; then
+            GITHUB_TOKEN="$token"
             return 0
         fi
     done

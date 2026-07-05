@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 )
 
 const LinearSelfStatusChangeReason = "self-authored Linear status change ignored"

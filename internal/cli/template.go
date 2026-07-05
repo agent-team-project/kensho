@@ -12,8 +12,8 @@ import (
 	"strings"
 	texttemplate "text/template"
 
-	agentteam "github.com/jamesaud/agent-team"
-	"github.com/jamesaud/agent-team/internal/template"
+	agentteam "github.com/agent-team-project/agent-team"
+	"github.com/agent-team-project/agent-team/internal/template"
 	"github.com/spf13/cobra"
 )
 

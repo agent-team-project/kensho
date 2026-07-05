@@ -26,7 +26,7 @@ export default defineConfig({
       { text: 'Workflows', link: '/workflows/jobs' },
       { text: 'Use Cases', link: '/use-cases/' },
       { text: 'Contributing', link: '/contributing/development' },
-      { text: 'GitHub', link: 'https://github.com/jamesaud/agent-team' }
+      { text: 'GitHub', link: 'https://github.com/agent-team-project/agent-team' }
     ],
     sidebar: [
       {
@@ -102,7 +102,7 @@ export default defineConfig({
       }
     ],
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/jamesaud/agent-team' }
+      { icon: 'github', link: 'https://github.com/agent-team-project/agent-team' }
     ],
     footer: {
       message: 'Pre-v1 developer documentation for agent-team.',

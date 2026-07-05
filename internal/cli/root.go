@@ -4,13 +4,13 @@ package cli
 import (
 	"fmt"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
 // Version is the agent-team release version. The default below is the
 // in-tree development value; release builds override it via ldflags
-// (`-X github.com/jamesaud/agent-team/internal/cli.Version=...`) — see
+// (`-X github.com/agent-team-project/agent-team/internal/cli.Version=...`) — see
 // `.goreleaser.yaml`.
 var Version = "0.1.0"
 

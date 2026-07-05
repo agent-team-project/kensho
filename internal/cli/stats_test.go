@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 func TestStatsDefaultShowsRunningInstancesOnly(t *testing.T) {

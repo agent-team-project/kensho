@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 var schedulePollInterval = time.Second

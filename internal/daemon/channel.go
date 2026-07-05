@@ -67,7 +67,7 @@ func channelSubscriptionsPath(daemonRoot, name string) string {
 // inactive. Cursor advancement happens via Ack which writes a fresh
 // subscribe-with-new-cursor entry.
 type subscriptionEvent struct {
-	Event    string    `json:"event"`    // "subscribe" | "unsubscribe" | "ack"
+	Event    string    `json:"event"` // "subscribe" | "unsubscribe" | "ack"
 	Instance string    `json:"instance"`
 	Cursor   int64     `json:"cursor"`
 	TS       time.Time `json:"ts"`

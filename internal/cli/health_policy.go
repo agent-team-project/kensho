@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 )
 
 const defaultStatusStaleAfter = 10 * time.Minute

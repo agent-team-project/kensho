@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 // Record is one finalized runtime run captured from daemon metadata.

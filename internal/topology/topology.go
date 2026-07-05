@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jamesaud/agent-team/internal/allowance"
-	"github.com/jamesaud/agent-team/internal/mergepolicy"
-	"github.com/jamesaud/agent-team/internal/template"
-	"github.com/jamesaud/agent-team/internal/worktreepolicy"
+	"github.com/agent-team-project/agent-team/internal/allowance"
+	"github.com/agent-team-project/agent-team/internal/mergepolicy"
+	"github.com/agent-team-project/agent-team/internal/template"
+	"github.com/agent-team-project/agent-team/internal/worktreepolicy"
 )
 
 // FileName is the conventional file name at the template root and at

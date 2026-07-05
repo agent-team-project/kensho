@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/runtimebin"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
 // AdoptInput describes an externally started process that should be tracked

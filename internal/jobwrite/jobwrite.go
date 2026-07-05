@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/buildinfo"
-	"github.com/jamesaud/agent-team/internal/job"
-	"github.com/jamesaud/agent-team/internal/origin"
-	"github.com/jamesaud/agent-team/internal/pmprovider"
-	"github.com/jamesaud/agent-team/internal/topology"
-	"github.com/jamesaud/agent-team/internal/usage"
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
+	"github.com/agent-team-project/agent-team/internal/topology"
+	"github.com/agent-team-project/agent-team/internal/usage"
 )
 
 type Options struct {

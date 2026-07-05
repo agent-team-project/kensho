@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/daemon"
 )
 
 // channelTestEnv stands up a fresh daemon-side ChannelStore and an httptest

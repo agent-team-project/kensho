@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamesaud/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 // LockLease is one durable row recording an instance holding a named dispatch

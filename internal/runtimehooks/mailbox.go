@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	teamtemplate "github.com/jamesaud/agent-team/internal/template"
+	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 )
 
 const (
