@@ -610,6 +610,36 @@ func (t *Topology) Find(name string) *Instance {
 	return t.Instances[name]
 }
 
+// FindRuntimeInstance returns the declared instance that owns a runtime
+// instance name. Exact names win; otherwise ephemeral names such as
+// "worker-squ-123" match the longest declared "worker-" prefix.
+func (t *Topology) FindRuntimeInstance(name, agent string) *Instance {
+	if t == nil {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	agent = strings.TrimSpace(agent)
+	if inst := t.Find(name); inst != nil {
+		return inst
+	}
+	var best *Instance
+	for _, inst := range t.SortedInstances() {
+		if inst == nil || inst.Name == "" {
+			continue
+		}
+		if agent != "" && inst.Agent != agent {
+			continue
+		}
+		if !strings.HasPrefix(name, inst.Name+"-") {
+			continue
+		}
+		if best == nil || len(inst.Name) > len(best.Name) {
+			best = inst
+		}
+	}
+	return best
+}
+
 // FindTeam returns the declared team by name, or nil if none.
 func (t *Topology) FindTeam(name string) *Team {
 	if t == nil {
@@ -624,6 +654,74 @@ func (t *Topology) FindBudget(team string) *Budget {
 		return nil
 	}
 	return t.Budgets[strings.TrimSpace(team)]
+}
+
+// TeamForInstance returns the owning team declared for a runtime instance, or
+// empty. Exact declared instance names win; ephemeral names match the longest
+// declared "<instance>-" prefix.
+func (t *Topology) TeamForInstance(name string) string {
+	if t == nil {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	for _, team := range t.SortedTeams() {
+		for _, ref := range team.Instances {
+			if ref == name {
+				return team.Name
+			}
+		}
+	}
+	bestTeam := ""
+	bestLen := -1
+	for _, team := range t.SortedTeams() {
+		for _, ref := range team.Instances {
+			if ref == "" || !strings.HasPrefix(name, ref+"-") {
+				continue
+			}
+			if len(ref) > bestLen {
+				bestTeam = team.Name
+				bestLen = len(ref)
+			}
+		}
+	}
+	return bestTeam
+}
+
+// AuthorityAllowlistForInstance returns the topology-declared authority
+// patterns that apply to a runtime instance. Per-agent and per-team rules are
+// additive, mirroring Authority.Allows.
+func (t *Topology) AuthorityAllowlistForInstance(instance, agent string) []string {
+	if t == nil || t.Authority == nil || !t.Authority.Configured() {
+		return nil
+	}
+	instance = strings.TrimSpace(instance)
+	agent = strings.TrimSpace(agent)
+	if inst := t.FindRuntimeInstance(instance, agent); inst != nil && strings.TrimSpace(inst.Agent) != "" {
+		agent = strings.TrimSpace(inst.Agent)
+	}
+	seen := map[string]bool{}
+	var out []string
+	addRule := func(rule *AuthorityRule) {
+		if rule == nil {
+			return
+		}
+		for _, allow := range rule.Allow {
+			allow = strings.TrimSpace(allow)
+			if allow == "" || seen[allow] {
+				continue
+			}
+			seen[allow] = true
+			out = append(out, allow)
+		}
+	}
+	if agent != "" {
+		addRule(t.Authority.Agents[agent])
+	}
+	if team := t.TeamForInstance(instance); team != "" {
+		addRule(t.Authority.Teams[team])
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TeamForSchedule returns the owning team declared for schedule, or empty.

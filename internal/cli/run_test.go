@@ -23,6 +23,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/runtimehooks"
+	"github.com/agent-team-project/agent-team/internal/runtimeshim"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -293,6 +294,26 @@ func initInto(t *testing.T, dir string) {
 	}
 }
 
+func appendAuthorityTopology(t *testing.T, path string) {
+	t.Helper()
+	body := `
+
+[authority.agents.worker]
+allow = ["job.gate.*:own"]
+
+[authority.teams.delivery]
+allow = ["event.publish"]
+`
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(body); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeOTelRunConfig(t *testing.T, dir string) {
 	t.Helper()
 	body := `[team]
@@ -336,7 +357,7 @@ func assertRuntimeCommandSurface(t *testing.T, addDir string, env []string, shim
 	if got := strings.Split(path, string(os.PathListSeparator))[0]; got != wantBin {
 		t.Fatalf("PATH first entry = %q, want runtime shim bin %q; PATH=%q", got, wantBin, path)
 	}
-	for _, want := range []string{"channel.sh", "inbox"} {
+	for _, want := range []string{"agent-team", "channel.sh", "inbox"} {
 		if !containsString(shims, want) {
 			t.Fatalf("runtime shims = %v, want %s", shims, want)
 		}
@@ -438,6 +459,27 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 		if !strings.Contains(cap.settingsBody, want) {
 			t.Fatalf("mailbox hook settings missing %q:\n%s", want, cap.settingsBody)
 		}
+	}
+}
+
+func TestRun_ExportsAuthorityAllowlistFromTopology(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	appendAuthorityTopology(t, filepath.Join(tmp, ".agent_team", "instances.toml"))
+
+	cap, restore := captureRun(t, nil)
+	defer restore()
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"run", "worker", "--target", tmp, "--name", "worker-squ-123", "--prompt", "kickoff message", "--no-daemon"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := envValue(cap.env, runtimeshim.EnvAuthorityAllowlist); got != "event.publish,job.gate.*:own" {
+		t.Fatalf("%s = %q, want topology allowlist", runtimeshim.EnvAuthorityAllowlist, got)
 	}
 }
 

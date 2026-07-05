@@ -294,6 +294,16 @@ channels = ["supervisor"]
 	if top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "job.merge"}) {
 		t.Fatalf("worker job.merge should not be allowed")
 	}
+	if got := top.TeamForInstance("worker-squ-92"); got != "platform" {
+		t.Fatalf("TeamForInstance(worker-squ-92) = %q, want platform", got)
+	}
+	if inst := top.FindRuntimeInstance("worker-squ-92", "worker"); inst == nil || inst.Name != "worker" {
+		t.Fatalf("FindRuntimeInstance(worker-squ-92) = %+v, want worker", inst)
+	}
+	wantAllow := []string{"inbox.*", "job.*", "job.gate.set:own", "queue.retry"}
+	if got := top.AuthorityAllowlistForInstance("worker-squ-92", "worker"); !reflect.DeepEqual(got, wantAllow) {
+		t.Fatalf("AuthorityAllowlistForInstance = %#v, want %#v", got, wantAllow)
+	}
 	if got := ScopedResourceName("build", ScopeTeam, "platform", "squ-92"); got != "team.platform.build" {
 		t.Fatalf("ScopedResourceName = %q", got)
 	}

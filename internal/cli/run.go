@@ -348,6 +348,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + daemon.SocketPath(teamDir),
 	}
+	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, topologyAuthorityAllowlistForInstance(teamDir, instance, agentName))
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
 	}
@@ -793,14 +794,15 @@ func topologyTeamForInstance(teamDir, instance string) string {
 	if err != nil || topo == nil {
 		return ""
 	}
-	for _, team := range topo.SortedTeams() {
-		for _, name := range team.Instances {
-			if name == instance {
-				return team.Name
-			}
-		}
+	return topo.TeamForInstance(instance)
+}
+
+func topologyAuthorityAllowlistForInstance(teamDir, instance, agent string) []string {
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || topo == nil {
+		return nil
 	}
-	return ""
+	return topo.AuthorityAllowlistForInstance(instance, agent)
 }
 
 // writeStateConfig writes the resolved tree to <stateDir>/config.toml.
