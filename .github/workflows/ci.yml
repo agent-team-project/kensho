@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
       - name: Install pyyaml (frontmatter validator)
         run: pip install --no-cache-dir pyyaml==6.0.2
 
@@ -50,6 +55,14 @@ jobs:
 
       - name: Check generated CLI reference
         run: bin/agent-team docs cli --check docs/reference/cli.generated.md
+
+      - name: Build docs
+        run: |
+          npm ci
+          npm run docs:build
+          grep -qF "agent-team Developer Docs" docs/.vitepress/dist/index.html
+          grep -qF "Start Reading" docs/.vitepress/dist/index.html
+          ! grep -qF "{{" docs/.vitepress/dist/index.html
 
       - name: CLI smoke test (init + template + doctor)
         run: python3 scripts/ci/smoke_init.py bin/agent-team

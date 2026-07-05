@@ -6,6 +6,9 @@ const base = process.env.READTHEDOCS_CANONICAL_URL
   ? new URL(process.env.READTHEDOCS_CANONICAL_URL).pathname
   : '/'
 
+const escapeVueMustaches = (html: string) =>
+  html.replace(/\{\{/g, '&#123;&#123;').replace(/\}\}/g, '&#125;&#125;')
+
 export default defineConfig({
   base,
   title: 'agent-team Developer Docs',
@@ -13,13 +16,15 @@ export default defineConfig({
   cleanUrls: false, // ReadTheDocs static hosting does not rewrite clean URLs
   lastUpdated: true,
   markdown: {
-    lineNumbers: true
-  },
-  vue: {
-    template: {
-      compilerOptions: {
-        delimiters: ['[[[', ']]]']
-      }
+    lineNumbers: true,
+    config(md) {
+      const renderFence = md.renderer.rules.fence
+      const renderCodeBlock = md.renderer.rules.code_block
+      const renderCodeInline = md.renderer.rules.code_inline
+
+      md.renderer.rules.fence = (...args) => escapeVueMustaches(renderFence(...args))
+      md.renderer.rules.code_block = (...args) => escapeVueMustaches(renderCodeBlock(...args))
+      md.renderer.rules.code_inline = (...args) => escapeVueMustaches(renderCodeInline(...args))
     }
   },
   themeConfig: {
