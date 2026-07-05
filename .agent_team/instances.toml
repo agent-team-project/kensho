@@ -293,9 +293,21 @@ match.kind = "discord_digest"
 event        = "agent.dispatch"
 match.target = "comms"
 
+
+[instances.docs-writer]
+agent        = "worker"
+ephemeral    = true
+runtime      = "claude"
+token_budget = "40M"
+description  = "Documentation writer on the claude runtime (subscription Opus-class prose). Dispatched for README/guide/narrative work."
+
+[[instances.docs-writer.triggers]]
+event        = "agent.dispatch"
+match.target = "docs-writer"
+
 [teams.pr]
 description = "Public relations: community digests, announcements, discussions, outward feedback intake."
-instances   = ["comms"]
+instances   = ["comms", "docs-writer"]
 schedules   = ["discord-digest"]
 
 [teams.quality]

@@ -100,11 +100,11 @@ func TestPlanBundledDefaultTopologyCanary(t *testing.T) {
 	// This is the one Go canary for the bundled template's current topology.
 	// Other exact plan-shape tests overwrite instances.toml with a local
 	// fixture so adding a bundled instance only updates this test.
-	if body.Summary.Total != 10 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 8 || !body.Summary.DryRun {
+	if body.Summary.Total != 11 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 9 || !body.Summary.DryRun {
 		t.Fatalf("bundled topology summary = %+v, want current bundled default shape", body.Summary)
 	}
-	if body.Summary.Statuses["unknown"] != 10 {
-		t.Fatalf("bundled topology statuses = %+v, want unknown=10", body.Summary.Statuses)
+	if body.Summary.Statuses["unknown"] != 11 {
+		t.Fatalf("bundled topology statuses = %+v, want unknown=11", body.Summary.Statuses)
 	}
 }
 
