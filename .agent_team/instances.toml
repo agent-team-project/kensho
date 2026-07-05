@@ -266,6 +266,38 @@ event      = "schedule"
 match.name = "harness-review"
 match.kind = "harness_review"
 
+
+# The comms team: the project's public voice. A daily schedule dispatches the
+# comms agent to digest the last 24h of shipped work into Discord (via
+# webhook — sanctioned automation; falls back to a supervisor draft when no
+# webhook is configured). Community signal flows back in through the
+# feedback store. See template/agents/comms/agent.md for the voice rules.
+[schedules.discord-digest]
+every = "24h"
+
+[schedules.discord-digest.payload]
+kind = "discord_digest"
+
+[instances.comms]
+agent        = "comms"
+ephemeral    = true
+token_budget = "15M"
+description  = "Public-relations agent: daily shipped-work digest, release announcements, community intake."
+
+[[instances.comms.triggers]]
+event      = "schedule"
+match.name = "discord-digest"
+match.kind = "discord_digest"
+
+[[instances.comms.triggers]]
+event        = "agent.dispatch"
+match.target = "comms"
+
+[teams.pr]
+description = "Public relations: community digests, announcements, discussions, outward feedback intake."
+instances   = ["comms"]
+schedules   = ["discord-digest"]
+
 [teams.quality]
 description = "Proactive architecture, tech-debt, and harness auditing."
 instances   = ["debt-auditor", "harness-reviewer"]

@@ -333,11 +333,11 @@ def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str
     # this canary.
     if (
         r.returncode != 0
-        or summary.get("total") != 9
+        or summary.get("total") != 10
         or summary.get("actions", {}).get("start") != 2
-        or summary.get("actions", {}).get("on-demand") != 7
+        or summary.get("actions", {}).get("on-demand") != 8
         or not summary.get("dry_run")
-        or summary.get("statuses", {}).get("unknown") != 9
+        or summary.get("statuses", {}).get("unknown") != 10
     ):
         problems.append(f"bundled topology canary returned unexpected summary: rc={r.returncode}\nbody={body}\nstdout={r.stdout}\nstderr={r.stderr}")
 
