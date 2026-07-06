@@ -70,7 +70,7 @@ func newTemplateRunCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.name, "name", "n", "", "Instance name (defaults to the agent name).")
 	cmd.Flags().StringArrayVar(&cfg.setStrings, "set", nil, "Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.")
 	cmd.Flags().BoolVar(&cfg.noInput, "no-input", false, "Fail if required parameters are missing instead of prompting.")
-	cmd.Flags().StringVar(&cfg.runtimeKind, "runtime", "", "Runtime profile for this invocation (claude or codex). Overrides env and rendered repo config.")
+	cmd.Flags().StringVar(&cfg.runtimeKind, "runtime", "", "Runtime profile for this invocation (claude, codex, or docker). Overrides env and rendered repo config.")
 	cmd.Flags().StringVar(&cfg.runtimeBinary, "runtime-bin", "", "Runtime binary for this invocation. Overrides env and rendered repo config.")
 	cmd.Flags().BoolVar(&cfg.lastMessage, "last-message", false, "With Codex --prompt runs, suppress runtime diagnostics and print the clean final response sidecar.")
 	return cmd

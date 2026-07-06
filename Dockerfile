@@ -19,7 +19,9 @@ RUN set -eux; \
 
 FROM alpine:3.20
 
-RUN apk add --no-cache bash ca-certificates git openssh-client python3
+RUN apk add --no-cache bash ca-certificates curl git github-cli nodejs npm openssh-client python3 \
+    && npm install -g @openai/codex \
+    && mkdir -p /root/.codex /root/.config/gh
 
 COPY --from=build /out/agent-team /usr/local/bin/agent-team
 COPY --from=build /out/agent-teamd /usr/local/bin/agent-teamd

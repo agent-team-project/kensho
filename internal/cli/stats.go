@@ -159,7 +159,7 @@ func newStatsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sortBy, "sort", "name", "Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy.")
 	cmd.Flags().DurationVar(&interval, "interval", 2*time.Second, "Refresh interval for --watch.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show instances with this name. Can repeat or comma-separate.")
@@ -347,7 +347,7 @@ func newStatsOptionsWithRuntimeInstancesPhasesAndUnhealthy(all bool, statusFilte
 			}
 			kind, err := runtimebin.ParseKind(raw)
 			if err != nil {
-				return opts, fmt.Errorf("unknown --runtime %q (want claude or codex)", raw)
+				return opts, fmt.Errorf("unknown --runtime %q (want claude, codex, or docker)", raw)
 			}
 			opts.runtimes[string(kind)] = true
 		}

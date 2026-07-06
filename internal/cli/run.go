@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -88,7 +89,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.jsonOut, "json", false, "Emit daemon dispatch metadata as JSON. Requires --prompt or --detach.")
 	cmd.Flags().StringVar(&cfg.format, "format", "", "Render daemon dispatch metadata with a Go template, e.g. '{{.Instance}} {{.PID}}'. Requires --prompt or --detach.")
 	cmd.Flags().BoolVar(&cfg.lastMessage, "last-message", false, "With Codex --prompt runs, bypass the daemon and print only the clean final response sidecar.")
-	cmd.Flags().StringVar(&cfg.runtimeKind, "runtime", "", "Runtime profile for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&cfg.runtimeKind, "runtime", "", "Runtime profile for this invocation (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&cfg.runtimeBinary, "runtime-bin", "", "Runtime binary for this invocation. Overrides env and repo config.")
 	return cmd
 }
@@ -207,6 +208,10 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	})
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
+		return exitErr(2)
+	}
+	if rt.Kind == runtimebin.KindDocker {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: docker runtime is only supported for daemon topology dispatch; use an instance or pipeline runtime override.")
 		return exitErr(2)
 	}
 	if rt.Kind == runtimebin.KindCodex && (cfg.detach || cfg.attach) && strings.TrimSpace(cfg.prompt) == "" {
@@ -355,8 +360,8 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	teamEnv = append(teamEnv, daemon.DaemonTokenFileEnv+"="+tokenFile)
 	authorityAllow, authorityEnforce := topologyAuthorityAllowlistForInstance(teamDir, instance, agentName)
 	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, authorityAllow)
-	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
-		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
+	if daemonURL := daemonURLForRuntimeEnv(teamDir); daemonURL != "" {
+		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemonURL)
 	}
 	otelCfg, err := runtimeotel.FromTree(resolved)
 	if err != nil {
@@ -816,6 +821,28 @@ func topologyAuthorityAllowlistForInstance(teamDir, instance, agent string) (all
 	// is deny-all-beyond-read-only, distinct from no-authority pass-through.
 	enforce = topo.Authority != nil && topo.Authority.Configured()
 	return topo.AuthorityAllowlistForInstance(instance, agent), enforce
+}
+
+func daemonURLForRuntimeEnv(teamDir string) string {
+	inherited := strings.TrimRight(strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_URL")), "/")
+	if preferInheritedDaemonURL(inherited) {
+		return inherited
+	}
+	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
+		return daemon.DaemonHTTPURL(httpAddr)
+	}
+	return inherited
+}
+
+func preferInheritedDaemonURL(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "host.docker.internal")
 }
 
 // writeStateConfig writes the resolved tree to <stateDir>/config.toml.

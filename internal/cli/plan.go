@@ -125,7 +125,7 @@ func newPlanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running topology extras as stop actions, matching sync --stop-extras.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show plan rows with this name. Can repeat or comma-separate.")

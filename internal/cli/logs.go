@@ -135,7 +135,7 @@ func newLogsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&clean, "clean", false, "Hide known Codex runtime diagnostic noise before printing logs.")
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print the unprocessed runtime log stream without Codex JSONL rendering.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only show logs for lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only show logs for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only show logs for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&jobs, "job", nil, "Only show logs for this job id or ticket. Can repeat or comma-separate.")
@@ -538,7 +538,7 @@ func newLogListOptionsWithRuntimeAndUnhealthy(statusFilters, runtimeFilters, age
 			}
 			kind, err := runtimebin.ParseKind(raw)
 			if err != nil {
-				return opts, fmt.Errorf("unknown --runtime %q (want claude or codex)", raw)
+				return opts, fmt.Errorf("unknown --runtime %q (want claude, codex, or docker)", raw)
 			}
 			opts.runtimes[string(kind)] = true
 		}

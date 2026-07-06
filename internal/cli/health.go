@@ -190,7 +190,7 @@ func newHealthCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Only check the most recently started instance after other filters. Daemon health remains global.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Only check the N most recently started instances after other filters (0 = all). Daemon health remains global.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only check daemon-known instances for this runtime: claude or codex. Daemon health remains global. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only check daemon-known instances for this runtime: claude, codex, or docker. Daemon health remains global. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only check declared and daemon-known instances for this agent. Daemon health remains global. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only check instances with this name. Daemon health remains global. Can repeat or comma-separate.")

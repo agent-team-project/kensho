@@ -54,7 +54,7 @@ as the output directory instead.
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach`; use `--runtime` for one-off Claude/Codex selection |
+| `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach`; use `--runtime` for one-off runtime selection, except Docker which is daemon-dispatch only |
 | `agent-team start [instances...]` | Start/resume persistent or selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team stop [instances...]` | Stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team kill [instances...]` | Force-stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
@@ -127,7 +127,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed; add `--dry-run --commands` for the apply command |
 | `agent-team job step <job-id> <step-id>` | Update a pipeline step; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` after marking a step done |
-| `agent-team job dispatch <job-id>` | Dispatch a job; add `--dry-run --commands` for the apply command, use `--runtime` for one-off Claude/Codex selection, and `--wait` for bounded automation |
+| `agent-team job dispatch <job-id>` | Dispatch a job; add `--dry-run --commands` for the apply command, use `--runtime` for one-off runtime selection, and `--wait` for bounded automation |
 | `agent-team job send <job-id>` | Send message to job instance; add `--dry-run --commands` for the apply command |
 | `agent-team job note <job-id>` | Append an operator or automation note to the job audit log; add `--dry-run --commands` for the apply command |
 | `agent-team job block <job-id>` | Mark a job blocked and record the reason; add `--dry-run --commands` for the apply command |

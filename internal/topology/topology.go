@@ -17,6 +17,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/agent-team-project/agent-team/internal/allowance"
 	"github.com/agent-team-project/agent-team/internal/mergepolicy"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/template"
 	"github.com/agent-team-project/agent-team/internal/worktreepolicy"
 )
@@ -2051,12 +2052,11 @@ func parseStepRuntime(raw any) (string, error) {
 	if !ok || value == "" {
 		return "", fmt.Errorf("runtime must be a non-empty string")
 	}
-	switch value {
-	case "claude", "codex":
-		return value, nil
-	default:
-		return "", fmt.Errorf("runtime must be claude or codex")
+	kind, err := runtimebin.ParseKind(value)
+	if err != nil {
+		return "", fmt.Errorf("runtime must be claude, codex, or docker")
 	}
+	return string(kind), nil
 }
 
 func parseStepWorkspace(raw any) (string, error) {

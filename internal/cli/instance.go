@@ -727,7 +727,7 @@ func newInstanceRmCmd() *cobra.Command {
 	c.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Remove only daemon-known running instances whose recorded runtime PID is no longer live.")
 	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Remove only daemon-known instances that are crashed, status-stale, or runtime-stale.")
 	c.Flags().StringSliceVar(&agents, "agent", nil, "With --all, --finished, --latest, --last, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy, only remove daemon-known instances for this agent. Can repeat or comma-separate.")
-	c.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	c.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Remove daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&statusFilters, "status", nil, "Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.")
 	c.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	c.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching instance rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")

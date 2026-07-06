@@ -44,7 +44,7 @@ agent-team monitor --jobs --schedules
 
 `inspect` combines runtime metadata, daemon-known topology, status file data, and state paths. The runtime block includes both the selected runtime kind and binary/wrapper path when daemon metadata records it; `ps --json` and `stats --json` expose the same `runtime` and `runtime_binary` fields for scripts. Use `ps --runtime codex`, `inspect --runtime codex`, `health --runtime codex`, `stats --runtime codex`, `monitor --runtime codex`, or `logs --runtime codex` to narrow mixed-runtime views. Use `runtime metadata ls` for repo-wide raw persisted daemon metadata and `runtime metadata show <instance>` for one raw record, or `job runtime ls`, `pipeline runtime ls`, and `team runtime ls` when scripts need the same raw view scoped to one work unit, workflow, or team. Add `runtime metadata ls --commands` to print show commands for the filtered rows, or `runtime metadata show <instance> --commands` to print inspect, logs, resume-plan, and job detail follow-ups.
 For Codex one-shot runs, the adapter feeds the assembled agent prompt to `codex exec -` on stdin. `logs --last-message`, `job logs --last-message`, and `team logs --last-message` read captured final response sidecars instead of raw Codex diagnostic logs. Use `logs --runtime codex --last-message` to read only Codex final-response sidecars across matching instances. When you need raw logs but not Codex startup/plugin/reconnect diagnostics, add `--clean` to `logs`, `job logs`, or `team logs`.
-See [Runtime Profiles](./profiles.md) for the Claude/Codex capability matrix.
+See [Runtime Profiles](./profiles.md) for the runtime capability matrix.
 
 ## Attach
 

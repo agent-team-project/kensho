@@ -190,7 +190,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the probe result with a Go template, e.g. '{{.OK}} {{len .Issues}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to probe for this invocation (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to probe for this invocation. Overrides env and repo config.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "Maximum time for daemon wait and external runtime diagnostics such as codex doctor --json.")
 	cmd.Flags().DurationVar(&daemonInterval, "daemon-interval", 200*time.Millisecond, "Polling interval for --wait-daemon.")

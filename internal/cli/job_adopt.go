@@ -93,7 +93,7 @@ func newJobAdoptCmd() *cobra.Command {
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")
 	cmd.Flags().StringVar(&pidFile, "pid-file", "", "Read the live process PID to adopt from this file. Cannot be combined with --pid.")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Workspace path for the adopted process. Defaults to the job worktree, then repo root.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary or wrapper used by the adopted process.")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Runtime session id, when known and resumable.")
 	cmd.Flags().StringVar(&startedAt, "started-at", "", "Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.")

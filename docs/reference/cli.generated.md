@@ -118,7 +118,7 @@ Flags:
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record on the adopted metadata.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -354,7 +354,7 @@ Flags:
       --no-follow         Log compatibility mode: print the selected log tail and exit instead of following.
       --no-resume         Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).
       --phase strings     Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings   Log compatibility mode: only attach to instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Log compatibility mode: only attach to instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Log compatibility mode: only attach to instances whose recorded runtime PID is no longer live.
       --since string      Log compatibility mode with --no-follow: only print the log if it was modified since this duration ago (for example 10m, 24h) or RFC3339 timestamp.
       --stale             Log compatibility mode: only attach to instances whose status.toml is stale.
@@ -779,7 +779,7 @@ Flags:
       --pid int              Live process PID to adopt.
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record on the adopted metadata.
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -995,7 +995,7 @@ Flags:
       --kickoff string        Kickoff text for the dispatched agent.
       --kickoff-file string   Read kickoff text from a file, or '-' for stdin.
       --name string           Requested instance name (default: <target>-<ticket-slug>).
-      --runtime string        Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
+      --runtime string        Runtime profile for the dispatched instance (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string    Runtime binary for the dispatched instance. Overrides env and repo config.
       --source string         Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -1094,7 +1094,7 @@ Flags:
       --fix                       Apply safe, local repairs such as backfilling [project].id.
       --format string             Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.
       --json                      Emit machine-readable JSON.
-      --runtime string            Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile to validate for this invocation (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary to validate for this invocation. Overrides env and repo config.
       --strict                    Fail on daemon binary, selected/runtime-default binary, and template provenance warnings.
       --strict-daemon             Fail when the companion agent-teamd binary is not discoverable.
@@ -1129,7 +1129,7 @@ Flags:
       --json                      Emit machine-readable JSON.
       --limit int                 Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int            Stop after this many cycles if work keeps appearing. (default 20)
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement.
       --skip-drain                Skip outbox and queue draining.
@@ -1245,7 +1245,7 @@ Flags:
   -n, --last int           Show events for the N most recently started daemon-known instances after other filters (0 = all).
       --latest             Show events for the most recently started daemon-known instance after other filters.
       --phase strings      Only show events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings    Only show events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show events for daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only show events for instances whose recorded runtime PID is currently no longer live.
       --since string       Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --sort string        Sort returned events by oldest or newest. Follow mode always streams oldest first. (default "oldest")
@@ -1432,7 +1432,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only check instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet               Suppress output and use only the exit code.
-      --runtime strings     Only check daemon-known instances for this runtime: claude or codex. Daemon health remains global. Can repeat or comma-separate.
+      --runtime strings     Only check daemon-known instances for this runtime: claude, codex, or docker. Daemon health remains global. Can repeat or comma-separate.
       --runtime-stale       Only check running instances whose recorded runtime PID is no longer live. Daemon health remains global.
       --stale               Only check instances whose status.toml is stale.
       --status strings      Only check instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -1655,7 +1655,7 @@ Flags:
   -n, --last int           Inspect the N most recently started visible instances after other filters (0 = all).
       --latest             Inspect the most recently started visible instance after other filters.
       --phase strings      Only inspect instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings    Only inspect instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only inspect instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only inspect running instances whose recorded runtime PID is no longer live.
       --stale              Only inspect instances whose status.toml is stale.
       --status strings     Only inspect instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -1818,7 +1818,7 @@ Flags:
   -n, --last int          Remove the N most recently started daemon-known instances after other filters (0 = all).
       --latest            Remove the most recently started daemon-known instance after other filters.
       --phase strings     Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings   Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Remove daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Remove only daemon-known running instances whose recorded runtime PID is no longer live.
       --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
@@ -2023,7 +2023,7 @@ Flags:
       --payload-file string       Read webhook JSON from a file, or '-' for stdin.
       --preview-triggers          With --dry-run, include local topology instance and pipeline matches.
       --reconcile-job             Also reconcile the normalized PR event into the owning durable job.
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --target string             Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --verify-pr                 With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
@@ -2376,7 +2376,7 @@ Flags:
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record. Defaults to the job PR.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -2401,7 +2401,7 @@ Flags:
       --format string             Render the advance preview or result with a Go template, e.g. '{{.Job.ID}} {{.Step.ID}}'.
       --json                      Emit the updated job and daemon event outcome as JSON.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for the advanced step dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for the advanced step dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for the advanced step dispatch. Overrides env and repo config.
       --wait                      After advancing, wait for the job to reach a lifecycle status, event, or next-step state.
       --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
@@ -2435,7 +2435,7 @@ Flags:
       --message string            Approval message recorded on the job.
       --message-file string       Read approval message from a file, or '-' for stdin.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --step string               Manual gate step id to approve. Defaults to the next blocked manual gate.
       --wait                      With --advance, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -2519,7 +2519,7 @@ Flags:
       --format string             Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
       --json                      Emit the updated job or advance result as JSON.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --step string               Pipeline step to re-queue. Defaults to the single completed step with an owning instance.
       --wait                      With --advance, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -2637,7 +2637,7 @@ Flags:
       --profile string                 Job dispatch profile: default or probe.
       --reminder-levels strings        Budget notice percentages for this job, for example 50,80,100.
       --repo string                    Repo root containing .agent_team. (default "<repo>")
-      --runtime string                 Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string                 Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string             Runtime binary for --dispatch. Overrides env and repo config.
       --target string                  Target agent that should own this job. (default "worker")
       --ticket-url string              Canonical ticket URL to store on the job.
@@ -2668,7 +2668,7 @@ Flags:
       --format string             Render the updated job or dry-run preview with a Go template.
       --json                      Emit the updated job and daemon event outcome as JSON.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for the dispatched instance (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for the dispatched instance. Overrides env and repo config.
       --source string             Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).
       --wait                      After dispatching, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -2973,7 +2973,7 @@ Flags:
       --pipeline string       Filter by pipeline name.
       --pr string             Filter by PR URL or number substring.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Filter by owning instance runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Filter by owning instance runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string           Sort rows by id, status, target, ticket, created, updated, instance, runtime, branch, or pr. (default "id")
       --status string         Filter by status: queued, running, blocked, done, or failed.
       --summary               Show aggregate job counts instead of job rows.
@@ -3332,7 +3332,7 @@ Flags:
       --phase strings       Only show job-owned work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet               Only print matching job-owned instance names.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show job-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show job-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show job-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale               Only show job-owned instances whose status.toml is stale.
@@ -3449,7 +3449,7 @@ Flags:
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      Filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -3486,7 +3486,7 @@ Flags:
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -3513,7 +3513,7 @@ Flags:
       --older-than duration   Only prune job-owned items older than this duration based on retry/dead-letter/update time.
       --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude, codex, or docker. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
 
@@ -3642,7 +3642,7 @@ Flags:
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -3751,7 +3751,7 @@ Flags:
       --payload string            GitHub webhook JSON object.
       --payload-file string       Read GitHub webhook JSON from a file, or '-' for stdin.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --verify-pr                 With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.
       --wait                      With --advance, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -3879,7 +3879,7 @@ Flags:
       --json                      Emit the updated job or dry-run preview as JSON.
       --message string            Status message recorded on the job.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --source string             Source instance for --dispatch (default: AGENT_TEAM_INSTANCE or cli).
       --status string             Reopened status: queued or blocked. (default "queued")
@@ -3917,7 +3917,7 @@ Flags:
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -3992,7 +3992,7 @@ Flags:
   -n, --last int           Show only the N most recently started job-owned runtime records after other filters (0 = all).
   -l, --latest             Show only the most recently started job-owned runtime record after other filters.
       --repo string        Repo root containing .agent_team. (default "<repo>")
-      --runtime strings    Only show job-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show job-owned metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only show job-owned running metadata whose recorded runtime PID is no longer live.
       --sort string        Sort job runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
       --status strings     Only show job-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -4117,7 +4117,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show job-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show job-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show job-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show job-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show job-owned instances whose status.toml is stale.
@@ -4151,7 +4151,7 @@ Flags:
       --message string            Status message recorded on the job.
       --pr string                 PR URL to record on the job.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --skip                      Mark this step as intentionally skipped; stored as done so dependent steps can continue.
       --status string             Step status: queued, running, blocked, done, or failed. (default "done")
@@ -4330,7 +4330,7 @@ Flags:
       --message string            Status message recorded on the job.
       --pr string                 Set PR URL or number.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --advance dispatch. Overrides env and repo config.
       --status string             Set lifecycle status: queued, running, blocked, done, or failed.
       --target string             Set target agent.
@@ -4396,7 +4396,7 @@ Flags:
       --phase strings           Force-stop daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                   Suppress non-error output and use only the exit code.
       --rm                      Remove selected instance state and daemon metadata after killing.
-      --runtime strings         Only force-stop running daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings         Only force-stop running daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale           Only force-stop running instances whose recorded runtime PID is no longer live.
       --stale                   Only force-stop instances whose status.toml is stale.
       --status strings          Force-stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -4461,7 +4461,7 @@ Flags:
       --no-prefix         Do not prefix lines when streaming multiple instance logs.
       --phase strings     Only show logs for instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --raw               Print the unprocessed runtime log stream without Codex JSONL rendering.
-      --runtime strings   Only show logs for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show logs for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only show logs for running instances whose recorded runtime PID is no longer live.
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for instances whose status.toml is stale.
@@ -4510,7 +4510,7 @@ Flags:
       --phase strings          Only show instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   Include desired-state actions from instances.toml and daemon metadata.
       --resources              With --summary, include aggregate CPU, memory, and RSS totals.
-      --runtime strings        Only show instances and stats for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings        Only show instances and stats for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale          Only show running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming declared schedule state.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
@@ -5122,7 +5122,7 @@ Flags:
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record. Defaults to the job PR.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -5153,7 +5153,7 @@ Flags:
       --limit int                 Advance at most this many ready jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes            With --dry-run, include local topology route and dispatch payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --wait                      After advancing, wait for advanced jobs to reach a lifecycle status, event, or next-step state.
       --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
@@ -5190,7 +5190,7 @@ Flags:
       --message-file string       Read approval message from a file, or '-' for stdin.
       --preview-routes            With --dry-run --dispatch, include route and payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --step string               Approve only manual gates whose next blocked step has this id.
       --wait                      After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.
@@ -5295,7 +5295,7 @@ Flags:
       --limit int                 Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int            Stop after this many cycles if work keeps appearing. (default 20)
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement work.
       --skip-drain                Skip pipeline-owned queue drain work.
@@ -5330,7 +5330,7 @@ Flags:
       --json              Emit raw JSONL events.
       --phase strings     Only show pipeline events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only show pipeline events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show pipeline events for daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only show pipeline events for instances whose recorded runtime PID is currently no longer live.
       --since string      Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --sort string       Sort returned events by oldest or newest. Follow mode always streams oldest first. (default "oldest")
@@ -5475,7 +5475,7 @@ Flags:
       --no-clear              With --watch, append snapshots instead of redrawing the terminal.
       --pr string             Only show jobs whose PR URL contains this value.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Only show jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Only show jobs whose instance metadata has this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string           Sort jobs by id, status, target, ticket, created, updated, instance, runtime, branch, or pr. (default "id")
       --status string         Filter by job status: queued, running, blocked, done, or failed.
       --summary               Show aggregate pipeline job counts instead of job rows.
@@ -5513,7 +5513,7 @@ Flags:
       --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --raw               Print unprocessed pipeline logs without Codex JSONL rendering.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only show logs for pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show logs for pipeline-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only show logs for pipeline instances whose recorded runtime PID is no longer live.
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for pipeline instances whose status.toml is stale.
@@ -5837,7 +5837,7 @@ Flags:
       --phase strings       Only show pipeline-owned work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet               Only print matching pipeline-owned instance names.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show pipeline-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show pipeline-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale               Only show pipeline-owned instances whose status.toml is stale.
@@ -5871,7 +5871,7 @@ Flags:
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      Filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -5909,7 +5909,7 @@ Flags:
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -5937,7 +5937,7 @@ Flags:
       --older-than duration   Only prune pipeline-owned items older than this duration based on retry/dead-letter/update time.
       --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude, codex, or docker. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
 
@@ -6071,7 +6071,7 @@ Flags:
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -6198,7 +6198,7 @@ Flags:
       --retry-message-file string     Read pipeline retry repair audit message from a file, or '-' for stdin.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the scoped advance.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
-      --runtime string                Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string                Runtime profile for retried or advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string            Runtime binary for retried or advanced step dispatches. Overrides env and repo config.
       --skip-advance                  Do not advance ready pipeline steps after repair.
       --skip-daemon                   Do not start or reconcile the daemon.
@@ -6244,7 +6244,7 @@ Flags:
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -6280,7 +6280,7 @@ Flags:
       --message-file string       Read retry message from a file, or '-' for stdin.
       --preview-routes            With --dry-run --dispatch, include route and payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --step string               Retry only failed jobs whose next failed step has this id.
       --wait                      After retrying or dispatching, wait for retried jobs to reach a lifecycle status, event, or next-step state.
@@ -6318,7 +6318,7 @@ Flags:
       --kickoff string                 Kickoff text for the first pipeline step.
       --kickoff-file string            Read kickoff text from a file, or '-' for stdin.
       --repo string                    Repo root containing .agent_team. (default "<repo>")
-      --runtime string                 Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string                 Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string             Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string              Canonical ticket URL to store on the job.
       --wait                           After creating or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -6374,7 +6374,7 @@ Flags:
   -n, --last int           Show only the N most recently started pipeline-owned runtime records after other filters (0 = all).
   -l, --latest             Show only the most recently started pipeline-owned runtime record after other filters.
       --repo string        Repo root containing .agent_team. (default "<repo>")
-      --runtime strings    Only show pipeline-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show pipeline-owned metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only show pipeline-owned running metadata whose recorded runtime PID is no longer live.
       --sort string        Sort pipeline runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
       --status strings     Only show pipeline-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -6407,7 +6407,7 @@ Flags:
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to pipeline-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Send to pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Send to pipeline-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Send to pipeline-owned running instances whose recorded runtime PID is no longer live.
       --stale                 Send to pipeline-owned instances whose status.toml is stale.
       --status strings        Send to pipeline-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -6504,7 +6504,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show pipeline-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show pipeline-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show pipeline-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show pipeline-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show pipeline-owned instances whose status.toml is stale.
@@ -6561,7 +6561,7 @@ Flags:
       --limit int                 Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes            With --dry-run, include route and dispatch payload previews for ready pipeline steps.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement work.
       --skip-drain                Skip pipeline-owned queue drain work.
@@ -6733,7 +6733,7 @@ Flags:
       --instance strings   Only show plan rows with this name. Can repeat or comma-separate.
       --json               Emit machine-readable JSON.
       --phase strings      Only show plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings    Only show daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --status strings     Only show lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras        Preview running topology extras as stop actions, matching sync --stop-extras.
       --summary            Show aggregate action counts instead of per-instance rows.
@@ -6767,7 +6767,7 @@ Flags:
       --older-than duration   Only prune finished instances whose terminal timestamp is older than this duration (for example 24h).
       --phase strings         Only remove finished instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress non-error output and use only the exit code.
-      --runtime strings       Only remove matching instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Only remove matching instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Also remove daemon-known running instances whose recorded runtime PID is no longer live.
       --stale                 Only remove finished instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
@@ -6808,7 +6808,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet               Only print matching instance names.
-      --runtime strings     Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale               Only show instances whose status.toml is stale.
@@ -6929,7 +6929,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -6965,7 +6965,7 @@ Flags:
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
       --reason strings       Filter by queue reason, such as lock_held. Can repeat or comma-separate.
-      --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      Filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -7002,7 +7002,7 @@ Flags:
       --limit int             Prune at most this many matching queue items; 0 means no limit.
       --older-than duration   Only prune items older than this duration based on retry/dead-letter/update time.
       --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
-      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude, codex, or docker. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
       --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
@@ -7184,7 +7184,7 @@ Flags:
       --json                 Emit machine-readable JSON.
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
       --target string        Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -7276,7 +7276,7 @@ Flags:
       --retry-pipeline string         With --retry-pipelines, retry only failed jobs owned by this pipeline.
       --retry-pipelines               Reset failed pipeline steps and dispatch them before the maintenance tick.
       --retry-step string             With --retry-pipelines, retry only failed jobs whose next failed step has this id.
-      --runtime string                Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string                Runtime profile for retried or advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string            Runtime binary for retried or advanced step dispatches. Overrides env and repo config.
       --skip-daemon                   Do not start or reconcile the daemon.
       --skip-queue                    Do not retry dead-letter queue items.
@@ -7334,7 +7334,7 @@ Flags:
       --prompt-file string       Read kickoff prompt from a file, or '-' for stdin.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --runtime strings          Only restart or resume daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only restart or resume daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale            Only restart or resume running instances whose recorded runtime PID is no longer live.
       --stale                    Only restart or resume instances whose status.toml is stale.
       --status strings           Only restart or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -7378,7 +7378,7 @@ Flags:
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -7413,7 +7413,7 @@ Flags:
       --latest            Remove the most recently started daemon-known instance after other filters.
       --phase strings     Remove daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet             Suppress non-error output. Requires --force unless --dry-run is set.
-      --runtime strings   Remove daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Remove daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Remove only daemon-known running instances whose recorded runtime PID is no longer live.
       --stale             Remove only daemon-known instances whose non-idle work phase has stale status telemetry.
       --status strings    Remove daemon-known instances currently in this lifecycle status: stopped, exited, crashed, running, or unknown. Can repeat or comma-separate.
@@ -7452,7 +7452,7 @@ Flags:
   -p, --prompt string            Kickoff message. With this, the runtime runs in one-shot mode when supported; without, interactive.
       --prompt-file string       Read kickoff message from a file, or '-' for stdin.
       --ready-timeout duration   Maximum time to wait for daemon readiness with --detach or --attach (0 = no timeout). (default 3s)
-      --runtime string           Runtime profile for this invocation (claude or codex). Overrides env and repo config.
+      --runtime string           Runtime profile for this invocation (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string       Runtime binary for this invocation. Overrides env and repo config.
       --set stringArray          Override a config value for this spawn, e.g. --set linear.team_id=<x>. Repeatable.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
@@ -7480,7 +7480,7 @@ Flags:
 ```text
       --format string        Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
       --json                 Emit machine-readable JSON.
-      --runtime string       Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.
+      --runtime string       Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string   Runtime binary to inspect for this invocation. Overrides env and repo config.
       --target string        Repo root or any path under a repo. (default "<repo>")
 ```
@@ -7527,7 +7527,7 @@ Flags:
       --pid int              Live process PID to adopt.
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record on the adopted metadata.
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -7615,7 +7615,7 @@ Flags:
       --json               Emit runtime metadata as JSON.
   -n, --last int           Show only the N most recently started runtime metadata records after other filters (0 = all).
   -l, --latest             Show only the most recently started runtime metadata record after other filters.
-      --runtime strings    Only show metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only show running metadata whose recorded runtime PID is no longer live.
       --sort string        Sort runtime metadata rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
       --status strings     Only show metadata with this status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -7685,7 +7685,7 @@ Flags:
       --json                       Emit machine-readable JSON.
       --output string              Write the full probe result as pretty JSON to this file.
       --require-daemon             Fail when the repo daemon is not running and ready.
-      --runtime string             Runtime profile to probe for this invocation (claude or codex). Overrides env and repo config.
+      --runtime string             Runtime profile to probe for this invocation (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string         Runtime binary to probe for this invocation. Overrides env and repo config.
       --skip-doctor                Skip runtime-native diagnostics such as codex doctor --json.
       --start-daemon               Start the detached repo daemon before reporting daemon health when it is not ready.
@@ -7717,7 +7717,7 @@ Flags:
 ```text
       --format string        Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.
       --json                 Emit machine-readable JSON.
-      --runtime string       Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.
+      --runtime string       Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string   Runtime binary to inspect for this invocation. Overrides env and repo config.
       --target string        Repo root or any path under a repo. (default "<repo>")
 ```
@@ -7752,7 +7752,7 @@ Flags:
       --last-message      For Codex log fallbacks, recommend the clean last-message sidecar instead of following raw logs.
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -8005,7 +8005,7 @@ Flags:
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings       Send to daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Send to daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Send to daemon-known running instances whose recorded runtime PID is no longer live.
       --stale                 Send to daemon-known instances whose status.toml is stale.
       --status strings        Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -8184,7 +8184,7 @@ Flags:
       --prompt-file string       Read kickoff prompt from a file, or '-' for stdin.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --runtime strings          Only start or resume daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only start or resume daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale            Only start or resume running instances whose recorded runtime PID is no longer live.
       --stale                    Only start or resume instances whose status.toml is stale.
       --status strings           Only start or resume instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -8227,7 +8227,7 @@ Flags:
       --latest              Show stats for the most recently started instance after other filters.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
-      --runtime strings     Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show instances whose status.toml is stale.
@@ -8270,7 +8270,7 @@ Flags:
       --phase strings          Only show work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   With --summary, include desired-state action counts from instances.toml and daemon metadata.
       --resources              With --summary, include aggregate CPU, memory, and RSS totals.
-      --runtime strings        Only show instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings        Only show instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale          Only show running instances whose recorded runtime PID is no longer live.
       --since string           With --events, only include lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale                  Only show instances whose status.toml is stale.
@@ -8316,7 +8316,7 @@ Flags:
       --phase strings           Stop daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                   Suppress non-error output and use only the exit code.
       --rm                      Remove selected instance state and daemon metadata after stopping.
-      --runtime strings         Only stop running daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings         Only stop running daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale           Only stop running instances whose recorded runtime PID is no longer live.
       --stale                   Only stop instances whose status.toml is stale.
       --status strings          Stop daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -8357,7 +8357,7 @@ Flags:
       --phase strings            Only sync plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
-      --runtime strings          Only sync daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only sync daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --status strings           Only sync plan rows with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
       --stop-extras              Also stop running daemon-known instances not declared in instances.toml.
       --summary                  Show aggregate action counts instead of per-instance rows.
@@ -8470,7 +8470,7 @@ Flags:
       --pid-file string      Read the live process PID to adopt from this file. Cannot be combined with --pid.
       --pr string            PR URL to record. Defaults to the job PR.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime string       Runtime profile for the adopted process (claude or codex). Defaults to repo/env selection.
+      --runtime string       Runtime profile for the adopted process (claude, codex, or docker). Defaults to repo/env selection.
       --runtime-bin string   Runtime binary or wrapper used by the adopted process.
       --session-id string    Runtime session id, when known and resumable.
       --started-at string    Process start time as RFC3339. Defaults to now, or existing metadata for the same PID.
@@ -8500,7 +8500,7 @@ Flags:
       --limit int                 Advance at most this many ready team jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --preview-routes            With --dry-run, include local topology route and dispatch payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --wait                      After advancing, wait for advanced jobs to reach a lifecycle status, event, or next-step state.
       --wait-event strings        With --wait, last event to wait for, e.g. advance_dispatched, advance_queued, closed, or pipeline_done. Can repeat or comma-separate.
@@ -8536,7 +8536,7 @@ Flags:
       --message-file string       Read approval message from a file, or '-' for stdin.
       --preview-routes            With --dry-run --dispatch, include local topology route and dispatch payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --step string               Approve only manual gates whose next blocked step has this id.
       --wait                      After approving or dispatching, wait for approved jobs to reach a lifecycle status, event, or next-step state.
@@ -8640,7 +8640,7 @@ Flags:
   -q, --quiet                   Suppress non-error output and use only the exit code.
       --repo string             Repo root containing .agent_team. (default "<repo>")
       --rm                      Remove selected instance state and daemon metadata after stopping.
-      --runtime strings         Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings         Only target team-owned daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --summary                 Show aggregate action counts instead of per-instance rows.
       --timeout duration        Grace before --force kills. With --wait and no --wait-timeout, also used as the wait deadline (0 = no wait deadline; force defaults to 10s).
       --wait                    Wait for stopped instances to reach a terminal state.
@@ -8668,7 +8668,7 @@ Flags:
       --limit int                 Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int            Stop after this many cycles if work keeps appearing. (default 20)
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement work.
       --skip-drain                Skip queue drain work.
@@ -8703,7 +8703,7 @@ Flags:
       --json              Emit raw JSONL events.
       --phase strings     Only show team events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only show team events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show team events for daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only show team events for instances whose recorded runtime PID is currently no longer live.
       --since string      Only show events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --sort string       Sort returned events by oldest or newest. Follow mode always streams oldest first. (default "oldest")
@@ -8781,7 +8781,7 @@ Flags:
       --last-message      When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.
   -q, --quiet             Suppress output and use only the exit code.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only check team-owned daemon-known instances for this runtime: claude or codex. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.
+      --runtime strings   Only check team-owned daemon-known instances for this runtime: claude, codex, or docker. Daemon, queue, and job health remain team-scoped. Can repeat or comma-separate.
       --runtime-stale     Only check team-owned running instances whose recorded runtime PID is no longer live. Daemon, queue, and job health remain team-scoped.
 ```
 
@@ -8865,7 +8865,7 @@ Flags:
       --no-clear              With --watch, append snapshots instead of redrawing the terminal.
       --pr string             Only show jobs whose PR URL contains this value.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Only show team-owned jobs whose instance metadata has this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Only show team-owned jobs whose instance metadata has this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string           Sort jobs by id, status, target, ticket, created, updated, instance, runtime, branch, or pr. (default "id")
       --status string         Filter by job status: queued, running, blocked, done, or failed.
       --summary               Show aggregate team job counts instead of job rows.
@@ -8900,7 +8900,7 @@ Flags:
       --phase strings     Only show logs for work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --raw               Print unprocessed team logs without Codex JSONL rendering.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only show logs for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show logs for team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only show logs for team instances whose recorded runtime PID is no longer live.
       --since string      Only include log streams modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
       --stale             Only show logs for team instances whose status.toml is stale.
@@ -8961,7 +8961,7 @@ Flags:
       --plan                   Include team-scoped desired-state actions from instances.toml and daemon metadata.
       --repo string            Repo root containing .agent_team. (default "<repo>")
       --resources              With --summary, include aggregate CPU, memory, and RSS totals for team-owned instances.
-      --runtime strings        Only show team-owned instances for this runtime in instance, stats, and plan sections: claude or codex. Can repeat or comma-separate.
+      --runtime strings        Only show team-owned instances for this runtime in instance, stats, and plan sections: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale          Only show team-owned running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming team schedules.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.
@@ -9315,7 +9315,7 @@ Flags:
       --format string     Render each plan row with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --json              Emit team plan as JSON.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only show team-owned daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only show team-owned daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --stop-extras       Preview running team-agent topology extras as stop actions.
       --summary           Show aggregate action counts instead of per-instance rows.
 ```
@@ -9341,7 +9341,7 @@ Flags:
       --phase strings         Only remove finished team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress non-error output and use only the exit code.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Only remove matching team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Only remove matching team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Also remove team-owned running instances whose recorded runtime PID is no longer live.
       --stale                 Only remove finished team-owned instances whose non-idle work phase has stale status telemetry.
       --status strings        Only remove finished team-owned instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.
@@ -9372,7 +9372,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show team-owned work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show team-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort team instance rows by name, status, agent, phase, stale, runtime-stale, unhealthy, started, stopped, or exited. (default "name")
       --stale               Only show team-owned instances whose status.toml is stale.
@@ -9403,7 +9403,7 @@ Flags:
       --no-clear             With --watch, append snapshots instead of redrawing the terminal.
       --ready                Only show pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      Filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      Filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          Sort rows by state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         Filter by queue state: pending or dead.
       --summary              Show aggregate queue counts instead of queue rows.
@@ -9441,7 +9441,7 @@ Flags:
       --limit int            With --all, drop at most this many matching queue items; 0 means no limit.
       --ready                With --all, only drop pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -9469,7 +9469,7 @@ Flags:
       --older-than duration   Only prune team-owned items older than this duration based on retry/dead-letter/update time.
       --ready                 Only prune pending queue items whose next retry is due now. Defaults --state to pending when --state is omitted.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Filter by queued dispatch runtime before pruning: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Filter by queued dispatch runtime before pruning: claude, codex, or docker. Can repeat or comma-separate.
       --state string          Queue state to prune: dead, pending, or all. (default "dead")
 ```
 
@@ -9600,7 +9600,7 @@ Flags:
       --limit int            With --all, retry at most this many matching queue items; 0 means no limit.
       --ready                With --all, only retry pending queue items whose next retry is due now.
       --repo string          Repo root containing .agent_team. (default "<repo>")
-      --runtime strings      With --all, filter by queued dispatch runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings      With --all, filter by queued dispatch runtime: claude, codex, or docker. Can repeat or comma-separate.
       --sort string          With --all, sort matching queue items before limiting: state, id, event, instance, job, runtime, queued, updated, next-retry, or attempts. (default "state")
       --state string         With --all, filter by queue state: pending or dead. Defaults to dead, or pending with --ready.
 ```
@@ -9730,7 +9730,7 @@ Flags:
       --retry-pipeline string         With --retry-pipelines, retry only failed team jobs owned by this pipeline.
       --retry-pipelines               Reset failed team pipeline steps and dispatch them before the scoped team tick.
       --retry-step string             With --retry-pipelines, retry only failed team jobs whose next failed step has this id.
-      --runtime string                Runtime profile for retried or advanced team step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string                Runtime profile for retried or advanced team step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string            Runtime binary for retried or advanced team step dispatches. Overrides env and repo config.
       --skip-daemon                   Do not start or reconcile the daemon.
       --skip-queue                    Do not retry team-owned dead-letter queue items.
@@ -9775,7 +9775,7 @@ Flags:
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime strings          Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only target team-owned daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --timeout duration         Maximum time to wait for each running instance to stop before resuming (0 = daemon default).
@@ -9807,7 +9807,7 @@ Flags:
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -9842,7 +9842,7 @@ Flags:
       --message-file string       Read retry message from a file, or '-' for stdin.
       --preview-routes            With --dry-run --dispatch, include local topology route and dispatch payload previews.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --step string               Retry only failed team jobs whose next failed step has this id.
       --wait                      After retrying or dispatching, wait for retried jobs to reach a lifecycle status, event, or next-step state.
@@ -9879,7 +9879,7 @@ Flags:
       --kickoff-file string       Read kickoff text from a file, or '-' for stdin.
       --pipeline string           Team pipeline to use when the team declares more than one.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for --dispatch (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for --dispatch (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for --dispatch. Overrides env and repo config.
       --ticket-url string         Canonical ticket URL to store on the job.
       --wait                      After creating or dispatching, wait for the job to reach a lifecycle status, event, or next-step state.
@@ -9935,7 +9935,7 @@ Flags:
   -n, --last int           Show only the N most recently started team-owned runtime records after other filters (0 = all).
   -l, --latest             Show only the most recently started team-owned runtime record after other filters.
       --repo string        Repo root containing .agent_team. (default "<repo>")
-      --runtime strings    Only show team-owned metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings    Only show team-owned metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale      Only show team-owned running metadata whose recorded runtime PID is no longer live.
       --sort string        Sort team runtime rows by instance, status, runtime, agent, stale, unhealthy, job, started, stopped, or exited. (default "instance")
       --status strings     Only show team-owned runtime status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -9967,7 +9967,7 @@ Flags:
       --limit int         Limit plans after filtering and sorting; 0 means no limit.
       --managed           Only include runtimes whose adapter supports daemon-managed resume.
       --repo string       Repo root containing .agent_team. (default "<repo>")
-      --runtime strings   Only include metadata for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings   Only include metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale     Only include running metadata whose recorded runtime PID is no longer live.
       --sort string       Sort plans before rendering by instance, action, runtime, status, stale, job, pipeline, step, or agent. (default "instance")
       --stale             Only include running metadata whose recorded runtime PID is no longer live. Compatibility alias for --runtime-stale.
@@ -10022,7 +10022,7 @@ Flags:
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Send to team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Send to team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Send to team-owned running instances whose recorded runtime PID is no longer live.
       --stale                 Send to team-owned instances whose status.toml is stale.
       --status strings        Send to team-owned instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -10118,7 +10118,7 @@ Flags:
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --phase strings       Only show team-owned instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only show team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings     Only show team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale       Only show team-owned running instances whose recorded runtime PID is no longer live.
       --sort string         Sort rows by name, cpu, mem, rss, status, agent, phase, stale, runtime-stale, or unhealthy. (default "name")
       --stale               Only show team-owned instances whose status.toml is stale.
@@ -10145,7 +10145,7 @@ Flags:
       --json                Emit team status as JSON.
       --no-clear            With --watch, append snapshots instead of redrawing the terminal.
       --repo string         Repo root containing .agent_team. (default "<repo>")
-      --runtime strings     Only summarize team-owned instances for this runtime: claude or codex. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.
+      --runtime strings     Only summarize team-owned instances for this runtime: claude, codex, or docker. Jobs, queue, pipelines, and schedules remain team-scoped. Can repeat or comma-separate.
       --runtime-stale       Only summarize team-owned running instances whose recorded runtime PID is no longer live. Jobs, queue, pipelines, and schedules remain team-scoped.
   -w, --watch               Refresh team status until interrupted.
 ```
@@ -10171,7 +10171,7 @@ Flags:
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime strings          Only sync team-owned daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only sync team-owned daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --stop-extras              Also stop running daemon-known extras for this team's agents.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
@@ -10202,7 +10202,7 @@ Flags:
       --max-cycles int            With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes            With --dry-run, include route and dispatch payload previews for ready pipeline steps.
       --repo string               Repo root containing .agent_team. (default "<repo>")
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement work.
       --skip-drain                Skip queue drain work.
@@ -10351,7 +10351,7 @@ Flags:
   -q, --quiet                    Suppress non-error output and use only the exit code.
       --ready-timeout duration   Maximum time to wait for implicit daemon readiness (0 = no timeout). (default 3s)
       --repo string              Repo root containing .agent_team. (default "<repo>")
-      --runtime strings          Only target team-owned daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings          Only target team-owned daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --summary                  Show aggregate action counts instead of per-instance rows.
       --tail string              With --attach, show only the last N lines before following (0 or all = all). (default "50")
       --timeout duration         Maximum time to wait with --wait (0 = no timeout).
@@ -10382,7 +10382,7 @@ Flags:
       --phase strings         Wait for team-owned instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress output and use only the exit code.
       --repo string           Repo root containing .agent_team. (default "<repo>")
-      --runtime strings       Wait for team-owned instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Wait for team-owned instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Wait for team-owned running instances whose recorded runtime PID is no longer live.
       --stale                 Wait for team-owned instances whose status.toml is stale.
       --status strings        Wait for team-owned instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -10537,7 +10537,7 @@ Flags:
       --no-input             Fail if required parameters are missing instead of prompting.
   -p, --prompt string        Kickoff message for the agent (one-shot mode if set, interactive otherwise).
       --prompt-file string   Read kickoff message from a file, or '-' for stdin.
-      --runtime string       Runtime profile for this invocation (claude or codex). Overrides env and rendered repo config.
+      --runtime string       Runtime profile for this invocation (claude, codex, or docker). Overrides env and rendered repo config.
       --runtime-bin string   Runtime binary for this invocation. Overrides env and rendered repo config.
       --set stringArray      Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.
       --target string        Target directory (must not already contain .agent_team/ unless --force). Defaults to a tempdir.
@@ -10623,7 +10623,7 @@ Flags:
       --limit int                 Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.
       --max-cycles int            With --until-idle, stop after this many cycles if work keeps appearing. (default 20)
       --preview-routes            With --dry-run, include route and dispatch payload previews for ready pipeline steps.
-      --runtime string            Runtime profile for advanced step dispatches (claude or codex). Overrides env and repo config.
+      --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement.
       --skip-drain                Skip outbox and queue draining.
@@ -10840,7 +10840,7 @@ Flags:
       --latest                Wait for the most recently started daemon-known instance after other filters.
       --phase strings         Wait for daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
   -q, --quiet                 Suppress output and use only the exit code.
-      --runtime strings       Wait for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings       Wait for daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Wait for daemon-known running instances whose recorded runtime PID is no longer live.
       --stale                 Wait for daemon-known instances whose status.toml is stale.
       --status strings        Wait for daemon-known instances currently in this lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.
@@ -10890,7 +10890,7 @@ Flags:
       --phase strings          Only show instances and stats in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
       --plan                   Include desired-state actions from instances.toml and daemon metadata.
       --resources              With --summary, include aggregate CPU, memory, and RSS totals.
-      --runtime strings        Only show instances and stats for this runtime: claude or codex. Can repeat or comma-separate.
+      --runtime strings        Only show instances and stats for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale          Only show running instances whose recorded runtime PID is no longer live.
       --schedules              Include due and upcoming declared schedule state.
       --since string           With --events, only show lifecycle events since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.

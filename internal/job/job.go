@@ -361,7 +361,7 @@ func Validate(j *Job) error {
 			return fmt.Errorf("steps[%d]: workspace must be auto, worktree, or repo", i)
 		}
 		if !ValidStepRuntime(step.Runtime) {
-			return fmt.Errorf("steps[%d]: runtime must be claude or codex", i)
+			return fmt.Errorf("steps[%d]: runtime must be claude, codex, or docker", i)
 		}
 		if !ValidStatus(step.Status) {
 			return fmt.Errorf("steps[%d]: unknown status %q", i, step.Status)
@@ -506,7 +506,7 @@ func validateDrift(drift *Drift) error {
 // ValidStepRuntime reports whether a step runtime override is supported.
 func ValidStepRuntime(runtime string) bool {
 	switch strings.TrimSpace(runtime) {
-	case "", "claude", "codex":
+	case "", "claude", "codex", "docker":
 		return true
 	default:
 		return false

@@ -505,6 +505,11 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 		codexArgs = append(codexArgs, runtimebin.CodexAutonomousExecArgs()...)
 		codexArgs = append(codexArgs, "-")
 		return codexArgs, nil
+	case runtimebin.KindDocker:
+		if len(in.Args) == 0 {
+			return nil, errors.New("docker daemon dispatch requires prepared docker run args")
+		}
+		return append([]string{rt.Binary}, in.Args...), nil
 	default:
 		return nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}

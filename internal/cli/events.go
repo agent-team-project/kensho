@@ -152,7 +152,7 @@ func newEventsCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show events for this instance. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show events for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show events with this lifecycle status. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show events for daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show events for daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Only show events for instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&jobFilters, "job", nil, "Only show events for this job id or ticket. Can repeat or comma-separate.")
 	cmd.Flags().StringVar(&stepFilter, "step", "", "Only show events for instances recorded on this pipeline step id.")

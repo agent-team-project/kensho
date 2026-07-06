@@ -14,11 +14,14 @@ type Kind string
 const (
 	KindClaude Kind = "claude"
 	KindCodex  Kind = "codex"
+	KindDocker Kind = "docker"
 
-	DefaultBinary  = "claude"
-	DefaultRuntime = KindClaude
-	EnvRuntime     = "AGENT_TEAM_RUNTIME"
-	EnvBinary      = "AGENT_TEAM_RUNTIME_BIN"
+	DefaultBinary      = "claude"
+	DefaultDockerImage = "agent-team:ci"
+	DefaultRuntime     = KindClaude
+	EnvRuntime         = "AGENT_TEAM_RUNTIME"
+	EnvBinary          = "AGENT_TEAM_RUNTIME_BIN"
+	EnvImage           = "AGENT_TEAM_RUNTIME_IMAGE"
 
 	// CodexLastMessageFile is the per-instance sidecar filename used with
 	// `codex exec --output-last-message` to capture a clean final response.
@@ -28,6 +31,7 @@ const (
 type Runtime struct {
 	Kind   Kind
 	Binary string
+	Image  string
 }
 
 // Fields is a runtime kind/binary pair from a higher-level declaration, such
@@ -64,6 +68,7 @@ type runtimeConfig struct {
 	Kind   string `toml:"kind"`
 	Binary string `toml:"binary"`
 	Bin    string `toml:"bin"`
+	Image  string `toml:"image"`
 }
 
 func Current() (Runtime, error) {
@@ -87,9 +92,9 @@ func Resolve(opts ResolveOptions) (Runtime, error) {
 	kindRaw := opts.Explicit.Kind
 	binRaw := opts.Explicit.Binary
 	if rt, ok, err := FromFields(kindRaw, binRaw); err != nil {
-		return Runtime{}, fmt.Errorf("runtime must be %q or %q", KindClaude, KindCodex)
+		return Runtime{}, fmt.Errorf("runtime must be %s", supportedRuntimeList())
 	} else if ok {
-		return rt, nil
+		return runtimeWithImage(rt, opts.ConfigPath)
 	}
 
 	// A deliberate runtime env override outranks static topology/agent
@@ -99,12 +104,12 @@ func Resolve(opts ResolveOptions) (Runtime, error) {
 		if rt, ok, err := FromFields(opts.Instance.Kind, opts.Instance.Binary); err != nil {
 			return Runtime{}, fmt.Errorf("instance %q runtime: %w", opts.Instance.Name, err)
 		} else if ok {
-			return rt, nil
+			return runtimeWithImage(rt, opts.ConfigPath)
 		}
 		if rt, ok, err := FromFields(opts.Agent.Kind, opts.Agent.Binary); err != nil {
 			return Runtime{}, fmt.Errorf("agent %q runtime: %w", opts.Agent.Name, err)
 		} else if ok {
-			return rt, nil
+			return runtimeWithImage(rt, opts.ConfigPath)
 		}
 	}
 
@@ -117,6 +122,10 @@ func Resolve(opts ResolveOptions) (Runtime, error) {
 	}
 	if strings.TrimSpace(rt.Binary) == "" {
 		rt.Binary = defaultBinary(rt.Kind)
+	}
+	rt, err = runtimeWithImage(rt, opts.ConfigPath)
+	if err != nil {
+		return Runtime{}, err
 	}
 	return rt, nil
 }
@@ -141,7 +150,15 @@ func currentWithConfig(cfg runtimeConfig) (Runtime, error) {
 	if bin == "" {
 		bin = defaultBinary(kind)
 	}
-	return Runtime{Kind: kind, Binary: bin}, nil
+	image := strings.TrimSpace(os.Getenv(EnvImage))
+	if image == "" {
+		image = strings.TrimSpace(cfg.Image)
+	}
+	rt := Runtime{Kind: kind, Binary: bin}
+	if kind == KindDocker {
+		rt.Image = firstNonEmpty(image, DefaultDockerImage)
+	}
+	return rt, nil
 }
 
 func loadRuntimeConfig(configPath string) (runtimeConfig, error) {
@@ -179,7 +196,11 @@ func FromFields(kindRaw, binRaw string) (Runtime, bool, error) {
 	if bin == "" {
 		bin = defaultBinary(kind)
 	}
-	return Runtime{Kind: kind, Binary: bin}, true, nil
+	rt := Runtime{Kind: kind, Binary: bin}
+	if kind == KindDocker {
+		rt.Image = defaultImage(kind)
+	}
+	return rt, true, nil
 }
 
 func ParseKind(value string) (Kind, error) {
@@ -188,8 +209,10 @@ func ParseKind(value string) (Kind, error) {
 		return KindClaude, nil
 	case string(KindCodex):
 		return KindCodex, nil
+	case string(KindDocker):
+		return KindDocker, nil
 	default:
-		return "", fmt.Errorf("%s must be %q or %q", EnvRuntime, KindClaude, KindCodex)
+		return "", fmt.Errorf("%s must be %s", EnvRuntime, supportedRuntimeList())
 	}
 }
 
@@ -213,15 +236,62 @@ func ClaudeCompatibleBinary() (string, error) {
 }
 
 func defaultBinary(kind Kind) string {
-	if kind == KindCodex {
+	switch kind {
+	case KindCodex:
 		return "codex"
+	case KindDocker:
+		return "docker"
+	default:
+		return DefaultBinary
 	}
-	return DefaultBinary
 }
 
 // DefaultBinaryForKind returns the built-in binary name for a runtime kind.
 func DefaultBinaryForKind(kind Kind) string {
 	return defaultBinary(kind)
+}
+
+// DefaultImageForKind returns the built-in image name for image-backed runtime
+// kinds. Non-container runtimes do not have a default image.
+func DefaultImageForKind(kind Kind) string {
+	return defaultImage(kind)
+}
+
+func defaultImage(kind Kind) string {
+	if kind == KindDocker {
+		return DefaultDockerImage
+	}
+	return ""
+}
+
+func runtimeWithImage(rt Runtime, configPath string) (Runtime, error) {
+	if rt.Kind != KindDocker {
+		rt.Image = ""
+		return rt, nil
+	}
+	image := strings.TrimSpace(os.Getenv(EnvImage))
+	if image == "" {
+		cfg, err := loadRuntimeConfig(configPath)
+		if err != nil {
+			return Runtime{}, err
+		}
+		image = strings.TrimSpace(cfg.Image)
+	}
+	rt.Image = firstNonEmpty(image, rt.Image, DefaultDockerImage)
+	return rt, nil
+}
+
+func supportedRuntimeList() string {
+	return fmt.Sprintf("%q, %q, or %q", KindClaude, KindCodex, KindDocker)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // CodexAutonomousExecArgs are the `codex exec` flags that let a daemon-spawned

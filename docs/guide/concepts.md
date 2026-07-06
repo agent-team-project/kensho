@@ -103,7 +103,7 @@ Supported workspace modes include:
 - `auto`: choose based on target and topology
 
 Workers normally use worktrees. Managers and ticket managers normally use the repo root.
-Pipeline steps can declare `workspace = "repo"` or `workspace = "worktree"` to set the default for that stage while still allowing operator `--workspace` overrides. They can also declare `runtime = "codex"` or `runtime = "claude"` plus an optional `runtime_bin` for stage-specific runtime defaults.
+Pipeline steps can declare `workspace = "repo"` or `workspace = "worktree"` to set the default for that stage while still allowing operator `--workspace` overrides. They can also declare `runtime = "codex"`, `runtime = "claude"`, or `runtime = "docker"` plus an optional `runtime_bin` for stage-specific runtime defaults.
 
 ## Job
 
