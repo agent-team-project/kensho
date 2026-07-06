@@ -1302,6 +1302,51 @@ func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-43", 5*time.Second)
 }
 
+func TestEvent_EphemeralDispatchUsesDeclaredInstanceRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[runtime]\nkind = \"codex\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.docs-writer]
+agent = "worker"
+ephemeral = true
+runtime = "claude"
+runtime_bin = "claude-docs"
+
+[[instances.docs-writer.triggers]]
+event = "agent.dispatch"
+match.target = "docs-writer"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"docs-writer","name":"docs-writer-squ-134","kickoff":"write docs"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "claude-docs" || call[1] != "--session-id" {
+		t.Fatalf("spawn call = %#v, want declared instance claude runtime", call)
+	}
+	meta, err := ReadMetadata(root, "docs-writer-squ-134")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindClaude) || meta.RuntimeBinary != "claude-docs" || meta.SessionID == "" {
+		t.Fatalf("metadata = %+v, want declared instance claude runtime", meta)
+	}
+	_, _ = m.Stop("docs-writer-squ-134")
+	_ = m.WaitForReaper("docs-writer-squ-134", 5*time.Second)
+}
+
 func TestEvent_EphemeralDispatchUsesAgentFrontmatterRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -1338,6 +1383,47 @@ func TestEvent_EphemeralDispatchUsesAgentFrontmatterRuntime(t *testing.T) {
 	}
 	_, _ = m.Stop("worker-squ-77")
 	_ = m.WaitForReaper("worker-squ-77", 5*time.Second)
+}
+
+func TestEvent_EphemeralDispatchPayloadRuntimeOverridesDeclaredInstanceRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.docs-writer]
+agent = "worker"
+ephemeral = true
+runtime = "claude"
+
+[[instances.docs-writer.triggers]]
+event = "agent.dispatch"
+match.target = "docs-writer"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"docs-writer","name":"docs-writer-squ-135","kickoff":"write docs","runtime":"codex","runtime_binary":"codex-dev"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex-dev" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want payload-backed codex runtime", call)
+	}
+	meta, err := ReadMetadata(root, "docs-writer-squ-135")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindCodex) || meta.RuntimeBinary != "codex-dev" || meta.SessionID != "" {
+		t.Fatalf("metadata = %+v, want payload-backed codex without Claude session", meta)
+	}
+	_, _ = m.Stop("docs-writer-squ-135")
+	_ = m.WaitForReaper("docs-writer-squ-135", 5*time.Second)
 }
 
 func TestDispatchRuntime_AgentFrontmatterPrecedence(t *testing.T) {

@@ -232,6 +232,8 @@ channel write/read maps to, while authority allowlists audit write verbs.
 | `ephemeral` | no | `false` | If `true`, spawn-on-trigger and exit on completion. If `false`, brought up by `agent-team start`, runs until stopped. |
 | `restart` | no | `never` | Reconcile relaunch policy for persistent instances: `never`, `on-failure`, or `always`. |
 | `brief` | no | persistent: `true`; ephemeral: `false` | Generate `<state-dir>/brief.md` and inject it into fresh launches / managed resumes. Set `false` to opt a persistent instance out. |
+| `runtime` | no | repo default | Runtime default for this declared instance. Supported values are `"claude"` and `"codex"`. Operator `--runtime` dispatch flags override it. |
+| `runtime_bin` | no | runtime default | Runtime binary or wrapper default for this declared instance. Operator `--runtime-bin` dispatch flags override it. |
 | `description` | no | empty | Human-readable. Shown in `instance ps`. |
 | `config.<dotted.key>` | no | — | Override values for the resolved per-instance config (layers between repo and CLI flags). Same dotted-key syntax as parameter declarations in `template.toml`. |
 | `locks` | no | empty | Named dispatch locks this instance's ephemeral children hold until exit. References must exist under `[locks]`. |
@@ -346,16 +348,17 @@ instance's runtime with this precedence (highest first):
 ```
 1. Explicit dispatch runtime   (CLI --runtime / --runtime-bin, pipeline step runtime, dispatch payload)
 2. AGENT_TEAM_RUNTIME env override
-3. Agent frontmatter            (runtime: / runtime_bin:)   ← NEW
-4. Repo [runtime] config        (.agent_team/config.toml)
-5. Built-in default             (claude)
+3. Declared instance            ([instances.<name>] runtime / runtime_bin)
+4. Agent frontmatter            (runtime: / runtime_bin:)
+5. Repo [runtime] config        (.agent_team/config.toml)
+6. Built-in default             (claude)
 ```
 
-A static per-agent default is intentionally outranked by both an explicit
-dispatch runtime and a deliberate env override, so operators can still force a
-runtime for a one-off run or an incident without editing agent files. Mixed
-runtimes require the daemon: in no-daemon interactive mode every subagent
-inherits the launching agent's runtime.
+A static per-instance or per-agent default is intentionally outranked by both
+an explicit dispatch runtime and a deliberate env override, so operators can
+still force a runtime for a one-off run or an incident without editing topology
+or agent files. Mixed runtimes require the daemon: in no-daemon interactive mode
+every subagent inherits the launching agent's runtime.
 
 ### Schedule field reference
 

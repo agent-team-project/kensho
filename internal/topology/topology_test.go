@@ -432,6 +432,8 @@ func TestParse_Pipelines(t *testing.T) {
 agent = "worker"
 ephemeral = true
 reap_worktree = "on_close"
+runtime = "codex"
+runtime_bin = "codex-dev"
 token_budget = "40M"
 time_budget = "45m"
 
@@ -504,7 +506,7 @@ retry_on_crash = true
 	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
-	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
+	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
 		t.Fatalf("worker = %+v, want reap policy plus budgets", worker)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
@@ -828,6 +830,20 @@ trigger.event = "ticket.created"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
+runtime = "llama"
+`))
+	if err == nil {
+		t.Fatal("expected invalid runtime error")
+	}
+	if !strings.Contains(err.Error(), "runtime must be claude or codex") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParse_InstanceRejectsInvalidRuntime(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
 runtime = "llama"
 `))
 	if err == nil {

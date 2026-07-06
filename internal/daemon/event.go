@@ -1690,7 +1690,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 			return nil, fmt.Errorf("event runtime: otel trace context: %w", err)
 		}
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst.Agent, name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx, traceparent)
+	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst, inst.Agent, name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, payload, runtime.otelConfig, otelCtx, traceparent)
 	if err != nil {
 		cleanupWorkspace()
 		return nil, err
@@ -2422,7 +2422,7 @@ func (r *EventResolver) rerenderTmplFiles(stateDir string, resolved teamtemplate
 	return nil
 }
 
-func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir, cwd, prompt string, env []string, envAllow []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context, traceparent string) ([]string, string, runtimebin.Runtime, []string, error) {
+func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agentName, instance, stateDir, cwd, prompt string, env []string, envAllow []string, mailboxInjection bool, payload map[string]any, otelCfg runtimeotel.Config, otelCtx runtimeotel.Context, traceparent string) ([]string, string, runtimebin.Runtime, []string, error) {
 	agents, err := loader.LoadAllAgents(r.teamDir)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: load agents: %w", err)
@@ -2437,7 +2437,7 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 	if chosen == nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: agent %q not found", agentName)
 	}
-	rt, err := r.runtimeForAgent(chosen, payload)
+	rt, err := r.runtimeForAgent(chosen, inst, payload)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
 	}
@@ -2571,36 +2571,23 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 
 // runtimeForAgent resolves an ephemeral instance's runtime with the same
 // precedence as the dispatch path: explicit payload runtime > AGENT_TEAM_RUNTIME
-// env override > the agent's frontmatter `runtime:`/`runtime_bin:` > repo
-// [runtime] config > default.
-func (r *EventResolver) runtimeForAgent(agent *loader.Agent, payload map[string]any) (runtimebin.Runtime, error) {
-	kindRaw := firstPayloadString(payload, "runtime")
-	binRaw := firstPayloadString(payload, "runtime_binary", "runtime_bin")
-	if rt, ok, err := runtimebin.FromFields(kindRaw, binRaw); err != nil {
-		return runtimebin.Runtime{}, fmt.Errorf("runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
-	} else if ok {
-		return rt, nil
+// env override > declared instance `runtime:`/`runtime_bin:` > agent
+// frontmatter `runtime:`/`runtime_bin:` > repo [runtime] config > default.
+func (r *EventResolver) runtimeForAgent(agent *loader.Agent, inst *topology.Instance, payload map[string]any) (runtimebin.Runtime, error) {
+	opts := runtimebin.ResolveOptions{
+		Explicit: runtimebin.Fields{
+			Kind:   firstPayloadString(payload, "runtime"),
+			Binary: firstPayloadString(payload, "runtime_binary", "runtime_bin"),
+		},
+		ConfigPath: filepath.Join(r.teamDir, "config.toml"),
 	}
-	// A deliberate env override outranks a static per-agent default; when no
-	// env override is set, the agent's declared runtime wins over repo config.
-	if agent != nil && strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) == "" {
-		if rt, ok, err := runtimebin.FromFields(agent.Runtime, agent.RuntimeBin); err != nil {
-			return runtimebin.Runtime{}, fmt.Errorf("agent %q runtime: %w", agent.Name, err)
-		} else if ok {
-			return rt, nil
-		}
+	if inst != nil {
+		opts.Instance = runtimebin.Fields{Name: inst.Name, Kind: inst.Runtime, Binary: inst.RuntimeBin}
 	}
-	rt, err := runtimebin.CurrentFromConfig(filepath.Join(r.teamDir, "config.toml"))
-	if err != nil {
-		return runtimebin.Runtime{}, err
+	if agent != nil {
+		opts.Agent = runtimebin.Fields{Name: agent.Name, Kind: agent.Runtime, Binary: agent.RuntimeBin}
 	}
-	if bin := strings.TrimSpace(binRaw); bin != "" {
-		rt.Binary = bin
-	}
-	if strings.TrimSpace(rt.Binary) == "" {
-		rt.Binary = runtimebin.DefaultBinaryForKind(rt.Kind)
-	}
-	return rt, nil
+	return runtimebin.Resolve(opts)
 }
 
 func codexEventPrompt(kickoff, prompt string, agents []*loader.Agent) string {
