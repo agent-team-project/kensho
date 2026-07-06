@@ -22,6 +22,10 @@ Spend your run on ONE subsystem (a package, a command family, a doc tree, the CI
 
 Reproduce every number you cite — a finding you cannot demonstrate with a command and its output does not get filed.
 
+### Standing dimensions
+
+- **Compat cruft (pre-v1 policy, CLAUDE.md):** until a stable release is declared, backwards compatibility is explicitly worthless — audit FOR leftover deprecation shims, wrapper-only functions, dual config paths, and superseded flags kept "for compatibility", and file them as debt. Never file "X broke compatibility" as debt.
+
 ## Filing
 
 At most THREE tickets per run — the best three, not the first three. Each ticket:
