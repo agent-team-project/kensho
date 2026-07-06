@@ -1579,10 +1579,12 @@ func (m *InstanceManager) startEnvWithOTelArgs(instance string) ([]string, []str
 	}
 	if ok {
 		out, codexArgs := m.applyCurrentOTelConfigWithArgs(instance, env)
+		out = m.withCurrentDaemonHTTPURLEnv(out)
 		out, err = m.withInstanceTokenEnv(instance, out)
 		return out, codexArgs, err
 	}
-	out, err := m.withInstanceTokenEnv(instance, os.Environ())
+	out := m.withCurrentDaemonHTTPURLEnv(os.Environ())
+	out, err = m.withInstanceTokenEnv(instance, out)
 	return out, nil, err
 }
 
@@ -1665,12 +1667,36 @@ func (m *InstanceManager) withInstanceTokenEnv(instance string, env []string) ([
 	return mergeEnv(env, []string{DaemonTokenFileEnv + "=" + tokenPath}), nil
 }
 
+// Daemon HTTP uses an ephemeral port, so a launch snapshot's URL is stale
+// after daemon restart. Re-derive it from the current listener advertisement.
+func (m *InstanceManager) withCurrentDaemonHTTPURLEnv(env []string) []string {
+	httpAddr, err := ReadHTTPAddr(filepath.Dir(m.daemonRoot))
+	if err != nil || strings.TrimSpace(httpAddr) == "" {
+		return withoutEnvKey(env, daemonHTTPURLEnv)
+	}
+	return mergeEnv(withoutEnvKey(env, daemonHTTPURLEnv), []string{daemonHTTPURLEnv + "=" + DaemonHTTPURL(httpAddr)})
+}
+
 func (m *InstanceManager) withMintedInstanceTokenEnv(instance string, env []string) ([]string, error) {
 	tokenPath, err := MintInstanceToken(filepath.Dir(m.daemonRoot), instance)
 	if err != nil {
 		return nil, err
 	}
 	return mergeEnv(env, []string{DaemonTokenFileEnv + "=" + tokenPath}), nil
+}
+
+const daemonHTTPURLEnv = "AGENT_TEAM_DAEMON_URL"
+
+func withoutEnvKey(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		entryKey, _, ok := strings.Cut(entry, "=")
+		if ok && entryKey == key {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func mergeEnv(base, overlay []string) []string {
