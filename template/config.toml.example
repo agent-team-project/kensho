@@ -147,6 +147,11 @@ project_status_field = "Status"
 in_progress_column = "In Progress"
 attention_column = "Todo"
 
+[comms]
+# Env-file key containing the Discord webhook used by the comms helper. The
+# secret value itself belongs in .env, not this committed config file.
+discord_webhook_env = "AGENT_TEAM_DISCORD_WEBHOOK"
+
 [worktree]
 # Where workers create their isolated git worktrees and how to prefix branches.
 # Claude Code's Agent tool with isolation: "worktree" sets these up automatically.

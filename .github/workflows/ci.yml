@@ -42,6 +42,11 @@ jobs:
       - name: Validate bundled template tree
         run: python3 scripts/ci/validate_template_tree.py
 
+      - name: Validate env_allow required vars
+        run: |
+          python3 scripts/ci/validate_env_allow.py --self-test
+          python3 scripts/ci/validate_env_allow.py
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
@@ -89,5 +94,5 @@ jobs:
       - name: Shellcheck template scripts
         uses: ludeeus/action-shellcheck@2.0.0
         with:
-          scandir: template/skills/linear/scripts
+          scandir: template
           severity: warning

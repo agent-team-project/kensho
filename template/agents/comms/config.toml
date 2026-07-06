@@ -1,3 +1,3 @@
 # Skills available to the `comms` agent at runtime.
 [skills]
-extra = ["linear", "github", "status", "inbox", "channel", "release"]
+extra = ["linear", "github", "status", "inbox", "channel", "release", "comms"]
