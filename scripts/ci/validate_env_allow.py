@@ -19,10 +19,17 @@ ENV_NAME = r"[A-Z][A-Z0-9_]*"
 MENTION_RE = re.compile(rf"\b({ENV_NAME})\b")
 SHELL_BRACE_RE = re.compile(rf"\$\{{({ENV_NAME})")
 SHELL_PLAIN_RE = re.compile(rf"(?<![\w$])\$({ENV_NAME})\b")
+SHELL_PRINTENV_RE = re.compile(rf"\bprintenv\s+(?:--\s+)?['\"]?({ENV_NAME})['\"]?\b")
+SHELL_ENV_GREP_RE = re.compile(
+    rf"\b(?:env|printenv)\b\s*\|\s*grep"
+    rf"(?:\s+--?[A-Za-z][A-Za-z0-9_-]*)*"
+    rf"(?:\s+--)?\s+['\"]?(?:\^)?({ENV_NAME})(?:=|\b)"
+)
 PY_ENV_RE = re.compile(
     rf"os\.environ(?:\.get)?\(\s*['\"]({ENV_NAME})['\"]|"
     rf"os\.environ\[\s*['\"]({ENV_NAME})['\"]\s*\]"
 )
+PY_GETENV_RE = re.compile(rf"os\.getenv\(\s*['\"]({ENV_NAME})['\"]")
 
 CORE_AGENT_TEAM_VARS = {
     "AGENT_TEAM_BRANCH",
@@ -177,7 +184,13 @@ def script_refs(path: Path) -> list[Ref]:
     direct_env = line_safe_env_reads(text)
     names: set[str] = set()
 
-    for pattern in (SHELL_BRACE_RE, SHELL_PLAIN_RE):
+    for pattern in (
+        SHELL_BRACE_RE,
+        SHELL_PLAIN_RE,
+        SHELL_PRINTENV_RE,
+        SHELL_ENV_GREP_RE,
+        PY_GETENV_RE,
+    ):
         for match in pattern.finditer(text):
             names.add(match.group(1))
 
@@ -349,6 +362,52 @@ def run_self_test() -> None:
         failures = validate(root)
         if len(failures) != 1 or "AGENT_TEAM_DISCORD_WEBHOOK" not in failures[0]:
             raise AssertionError(f"expected script env failure, got {failures!r}")
+
+        def expect_script_env_failure(body: str, label: str) -> None:
+            write(root / "template" / "skills" / "post" / "scripts" / "post.sh", body)
+            script_failures = validate(root)
+            if (
+                len(script_failures) != 1
+                or "AGENT_TEAM_DISCORD_WEBHOOK" not in script_failures[0]
+            ):
+                raise AssertionError(
+                    f"expected {label} script env failure, got {script_failures!r}"
+                )
+
+        expect_script_env_failure(
+            """
+            #!/usr/bin/env bash
+            printenv AGENT_TEAM_DISCORD_WEBHOOK >/dev/null
+            """,
+            "printenv",
+        )
+        expect_script_env_failure(
+            """
+            #!/usr/bin/env bash
+            python3 - <<'PY'
+            import os
+            print(os.getenv('AGENT_TEAM_DISCORD_WEBHOOK'))
+            PY
+            """,
+            "os.getenv single-quoted",
+        )
+        expect_script_env_failure(
+            """
+            #!/usr/bin/env bash
+            python3 - <<'PY'
+            import os
+            print(os.getenv("AGENT_TEAM_DISCORD_WEBHOOK"))
+            PY
+            """,
+            "os.getenv double-quoted",
+        )
+        expect_script_env_failure(
+            """
+            #!/usr/bin/env bash
+            env|grep AGENT_TEAM_DISCORD_WEBHOOK >/dev/null
+            """,
+            "env grep",
+        )
 
         write(
             root / "template" / "agents" / "comms" / "config.toml",
