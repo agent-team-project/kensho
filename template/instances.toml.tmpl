@@ -153,7 +153,7 @@ match.kind = "feedback_triage"
 # files evidence-backed tech-debt tickets (at most three, Backlog only). The
 # counterweight to delivery velocity — see template/agents/auditor/agent.md.
 [schedules.debt-sweep]
-every = "168h" # weekly
+every = "24h" # weekly
 
 [schedules.debt-sweep.payload]
 kind = "debt_sweep"
@@ -268,7 +268,7 @@ pipelines   = ["platform_ticket_to_pr"]
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "24h" # daily while the fleet + prompts evolve fast; revisit at stability
+every = "12h" # daily while the fleet + prompts evolve fast; revisit at stability
 
 [schedules.harness-review.payload]
 kind = "harness_review"
@@ -469,7 +469,7 @@ match.kind = "docs_freshness"
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
 [schedules.docs-freshness]
-every = "168h"
+every = "24h"
 
 [schedules.docs-freshness.payload]
 kind = "docs_freshness"
