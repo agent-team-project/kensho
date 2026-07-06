@@ -285,6 +285,30 @@ match.name = "harness-review"
 match.kind = "harness_review"
 
 
+# The sentinel loop: every six hours, check the post-merge public surface that
+# reviewers cannot see from a green PR alone — main CI, Read the Docs build and
+# rendered pages, release assets, and repo metadata. Failures are submitted as
+# incident feedback immediately. See the sentinel skill.
+[schedules.sentinel]
+every = "6h"
+
+[schedules.sentinel.payload]
+kind = "sentinel"
+
+[instances.sentinel]
+agent        = "manager"
+ephemeral    = true
+token_budget = "10M"
+time_budget  = "15m"
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK", "GITHUB_TOKEN", "GH_TOKEN"]
+description  = "Scheduled production sentinel: main CI, RTD rendering, release assets, and repo metadata."
+
+[[instances.sentinel.triggers]]
+event      = "schedule"
+match.name = "sentinel"
+match.kind = "sentinel"
+
+
 # The comms team: the project's public voice. A daily schedule dispatches the
 # comms agent to digest the last 24h of shipped work into Discord (via
 # webhook — sanctioned automation; falls back to a supervisor draft when no
@@ -465,9 +489,9 @@ instances   = ["docs-writer"]
 schedules   = ["docs-freshness"]
 
 [teams.quality]
-description = "Proactive architecture, tech-debt, and harness auditing."
-instances   = ["debt-auditor", "harness-reviewer"]
-schedules   = ["debt-sweep", "harness-review"]
+description = "Proactive architecture, tech-debt, harness auditing, and production sentinel checks."
+instances   = ["debt-auditor", "harness-reviewer", "sentinel"]
+schedules   = ["debt-sweep", "harness-review", "sentinel"]
 
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."

@@ -6,5 +6,5 @@
 #   [skills]
 #   team = ["linear", "status"]
 [skills]
-extra = ["linear", "github", "status", "inbox", "channel", "triage-feedback", "review-harness", "release"]
+extra = ["linear", "github", "status", "inbox", "channel", "triage-feedback", "review-harness", "release", "sentinel"]
 # disable = []   # opt-out from local defaults if needed
