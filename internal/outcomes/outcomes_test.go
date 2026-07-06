@@ -98,6 +98,38 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	}
 }
 
+func TestBuildRecordUsesImplementationAgentAfterPipelineTargetRewrite(t *testing.T) {
+	teamDir := testOutcomeTeamDir(t)
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-136", "worker", "Implement SQU-136", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Pipeline = "ticket_to_pr"
+	j.Steps = []jobstore.Step{
+		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, Attempts: 1},
+		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, Attempts: 1, After: []string{"implement"}},
+		{ID: "approve", Target: "manager", Status: jobstore.StatusDone, Attempts: 1, After: []string{"review"}},
+	}
+	jobstore.SetImplementationAgentFromSteps(j)
+	j.Target = "manager"
+	j.Instance = "manager-squ-136"
+	j.UpdatedAt = now
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	appendOutcomeEvent(t, teamDir, j.ID, "closed", jobstore.StatusDone, now, "done", nil)
+
+	rec, err := BuildRecord(teamDir, j, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("BuildRecord: %v", err)
+	}
+	if rec.Agent != "worker" {
+		t.Fatalf("agent = %q, want worker; record=%+v", rec.Agent, rec)
+	}
+}
+
 func TestBuildReportAggregatesTrends(t *testing.T) {
 	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	records := []Record{

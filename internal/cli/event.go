@@ -373,6 +373,7 @@ func previewPipelineJob(teamDir, eventType string, payload map[string]any, pipel
 		j.TicketURL = ticketURL
 	}
 	j.Steps = jobStepsFromPipeline(pipeline)
+	job.SetImplementationAgentFromSteps(j)
 	preview = previewPipelineJobFromJob(j, "would_create", false)
 	if existing, err := job.Read(teamDir, j.ID); err == nil {
 		existing.Pipeline = pipeline.Name
@@ -382,6 +383,7 @@ func previewPipelineJob(teamDir, eventType string, payload map[string]any, pipel
 		if len(existing.Steps) == 0 {
 			existing.Steps = jobStepsFromPipeline(pipeline)
 		}
+		job.SetImplementationAgentFromSteps(existing)
 		preview = previewPipelineJobFromJob(existing, previewPipelineReentryAction(existing, pipeline), true)
 	}
 	return preview

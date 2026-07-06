@@ -6018,6 +6018,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	}
 	j.Pipeline = pipelineDef.Name
 	j.Steps = jobStepsFromPipeline(pipelineDef)
+	job.SetImplementationAgentFromSteps(j)
 	j.LastEvent = "created"
 	j.LastStatus = "created"
 	if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {

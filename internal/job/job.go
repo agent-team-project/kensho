@@ -53,6 +53,7 @@ type Job struct {
 	Ticket                 string          `toml:"ticket"`
 	TicketURL              string          `toml:"ticket_url,omitempty"`
 	Target                 string          `toml:"target"`
+	ImplementationAgent    string          `toml:"implementation_agent,omitempty"`
 	Kickoff                string          `toml:"kickoff,omitempty"`
 	Kind                   string          `toml:"kind,omitempty"`
 	Instance               string          `toml:"instance,omitempty"`
@@ -283,14 +284,15 @@ func New(ticket, target, kickoff string, now time.Time) (*Job, error) {
 	}
 	now = now.UTC()
 	return &Job{
-		ID:        id,
-		Ticket:    ticket,
-		TicketURL: ticketURL,
-		Target:    target,
-		Kickoff:   kickoff,
-		Status:    StatusQueued,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:                  id,
+		Ticket:              ticket,
+		TicketURL:           ticketURL,
+		Target:              target,
+		ImplementationAgent: target,
+		Kickoff:             kickoff,
+		Status:              StatusQueued,
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}, nil
 }
 

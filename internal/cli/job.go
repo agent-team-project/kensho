@@ -383,6 +383,7 @@ func newJobCreateCmd() *cobra.Command {
 			if pipelineDef != nil {
 				j.Pipeline = pipelineDef.Name
 				j.Steps = jobStepsFromPipeline(pipelineDef)
+				job.SetImplementationAgentFromSteps(j)
 				j.Merge = jobMergeFromPipeline(pipelineDef.Merge)
 				if pipelineDef.ReapWorktree != worktreepolicy.Never {
 					j.ReapWorktree = pipelineDef.ReapWorktree

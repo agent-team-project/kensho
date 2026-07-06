@@ -323,6 +323,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	}
 	j.Kind = payloadJobKind(payload)
 	j.Steps = pipelineJobSteps(pipeline)
+	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
 	pipelineEvent := "pipeline_created"
 	if existing, err := jobstore.Read(r.teamDir, j.ID); err == nil {
@@ -480,6 +481,7 @@ func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload ma
 	if len(j.Steps) == 0 {
 		j.Steps = pipelineJobSteps(pipeline)
 	}
+	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
 }
 
@@ -497,6 +499,7 @@ func resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, ev
 	j.PR = ""
 	j.Drift = nil
 	j.Steps = pipelineJobSteps(pipeline)
+	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
 	j.LastEvent = "reopened"
 	j.LastStatus = "reopened by pipeline re-entry"

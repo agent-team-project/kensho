@@ -600,7 +600,7 @@ func agentForJob(j *jobstore.Job) string {
 	if j == nil {
 		return ""
 	}
-	if agent := strings.TrimSpace(j.Target); agent != "" {
+	if agent := jobstore.ImplementationAgentForJob(j); agent != "" {
 		return agent
 	}
 	return strings.TrimSpace(j.Origin.Agent)
