@@ -156,6 +156,46 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func seedPushedBranchArtifact(t *testing.T, teamDir, jobID string) string {
+	t.Helper()
+	repoRoot := filepath.Dir(teamDir)
+	if _, err := os.Stat(filepath.Join(repoRoot, ".git")); os.IsNotExist(err) {
+		runGit(t, repoRoot, "init")
+	}
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	runGit(t, repoRoot, "checkout", "-B", "main")
+	runGit(t, repoRoot, "commit", "--allow-empty", "-m", "base")
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "--bare", remote).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v\n%s", err, string(out))
+	}
+	if out, err := exec.Command("git", "-C", repoRoot, "remote", "get-url", "origin").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) == "" {
+		runGit(t, repoRoot, "remote", "add", "origin", remote)
+	}
+	runGit(t, repoRoot, "push", "-u", "origin", "main")
+	branch := jobstore.NormalizeID(jobID) + "-artifact"
+	runGit(t, repoRoot, "checkout", "-B", branch)
+	artifact := filepath.Join(repoRoot, "artifact-"+jobstore.NormalizeID(jobID)+".txt")
+	if err := os.WriteFile(artifact, []byte("deliverable\n"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	runGit(t, repoRoot, "add", artifact)
+	runGit(t, repoRoot, "commit", "-m", "test artifact")
+	runGit(t, repoRoot, "push", "-u", "origin", branch)
+
+	j, err := jobstore.Read(teamDir, jobID)
+	if err != nil {
+		t.Fatalf("read job for artifact: %v", err)
+	}
+	j.Branch = branch
+	j.Worktree = repoRoot
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job artifact: %v", err)
+	}
+	return branch
+}
+
 func (f *fakeSpawner) lastEnv() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1767,6 +1807,53 @@ func TestEvent_TicketWorktreeDispatchNamesBranchFromTicket(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }
 
+func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManager(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-155","ticket":"SQU-155","job_id":"squ-155","workspace":"worktree","kickoff":"write docs"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	if err := m.WaitForReaper("worker-squ-155", 5*time.Second); err != nil {
+		t.Fatalf("wait worker reaper: %v", err)
+	}
+	j, err := jobstore.Read(teamDir, "squ-155")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Pipeline != "" || j.DeliveryContract != deliveryContractBranch {
+		t.Fatalf("job contract = pipeline %q delivery %q, want direct branch contract", j.Pipeline, j.DeliveryContract)
+	}
+	if j.Status != jobstore.StatusFailed || j.LastEvent != "deliverable_missing" {
+		t.Fatalf("job = %+v, want failed deliverable_missing", j)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, "squ-155") || !strings.Contains(messages[0].Body, "delivery artifact missing") {
+		t.Fatalf("manager messages = %+v, want missing-deliverable notification", messages)
+	}
+}
+
 func TestEvent_EphemeralDispatchCanCreateWorktreeWorkspace(t *testing.T) {
 	root := t.TempDir()
 	repoRoot := t.TempDir()
@@ -1860,7 +1947,7 @@ func TestEvent_EphemeralJobExitAutoReapsWorktreeOnClose(t *testing.T) {
 		worktreecleanup.LiveProcessReferenceCheck = previousCheck
 	}()
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(3 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
 	srv := httptest.NewServer(Handler(m, nil, resolver, root))
@@ -1883,6 +1970,11 @@ func TestEvent_EphemeralJobExitAutoReapsWorktreeOnClose(t *testing.T) {
 	if _, err := os.Stat(worktreePath); err != nil {
 		t.Fatalf("worktree missing before stop: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(worktreePath, "deliverable.txt"), []byte("done\n"), 0o644); err != nil {
+		t.Fatalf("write deliverable: %v", err)
+	}
+	runGit(t, worktreePath, "add", "deliverable.txt")
+	runGit(t, worktreePath, "commit", "-m", "add deliverable")
 
 	if err := m.WaitForReaper("worker-squ-142", 5*time.Second); err != nil {
 		t.Fatalf("wait reaper: %v", err)

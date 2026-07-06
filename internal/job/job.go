@@ -64,6 +64,7 @@ type Job struct {
 	HoldUntil              time.Time       `toml:"hold_until,omitempty"`
 	Branch                 string          `toml:"branch,omitempty"`
 	Worktree               string          `toml:"worktree,omitempty"`
+	DeliveryContract       string          `toml:"delivery_contract,omitempty"`
 	ReapWorktree           string          `toml:"reap_worktree,omitempty"`
 	PR                     string          `toml:"pr,omitempty"`
 	Origin                 origin.Envelope `toml:"origin,omitempty"`

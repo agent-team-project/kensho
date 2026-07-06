@@ -389,6 +389,7 @@ func newJobCreateCmd() *cobra.Command {
 					j.ReapWorktree = pipelineDef.ReapWorktree
 				}
 				applyProbeProfileToJob(j)
+				j.DeliveryContract = daemon.DeliveryArtifactContract(j)
 			}
 			if strings.TrimSpace(id) != "" {
 				normalized := job.NormalizeID(id)
@@ -12237,7 +12238,7 @@ func reconcileSelectedJobsFromStatus(teamDir string, jobs []*job.Job, dryRun boo
 		if statusRowSupersededByUnblock(j, row) {
 			continue
 		}
-		result := reconcileJobFromStatusRow(j, row, matchedBy, dryRun, now)
+		result := reconcileJobFromStatusRow(teamDir, j, row, matchedBy, dryRun, now)
 		if result.Changed && !dryRun {
 			data := map[string]string{
 				"instance":   row.Instance,
@@ -12256,8 +12257,21 @@ func reconcileSelectedJobsFromStatus(teamDir string, jobs []*job.Job, dryRun boo
 			if row.PR != "" {
 				data["pr"] = row.PR
 			}
-			if err := writeJobWithAudit(teamDir, j, "status_reconcile", "cli", result.Message, data); err != nil {
+			if row.Workspace != "" {
+				data["worktree"] = row.Workspace
+			}
+			eventType := result.Event
+			if eventType == "" {
+				eventType = "status_reconcile"
+			}
+			if eventType == "deliverable_missing" {
+				data["deliverable_contract"] = daemon.DeliveryArtifactContract(j)
+			}
+			if err := writeJobWithAudit(teamDir, j, eventType, "cli", result.Message, data); err != nil {
 				return nil, err
+			}
+			if eventType == "deliverable_missing" {
+				daemon.NotifyManagerMissingDeliveryArtifact(daemon.DaemonRoot(teamDir), j, row.Instance, result.Message)
 			}
 			if result.After == job.StatusDone || result.After == job.StatusFailed {
 				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
@@ -12300,16 +12314,23 @@ func reconcileSelectedJobsFromEventsWithFilter(teamDir string, jobs []*job.Job, 
 		if j == nil {
 			continue
 		}
-		result := reconcileJobFromDaemonMetadata(j, meta, matchedBy, true, now)
+		result := reconcileJobFromDaemonMetadata(teamDir, j, meta, matchedBy, true, now)
 		if filter != nil && !filter(result) {
 			continue
 		}
 		if !dryRun {
-			result = reconcileJobFromDaemonMetadata(j, meta, matchedBy, false, now)
+			result = reconcileJobFromDaemonMetadata(teamDir, j, meta, matchedBy, false, now)
 		}
 		if result.Changed && !dryRun {
-			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, jobEventReconcileData(meta, matchedBy)); err != nil {
+			data := jobEventReconcileData(meta, matchedBy)
+			if result.Event == "deliverable_missing" {
+				data["deliverable_contract"] = daemon.DeliveryArtifactContract(j)
+			}
+			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, data); err != nil {
 				return nil, err
+			}
+			if result.Event == "deliverable_missing" {
+				daemon.NotifyManagerMissingDeliveryArtifact(daemon.DaemonRoot(teamDir), j, meta.Instance, result.Message)
 			}
 			if result.After == job.StatusDone || result.After == job.StatusFailed {
 				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
@@ -12372,20 +12393,26 @@ func reconcileJobsFromLifecycleEvents(teamDir, daemonRoot string, jobs []*job.Jo
 		if j == nil {
 			continue
 		}
-		result := reconcileJobFromDaemonMetadata(j, meta, matchedBy, true, now)
+		result := reconcileJobFromDaemonMetadata(teamDir, j, meta, matchedBy, true, now)
 		if filter != nil && !filter(result) {
 			continue
 		}
 		if !dryRun {
-			result = reconcileJobFromDaemonMetadata(j, meta, matchedBy, false, now)
+			result = reconcileJobFromDaemonMetadata(teamDir, j, meta, matchedBy, false, now)
 		}
 		if result.Changed && !dryRun {
 			data := jobEventReconcileDataWithSource(meta, matchedBy, "lifecycle_event")
 			if ev.ID != "" {
 				data["lifecycle_event_id"] = ev.ID
 			}
+			if result.Event == "deliverable_missing" {
+				data["deliverable_contract"] = daemon.DeliveryArtifactContract(j)
+			}
 			if err := writeJobWithAudit(teamDir, j, result.Event, "cli", result.Message, data); err != nil {
 				return nil, err
+			}
+			if result.Event == "deliverable_missing" {
+				daemon.NotifyManagerMissingDeliveryArtifact(daemon.DaemonRoot(teamDir), j, meta.Instance, result.Message)
 			}
 			if result.After == job.StatusDone || result.After == job.StatusFailed {
 				if _, err := autoReapJobOwnedWorktree(teamDir, j, worktreepolicy.OnClose, "cli"); err != nil {
@@ -12491,7 +12518,7 @@ func jobHasAnyStepInstance(j *job.Job) bool {
 	return false
 }
 
-func reconcileJobFromDaemonMetadata(j *job.Job, meta *daemon.Metadata, matchedBy string, dryRun bool, now time.Time) jobEventReconcileResult {
+func reconcileJobFromDaemonMetadata(teamDir string, j *job.Job, meta *daemon.Metadata, matchedBy string, dryRun bool, now time.Time) jobEventReconcileResult {
 	before := cloneJobForEventReconcile(j)
 	target := j
 	if dryRun {
@@ -12539,6 +12566,16 @@ func reconcileJobFromDaemonMetadata(j *job.Job, meta *daemon.Metadata, matchedBy
 		}
 	} else {
 		target.Status = outcome
+	}
+	if before.Status != job.StatusDone && target.Status == job.StatusDone {
+		if reason := daemon.MissingDeliveryArtifactReason(teamDir, target, meta); reason != "" {
+			target.Status = job.StatusFailed
+			if stepMatched {
+				setJobStepStatus(target, stepID, job.StatusFailed)
+			}
+			eventType = "deliverable_missing"
+			message = reason
+		}
 	}
 	target.LastEvent = eventType
 	target.LastStatus = message
@@ -12603,6 +12640,18 @@ func reconcileJobStepFromDaemonMetadata(j *job.Job, instance string, status job.
 		return step.ID, true, true
 	}
 	return "", false, false
+}
+
+func setJobStepStatus(j *job.Job, stepID string, status job.Status) {
+	if j == nil || strings.TrimSpace(stepID) == "" {
+		return
+	}
+	for i := range j.Steps {
+		if j.Steps[i].ID == stepID {
+			j.Steps[i].Status = status
+			return
+		}
+	}
 }
 
 func cloneJobForEventReconcile(j *job.Job) *job.Job {
@@ -12727,18 +12776,55 @@ func jobForStatusRow(jobs []*job.Job, row instanceRow) (*job.Job, string) {
 	return nil, ""
 }
 
-func reconcileJobFromStatusRow(j *job.Job, row instanceRow, matchedBy string, dryRun bool, now time.Time) jobStatusReconcileResult {
+func reconcileJobFromStatusRow(teamDir string, j *job.Job, row instanceRow, matchedBy string, dryRun bool, now time.Time) jobStatusReconcileResult {
 	before := j.Status
 	after := statusReconciledJobState(j.Status, row.Phase)
 	message := strings.TrimSpace(row.Summary)
 	if message == "" {
 		message = "status " + strings.TrimSpace(row.Phase)
 	}
+	eventType := "status_reconcile"
+	candidate := cloneJobForEventReconcile(j)
+	if candidate != nil {
+		candidate.Status = after
+		if row.Instance != "" {
+			candidate.Instance = row.Instance
+		}
+		if row.Branch != "" {
+			candidate.Branch = row.Branch
+		}
+		if row.PR != "" {
+			candidate.PR = row.PR
+		}
+		if row.Ticket != "" && strings.TrimSpace(candidate.Ticket) == "" {
+			candidate.Ticket = row.Ticket
+		}
+		if row.Workspace != "" {
+			candidate.Worktree = row.Workspace
+		}
+		if before != job.StatusDone && after == job.StatusDone {
+			meta := &daemon.Metadata{
+				Instance:  row.Instance,
+				Job:       row.Job,
+				Ticket:    row.Ticket,
+				Branch:    row.Branch,
+				PR:        row.PR,
+				Workspace: firstNonEmpty(row.Workspace, candidate.Worktree),
+			}
+			if reason := daemon.MissingDeliveryArtifactReason(teamDir, candidate, meta); reason != "" {
+				after = job.StatusFailed
+				candidate.Status = after
+				eventType = "deliverable_missing"
+				message = reason
+			}
+		}
+	}
 	result := jobStatusReconcileResult{
 		JobID:     j.ID,
 		Instance:  row.Instance,
 		Phase:     row.Phase,
 		MatchedBy: matchedBy,
+		Event:     eventType,
 		Before:    before,
 		After:     after,
 		Branch:    row.Branch,
@@ -12766,10 +12852,13 @@ func reconcileJobFromStatusRow(j *job.Job, row instanceRow, matchedBy string, dr
 	if row.PR != "" {
 		j.PR = row.PR
 	}
+	if row.Workspace != "" {
+		j.Worktree = row.Workspace
+	}
 	if row.Ticket != "" && strings.TrimSpace(j.Ticket) == "" {
 		j.Ticket = row.Ticket
 	}
-	j.LastEvent = "status_reconcile"
+	j.LastEvent = eventType
 	j.LastStatus = message
 	j.UpdatedAt = now.UTC()
 	return result
@@ -12997,6 +13086,7 @@ type jobStatusReconcileResult struct {
 	Instance  string     `json:"instance"`
 	Phase     string     `json:"phase"`
 	MatchedBy string     `json:"matched_by"`
+	Event     string     `json:"event,omitempty"`
 	Before    job.Status `json:"before"`
 	After     job.Status `json:"after"`
 	Branch    string     `json:"branch,omitempty"`

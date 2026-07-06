@@ -11943,6 +11943,8 @@ instances = ["other"]
 func TestTeamRepairReconcilesScopedJobEvents(t *testing.T) {
 	root, _, cleanup := setupManualGateApprovalRepo(t, true)
 	defer cleanup()
+	initGitRepoForJobTest(t, root)
+	seedCommittedBranchArtifactForJobTest(t, root, "worker-squ-931", "squ-931")
 	teamDir := filepath.Join(root, ".agent_team")
 	writeRunningLifecycleJob(t, teamDir, "squ-931", "worker", "ticket_to_pr", "worker-squ-931")
 	writeRunningLifecycleJob(t, teamDir, "ops-931", "other", "", "other-ops-931")

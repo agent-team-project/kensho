@@ -26,7 +26,7 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	writeOrchestrationOTelConfig(t, teamDir, true, collector.URL)
 	top := mustParseCustomTopo(t, autoAdvancePipelineTOML)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newSequencedFakeSpawner(time.Second, 3*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -39,6 +39,19 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	}
 	if err := m.WaitForReaper("worker-squ-974", 5*time.Second); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
+	}
+	running, err := jobstore.Read(teamDir, "squ-974")
+	if err != nil {
+		t.Fatalf("read running job: %v", err)
+	}
+	seedPushedBranchArtifact(t, teamDir, "squ-974")
+	running, err = jobstore.Read(teamDir, "squ-974")
+	if err != nil {
+		t.Fatalf("read artifact job: %v", err)
+	}
+	running.PR = "https://github.com/acme/repo/pull/974"
+	if err := jobstore.Write(teamDir, running); err != nil {
+		t.Fatalf("record PR before review exits: %v", err)
 	}
 	if err := m.WaitForReaper("reviewer-squ-974", 5*time.Second); err != nil {
 		t.Fatalf("wait reviewer reaper: %v", err)
@@ -165,7 +178,7 @@ id = "implement"
 target = "worker"
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newSequencedFakeSpawner(30*time.Second, 3*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	if _, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
@@ -207,6 +220,19 @@ target = "worker"
 		if drain.Dispatched != 1 {
 			t.Fatalf("drain result = %+v, want queued step dispatch", drain)
 		}
+	}
+	running, err := jobstore.Read(teamDir, "squ-976")
+	if err != nil {
+		t.Fatalf("read running job: %v", err)
+	}
+	seedPushedBranchArtifact(t, teamDir, "squ-976")
+	running, err = jobstore.Read(teamDir, "squ-976")
+	if err != nil {
+		t.Fatalf("read artifact job: %v", err)
+	}
+	running.PR = "https://github.com/acme/repo/pull/976"
+	if err := jobstore.Write(teamDir, running); err != nil {
+		t.Fatalf("record PR before queued step exits: %v", err)
 	}
 	if err := m.WaitForReaper("worker-squ-976", 5*time.Second); err != nil {
 		t.Fatalf("wait queued step reaper: %v", err)

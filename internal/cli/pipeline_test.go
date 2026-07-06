@@ -9958,6 +9958,8 @@ func TestPipelineRepairScopesQueueAndRetry(t *testing.T) {
 func TestPipelineRepairReconcilesScopedJobEvents(t *testing.T) {
 	root, _, cleanup := setupManualGateApprovalRepo(t, false)
 	defer cleanup()
+	initGitRepoForJobTest(t, root)
+	seedCommittedBranchArtifactForJobTest(t, root, "worker-squ-930", "squ-930")
 	teamDir := filepath.Join(root, ".agent_team")
 	writeRunningLifecycleJob(t, teamDir, "squ-930", "worker", "ticket_to_pr", "worker-squ-930")
 	writeRunningLifecycleJob(t, teamDir, "ops-930", "worker", "ops_to_pr", "worker-ops-930")

@@ -33,10 +33,11 @@ type statusSection struct {
 }
 
 type workSection struct {
-	Job    string `toml:"job"`
-	Ticket string `toml:"ticket"`
-	PR     string `toml:"pr"`
-	Branch string `toml:"branch"`
+	Job      string `toml:"job"`
+	Ticket   string `toml:"ticket"`
+	PR       string `toml:"pr"`
+	Branch   string `toml:"branch"`
+	Worktree string `toml:"worktree"`
 }
 
 type blockingSection struct {
@@ -153,6 +154,7 @@ func instanceRowFor(stateRoot, instance string, agentNames map[string]bool, now 
 		row.Ticket = sf.Work.Ticket
 		row.Branch = sf.Work.Branch
 		row.PR = sf.Work.PR
+		row.Workspace = sf.Work.Worktree
 	}
 
 	if sf.Status.Phase != "idle" && sf.Status.Phase != "done" {

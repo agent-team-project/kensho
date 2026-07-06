@@ -4439,6 +4439,79 @@ branch = "worker-squ-120"
 	}
 }
 
+func TestJobReconcileStatusDoneWithoutDeliveryArtifactFails(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:               "squ-155",
+		Ticket:           "SQU-155",
+		Target:           "worker",
+		Pipeline:         "ticket_to_pr",
+		DeliveryContract: "ticket_to_pr",
+		Status:           job.StatusRunning,
+		CreatedAt:        now.Add(-time.Hour),
+		UpdatedAt:        now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-155"), `[status]
+phase = "done"
+description = "fake worker completed"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-155"
+ticket = "SQU-155"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile status: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobStatusReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode status reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].JobID != "squ-155" || result[0].After != job.StatusFailed || result[0].Event != "deliverable_missing" {
+		t.Fatalf("result = %+v, want failed deliverable_missing", result)
+	}
+	updated, err := job.Read(teamDir, "squ-155")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "deliverable_missing" || !strings.Contains(updated.LastStatus, "delivery artifact missing") {
+		t.Fatalf("updated job = %+v", updated)
+	}
+	events, err := job.ListEvents(teamDir, "squ-155")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	foundMissing := false
+	for _, ev := range events {
+		if ev.Type == "deliverable_missing" && ev.Data["deliverable_contract"] == "ticket_to_pr" {
+			foundMissing = true
+			break
+		}
+	}
+	if !foundMissing {
+		t.Fatalf("events = %+v", events)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, "squ-155") || !strings.Contains(messages[0].Body, "delivery artifact missing") {
+		t.Fatalf("manager messages = %+v", messages)
+	}
+}
+
 func TestJobReconcileStatusFiltersByPipelineAndTargetAgent(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -4686,6 +4759,8 @@ func TestJobReconcileEventsFromTerminalMetadata(t *testing.T) {
 func TestJobReconcileEventsFiltersByPipelineAndTargetAgent(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
+	initGitRepoForJobTest(t, tmp)
+	seedCommittedBranchArtifactForJobTest(t, tmp, "worker-squ-131", "squ-131")
 	teamDir := filepath.Join(tmp, ".agent_team")
 	now := time.Now().UTC()
 	for _, j := range []*job.Job{
@@ -15192,6 +15267,18 @@ func initGitRepoForJobTest(t *testing.T, dir string) {
 	}
 	runGitForJobTest(t, dir, "add", ".")
 	runGitForJobTest(t, dir, "commit", "-m", "init")
+}
+
+func seedCommittedBranchArtifactForJobTest(t *testing.T, dir, branch, name string) {
+	t.Helper()
+	runGitForJobTest(t, dir, "checkout", "-B", branch, "main")
+	artifact := filepath.Join(dir, "artifact-"+job.NormalizeID(name)+".txt")
+	if err := os.WriteFile(artifact, []byte("deliverable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForJobTest(t, dir, "add", artifact)
+	runGitForJobTest(t, dir, "commit", "-m", "test artifact "+job.NormalizeID(name))
+	runGitForJobTest(t, dir, "checkout", "main")
 }
 
 func runGitForJobTest(t *testing.T, dir string, args ...string) string {

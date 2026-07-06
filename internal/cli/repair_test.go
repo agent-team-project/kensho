@@ -834,6 +834,8 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 func TestRepairJobEventsRespectScopedTimeoutFilters(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
+	initGitRepoForJobTest(t, tmp)
+	seedCommittedBranchArtifactForJobTest(t, tmp, "worker-squ-221", "squ-221")
 	teamDir := filepath.Join(tmp, ".agent_team")
 	now := time.Now().UTC()
 	for _, j := range []*job.Job{
