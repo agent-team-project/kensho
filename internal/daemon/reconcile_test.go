@@ -633,6 +633,95 @@ restart = "always"
 	waitForStatusNot(t, m, "manager", StatusRunning)
 }
 
+func TestLaunchDeclaredFreshRefreshesDaemonURLFromCurrentHTTPAddr(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		currentAddr string
+		wantURL     string
+	}{
+		{
+			name:        "current listener replaces stale snapshot",
+			currentAddr: "127.0.0.1:33333",
+			wantURL:     "http://127.0.0.1:33333",
+		},
+		{
+			name: "missing listener removes stale snapshot",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(runtimebin.EnvRuntime, "claude")
+			teamDir := fixtureTeamDir(t)
+			writeFixtureAgent(t, teamDir, "manager")
+			if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+restart = "always"
+`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stateDir := filepath.Join(teamDir, "state", "manager")
+			root := DaemonRoot(teamDir)
+			if err := WriteInstanceLaunchEnv(root, "manager", &LaunchEnv{
+				Bin:  "claude",
+				Args: []string{"claude", "--session-id", "old"},
+				Dir:  filepath.Dir(teamDir),
+				Env: []string{
+					"MARKER=dispatch",
+					"AGENT_TEAM_ROOT=" + teamDir,
+					"AGENT_TEAM_INSTANCE=manager",
+					"AGENT_TEAM_STATE_DIR=" + stateDir,
+					daemonHTTPURLEnv + "=http://127.0.0.1:11111",
+				},
+				RecordedAt: time.Now().UTC(),
+				Version:    1,
+			}); err != nil {
+				t.Fatalf("write instance launch env: %v", err)
+			}
+			if tt.currentAddr != "" {
+				if err := os.WriteFile(HTTPAddrPath(teamDir), []byte(tt.currentAddr+"\n"), 0o644); err != nil {
+					t.Fatalf("write http addr: %v", err)
+				}
+			}
+			topo, err := topology.LoadFromTeamDir(teamDir)
+			if err != nil {
+				t.Fatalf("load topology: %v", err)
+			}
+			fake := newFakeSpawner(30 * time.Second)
+			m := NewInstanceManager(root, fake.spawn)
+			meta, launched, err := launchDeclaredFresh(teamDir, m, topo, topo.Find("manager"), nil)
+			if err != nil {
+				t.Fatalf("launch declared fresh: %v", err)
+			}
+			if !launched || meta == nil {
+				t.Fatalf("launch result meta=%+v launched=%t", meta, launched)
+			}
+			t.Cleanup(func() {
+				_, _ = m.Stop("manager")
+				waitForStatusNot(t, m, "manager", StatusRunning)
+			})
+			env := fake.lastEnv()
+			if tt.wantURL != "" {
+				if got := lastEnvValue(env, daemonHTTPURLEnv); got != tt.wantURL {
+					t.Fatalf("%s = %q, want %q in env %+v", daemonHTTPURLEnv, got, tt.wantURL, env)
+				}
+			} else if envHasKey(env, daemonHTTPURLEnv) {
+				t.Fatalf("relaunch env kept stale %s: %+v", daemonHTTPURLEnv, env)
+			}
+			snapshot, err := ReadInstanceLaunchEnv(root, "manager")
+			if err != nil {
+				t.Fatalf("read updated launch env: %v", err)
+			}
+			if tt.wantURL != "" {
+				if got := lastEnvValue(snapshot.Env, daemonHTTPURLEnv); got != tt.wantURL {
+					t.Fatalf("snapshot %s = %q, want %q in %+v", daemonHTTPURLEnv, got, tt.wantURL, snapshot.Env)
+				}
+			} else if envHasKey(snapshot.Env, daemonHTTPURLEnv) {
+				t.Fatalf("updated snapshot kept stale %s: %+v", daemonHTTPURLEnv, snapshot.Env)
+			}
+		})
+	}
+}
+
 func TestLaunchDeclaredFreshStripsStaleOTelSnapshotWhenDisabled(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "claude")
 	teamDir := fixtureTeamDir(t)

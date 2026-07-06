@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -845,6 +846,81 @@ allow = ["inbox.send"]
 		t.Fatalf("ListEvents: %v", err)
 	}
 	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "inbox.send" {
+		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
+func TestHTTP_LoopbackTokenOriginFeedsAuthorityAudit(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-130", "worker", "kickoff", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	instance := "worker-squ-130"
+	tokenPath, err := EnsureInstanceToken(teamDir, instance)
+	if err != nil {
+		t.Fatalf("EnsureInstanceToken: %v", err)
+	}
+	token, err := ReadTokenFile(tokenPath)
+	if err != nil {
+		t.Fatalf("ReadTokenFile: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance: instance,
+		Agent:    "worker",
+		Job:      j.ID,
+		Origin: origin.Envelope{
+			Team:     "delivery",
+			Agent:    "worker",
+			Instance: instance,
+			Job:      j.ID,
+		},
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusRunning,
+	}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[authority.agents.manager]
+allow = ["daemon.reconcile"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	handler := loopbackAuthHandler(Handler(m, nil, resolver, teamDir), teamDir, m, buildinfo.Current("test"))
+
+	req, err := http.NewRequest(http.MethodPost, "http://daemon/v1/reconcile", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reconcile status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" || events[0].Origin.Instance != instance {
+		t.Fatalf("lifecycle events = %+v", events)
+	}
+	jobEvents, err := jobstore.ListEvents(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "daemon.reconcile" || jobEvents[0].Data["actor_job"] != j.ID {
 		t.Fatalf("job events = %+v", jobEvents)
 	}
 }

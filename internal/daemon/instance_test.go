@@ -400,6 +400,49 @@ func TestInstance_DispatchPersistsLaunchEnvSnapshot(t *testing.T) {
 	waitForStatusNot(t, m, "worker-squ-1", StatusRunning)
 }
 
+func TestInstance_DispatchExportsTokenFileButNotTokenValue(t *testing.T) {
+	root := t.TempDir()
+	teamDir := filepath.Dir(root)
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-token",
+		Prompt:    "hello",
+		Workspace: t.TempDir(),
+		Env:       []string{"MARKER=dispatch"},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	tokenPath := InstanceTokenPath(teamDir, "worker-token")
+	token, err := ReadTokenFile(tokenPath)
+	if err != nil {
+		t.Fatalf("ReadTokenFile: %v", err)
+	}
+	env := fake.lastEnv()
+	if got := lastEnvValue(env, DaemonTokenFileEnv); got != tokenPath {
+		t.Fatalf("%s = %q, want %q in %+v", DaemonTokenFileEnv, got, tokenPath, env)
+	}
+	if strings.Contains(strings.Join(env, "\n"), token) {
+		t.Fatalf("child env leaked daemon token value: %+v", env)
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "worker-token")
+	if err != nil {
+		t.Fatalf("ReadInstanceLaunchEnv: %v", err)
+	}
+	if got := lastEnvValue(snapshot.Env, DaemonTokenFileEnv); got != tokenPath {
+		t.Fatalf("snapshot %s = %q, want %q in %+v", DaemonTokenFileEnv, got, tokenPath, snapshot.Env)
+	}
+	if strings.Contains(strings.Join(snapshot.Env, "\n"), token) {
+		t.Fatalf("snapshot env leaked daemon token value: %+v", snapshot.Env)
+	}
+	if _, err := m.Stop("worker-token"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-token", StatusRunning)
+}
+
 func TestInstance_DispatchEnvAllowFiltersChildEnvAndSnapshot(t *testing.T) {
 	t.Setenv("SAFE_FOR_ENV_ALLOW", "from-parent")
 	t.Setenv("SECRET_FOR_ENV_ALLOW", "must-not-leak")
@@ -1336,6 +1379,91 @@ func TestInstance_StartUsesPersistedLaunchEnvSnapshot(t *testing.T) {
 
 	_, _ = restarted.Stop("mgr")
 	waitForStatusNot(t, restarted, "mgr", StatusRunning)
+}
+
+func TestInstance_StartRefreshesDaemonURLFromCurrentHTTPAddr(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		currentAddr string
+		wantURL     string
+	}{
+		{
+			name:        "current listener replaces stale snapshot",
+			currentAddr: "127.0.0.1:22222",
+			wantURL:     "http://127.0.0.1:22222",
+		},
+		{
+			name: "missing listener removes stale snapshot",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			teamDir := t.TempDir()
+			root := DaemonRoot(teamDir)
+			workspace := t.TempDir()
+			now := time.Now().UTC()
+			if err := WriteMetadata(root, &Metadata{
+				Instance:      "mgr",
+				Agent:         "manager",
+				Runtime:       string(runtimebin.KindClaude),
+				RuntimeBinary: "claude",
+				Workspace:     workspace,
+				PID:           123,
+				SessionID:     "session-1",
+				StartedAt:     now,
+				StoppedAt:     now,
+				Status:        StatusStopped,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+				Bin:  "claude",
+				Args: []string{"claude", "--resume", "session-1"},
+				Dir:  workspace,
+				Env: []string{
+					"MARKER=dispatch",
+					daemonHTTPURLEnv + "=http://127.0.0.1:11111",
+				},
+				RecordedAt: now,
+				Version:    1,
+			}); err != nil {
+				t.Fatalf("write launch env: %v", err)
+			}
+			if tt.currentAddr != "" {
+				if err := os.WriteFile(HTTPAddrPath(teamDir), []byte(tt.currentAddr+"\n"), 0o644); err != nil {
+					t.Fatalf("write http addr: %v", err)
+				}
+			}
+
+			fake := newFakeSpawner(30 * time.Second)
+			m := NewInstanceManager(root, fake.spawn)
+			if _, err := m.Start("mgr"); err != nil {
+				t.Fatalf("start: %v", err)
+			}
+			t.Cleanup(func() {
+				_, _ = m.Stop("mgr")
+				waitForStatusNot(t, m, "mgr", StatusRunning)
+			})
+			env := fake.lastEnv()
+			if tt.wantURL != "" {
+				if got := lastEnvValue(env, daemonHTTPURLEnv); got != tt.wantURL {
+					t.Fatalf("%s = %q, want %q in env %+v", daemonHTTPURLEnv, got, tt.wantURL, env)
+				}
+			} else if envHasKey(env, daemonHTTPURLEnv) {
+				t.Fatalf("resume env kept stale %s: %+v", daemonHTTPURLEnv, env)
+			}
+			snapshot, err := ReadInstanceLaunchEnv(root, "mgr")
+			if err != nil {
+				t.Fatalf("read updated launch env: %v", err)
+			}
+			if tt.wantURL != "" {
+				if got := lastEnvValue(snapshot.Env, daemonHTTPURLEnv); got != tt.wantURL {
+					t.Fatalf("snapshot %s = %q, want %q in %+v", daemonHTTPURLEnv, got, tt.wantURL, snapshot.Env)
+				}
+			} else if envHasKey(snapshot.Env, daemonHTTPURLEnv) {
+				t.Fatalf("updated snapshot kept stale %s: %+v", daemonHTTPURLEnv, snapshot.Env)
+			}
+		})
+	}
 }
 
 func TestInstance_StartAppendsBriefMailboxMessage(t *testing.T) {

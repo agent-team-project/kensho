@@ -26,7 +26,7 @@ Dispatch through topology with the helper:
   --kickoff "SQU-14: <user's instructions>"
 ```
 
-The helper prefers `AGENT_TEAM_DAEMON_URL`, then the resolved daemon socket (`$AGENT_TEAM_DAEMON_SOCKET`, falling back to `$AGENT_TEAM_ROOT/daemon.sock`). If neither transport is reachable, it writes an outbox event instead of spawning a legacy worker.
+The helper prefers `AGENT_TEAM_DAEMON_URL` plus the bearer token in `AGENT_TEAM_DAEMON_TOKEN_FILE`, then the resolved daemon socket (`$AGENT_TEAM_DAEMON_SOCKET`, falling back to `$AGENT_TEAM_ROOT/daemon.sock`). If neither transport is reachable, it writes an outbox event instead of spawning a legacy worker.
 
 For long kickoff text, write it to a temp file and use `--kickoff-file <path>`.
 

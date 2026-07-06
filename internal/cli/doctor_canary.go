@@ -289,6 +289,9 @@ func doctorCanaryTeamEnv(teamDir, instance, stateDir string) []string {
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + daemon.SocketPath(teamDir),
 	}
+	if tokenFile, err := daemon.EnsureInstanceToken(teamDir, instance); err == nil {
+		env = append(env, daemon.DaemonTokenFileEnv+"="+tokenFile)
+	}
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		env = append(env, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
 	}

@@ -348,6 +348,11 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + daemon.SocketPath(teamDir),
 	}
+	tokenFile, err := daemon.EnsureInstanceToken(teamDir, instance)
+	if err != nil {
+		return fmt.Errorf("create daemon token: %w", err)
+	}
+	teamEnv = append(teamEnv, daemon.DaemonTokenFileEnv+"="+tokenFile)
 	authorityAllow, authorityEnforce := topologyAuthorityAllowlistForInstance(teamDir, instance, agentName)
 	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, authorityAllow)
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {

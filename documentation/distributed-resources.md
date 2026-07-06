@@ -177,8 +177,8 @@ the authority for whether the resource still exists and how to operate on it.
 
 1. Land SQU-127 deployment registry and route v2. Keep `root` route syntax as a
    compatibility shorthand, but resolve it to a deployment name plus transport.
-2. Add capability-token enforcement to the loopback HTTP listener. Keep Unix
-   sockets for trusted local compatibility.
+2. Extend the loopback bearer-token transport into a capability registry. Keep
+   Unix sockets for trusted local compatibility.
 3. Add URI fields next to path fields in metadata, jobs, snapshots, usage
    records, and dispatch payloads. Backfill URIs from `[project].id`, existing
    instance names, job ids, and generated workspace ids.

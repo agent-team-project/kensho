@@ -68,7 +68,7 @@ func TestDaemonBootsWithLongTeamDir(t *testing.T) {
 	}
 }
 
-func TestDaemonOptionalLoopbackHTTPListener(t *testing.T) {
+func TestDaemonLoopbackHTTPListenerRequiresBearerToken(t *testing.T) {
 	teamDir := shortTempDir(t)
 	d, err := New(Config{
 		TeamDir:         teamDir,
@@ -86,19 +86,7 @@ func TestDaemonOptionalLoopbackHTTPListener(t *testing.T) {
 	}()
 	t.Cleanup(func() { _ = d.Shutdown(context.Background()) })
 
-	deadline := time.Now().Add(5 * time.Second)
-	var httpAddr string
-	for time.Now().Before(deadline) {
-		var err error
-		httpAddr, err = ReadHTTPAddr(teamDir)
-		if err == nil && httpAddr != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if httpAddr == "" {
-		t.Fatalf("daemon HTTP address never appeared at %s", HTTPAddrPath(teamDir))
-	}
+	httpAddr := waitHTTPAddr(t, teamDir)
 	if d.HTTPAddr() != httpAddr {
 		t.Fatalf("daemon HTTPAddr() = %q, want %q", d.HTTPAddr(), httpAddr)
 	}
@@ -107,8 +95,92 @@ func TestDaemonOptionalLoopbackHTTPListener(t *testing.T) {
 		t.Fatalf("GET /v1/instances over HTTP: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/instances without token status = %d, want 401", resp.StatusCode)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, DaemonHTTPURL(httpAddr)+"/v1/instances", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /v1/instances with bad token: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/instances with bad token status = %d, want 401", resp.StatusCode)
+	}
+
+	token, err := ReadTokenFile(OperatorTokenPath(teamDir))
+	if err != nil {
+		t.Fatalf("read operator token: %v", err)
+	}
+	req, err = http.NewRequest(http.MethodGet, DaemonHTTPURL(httpAddr)+"/v1/instances", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /v1/instances with token: %v", err)
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /v1/instances status = %d", resp.StatusCode)
+	}
+	events, err := ListLifecycleEvents(DaemonRoot(teamDir))
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	authRejected := 0
+	for _, ev := range events {
+		if ev.Action == authRejectedAction {
+			authRejected++
+		}
+	}
+	if authRejected != 2 {
+		t.Fatalf("auth rejected events = %d, want 2; events=%+v", authRejected, events)
+	}
+}
+
+func TestDaemonUnixAndLoopbackHTTPVerbParity(t *testing.T) {
+	teamDir := shortTempDir(t)
+	d := startDaemon(t, teamDir, newFakeSpawner(30*time.Second).spawn)
+	defer d.Shutdown(context.Background())
+
+	unixResp, err := unixClient(SocketPath(teamDir)).Get("http://./v1/instances")
+	if err != nil {
+		t.Fatalf("unix GET /v1/instances: %v", err)
+	}
+	unixBody, _ := io.ReadAll(unixResp.Body)
+	unixResp.Body.Close()
+	if unixResp.StatusCode != http.StatusOK {
+		t.Fatalf("unix status = %d body=%s", unixResp.StatusCode, unixBody)
+	}
+
+	httpAddr := waitHTTPAddr(t, teamDir)
+	token, err := ReadTokenFile(OperatorTokenPath(teamDir))
+	if err != nil {
+		t.Fatalf("read operator token: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodGet, DaemonHTTPURL(httpAddr)+"/v1/instances", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	httpResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("http GET /v1/instances: %v", err)
+	}
+	httpBody, _ := io.ReadAll(httpResp.Body)
+	httpResp.Body.Close()
+	if httpResp.StatusCode != http.StatusOK {
+		t.Fatalf("http status = %d body=%s", httpResp.StatusCode, httpBody)
+	}
+	if string(httpBody) != string(unixBody) {
+		t.Fatalf("HTTP body = %q, want Unix body %q", httpBody, unixBody)
 	}
 }
 
@@ -162,6 +234,20 @@ func startDaemon(t *testing.T, teamDir string, spawner Spawner) *Daemon {
 	}
 	t.Fatalf("daemon socket never became ready at %s", socket)
 	return nil
+}
+
+func waitHTTPAddr(t *testing.T, teamDir string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		httpAddr, err := ReadHTTPAddr(teamDir)
+		if err == nil && httpAddr != "" {
+			return httpAddr
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("daemon HTTP address never appeared at %s", HTTPAddrPath(teamDir))
+	return ""
 }
 
 // unixClient builds an http.Client that dials the daemon socket. URL host is

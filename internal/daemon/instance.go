@@ -303,6 +303,10 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: launch env: %w", err)
 	}
+	env, err = m.withMintedInstanceTokenEnv(in.Name, env)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: daemon token: %w", err)
+	}
 	stdin := dispatchStdin(rt, in)
 	proc, err := m.spawner(args, env, in.Workspace, logPath, logPath, stdin)
 	if err != nil {
@@ -1466,6 +1470,10 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
+	env, err = m.withMintedInstanceTokenEnv(in.Name, env)
+	if err != nil {
+		return nil, false, fmt.Errorf("dispatch: daemon token: %w", err)
+	}
 	stdin := dispatchStdin(rt, in)
 
 	m.mu.Lock()
@@ -1571,9 +1579,13 @@ func (m *InstanceManager) startEnvWithOTelArgs(instance string) ([]string, []str
 	}
 	if ok {
 		out, codexArgs := m.applyCurrentOTelConfigWithArgs(instance, env)
-		return out, codexArgs, nil
+		out = m.withCurrentDaemonHTTPURLEnv(out)
+		out, err = m.withInstanceTokenEnv(instance, out)
+		return out, codexArgs, err
 	}
-	return os.Environ(), nil, nil
+	out := m.withCurrentDaemonHTTPURLEnv(os.Environ())
+	out, err = m.withInstanceTokenEnv(instance, out)
+	return out, nil, err
 }
 
 // applyCurrentOTelConfig reconciles a persisted launch env with the repo's
@@ -1645,6 +1657,46 @@ func (m *InstanceManager) launchPreparedEnv(instance string, overlay []string, c
 		env = runtimeotel.StripOwnedEnv(env)
 	}
 	return filterEnvAllow(mergeEnv(env, overlay), envAllow)
+}
+
+func (m *InstanceManager) withInstanceTokenEnv(instance string, env []string) ([]string, error) {
+	tokenPath, err := EnsureInstanceToken(filepath.Dir(m.daemonRoot), instance)
+	if err != nil {
+		return nil, err
+	}
+	return mergeEnv(env, []string{DaemonTokenFileEnv + "=" + tokenPath}), nil
+}
+
+// Daemon HTTP uses an ephemeral port, so a launch snapshot's URL is stale
+// after daemon restart. Re-derive it from the current listener advertisement.
+func (m *InstanceManager) withCurrentDaemonHTTPURLEnv(env []string) []string {
+	httpAddr, err := ReadHTTPAddr(filepath.Dir(m.daemonRoot))
+	if err != nil || strings.TrimSpace(httpAddr) == "" {
+		return withoutEnvKey(env, daemonHTTPURLEnv)
+	}
+	return mergeEnv(withoutEnvKey(env, daemonHTTPURLEnv), []string{daemonHTTPURLEnv + "=" + DaemonHTTPURL(httpAddr)})
+}
+
+func (m *InstanceManager) withMintedInstanceTokenEnv(instance string, env []string) ([]string, error) {
+	tokenPath, err := MintInstanceToken(filepath.Dir(m.daemonRoot), instance)
+	if err != nil {
+		return nil, err
+	}
+	return mergeEnv(env, []string{DaemonTokenFileEnv + "=" + tokenPath}), nil
+}
+
+const daemonHTTPURLEnv = "AGENT_TEAM_DAEMON_URL"
+
+func withoutEnvKey(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		entryKey, _, ok := strings.Cut(entry, "=")
+		if ok && entryKey == key {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func mergeEnv(base, overlay []string) []string {

@@ -44,13 +44,33 @@ socket_path() {
     fi
 }
 
+daemon_token() {
+    if [[ -z "${AGENT_TEAM_DAEMON_TOKEN_FILE:-}" ]]; then
+        echo "inbox.sh: AGENT_TEAM_DAEMON_TOKEN_FILE not set for daemon HTTP auth." >&2
+        exit 2
+    fi
+    if [[ ! -f "$AGENT_TEAM_DAEMON_TOKEN_FILE" ]]; then
+        echo "inbox.sh: daemon token file missing: $AGENT_TEAM_DAEMON_TOKEN_FILE" >&2
+        exit 1
+    fi
+    local token
+    IFS= read -r token < "$AGENT_TEAM_DAEMON_TOKEN_FILE" || true
+    if [[ -z "$token" ]]; then
+        echo "inbox.sh: daemon token file is empty: $AGENT_TEAM_DAEMON_TOKEN_FILE" >&2
+        exit 1
+    fi
+    printf '%s' "$token"
+}
+
 curl_daemon() {
     if [[ -n "${AGENT_TEAM_DAEMON_URL:-}" ]]; then
         local args=("$@")
         local last_index=$((${#args[@]} - 1))
         local endpoint="${args[last_index]}"
         args[last_index]="${AGENT_TEAM_DAEMON_URL%/}${endpoint#http://daemon}"
-        curl -sS "${args[@]}"
+        local token
+        token="$(daemon_token)"
+        curl -sS -H "Authorization: Bearer $token" "${args[@]}"
         return
     fi
     local sock

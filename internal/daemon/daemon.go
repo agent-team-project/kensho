@@ -41,9 +41,9 @@ type Config struct {
 	// nil -> os.Stderr.
 	LogOut io.Writer
 
-	// HTTPAddr optionally exposes the daemon API on a loopback TCP listener in
-	// addition to the Unix socket. Empty keeps the daemon Unix-socket-only.
-	// Use addresses such as "127.0.0.1:0" for an ephemeral local port.
+	// HTTPAddr exposes the daemon API on a loopback TCP listener in addition
+	// to the Unix socket. Empty defaults to 127.0.0.1:0. Use explicit
+	// addresses such as "127.0.0.1:53117" for a stable local port.
 	HTTPAddr string
 
 	// Build is the identity of the running daemon binary.
@@ -54,6 +54,7 @@ type Config struct {
 }
 
 const maxUnixSocketPathLen = 100
+const defaultLoopbackHTTPAddr = "127.0.0.1:0"
 
 // SocketPath returns the daemon socket path for teamDir. Unix-domain sockets
 // have small platform path limits, so very long repo paths use a deterministic
@@ -171,7 +172,11 @@ func New(cfg Config) (*Daemon, error) {
 		fmt.Fprintf(cfg.LogOut, "%s project: backfill failed: %v\n",
 			time.Now().UTC().Format(time.RFC3339), err)
 	}
-	httpAddr, err := NormalizeLoopbackHTTPAddr(cfg.HTTPAddr)
+	httpAddr := strings.TrimSpace(cfg.HTTPAddr)
+	if httpAddr == "" {
+		httpAddr = defaultLoopbackHTTPAddr
+	}
+	httpAddr, err := NormalizeLoopbackHTTPAddr(httpAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +234,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("daemon: pidfile: %w", err)
 	}
 	defer os.Remove(PidPath(d.cfg.TeamDir))
+	if _, err := EnsureOperatorToken(d.cfg.TeamDir); err != nil {
+		return fmt.Errorf("daemon: operator token: %w", err)
+	}
 	d.recordLaunchEnv()
 
 	socket := SocketPath(d.cfg.TeamDir)
@@ -243,8 +251,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: listen %s: %w", socket, err)
 	}
+	baseHandler := HandlerWithLog(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.LogOut, d.cfg.Build)
 	srv := &http.Server{
-		Handler:           HandlerWithLog(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.LogOut, d.cfg.Build),
+		Handler:           loopbackAuthHandler(baseHandler, d.cfg.TeamDir, d.manager, d.cfg.Build),
+		ConnContext:       daemonConnContext,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	d.mu.Lock()

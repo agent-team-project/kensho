@@ -881,7 +881,7 @@ Flags:
 ```text
       --detach                   Background the restarted daemon (writes log to .agent_team/daemon/agent-teamd.log). (default true)
       --format string            Render daemon restart result with a Go template, e.g. '{{.Action}} {{.Changed}} {{.Status.Ready}}'. Requires detached mode.
-      --http-addr string         Also expose the restarted daemon API on this loopback HTTP address, e.g. 127.0.0.1:0. Empty disables HTTP.
+      --http-addr string         Expose the restarted daemon API on this loopback HTTP address, e.g. 127.0.0.1:0. Empty keeps or uses the default ephemeral loopback port.
       --json                     Emit machine-readable JSON. Requires detached mode.
   -q, --quiet                    Suppress output and use only the exit code. Requires detached mode.
       --ready-timeout duration   Maximum time to wait for restarted detached daemon readiness (0 = no timeout). (default 3s)
@@ -910,7 +910,7 @@ Flags:
 ```text
       --detach                   Background the daemon (writes log to .agent_team/daemon/agent-teamd.log). (default true)
       --format string            Render daemon start result with a Go template, e.g. '{{.Action}} {{.PID}}'. Requires detached mode.
-      --http-addr string         Also expose the daemon API on this loopback HTTP address, e.g. 127.0.0.1:0. Empty disables HTTP.
+      --http-addr string         Expose the daemon API on this loopback HTTP address, e.g. 127.0.0.1:0. Empty uses the default ephemeral loopback port.
       --json                     Emit machine-readable JSON. Requires detached mode.
   -q, --quiet                    Suppress output and use only the exit code. Requires detached mode.
       --ready-timeout duration   Maximum time to wait for detached daemon readiness (0 = no timeout). (default 3s)

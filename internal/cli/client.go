@@ -42,50 +42,77 @@ type daemonClient struct {
 	teamDir string
 }
 
-// newDaemonClient probes the daemon's pidfile to confirm it's alive, then
-// constructs an http.Client whose transport dials the unix socket. Returns
-// errDaemonNotRunning if the pidfile is missing or stale.
+// newDaemonClient uses a configured loopback HTTP endpoint when one is
+// advertised, otherwise it probes the daemon's pidfile before dialing the
+// unix socket. Returns errDaemonNotRunning if no usable transport is known.
 func newDaemonClient(teamDir string) (*daemonClient, error) {
 	return newDaemonClientWithTimeout(teamDir, 0)
 }
 
 func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonClient, error) {
+	if baseURL := configuredDaemonHTTPURL(teamDir); baseURL != "" {
+		return newDaemonHTTPURLClient(teamDir, baseURL, timeout)
+	}
 	pid, err := daemon.ReadPidfile(daemon.PidPath(teamDir))
 	if err != nil || pid == 0 || !daemon.PidLiveCheck(pid) {
 		return nil, errDaemonNotRunning
 	}
 	socket := daemon.SocketPath(teamDir)
-	if _, err := os.Stat(socket); err != nil {
-		return nil, errDaemonNotRunning
+	if _, err := os.Stat(socket); err == nil {
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", socket)
+			},
+			// Avoid keeping a pool around past the command's life.
+			DisableKeepAlives: true,
+		}
+		return &daemonClient{
+			hc:      newDaemonHTTPClient(transport, timeout, ""),
+			baseURL: "http://daemon", // host name is irrelevant — DialContext fixes the socket.
+			teamDir: teamDir,
+		}, nil
 	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", socket)
-		},
-		// Avoid keeping a pool around past the command's life.
-		DisableKeepAlives: true,
+	return nil, errDaemonNotRunning
+}
+
+func configuredDaemonHTTPURL(teamDir string) string {
+	if baseURL := strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_URL")); baseURL != "" {
+		return baseURL
+	}
+	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
+		return daemon.DaemonHTTPURL(httpAddr)
+	}
+	return ""
+}
+
+func newDaemonHTTPURLClient(teamDir, baseURL string, timeout time.Duration) (*daemonClient, error) {
+	tokenFile := strings.TrimSpace(os.Getenv(daemon.DaemonTokenFileEnv))
+	if tokenFile == "" {
+		tokenFile = daemon.OperatorTokenPath(teamDir)
 	}
 	return &daemonClient{
-		hc:      newDaemonHTTPClient(transport, timeout),
-		baseURL: "http://daemon", // host name is irrelevant — DialContext fixes the socket.
+		hc:      newDaemonHTTPClient(nil, timeout, tokenFile),
+		baseURL: strings.TrimRight(baseURL, "/"),
 		teamDir: teamDir,
 	}, nil
 }
 
-func newDaemonHTTPClient(base http.RoundTripper, timeout time.Duration) *http.Client {
+func newDaemonHTTPClient(base http.RoundTripper, timeout time.Duration, tokenFile string) *http.Client {
 	return &http.Client{
 		Transport: daemonBuildHeaderTransport{
-			base:  base,
-			build: BuildInfo(),
+			base:      base,
+			build:     BuildInfo(),
+			tokenFile: tokenFile,
 		},
 		Timeout: timeout,
 	}
 }
 
 type daemonBuildHeaderTransport struct {
-	base  http.RoundTripper
-	build buildinfo.Info
+	base      http.RoundTripper
+	build     buildinfo.Info
+	tokenFile string
 }
 
 func (t daemonBuildHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -100,6 +127,16 @@ func (t daemonBuildHeaderTransport) RoundTrip(req *http.Request) (*http.Response
 	if value := daemonOriginHeaderFromEnv(t.build); value != "" && req.Header.Get(origin.HeaderName) == "" {
 		req = req.Clone(req.Context())
 		req.Header.Set(origin.HeaderName, value)
+	}
+	if tokenFile := strings.TrimSpace(t.tokenFile); tokenFile != "" && req.Header.Get("Authorization") == "" {
+		token, err := daemon.ReadTokenFile(tokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("daemon: read token file: %w", err)
+		}
+		if strings.TrimSpace(token) != "" {
+			req = req.Clone(req.Context())
+			req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+		}
 	}
 	return base.RoundTrip(req)
 }

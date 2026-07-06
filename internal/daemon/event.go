@@ -2359,6 +2359,11 @@ func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name st
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + SocketPath(r.teamDir),
 	}
+	tokenFile, err := EnsureInstanceToken(r.teamDir, name)
+	if err != nil {
+		return nil, fmt.Errorf("event runtime: daemon token: %w", err)
+	}
+	env = append(env, DaemonTokenFileEnv+"="+tokenFile)
 	if httpAddr, err := ReadHTTPAddr(r.teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		env = append(env, "AGENT_TEAM_DAEMON_URL="+DaemonHTTPURL(httpAddr))
 	}

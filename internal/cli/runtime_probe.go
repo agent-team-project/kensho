@@ -676,6 +676,9 @@ func runCodexExecProbe(parent context.Context, repo, teamDir string, status *dae
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + socket,
 	}
+	if tokenFile, err := daemon.EnsureInstanceToken(teamDir, "runtime-probe"); err == nil {
+		teamEnv = append(teamEnv, daemon.DaemonTokenFileEnv+"="+tokenFile)
+	}
 	if daemonURL != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemonURL)
 	}
@@ -731,9 +734,22 @@ daemon_url = os.environ.get("AGENT_TEAM_DAEMON_URL", "").rstrip("/")
 if not daemon_url:
     print("AGENT_TEAM_DAEMON_URL is not set", file=sys.stderr)
     sys.exit(2)
+token_file = os.environ.get("AGENT_TEAM_DAEMON_TOKEN_FILE", "")
+if not token_file:
+    print("AGENT_TEAM_DAEMON_TOKEN_FILE is not set", file=sys.stderr)
+    sys.exit(2)
+with open(token_file, "r", encoding="utf-8") as f:
+    token = f.read().strip()
+if not token:
+    print("daemon token file is empty", file=sys.stderr)
+    sys.exit(2)
 
 try:
-    with urllib.request.urlopen(daemon_url + "/v1/instances", timeout=5) as resp:
+    req = urllib.request.Request(
+        daemon_url + "/v1/instances",
+        headers={"Authorization": "Bearer " + token},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
         body = resp.read().decode("utf-8", "replace")
         if resp.status != 200:
             print(f"daemon returned HTTP {resp.status}: {body}", file=sys.stderr)
