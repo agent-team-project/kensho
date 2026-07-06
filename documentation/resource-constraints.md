@@ -103,3 +103,13 @@ Tracked as SQU-92; the origin envelope (SQU-90) is the shared identity substrate
 4. **Phase 3: priority + preemption** (layer 3), then **backpressure** (layer 4) — each independently useful.
 
 The vg deployment is the natural pilot: they run sustained multi-worker load on subscription auth and their field reports (SQU-42/76/82) shaped every primitive this builds on.
+
+## North star: allocation as optimization (advisor framing, 2026-07-06)
+
+The endgame for the budget economy + org-review loop: treat the fleet as a portfolio and continuously answer *"how should the budget be allocated to best serve the project goals?"* Three prerequisites, in dependency order:
+
+1. **Goals as declared artifacts.** Optimization needs a target. Today goals live in the roadmap's themes — good enough to start: each roadmap theme becomes a weighted goal the ledger can attribute work to (tickets/epics tagged by theme).
+2. **Yield measurement.** The outcomes ledger (SQU-135) prices each stream: goal-attributed completions per token, weighted by review quality (a merged PR that bounced five times cost more than its tokens). Yield per team per theme is the core signal.
+3. **Reallocation proposals.** The org-review loop (SQU-139) graduates from health checks to portfolio rebalancing: shift budget from low-yield to high-yield streams *relative to goal weights*, propose team creation where a weighted goal has no owner, dissolution where yield stays marginal. Proposals-only, evidenced, reviewed — the same discipline as everything else.
+
+Honest constraint: outcome *value* is a proxy problem (a merged PR ≠ equal value; a prevented incident is invisible). Start with goal-attributed throughput and iterate on valuation — measuring imperfectly beats optimizing blind.
