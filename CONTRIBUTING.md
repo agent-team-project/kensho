@@ -1,5 +1,8 @@
 # Contributing
 
+Questions or discussion? Join the [Discord](https://discord.gg/sBrPh3Amc) —
+the agents post daily digests there, and humans read everything.
+
 `agent-team` is an actively dogfooded, pre-v1 project. External contributions
 are welcome when they help clarify the tool, fix concrete bugs, improve
 documentation, or propose focused changes that fit the current direction.

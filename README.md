@@ -17,7 +17,7 @@ declaring, running, observing, and recovering teams of LLM agents.
 **Status:** pre-v1. The project is actively dogfooded, released, and changing.
 Command shapes and file schemas are product surface, but still allowed to move.
 
-**Hosted docs:** [agent-team.readthedocs.io](https://agent-team.readthedocs.io)
+**Hosted docs:** [agent-team.readthedocs.io](https://agent-team.readthedocs.io) · **Community:** [Discord](https://discord.gg/sBrPh3Amc)
 
 Read [The Self-Improving Configuration](./docs/experiment.md) for the live
 delivery/platform/quality/pr/docs topology, autonomous loops, budget model, and
@@ -199,7 +199,9 @@ agent-team daemon status
 ## Documentation
 
 Hosted docs are published at
-[agent-team.readthedocs.io](https://agent-team.readthedocs.io).
+[agent-team.readthedocs.io](https://agent-team.readthedocs.io), and the
+community lives on [Discord](https://discord.gg/sBrPh3Amc) — daily shipped-work
+digests land in #project-updates.
 
 Start with the guide pages:
 
