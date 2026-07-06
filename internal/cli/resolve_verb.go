@@ -72,16 +72,24 @@ func resolveVerbPath(root *cobra.Command, args []string) (string, bool) {
 	if len(positional) == 0 {
 		return "", false
 	}
-	target, _, err := root.Find(positional)
+	target, rest, err := root.Find(positional)
 	if err != nil || target == nil || target == root {
 		return "", false
 	}
-	// The resolved command is the one Cobra will actually execute — that is what
-	// the allowlist gates. An unknown subcommand under a real group (`job bogus`)
-	// resolves to the group `job` (which just prints help); the dangerous leaf
-	// `job merge` resolves to `job.merge`. A wholly-unknown top-level token
-	// resolves to root above and is rejected. We deliberately do NOT replicate
-	// any tree-shape rules here — Cobra's resolution is the single source.
+	// Closed-world: "known" is checked BEFORE the allowlist, so an unknown verb
+	// is denied regardless of grant (even under a wildcard). If Cobra matched a
+	// command GROUP but a leftover non-flag token remains, that token was an
+	// attempted-but-unknown subcommand (`job bogus`, `inbox check`) — Cobra
+	// returns the parent group, not an error. Reject it: an unknown verb shape
+	// must not inherit its parent's authority. A real leaf (`job merge`) has no
+	// subcommands, so its trailing args are arguments, not unknown subcommands.
+	if target.HasSubCommands() {
+		for _, r := range rest {
+			if !strings.HasPrefix(r, "-") {
+				return "", false
+			}
+		}
+	}
 	// Build the dotted path from root's children down to target.
 	var segments []string
 	for c := target; c != nil && c != root; c = c.Parent() {

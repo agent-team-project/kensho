@@ -23,7 +23,9 @@ func TestResolveVerbPath(t *testing.T) {
 		// Unknown verbs do not resolve.
 		{"unknown top-level", []string{"future-dangerous-verb"}, "", false},
 		{"unknown with positional", []string{"future-dangerous-verb", "worker"}, "", false},
-		{"unknown subverb resolves to runnable parent", []string{"job", "future-dangerous-verb"}, "job", true},
+		{"unknown subverb under group is denied", []string{"job", "future-dangerous-verb"}, "", false},
+		{"unknown token under inbox group denied", []string{"inbox", "check"}, "", false},
+		{"real inbox subcommand resolves", []string{"inbox", "ls"}, "inbox.ls", true},
 		{"empty", nil, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

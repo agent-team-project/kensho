@@ -15,10 +15,10 @@ func TestAgentTeamShimAllowsReadOnlyVerbs(t *testing.T) {
 	shim, _, calls := installEnforcingShim(t, []string{"job.gate.*:own"})
 
 	runShim(t, shim, "--repo", "/tmp/repo", "job", "show", "squ-1")
-	runShim(t, shim, "inbox", "check")
+	runShim(t, shim, "inbox", "ls")
 
 	got := strings.TrimSpace(readFile(t, calls))
-	want := "--repo /tmp/repo job show squ-1\ninbox check"
+	want := "--repo /tmp/repo job show squ-1\ninbox ls"
 	if got != want {
 		t.Fatalf("real agent-team args = %q", got)
 	}
@@ -143,17 +143,17 @@ func TestAgentTeamShimDeniesUnknownTopLevelVerbWithPositionals(t *testing.T) {
 	}
 }
 
-func TestAgentTeamShimDeniesGroupVerbOutsideAllowlist(t *testing.T) {
-	// `job <anything>` resolves to the runnable group `job` (Cobra help); under a
-	// narrow allowlist that does not grant `job`, it is denied — the allowlist
-	// gates the command that actually executes.
-	shim, _, calls := installEnforcingShim(t, []string{"job.gate.*:own"})
+func TestAgentTeamShimDeniesUnknownSubverbUnderKnownGroupEvenWithWildcard(t *testing.T) {
+	// Closed-world: an unknown token under a real group is an unknown verb and is
+	// denied BEFORE the allowlist is consulted — even a wildcard cannot grant a
+	// verb that does not exist.
+	shim, _, calls := installEnforcingShim(t, []string{"*"})
 
 	stderr, code := runShimExpectExit(t, shim, "job", "future-dangerous-verb")
 	if code != 3 {
 		t.Fatalf("exit code = %d, want 3; stderr=%s", code, stderr)
 	}
-	if got := strings.TrimSpace(stderr); got != "agent-team shim: denied verb job" {
+	if got := strings.TrimSpace(stderr); got != "agent-team shim: denied unknown verb" {
 		t.Fatalf("stderr = %q", got)
 	}
 	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
