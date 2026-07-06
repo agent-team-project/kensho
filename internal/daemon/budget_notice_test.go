@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	helperBudgetUsageEnv      = "AGENTTEAM_HELPER_BUDGET_USAGE"
-	helperBudgetUsageLineEnv  = "AGENTTEAM_HELPER_BUDGET_USAGE_LINE"
-	helperBudgetUsageDelayEnv = "AGENTTEAM_HELPER_BUDGET_USAGE_DELAY"
-	helperBudgetUsageSleepEnv = "AGENTTEAM_HELPER_BUDGET_USAGE_SLEEP"
+	helperBudgetUsageEnv        = "AGENTTEAM_HELPER_BUDGET_USAGE"
+	helperBudgetUsageLineEnv    = "AGENTTEAM_HELPER_BUDGET_USAGE_LINE"
+	helperBudgetUsageDelayEnv   = "AGENTTEAM_HELPER_BUDGET_USAGE_DELAY"
+	helperBudgetUsageReleaseEnv = "AGENTTEAM_HELPER_BUDGET_USAGE_RELEASE"
+	helperBudgetUsageSleepEnv   = "AGENTTEAM_HELPER_BUDGET_USAGE_SLEEP"
 )
 
 func TestHelperProcessBudgetUsageSleeper(t *testing.T) {
@@ -29,41 +30,20 @@ func TestHelperProcessBudgetUsageSleeper(t *testing.T) {
 	if line := os.Getenv(helperBudgetUsageLineEnv); line != "" {
 		_, _ = os.Stdout.WriteString(line + "\n")
 	}
+	if releasePath := os.Getenv(helperBudgetUsageReleaseEnv); releasePath != "" {
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			if _, err := os.Stat(releasePath); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	if sleepFor, err := time.ParseDuration(os.Getenv(helperBudgetUsageSleepEnv)); err == nil && sleepFor > 0 {
 		time.Sleep(sleepFor)
-	}
-}
-
-func fastCodexUsageSpawner(line string) Spawner {
-	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
-		bin, err := exec.LookPath("sh")
-		if err != nil {
-			return nil, err
-		}
-		stdin, err := os.Open(os.DevNull)
-		if err != nil {
-			return nil, err
-		}
-		stdout, err := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			_ = stdin.Close()
-			return nil, err
-		}
-		stderr, err := os.OpenFile(stderrPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			_ = stdin.Close()
-			_ = stdout.Close()
-			return nil, err
-		}
-		defer stdin.Close()
-		defer stdout.Close()
-		defer stderr.Close()
-		childEnv := append(append([]string(nil), env...), "AGENTTEAM_TEST_CODEX_USAGE="+line)
-		return os.StartProcess(bin, []string{"sh", "-c", `printf '%s\n' "$AGENTTEAM_TEST_CODEX_USAGE"`}, &os.ProcAttr{
-			Dir:   workspace,
-			Env:   childEnv,
-			Files: []*os.File{stdin, stdout, stderr},
-		})
 	}
 }
 
@@ -90,6 +70,46 @@ func codexUsageSleeperSpawner(line string, delay, sleepFor time.Duration) Spawne
 			helperBudgetUsageLineEnv+"="+line,
 			helperBudgetUsageDelayEnv+"="+delay.String(),
 			helperBudgetUsageSleepEnv+"="+sleepFor.String(),
+		)
+		cmd.Dir = workspace
+		cmd.Stdin = stdin
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		err = cmd.Start()
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		if err != nil {
+			return nil, err
+		}
+		return cmd.Process, nil
+	}
+}
+
+func codexUsageReleaseSpawner(line, releasePath string) Spawner {
+	return func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		stdin, err := os.Open(os.DevNull)
+		if err != nil {
+			return nil, err
+		}
+		stdout, err := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			_ = stdin.Close()
+			return nil, err
+		}
+		stderr, err := os.OpenFile(stderrPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			_ = stdin.Close()
+			_ = stdout.Close()
+			return nil, err
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessBudgetUsageSleeper")
+		cmd.Env = append(append([]string(nil), env...),
+			helperBudgetUsageEnv+"=1",
+			helperBudgetUsageLineEnv+"="+line,
+			helperBudgetUsageDelayEnv+"=0s",
+			helperBudgetUsageReleaseEnv+"="+releasePath,
+			helperBudgetUsageSleepEnv+"=0s",
 		)
 		cmd.Dir = workspace
 		cmd.Stdin = stdin
@@ -244,6 +264,39 @@ func TestBudgetNoticeForClaudeRuntimeUsesTimeOnly(t *testing.T) {
 	}
 }
 
+func waitForJobStatusAndTokenNotices(t *testing.T, teamDir, id string, wantStatus jobstore.Status, wantNotices []int, timeout time.Duration) *jobstore.Job {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last *jobstore.Job
+	var lastErr error
+	for {
+		j, err := jobstore.Read(teamDir, id)
+		if err == nil {
+			last = j
+			lastErr = nil
+			if j.Status == wantStatus && reflect.DeepEqual(j.TokenBudgetNotices, wantNotices) {
+				return j
+			}
+			if jobStatusTerminal(j.Status) && j.Status != wantStatus {
+				t.Fatalf("job %s status = %s, want %s; job=%+v", id, j.Status, wantStatus, j)
+			}
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if last != nil {
+		t.Fatalf("job %s status/notices = %s/%v, want %s/%v within %s; job=%+v", id, last.Status, last.TokenBudgetNotices, wantStatus, wantNotices, timeout, last)
+	}
+	t.Fatalf("job %s did not reach status/notices %s/%v within %s: last read: %v", id, wantStatus, wantNotices, timeout, lastErr)
+	return nil
+}
+
 func TestBudgetNoticeFinalReapSweepForFastCodexRuntime(t *testing.T) {
 	teamDir := fixtureTeamDir(t)
 	root := DaemonRoot(teamDir)
@@ -258,7 +311,8 @@ func TestBudgetNoticeFinalReapSweepForFastCodexRuntime(t *testing.T) {
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
-	m := NewInstanceManager(root, fastCodexUsageSpawner(`{"type":"turn.completed","usage":{"input_tokens":900,"output_tokens":100}}`))
+	releasePath := filepath.Join(t.TempDir(), "release")
+	m := NewInstanceManager(root, codexUsageReleaseSpawner(`{"type":"turn.completed","usage":{"input_tokens":900,"output_tokens":100}}`, releasePath))
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
 
 	result, err := resolver.EventWithResult("agent.dispatch", map[string]any{
@@ -277,17 +331,14 @@ func TestBudgetNoticeFinalReapSweepForFastCodexRuntime(t *testing.T) {
 		t.Fatalf("dispatch result = %+v", result)
 	}
 	instance := result.Outcomes[0].InstanceID
+	if err := os.WriteFile(releasePath, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("release child: %v", err)
+	}
 	if err := m.WaitForReaper(instance, 5*time.Second); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 
-	updated, err := jobstore.Read(teamDir, "squ-104")
-	if err != nil {
-		t.Fatalf("read job: %v", err)
-	}
-	if updated.Status != jobstore.StatusDone {
-		t.Fatalf("job status = %s, want done; job=%+v", updated.Status, updated)
-	}
+	updated := waitForJobStatusAndTokenNotices(t, teamDir, "squ-104", jobstore.StatusDone, []int{50, 80, 100}, 10*time.Second)
 	if got, want := updated.TokenBudgetNotices, []int{50, 80, 100}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("token notices = %v, want %v", got, want)
 	}
