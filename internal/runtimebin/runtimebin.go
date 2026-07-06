@@ -30,6 +30,32 @@ type Runtime struct {
 	Binary string
 }
 
+// Fields is a runtime kind/binary pair from a higher-level declaration, such
+// as a dispatch payload, declared topology instance, or agent frontmatter.
+type Fields struct {
+	Kind   string
+	Binary string
+	Name   string
+}
+
+// ResolveOptions describes the full runtime precedence stack:
+//
+//	explicit runtime fields
+//	  > AGENT_TEAM_RUNTIME env override
+//	  > declared instance runtime fields
+//	  > agent frontmatter runtime fields
+//	  > repo [runtime] config
+//	  > built-in default
+//
+// Explicit.Binary also acts as a binary-only override for the fallback
+// env/config/default runtime, matching the CLI --runtime-bin behavior.
+type ResolveOptions struct {
+	Explicit   Fields
+	Instance   Fields
+	Agent      Fields
+	ConfigPath string
+}
+
 type configFile struct {
 	Runtime runtimeConfig `toml:"runtime"`
 }
@@ -53,6 +79,46 @@ func CurrentFromConfig(configPath string) (Runtime, error) {
 		return Runtime{}, err
 	}
 	return currentWithConfig(cfg)
+}
+
+// Resolve applies the topology-aware runtime precedence used by dispatch,
+// reconcile, and lifecycle start paths.
+func Resolve(opts ResolveOptions) (Runtime, error) {
+	kindRaw := opts.Explicit.Kind
+	binRaw := opts.Explicit.Binary
+	if rt, ok, err := FromFields(kindRaw, binRaw); err != nil {
+		return Runtime{}, fmt.Errorf("runtime must be %q or %q", KindClaude, KindCodex)
+	} else if ok {
+		return rt, nil
+	}
+
+	// A deliberate runtime env override outranks static topology/agent
+	// defaults. Binary-only env overrides are handled by CurrentFromConfig
+	// when resolution falls through to repo/default runtime selection.
+	if strings.TrimSpace(os.Getenv(EnvRuntime)) == "" {
+		if rt, ok, err := FromFields(opts.Instance.Kind, opts.Instance.Binary); err != nil {
+			return Runtime{}, fmt.Errorf("instance %q runtime: %w", opts.Instance.Name, err)
+		} else if ok {
+			return rt, nil
+		}
+		if rt, ok, err := FromFields(opts.Agent.Kind, opts.Agent.Binary); err != nil {
+			return Runtime{}, fmt.Errorf("agent %q runtime: %w", opts.Agent.Name, err)
+		} else if ok {
+			return rt, nil
+		}
+	}
+
+	rt, err := CurrentFromConfig(opts.ConfigPath)
+	if err != nil {
+		return Runtime{}, err
+	}
+	if bin := strings.TrimSpace(binRaw); bin != "" {
+		rt.Binary = bin
+	}
+	if strings.TrimSpace(rt.Binary) == "" {
+		rt.Binary = defaultBinary(rt.Kind)
+	}
+	return rt, nil
 }
 
 func currentWithConfig(cfg runtimeConfig) (Runtime, error) {

@@ -348,16 +348,17 @@ instance's runtime with this precedence (highest first):
 ```
 1. Explicit dispatch runtime   (CLI --runtime / --runtime-bin, pipeline step runtime, dispatch payload)
 2. AGENT_TEAM_RUNTIME env override
-3. Agent frontmatter            (runtime: / runtime_bin:)   ← NEW
-4. Repo [runtime] config        (.agent_team/config.toml)
-5. Built-in default             (claude)
+3. Declared instance            ([instances.<name>] runtime / runtime_bin)
+4. Agent frontmatter            (runtime: / runtime_bin:)
+5. Repo [runtime] config        (.agent_team/config.toml)
+6. Built-in default             (claude)
 ```
 
-A static per-agent default is intentionally outranked by both an explicit
-dispatch runtime and a deliberate env override, so operators can still force a
-runtime for a one-off run or an incident without editing agent files. Mixed
-runtimes require the daemon: in no-daemon interactive mode every subagent
-inherits the launching agent's runtime.
+A static per-instance or per-agent default is intentionally outranked by both
+an explicit dispatch runtime and a deliberate env override, so operators can
+still force a runtime for a one-off run or an incident without editing topology
+or agent files. Mixed runtimes require the daemon: in no-daemon interactive mode
+every subagent inherits the launching agent's runtime.
 
 ### Schedule field reference
 

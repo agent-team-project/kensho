@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
@@ -1302,6 +1303,58 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	}
 	if got := strings.TrimSpace(rootScopedOut.String()); got != wantCommand {
 		t.Fatalf("instance up root --repo --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+}
+
+func TestStartDeclaredInstanceUsesInstanceRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	resolved, err := resolveExplicitRepo(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamDir := resolved.TeamDir
+	writeInstanceTestFile(t, filepath.Join(teamDir, "config.toml"), `[pm]
+provider = "none"
+
+[runtime]
+kind = "codex"
+binary = "codex-default"
+`)
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `[instances.docs-manager]
+agent = "manager"
+runtime = "claude"
+runtime_bin = "claude-docs"
+`)
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	if _, err := newDaemonClient(teamDir); err != nil {
+		t.Fatalf("test daemon client: %v", err)
+	}
+	defer func() {
+		if meta, err := daemon.ReadMetadata(root, "docs-manager"); err == nil && meta.Status == daemon.StatusRunning {
+			stopAndWaitForTest(t, mgr, "docs-manager")
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"--repo", tmp, "start", "--json", "docs-manager"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("start docs-manager: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
+	}
+	meta, err := daemon.ReadMetadata(root, "docs-manager")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Runtime != string(runtimebin.KindClaude) || meta.RuntimeBinary != "claude-docs" {
+		t.Fatalf("metadata runtime = %s/%s, want claude/claude-docs", meta.Runtime, meta.RuntimeBinary)
 	}
 }
 

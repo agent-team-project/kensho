@@ -2557,42 +2557,20 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 // env override > declared instance `runtime:`/`runtime_bin:` > agent
 // frontmatter `runtime:`/`runtime_bin:` > repo [runtime] config > default.
 func (r *EventResolver) runtimeForAgent(agent *loader.Agent, inst *topology.Instance, payload map[string]any) (runtimebin.Runtime, error) {
-	kindRaw := firstPayloadString(payload, "runtime")
-	binRaw := firstPayloadString(payload, "runtime_binary", "runtime_bin")
-	if rt, ok, err := runtimebin.FromFields(kindRaw, binRaw); err != nil {
-		return runtimebin.Runtime{}, fmt.Errorf("runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
-	} else if ok {
-		return rt, nil
+	opts := runtimebin.ResolveOptions{
+		Explicit: runtimebin.Fields{
+			Kind:   firstPayloadString(payload, "runtime"),
+			Binary: firstPayloadString(payload, "runtime_binary", "runtime_bin"),
+		},
+		ConfigPath: filepath.Join(r.teamDir, "config.toml"),
 	}
-	// A deliberate env override outranks static topology/agent defaults; when no
-	// env override is set, declared defaults win over repo config.
-	if strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) == "" {
-		if inst != nil {
-			if rt, ok, err := runtimebin.FromFields(inst.Runtime, inst.RuntimeBin); err != nil {
-				return runtimebin.Runtime{}, fmt.Errorf("instance %q runtime: %w", inst.Name, err)
-			} else if ok {
-				return rt, nil
-			}
-		}
+	if inst != nil {
+		opts.Instance = runtimebin.Fields{Name: inst.Name, Kind: inst.Runtime, Binary: inst.RuntimeBin}
 	}
-	if agent != nil && strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) == "" {
-		if rt, ok, err := runtimebin.FromFields(agent.Runtime, agent.RuntimeBin); err != nil {
-			return runtimebin.Runtime{}, fmt.Errorf("agent %q runtime: %w", agent.Name, err)
-		} else if ok {
-			return rt, nil
-		}
+	if agent != nil {
+		opts.Agent = runtimebin.Fields{Name: agent.Name, Kind: agent.Runtime, Binary: agent.RuntimeBin}
 	}
-	rt, err := runtimebin.CurrentFromConfig(filepath.Join(r.teamDir, "config.toml"))
-	if err != nil {
-		return runtimebin.Runtime{}, err
-	}
-	if bin := strings.TrimSpace(binRaw); bin != "" {
-		rt.Binary = bin
-	}
-	if strings.TrimSpace(rt.Binary) == "" {
-		rt.Binary = runtimebin.DefaultBinaryForKind(rt.Kind)
-	}
-	return rt, nil
+	return runtimebin.Resolve(opts)
 }
 
 func codexEventPrompt(kickoff, prompt string, agents []*loader.Agent) string {

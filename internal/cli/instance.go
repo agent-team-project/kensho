@@ -19,6 +19,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/agent-team-project/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -2879,10 +2880,28 @@ func upOne(cmd *cobra.Command, target string, inst *topology.Instance, kickoff s
 		cwd, _ := os.Getwd()
 		target = cwd
 	}
+	repoResolved, err := resolvePrimaryRepo(cmd, target)
+	if err != nil {
+		return err
+	}
+	agent, err := loader.LoadAgent(filepath.Join(repoResolved.TeamDir, "agents", inst.Agent), repoResolved.TeamDir)
+	if err != nil {
+		return err
+	}
+	rt, err := runtimebin.Resolve(runtimebin.ResolveOptions{
+		Instance:   runtimebin.Fields{Name: inst.Name, Kind: inst.Runtime, Binary: inst.RuntimeBin},
+		Agent:      runtimebin.Fields{Name: agent.Name, Kind: agent.Runtime, Binary: agent.RuntimeBin},
+		ConfigPath: filepath.Join(repoResolved.TeamDir, "config.toml"),
+	})
+	if err != nil {
+		return err
+	}
 	cfg := runConfig{
-		target: target,
-		name:   inst.Name,
-		prompt: kickoff,
+		target:        target,
+		name:          inst.Name,
+		prompt:        kickoff,
+		runtimeKind:   string(rt.Kind),
+		runtimeBinary: rt.Binary,
 	}
 	return runAgent(cmd, cfg, inst.Agent, nil)
 }

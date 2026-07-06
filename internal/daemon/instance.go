@@ -452,19 +452,13 @@ func (m *InstanceManager) ExtendRuntimeBudget(instance string, by time.Duration,
 // on the worker while the manager stays on Claude, without every dispatch
 // having to pass an explicit runtime.
 func (m *InstanceManager) dispatchRuntime(in DispatchInput) (runtimebin.Runtime, error) {
-	if rt, ok, err := runtimebin.FromFields(in.Runtime, in.RuntimeBinary); err != nil || ok {
-		return rt, err
-	}
-	// A deliberate env override outranks a static per-agent default.
-	if strings.TrimSpace(os.Getenv(runtimebin.EnvRuntime)) != "" {
-		return runtimebin.Current()
+	opts := runtimebin.ResolveOptions{
+		Explicit: runtimebin.Fields{Kind: in.Runtime, Binary: in.RuntimeBinary},
 	}
 	if agent := m.agentForRuntime(in.Agent); agent != nil {
-		if rt, ok, err := runtimebin.FromFields(agent.Runtime, agent.RuntimeBin); err != nil || ok {
-			return rt, err
-		}
+		opts.Agent = runtimebin.Fields{Name: agent.Name, Kind: agent.Runtime, Binary: agent.RuntimeBin}
 	}
-	return runtimebin.Current()
+	return runtimebin.Resolve(opts)
 }
 
 // agentForRuntime loads the named agent's definition to read its frontmatter
