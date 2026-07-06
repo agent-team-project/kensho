@@ -23,6 +23,16 @@ type Options struct {
 	// RealAgentTeam is the binary that the generated agent-team shim execs
 	// after its verb check. Empty means resolve the current real CLI binary.
 	RealAgentTeam string
+	// EnforceAuthority bakes closed-world verb enforcement into the generated
+	// shim. When false the shim is a pass-through (instances that declare no
+	// authority). When true the resolved AuthorityAllowlist is embedded as a
+	// literal in the script — the decision and the list are NOT read from the
+	// environment, so an agent cannot widen its own authority by unsetting or
+	// overriding AGENT_TEAM_AUTHORITY_ALLOWLIST.
+	EnforceAuthority bool
+	// AuthorityAllowlist is the resolved verb allowlist baked into the shim
+	// when EnforceAuthority is true.
+	AuthorityAllowlist []string
 }
 
 var DefaultSpecs = []Spec{
@@ -488,7 +498,7 @@ func installAgentTeamShim(binDir string, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("runtime shim agent-team target: %w", err)
 	}
-	body := agentTeamShimBody(real)
+	body := agentTeamShimBody(real, opts)
 	if err := os.WriteFile(link, []byte(body), 0o755); err != nil {
 		return fmt.Errorf("create runtime shim agent-team: %w", err)
 	}
@@ -525,15 +535,22 @@ func validateExecutableFile(path string) error {
 	return nil
 }
 
-func agentTeamShimBody(real string) string {
+func agentTeamShimBody(real string, opts Options) string {
+	// No declared authority => the shim is a pass-through. This decision is
+	// baked into the generated script at install time; it is never read from
+	// the (caller-controlled) environment, so an agent cannot reach the
+	// pass-through branch by unsetting AGENT_TEAM_AUTHORITY_ALLOWLIST.
+	if !opts.EnforceAuthority {
+		return "#!/bin/sh\n" +
+			"exec " + shellQuote(real) + " \"$@\"\n"
+	}
+	baked := strings.Join(normalizeAllowlist(opts.AuthorityAllowlist), ",")
 	return "#!/bin/sh\n" +
 		"REAL_AGENT_TEAM=" + shellQuote(real) + "\n" +
-		"# No declared authority => shim is a pass-through (closed-world applies only\n" +
-		"# to instances that opt in; the bundled default declares none).\n" +
-		"if [ -z \"${" + EnvAuthorityAllowlist + "+x}\" ]; then\n" +
-		"  exec \"$REAL_AGENT_TEAM\" \"$@\"\n" +
-		"fi\n" +
-		"AUTHORITY_ALLOWLIST=${" + EnvAuthorityAllowlist + ":-}\n" +
+		"# Closed-world enforcement baked in at install time; the allowlist is a\n" +
+		"# script literal, NOT read from the environment (tamper-proof against\n" +
+		"# env -u / AGENT_TEAM_AUTHORITY_ALLOWLIST=* self-widening).\n" +
+		"AUTHORITY_ALLOWLIST=" + shellQuote(baked) + "\n" +
 		"KNOWN_VERBS=" + shellQuote(strings.Join(KnownAgentTeamVerbs, "\n")) + "\n" +
 		"\n" +
 		"known_verb() {\n" +

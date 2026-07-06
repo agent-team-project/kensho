@@ -348,7 +348,8 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
 		"AGENT_TEAM_DAEMON_SOCKET=" + daemon.SocketPath(teamDir),
 	}
-	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, topologyAuthorityAllowlistForInstance(teamDir, instance, agentName))
+	authorityAllow, authorityEnforce := topologyAuthorityAllowlistForInstance(teamDir, instance, agentName)
+	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, authorityAllow)
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemon.DaemonHTTPURL(httpAddr))
 	}
@@ -411,7 +412,10 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if daemonDispatch {
 		shimRoot = stateDir
 	}
-	shimBinDir, err := runtimeshim.Install(shimRoot, skillPaths)
+	shimBinDir, err := runtimeshim.InstallWithOptions(shimRoot, skillPaths, runtimeshim.Options{
+		EnforceAuthority:   authorityEnforce,
+		AuthorityAllowlist: authorityAllow,
+	})
 	if err != nil {
 		return err
 	}
@@ -797,12 +801,16 @@ func topologyTeamForInstance(teamDir, instance string) string {
 	return topo.TeamForInstance(instance)
 }
 
-func topologyAuthorityAllowlistForInstance(teamDir, instance, agent string) []string {
+func topologyAuthorityAllowlistForInstance(teamDir, instance, agent string) (allow []string, enforce bool) {
 	topo, err := topology.LoadFromTeamDir(teamDir)
 	if err != nil || topo == nil {
-		return nil
+		return nil, false
 	}
-	return topo.AuthorityAllowlistForInstance(instance, agent)
+	// Enforce whenever the topology configures authority at all — an instance
+	// whose resolved allowlist is empty under a configured authority section
+	// is deny-all-beyond-read-only, distinct from no-authority pass-through.
+	enforce = topo.Authority != nil && topo.Authority.Configured()
+	return topo.AuthorityAllowlistForInstance(instance, agent), enforce
 }
 
 // writeStateConfig writes the resolved tree to <stateDir>/config.toml.

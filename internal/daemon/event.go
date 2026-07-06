@@ -2309,6 +2309,19 @@ type ephemeralRuntime struct {
 	otelConfig       runtimeotel.Config
 }
 
+// authorityForInstance resolves the closed-world verb allowlist baked into the
+// generated shim. enforce is true whenever the topology configures authority at
+// all, so a configured-but-empty instance allowlist means deny-all-beyond-read-only.
+func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool) {
+	r.mu.Lock()
+	topo := r.topo
+	r.mu.Unlock()
+	if topo == nil || topo.Authority == nil || !topo.Authority.Configured() {
+		return nil, false
+	}
+	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true
+}
+
 func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) (*ephemeralRuntime, error) {
 	if strings.TrimSpace(r.teamDir) == "" {
 		return nil, errors.New("event runtime: team dir is required")
@@ -2460,7 +2473,11 @@ func (r *EventResolver) prepareEphemeralAgentArgs(agentName, instance, stateDir,
 			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
-	shimBinDir, err := runtimeshim.Install(runtimeDir, skillPaths)
+	authorityAllow, authorityEnforce := r.authorityForInstance(agentName, instance)
+	shimBinDir, err := runtimeshim.InstallWithOptions(runtimeDir, skillPaths, runtimeshim.Options{
+		EnforceAuthority:   authorityEnforce,
+		AuthorityAllowlist: authorityAllow,
+	})
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
 	}
