@@ -268,7 +268,7 @@ pipelines   = ["platform_ticket_to_pr"]
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "168h" # weekly
+every = "24h" # daily while the fleet + prompts evolve fast; revisit at stability
 
 [schedules.harness-review.payload]
 kind = "harness_review"
