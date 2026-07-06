@@ -55,9 +55,10 @@ func newOutcomesReportCmd() *cobra.Command {
 				return err
 			}
 			report := outcomes.BuildReport(records, outcomes.ReportOptions{
-				Since: sinceAt,
-				Team:  strings.TrimSpace(team),
-				Agent: strings.TrimSpace(agent),
+				Since:   sinceAt,
+				Team:    strings.TrimSpace(team),
+				Agent:   strings.TrimSpace(agent),
+				TeamDir: teamDir,
 			})
 			if jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
@@ -80,15 +81,18 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS\tAVG_TTM\tWATCHDOG\tBUDGET")
+	fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tJOBS\tDONE\tFAILED\tEFF_CONC\tPEAK_CONC\tCAPACITY\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS\tAVG_TTM\tWATCHDOG\tBUDGET")
 	for _, row := range report.Rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
 			emptyDash(row.Week),
 			emptyDash(row.Team),
 			emptyDash(row.Agent),
 			row.Jobs,
 			row.Done,
 			row.Failed,
+			formatOutcomeFloat(row.EffectiveConcurrency),
+			formatOutcomeInt(row.PeakConcurrentWorkUnits),
+			formatOutcomeInt(row.DeclaredReplicaCapacity),
 			row.Bounces,
 			formatOutcomeFloat(row.AverageBounces),
 			row.ReviewRounds,
@@ -99,10 +103,13 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 			row.BudgetExceededEvents)
 	}
 	summary := report.Summary
-	fmt.Fprintf(tw, "TOTAL\t-\t-\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
+	fmt.Fprintf(tw, "TOTAL\t-\t-\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
 		summary.Jobs,
 		summary.Done,
 		summary.Failed,
+		formatOutcomeFloat(summary.EffectiveConcurrency),
+		formatOutcomeInt(summary.PeakConcurrentWorkUnits),
+		formatOutcomeInt(summary.DeclaredReplicaCapacity),
 		summary.Bounces,
 		formatOutcomeFloat(summary.AverageBounces),
 		summary.ReviewRounds,
@@ -119,6 +126,13 @@ func formatOutcomeFloat(v float64) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.2f", v)
+}
+
+func formatOutcomeInt(v int) string {
+	if v == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", v)
 }
 
 func formatOutcomeTokenRatio(consumed, budget int64) string {

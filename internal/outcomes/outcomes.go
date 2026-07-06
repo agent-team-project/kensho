@@ -49,6 +49,7 @@ type Record struct {
 	WatchdogEvents           []EventRef       `json:"watchdog_events,omitempty"`
 	BudgetNoticeEvents       []EventRef       `json:"budget_notice_events,omitempty"`
 	BudgetExceededEvents     []EventRef       `json:"budget_exceeded_events,omitempty"`
+	WorkUnits                []WorkUnitRecord `json:"work_units,omitempty"`
 	TokenBudget              int64            `json:"token_budget,omitempty"`
 	TokensAllocated          int64            `json:"tokens_allocated,omitempty"`
 	TokensConsumed           int64            `json:"tokens_consumed,omitempty"`
@@ -79,6 +80,18 @@ type EventRef struct {
 	Data    map[string]string `json:"data,omitempty"`
 }
 
+// WorkUnitRecord captures one job step interval used for effective-concurrency
+// reporting. It records runtime work, not queue wait, when step timestamps are
+// available.
+type WorkUnitRecord struct {
+	ID         string    `json:"id,omitempty"`
+	Target     string    `json:"target,omitempty"`
+	Instance   string    `json:"instance,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	StartedAt  time.Time `json:"started_at,omitempty"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
+}
+
 // DefectBacklink reserves the ledger surface for later fix jobs that cite this
 // job's merged PR. Current records are written at finalization, so these links
 // are populated by future report/rebuild paths rather than invented eagerly.
@@ -89,10 +102,11 @@ type DefectBacklink struct {
 
 // ReportOptions controls outcome trend rendering.
 type ReportOptions struct {
-	Since time.Time
-	Team  string
-	Agent string
-	Now   time.Time
+	Since   time.Time
+	Team    string
+	Agent   string
+	TeamDir string
+	Now     time.Time
 }
 
 // Report is the structured output for `agent-team outcomes report`.
@@ -112,6 +126,10 @@ type TrendRow struct {
 	Done                    int            `json:"done,omitempty"`
 	Failed                  int            `json:"failed,omitempty"`
 	Merged                  int            `json:"merged,omitempty"`
+	EffectiveConcurrency    float64        `json:"effective_concurrency,omitempty"`
+	PeakConcurrentWorkUnits int            `json:"peak_concurrent_work_units,omitempty"`
+	DeclaredReplicaCapacity int            `json:"declared_replica_capacity,omitempty"`
+	ConcurrencyUtilization  float64        `json:"concurrency_utilization,omitempty"`
 	ReviewRounds            int            `json:"review_rounds,omitempty"`
 	AverageReviewRounds     float64        `json:"average_review_rounds,omitempty"`
 	Bounces                 int            `json:"bounces,omitempty"`
@@ -129,6 +147,7 @@ type TrendRow struct {
 
 	timeToMergeSamples    int
 	timeToTerminalSamples int
+	workIntervals         []workInterval
 }
 
 // Directory returns the root outcomes directory for a team.
@@ -220,6 +239,7 @@ func BuildRecord(teamDir string, j *jobstore.Job, now time.Time) (*Record, error
 	rec.WatchdogEvents = selectEvents(events, isWatchdogEvent)
 	rec.BudgetNoticeEvents = selectEvents(events, isBudgetNoticeEvent)
 	rec.BudgetExceededEvents = selectEvents(events, isBudgetExceededEvent)
+	rec.WorkUnits = workUnitsForJob(j, rec.Agent, finalizedAt)
 	var budgetConsumed int64
 	rec.TokensAllocated, budgetConsumed, rec.TokensReleased = budgetAllocationTotals(events)
 	if rec.TokensConsumed == 0 && budgetConsumed > 0 {
@@ -323,6 +343,8 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 	}
 	report := Report{GeneratedAt: now.UTC(), Since: utcOrZero(opts.Since)}
 	byKey := map[string]*TrendRow{}
+	capacities := declaredReplicaCapacities(opts.TeamDir)
+	summaryCapacityKeys := map[string]bool{}
 	for _, rec := range records {
 		if !recordMatches(rec, opts) {
 			continue
@@ -331,7 +353,15 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 		row := byKey[key]
 		if row == nil {
 			row = &TrendRow{Week: rec.Week, Team: rec.Team, Agent: rec.Agent}
+			row.DeclaredReplicaCapacity = replicaCapacityFor(capacities, rec.Team, rec.Agent)
 			byKey[key] = row
+		}
+		if cap := replicaCapacityFor(capacities, rec.Team, rec.Agent); cap > 0 {
+			capKey := capacityKey(rec.Team, rec.Agent)
+			if !summaryCapacityKeys[capKey] {
+				summaryCapacityKeys[capKey] = true
+				report.Summary.DeclaredReplicaCapacity += cap
+			}
 		}
 		row.add(rec)
 		report.Summary.add(rec)
@@ -445,6 +475,69 @@ func reviewRounds(j *jobstore.Job, bounces int) int {
 		rounds = want
 	}
 	return rounds
+}
+
+func workUnitsForJob(j *jobstore.Job, target string, finalizedAt time.Time) []WorkUnitRecord {
+	if j == nil {
+		return nil
+	}
+	var out []WorkUnitRecord
+	for _, step := range j.Steps {
+		if !progressedWorkUnitStatus(string(step.Status)) {
+			continue
+		}
+		startedAt := stepWorkStartedAt(step)
+		finishedAt := step.FinishedAt
+		if finishedAt.IsZero() && jobstore.IsTerminalStatus(step.Status) {
+			finishedAt = finalizedAt
+		}
+		if !validWorkInterval(startedAt, finishedAt) {
+			continue
+		}
+		out = append(out, WorkUnitRecord{
+			ID:         strings.TrimSpace(step.ID),
+			Target:     strings.TrimSpace(step.Target),
+			Instance:   strings.TrimSpace(step.Instance),
+			Status:     string(step.Status),
+			StartedAt:  startedAt.UTC(),
+			FinishedAt: finishedAt.UTC(),
+		})
+	}
+	if len(out) > 0 {
+		return out
+	}
+	startedAt := utcOrZero(j.CreatedAt)
+	finishedAt := utcOrZero(finalizedAt)
+	if !validWorkInterval(startedAt, finishedAt) {
+		return nil
+	}
+	return []WorkUnitRecord{{
+		ID:         "job",
+		Target:     strings.TrimSpace(target),
+		Instance:   strings.TrimSpace(j.Instance),
+		Status:     string(j.Status),
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+	}}
+}
+
+func stepWorkStartedAt(step jobstore.Step) time.Time {
+	if !step.StartedAt.IsZero() {
+		return step.StartedAt.UTC()
+	}
+	if !step.RunningAt.IsZero() {
+		return step.RunningAt.UTC()
+	}
+	return time.Time{}
+}
+
+func progressedWorkUnitStatus(status string) bool {
+	switch jobstore.Status(strings.TrimSpace(status)) {
+	case "", jobstore.StatusRunning, jobstore.StatusDone, jobstore.StatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func terminalEvent(events []jobstore.Event, j *jobstore.Job) (time.Time, string) {
@@ -746,6 +839,10 @@ func trendKey(rec Record) string {
 	return rec.Week + "\x00" + rec.Team + "\x00" + rec.Agent
 }
 
+func capacityKey(team, agent string) string {
+	return strings.TrimSpace(team) + "\x00" + strings.TrimSpace(agent)
+}
+
 func (r *TrendRow) add(rec Record) {
 	r.Jobs++
 	switch rec.Status {
@@ -781,6 +878,11 @@ func (r *TrendRow) add(rec Record) {
 		r.AverageTimeToTerminalMS += rec.TimeToTerminalMS
 		r.timeToTerminalSamples++
 	}
+	target := strings.TrimSpace(r.Agent)
+	if target == "" {
+		target = strings.TrimSpace(rec.Agent)
+	}
+	r.workIntervals = append(r.workIntervals, workIntervalsForRecord(rec, target)...)
 }
 
 func (r *TrendRow) finalize() {
@@ -795,6 +897,10 @@ func (r *TrendRow) finalize() {
 	if r.timeToTerminalSamples > 0 {
 		r.AverageTimeToTerminalMS /= int64(r.timeToTerminalSamples)
 	}
+	r.EffectiveConcurrency, r.PeakConcurrentWorkUnits = effectiveConcurrency(r.workIntervals)
+	if r.DeclaredReplicaCapacity > 0 && r.EffectiveConcurrency > 0 {
+		r.ConcurrencyUtilization = round2(r.EffectiveConcurrency / float64(r.DeclaredReplicaCapacity))
+	}
 }
 
 func utcOrZero(ts time.Time) time.Time {
@@ -802,4 +908,143 @@ func utcOrZero(ts time.Time) time.Time {
 		return time.Time{}
 	}
 	return ts.UTC()
+}
+
+type workInterval struct {
+	start time.Time
+	end   time.Time
+}
+
+func workIntervalsForRecord(rec Record, target string) []workInterval {
+	target = strings.TrimSpace(target)
+	var out []workInterval
+	for _, unit := range rec.WorkUnits {
+		if !progressedWorkUnitStatus(unit.Status) {
+			continue
+		}
+		unitTarget := strings.TrimSpace(unit.Target)
+		if target != "" && unitTarget != "" && unitTarget != target {
+			continue
+		}
+		if !validWorkInterval(unit.StartedAt, unit.FinishedAt) {
+			continue
+		}
+		out = append(out, workInterval{start: unit.StartedAt.UTC(), end: unit.FinishedAt.UTC()})
+	}
+	if len(out) > 0 {
+		return out
+	}
+	startedAt := rec.CreatedAt
+	finishedAt := rec.FinalizedAt
+	if finishedAt.IsZero() {
+		finishedAt = rec.RecordedAt
+	}
+	if validWorkInterval(startedAt, finishedAt) {
+		out = append(out, workInterval{start: startedAt.UTC(), end: finishedAt.UTC()})
+	}
+	return out
+}
+
+func validWorkInterval(start, end time.Time) bool {
+	return !start.IsZero() && !end.IsZero() && end.After(start)
+}
+
+type concurrencyEvent struct {
+	at    time.Time
+	delta int
+}
+
+func effectiveConcurrency(intervals []workInterval) (float64, int) {
+	if len(intervals) == 0 {
+		return 0, 0
+	}
+	events := make([]concurrencyEvent, 0, len(intervals)*2)
+	for _, interval := range intervals {
+		if !validWorkInterval(interval.start, interval.end) {
+			continue
+		}
+		events = append(events,
+			concurrencyEvent{at: interval.start.UTC(), delta: 1},
+			concurrencyEvent{at: interval.end.UTC(), delta: -1},
+		)
+	}
+	if len(events) == 0 {
+		return 0, 0
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].at.Before(events[j].at)
+	})
+	var (
+		active          int
+		peak            int
+		prev            time.Time
+		activeSeconds   float64
+		weightedSeconds float64
+	)
+	for i := 0; i < len(events); {
+		at := events[i].at
+		if !prev.IsZero() && at.After(prev) && active > 0 {
+			seconds := at.Sub(prev).Seconds()
+			activeSeconds += seconds
+			weightedSeconds += seconds * float64(active)
+		}
+		for i < len(events) && events[i].at.Equal(at) {
+			active += events[i].delta
+			i++
+		}
+		if active > peak {
+			peak = active
+		}
+		prev = at
+	}
+	if activeSeconds == 0 {
+		return 0, peak
+	}
+	return round2(weightedSeconds / activeSeconds), peak
+}
+
+func declaredReplicaCapacities(teamDir string) map[string]int {
+	if strings.TrimSpace(teamDir) == "" {
+		return nil
+	}
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || top == nil {
+		return nil
+	}
+	out := map[string]int{}
+	for _, inst := range top.Instances {
+		out[capacityKey("", inst.Name)] = instanceCapacity(inst)
+	}
+	for _, team := range top.SortedTeams() {
+		for _, instName := range team.Instances {
+			inst := top.Instances[instName]
+			if inst == nil {
+				continue
+			}
+			out[capacityKey(team.Name, inst.Name)] = instanceCapacity(inst)
+		}
+	}
+	return out
+}
+
+func instanceCapacity(inst *topology.Instance) int {
+	if inst == nil {
+		return 0
+	}
+	if inst.Ephemeral {
+		return inst.Replicas
+	}
+	return 1
+}
+
+func replicaCapacityFor(capacities map[string]int, team, agent string) int {
+	if len(capacities) == 0 || strings.TrimSpace(agent) == "" {
+		return 0
+	}
+	if team = strings.TrimSpace(team); team != "" {
+		if cap := capacities[capacityKey(team, agent)]; cap > 0 {
+			return cap
+		}
+	}
+	return capacities[capacityKey("", agent)]
 }

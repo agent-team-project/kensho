@@ -33,8 +33,8 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	j.TokenBudget = 200
 	j.TimeBudget = "3h"
 	j.Steps = []jobstore.Step{
-		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, Attempts: 1},
-		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, Attempts: 3},
+		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, Attempts: 1, StartedAt: now.Add(-2 * time.Hour), FinishedAt: now.Add(-90 * time.Minute)},
+		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, Attempts: 3, StartedAt: now.Add(-80 * time.Minute), FinishedAt: now.Add(-10 * time.Minute)},
 	}
 	j.Usage, _ = usage.MergeRecord(nil, usage.Record{
 		Instance:        "worker-squ-135",
@@ -93,6 +93,9 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	if len(rec.WatchdogEvents) != 1 || len(rec.BudgetNoticeEvents) != 1 || len(rec.BudgetExceededEvents) != 1 {
 		t.Fatalf("events = watchdog %d notices %d exceeded %d", len(rec.WatchdogEvents), len(rec.BudgetNoticeEvents), len(rec.BudgetExceededEvents))
 	}
+	if len(rec.WorkUnits) != 2 || rec.WorkUnits[0].Target != "worker" || rec.WorkUnits[0].StartedAt != now.Add(-2*time.Hour) {
+		t.Fatalf("work units = %+v", rec.WorkUnits)
+	}
 	if rec.GateFailures != 1 || rec.GateFailureClasses["signature"] != 1 {
 		t.Fatalf("gate failures = %d %+v", rec.GateFailures, rec.GateFailureClasses)
 	}
@@ -134,12 +137,18 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	records := []Record{
 		{
-			JobID:            "squ-1",
-			Status:           "done",
-			Week:             "2026-W28",
-			Team:             "delivery",
-			Agent:            "worker",
-			FinalizedAt:      now,
+			JobID:       "squ-1",
+			Status:      "done",
+			Week:        "2026-W28",
+			Team:        "delivery",
+			Agent:       "worker",
+			FinalizedAt: now,
+			WorkUnits: []WorkUnitRecord{{
+				ID:         "implement",
+				Target:     "worker",
+				StartedAt:  now.Add(-2 * time.Hour),
+				FinishedAt: now.Add(-90 * time.Minute),
+			}},
 			ReviewRounds:     2,
 			BounceCount:      1,
 			BounceClasses:    map[string]int{"content": 1},
@@ -149,12 +158,18 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			TimeToTerminalMS: 1200,
 		},
 		{
-			JobID:            "squ-2",
-			Status:           "failed",
-			Week:             "2026-W28",
-			Team:             "delivery",
-			Agent:            "worker",
-			FinalizedAt:      now.Add(time.Hour),
+			JobID:       "squ-2",
+			Status:      "failed",
+			Week:        "2026-W28",
+			Team:        "delivery",
+			Agent:       "worker",
+			FinalizedAt: now.Add(time.Hour),
+			WorkUnits: []WorkUnitRecord{{
+				ID:         "implement",
+				Target:     "worker",
+				StartedAt:  now.Add(-105 * time.Minute),
+				FinishedAt: now.Add(-75 * time.Minute),
+			}},
 			ReviewRounds:     0,
 			BounceCount:      0,
 			TokenBudget:      100,
@@ -163,7 +178,7 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			WatchdogEvents:   []EventRef{{Type: "watchdog"}},
 		},
 	}
-	report := BuildReport(records, ReportOptions{Team: "delivery", Agent: "worker", Now: now})
+	report := BuildReport(records, ReportOptions{Team: "delivery", Agent: "worker", TeamDir: testOutcomeTeamDir(t), Now: now})
 	if len(report.Rows) != 1 {
 		t.Fatalf("rows = %+v", report.Rows)
 	}
@@ -177,8 +192,14 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	if row.AverageTimeToMergeMS != 1000 || row.AverageTimeToTerminalMS != 1000 {
 		t.Fatalf("row durations = %+v", row)
 	}
+	if row.EffectiveConcurrency != 1.33 || row.PeakConcurrentWorkUnits != 2 || row.DeclaredReplicaCapacity != 2 || row.ConcurrencyUtilization != 0.67 {
+		t.Fatalf("row concurrency = %+v", row)
+	}
 	if report.Summary.Jobs != 2 || report.Summary.WatchdogEvents != 1 {
 		t.Fatalf("summary = %+v", report.Summary)
+	}
+	if report.Summary.EffectiveConcurrency != 1.33 || report.Summary.DeclaredReplicaCapacity != 2 {
+		t.Fatalf("summary concurrency = %+v", report.Summary)
 	}
 }
 
@@ -197,6 +218,7 @@ provider = "none"
 	topology := `[instances.worker]
 agent = "worker"
 ephemeral = true
+replicas = 2
 
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
