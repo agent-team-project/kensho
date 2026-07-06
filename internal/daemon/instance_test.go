@@ -679,6 +679,68 @@ func TestInstance_ReapCapturesCodexUsageToMetadataAndJob(t *testing.T) {
 	}
 }
 
+func TestInstance_ReapCapturesDockerDelegatedCodexUsage(t *testing.T) {
+	tmp := t.TempDir()
+	teamDir := filepath.Join(tmp, ".agent_team")
+	root := DaemonRoot(teamDir)
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-131", "worker", "capture docker usage", now)
+	if err != nil {
+		t.Fatalf("job.New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	j.Instance = "worker-squ-131"
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("job.Write: %v", err)
+	}
+
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	meta, err := m.Dispatch(DispatchInput{
+		Agent:         "worker",
+		Name:          j.Instance,
+		Job:           j.ID,
+		Ticket:        j.Ticket,
+		Runtime:       "docker",
+		RuntimeBinary: "docker",
+		Args:          []string{"run", "agent-team:test"},
+		Workspace:     t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if meta.Runtime != "docker" || meta.EffectiveRuntime != "codex" {
+		t.Fatalf("runtime metadata = runtime %q effective %q, want docker/codex", meta.Runtime, meta.EffectiveRuntime)
+	}
+	if err := os.WriteFile(meta.LogPath, []byte(`{"type":"turn.completed","usage":{"input_tokens":321,"output_tokens":45}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write child log: %v", err)
+	}
+	if err := m.WaitForReaper(j.Instance, 10*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+
+	disk, err := ReadMetadata(root, j.Instance)
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if disk.Runtime != "docker" || disk.EffectiveRuntime != "codex" {
+		t.Fatalf("disk runtime metadata = runtime %q effective %q, want docker/codex", disk.Runtime, disk.EffectiveRuntime)
+	}
+	if disk.Usage == nil || !disk.Usage.TokensAvailable || disk.Usage.Runtime != "codex" || disk.Usage.InputTokens != 321 || disk.Usage.OutputTokens != 45 {
+		t.Fatalf("metadata usage = %+v", disk.Usage)
+	}
+	stored, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("job.Read: %v", err)
+	}
+	if stored.Usage == nil || stored.Usage.Summary.InputTokens != 321 || stored.Usage.Summary.OutputTokens != 45 || len(stored.Usage.Records) != 1 {
+		t.Fatalf("job usage = %+v", stored.Usage)
+	}
+	if stored.Usage.Records[0].Runtime != "codex" {
+		t.Fatalf("job usage runtime = %q, want codex", stored.Usage.Records[0].Runtime)
+	}
+}
+
 func TestInstance_DispatchCodexPromptUsesStdin(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	root := t.TempDir()

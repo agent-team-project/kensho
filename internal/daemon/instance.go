@@ -139,8 +139,11 @@ type DispatchInput struct {
 	Workspace     string
 	Runtime       string
 	RuntimeBinary string
-	Args          []string
-	Env           []string
+	// EffectiveRuntime identifies the delegated runtime whose log format should
+	// be used for usage and budget accounting. Empty defaults to Runtime.
+	EffectiveRuntime string
+	Args             []string
+	Env              []string
 	// EnvComplete means Env is already the full process environment. The
 	// normal dispatch path treats Env as an overlay on top of a persisted
 	// launch snapshot or os.Environ.
@@ -315,21 +318,22 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 
 	now := time.Now().UTC()
 	meta := &Metadata{
-		Instance:      in.Name,
-		Agent:         in.Agent,
-		Job:           in.Job,
-		Ticket:        in.Ticket,
-		Branch:        in.Branch,
-		PR:            in.PR,
-		Origin:        in.Origin,
-		Runtime:       string(rt.Kind),
-		RuntimeBinary: rt.Binary,
-		Workspace:     in.Workspace,
-		PID:           proc.Pid,
-		SessionID:     sessionID,
-		StartedAt:     now,
-		Status:        StatusRunning,
-		LogPath:       logPath,
+		Instance:         in.Name,
+		Agent:            in.Agent,
+		Job:              in.Job,
+		Ticket:           in.Ticket,
+		Branch:           in.Branch,
+		PR:               in.PR,
+		Origin:           in.Origin,
+		Runtime:          string(rt.Kind),
+		RuntimeBinary:    rt.Binary,
+		EffectiveRuntime: dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
+		Workspace:        in.Workspace,
+		PID:              proc.Pid,
+		SessionID:        sessionID,
+		StartedAt:        now,
+		Status:           StatusRunning,
+		LogPath:          logPath,
 	}
 	applyRuntimeBudgetMetadata(meta, now, in.Budget)
 	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
@@ -524,6 +528,16 @@ func dispatchStdin(rt runtimebin.Runtime, in DispatchInput) string {
 	}
 	if len(in.Args) == 0 {
 		return in.Prompt
+	}
+	return ""
+}
+
+func dispatchEffectiveRuntime(kind runtimebin.Kind, raw string) string {
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		return trimmed
+	}
+	if kind == runtimebin.KindDocker {
+		return string(runtimebin.KindCodex)
 	}
 	return ""
 }
@@ -1526,21 +1540,22 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	}
 	now := time.Now().UTC()
 	meta := &Metadata{
-		Instance:      in.Name,
-		Agent:         in.Agent,
-		Job:           in.Job,
-		Ticket:        in.Ticket,
-		Branch:        in.Branch,
-		PR:            in.PR,
-		Origin:        in.Origin,
-		Runtime:       string(rt.Kind),
-		RuntimeBinary: rt.Binary,
-		Workspace:     in.Workspace,
-		PID:           proc.Pid,
-		SessionID:     sessionID,
-		StartedAt:     now,
-		Status:        StatusRunning,
-		LogPath:       logPath,
+		Instance:         in.Name,
+		Agent:            in.Agent,
+		Job:              in.Job,
+		Ticket:           in.Ticket,
+		Branch:           in.Branch,
+		PR:               in.PR,
+		Origin:           in.Origin,
+		Runtime:          string(rt.Kind),
+		RuntimeBinary:    rt.Binary,
+		EffectiveRuntime: dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
+		Workspace:        in.Workspace,
+		PID:              proc.Pid,
+		SessionID:        sessionID,
+		StartedAt:        now,
+		Status:           StatusRunning,
+		LogPath:          logPath,
 	}
 	applyRuntimeBudgetMetadata(meta, now, in.Budget)
 	if err := m.writeInstanceLaunchEnv(in.Name, args, env, in.Workspace, proc.Pid, now); err != nil {
@@ -1777,6 +1792,16 @@ func metadataRuntimeKind(meta *Metadata) runtimebin.Kind {
 		return runtimebin.KindClaude
 	}
 	return kind
+}
+
+func metadataEffectiveRuntime(meta *Metadata) string {
+	if meta == nil {
+		return ""
+	}
+	if trimmed := strings.TrimSpace(meta.EffectiveRuntime); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(meta.Runtime)
 }
 
 // List returns a snapshot of every instance the manager knows about.
