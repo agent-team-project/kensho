@@ -42,20 +42,20 @@ type daemonClient struct {
 	teamDir string
 }
 
-// newDaemonClient probes the daemon's pidfile to confirm it's alive, then
-// constructs an http.Client whose transport dials the unix socket. Returns
-// errDaemonNotRunning if the pidfile is missing or stale.
+// newDaemonClient uses a configured loopback HTTP endpoint when one is
+// advertised, otherwise it probes the daemon's pidfile before dialing the
+// unix socket. Returns errDaemonNotRunning if no usable transport is known.
 func newDaemonClient(teamDir string) (*daemonClient, error) {
 	return newDaemonClientWithTimeout(teamDir, 0)
 }
 
 func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonClient, error) {
+	if baseURL := configuredDaemonHTTPURL(teamDir); baseURL != "" {
+		return newDaemonHTTPURLClient(teamDir, baseURL, timeout)
+	}
 	pid, err := daemon.ReadPidfile(daemon.PidPath(teamDir))
 	if err != nil || pid == 0 || !daemon.PidLiveCheck(pid) {
 		return nil, errDaemonNotRunning
-	}
-	if baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_URL")), "/"); baseURL != "" {
-		return newDaemonHTTPURLClient(teamDir, baseURL, timeout)
 	}
 	socket := daemon.SocketPath(teamDir)
 	if _, err := os.Stat(socket); err == nil {
@@ -73,10 +73,17 @@ func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonC
 			teamDir: teamDir,
 		}, nil
 	}
-	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
-		return newDaemonHTTPURLClient(teamDir, daemon.DaemonHTTPURL(httpAddr), timeout)
-	}
 	return nil, errDaemonNotRunning
+}
+
+func configuredDaemonHTTPURL(teamDir string) string {
+	if baseURL := strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_URL")); baseURL != "" {
+		return baseURL
+	}
+	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
+		return daemon.DaemonHTTPURL(httpAddr)
+	}
+	return ""
 }
 
 func newDaemonHTTPURLClient(teamDir, baseURL string, timeout time.Duration) (*daemonClient, error) {

@@ -90,6 +90,100 @@ func TestClient_AttachesBearerFromTokenFile(t *testing.T) {
 	}
 }
 
+func TestNewDaemonClientUsesEnvHTTPURLWhenPidfileStale(t *testing.T) {
+	teamDir := t.TempDir()
+	if err := os.WriteFile(daemon.PidPath(teamDir), []byte("999999999\n"), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "")
+	t.Setenv(daemon.DaemonTokenFileEnv, "")
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return false })
+	defer restorePIDLiveCheck()
+
+	tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+	if err := os.WriteFile(tokenFile, []byte("env-token\n"), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/status" {
+			t.Fatalf("path = %s, want /v1/status", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"ready": true, "instances": 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("AGENT_TEAM_DAEMON_URL", srv.URL)
+	t.Setenv(daemon.DaemonTokenFileEnv, tokenFile)
+
+	c, err := newDaemonClientWithTimeout(teamDir, time.Second)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	status, err := c.Status()
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Ready {
+		t.Fatalf("status ready = false, want true")
+	}
+	if gotAuth != "Bearer env-token" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+}
+
+func TestNewDaemonClientUsesPersistedHTTPAddrWhenPidfileStale(t *testing.T) {
+	teamDir := t.TempDir()
+	if err := os.WriteFile(daemon.PidPath(teamDir), []byte("999999999\n"), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "")
+	t.Setenv(daemon.DaemonTokenFileEnv, "")
+	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return false })
+	defer restorePIDLiveCheck()
+
+	tokenFile := daemon.OperatorTokenPath(teamDir)
+	if err := os.MkdirAll(filepath.Dir(tokenFile), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+	if err := os.WriteFile(tokenFile, []byte("operator-token\n"), 0o600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/status" {
+			t.Fatalf("path = %s, want /v1/status", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"ready": true, "instances": 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer srv.Close()
+	if err := os.WriteFile(daemon.HTTPAddrPath(teamDir), []byte(strings.TrimPrefix(srv.URL, "http://")+"\n"), 0o644); err != nil {
+		t.Fatalf("write http addr: %v", err)
+	}
+
+	c, err := newDaemonClientWithTimeout(teamDir, time.Second)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	status, err := c.Status()
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Ready {
+		t.Fatalf("status ready = false, want true")
+	}
+	if gotAuth != "Bearer operator-token" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+}
+
 func TestClient_Dispatch(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))
