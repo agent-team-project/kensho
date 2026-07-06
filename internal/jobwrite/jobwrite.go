@@ -11,6 +11,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/outcomes"
 	"github.com/agent-team-project/agent-team/internal/pmprovider"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/agent-team-project/agent-team/internal/usage"
@@ -38,6 +39,9 @@ func WriteWithAudit(teamDir string, j *job.Job, opts Options) error {
 		return err
 	}
 	if err := job.AppendSnapshotEvent(teamDir, j, opts.EventType, opts.Actor, opts.Message, opts.Data); err != nil {
+		return err
+	}
+	if _, _, err := outcomes.RecordFinalizedJob(teamDir, j); err != nil {
 		return err
 	}
 	if writeAttention {

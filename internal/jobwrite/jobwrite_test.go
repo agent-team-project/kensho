@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/linearwriteback"
+	"github.com/agent-team-project/agent-team/internal/outcomes"
 )
 
 func TestWriteWithAuditFailureAttentionOnceForFailedTransitions(t *testing.T) {
@@ -236,6 +237,39 @@ instances = ["platform-worker"]
 	}
 	if events[0].Origin.Team != "platform" || events[0].Origin.Project != "project-1" {
 		t.Fatalf("event origin = %+v", events[0].Origin)
+	}
+}
+
+func TestWriteWithAuditRecordsTerminalOutcome(t *testing.T) {
+	teamDir := testTeamDir(t)
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	j, err := job.New("SQU-135", "worker", "ship outcome ledger", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = job.StatusRunning
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("seed Write: %v", err)
+	}
+
+	j.Status = job.StatusDone
+	j.LastEvent = "closed"
+	j.LastStatus = "done"
+	j.UpdatedAt = now
+	if err := WriteWithAudit(teamDir, j, Options{
+		EventType: "closed",
+		Actor:     "cli",
+		Message:   "done",
+	}); err != nil {
+		t.Fatalf("WriteWithAudit terminal: %v", err)
+	}
+
+	rec, err := outcomes.ReadRecord(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("ReadRecord: %v", err)
+	}
+	if rec.JobID != "squ-135" || rec.Status != "done" || rec.TerminalEvent != "closed" {
+		t.Fatalf("record = %+v", rec)
 	}
 }
 

@@ -1,0 +1,67 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/agent-team-project/agent-team/internal/outcomes"
+)
+
+func TestOutcomesReportCommandRendersJSONAndTable(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	if err := outcomes.WriteRecord(teamDir, &outcomes.Record{
+		Version:          1,
+		JobID:            "squ-135",
+		Ticket:           "SQU-135",
+		Status:           "done",
+		Week:             "2026-W28",
+		Team:             "delivery",
+		Agent:            "worker",
+		FinalizedAt:      now,
+		ReviewRounds:     2,
+		BounceCount:      1,
+		TokenBudget:      200,
+		TokensConsumed:   150,
+		TimeToMergeMS:    int64((2 * time.Hour).Milliseconds()),
+		TimeToTerminalMS: int64((2 * time.Hour).Milliseconds()),
+		RecordedAt:       now,
+	}); err != nil {
+		t.Fatalf("WriteRecord: %v", err)
+	}
+
+	jsonCmd := NewRootCmd()
+	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
+	jsonCmd.SetOut(jsonOut)
+	jsonCmd.SetErr(jsonErr)
+	jsonCmd.SetArgs([]string{"outcomes", "report", "--target", tmp, "--json"})
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("outcomes report json: %v\nstderr=%s", err, jsonErr.String())
+	}
+	var report outcomes.Report
+	if err := json.Unmarshal(jsonOut.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v\nbody=%s", err, jsonOut.String())
+	}
+	if len(report.Rows) != 1 || report.Rows[0].Jobs != 1 || report.Rows[0].AverageBounces != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+
+	tableCmd := NewRootCmd()
+	tableOut, tableErr := &bytes.Buffer{}, &bytes.Buffer{}
+	tableCmd.SetOut(tableOut)
+	tableCmd.SetErr(tableErr)
+	tableCmd.SetArgs([]string{"outcomes", "report", "--target", tmp})
+	if err := tableCmd.Execute(); err != nil {
+		t.Fatalf("outcomes report table: %v\nstderr=%s", err, tableErr.String())
+	}
+	text := tableOut.String()
+	if !strings.Contains(text, "WEEK") || !strings.Contains(text, "2026-W28") || !strings.Contains(text, "150/200") {
+		t.Fatalf("table output = %q", text)
+	}
+}
