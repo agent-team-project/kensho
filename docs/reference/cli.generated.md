@@ -59,6 +59,7 @@ Subcommands:
 - `agent-team monitor` - Show a combined health, recovery, inbox, instance, and resource snapshot.
 - `agent-team next` - Print recommended next operator actions.
 - `agent-team outbox` - Inspect and control sandboxed agent outbox events.
+- `agent-team outcomes` - Inspect terminal job outcome trends.
 - `agent-team overview` - Show a concise operator overview across health, jobs, queue, pipelines, and schedules.
 - `agent-team pipeline` - Inspect declared pipeline workflows.
 - `agent-team plan` - Preview desired agent instance state from topology and daemon metadata.
@@ -4948,6 +4949,50 @@ Flags:
       --format string   Render the outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the outbox item as JSON.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team outcomes`
+
+Inspect terminal job outcome trends.
+
+Inspect terminal job outcome records captured at durable job finalization.
+
+```text
+agent-team outcomes
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team outcomes report` - Render outcome trends by week, team, and agent.
+
+## `agent-team outcomes report`
+
+Render outcome trends by week, team, and agent.
+
+```text
+agent-team outcomes report [flags]
+```
+
+Flags:
+
+```text
+      --agent string    Only include outcomes for one agent type.
+      --json            Emit the outcome report as JSON.
+      --since string    Only include outcomes finalized since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --team string     Only include outcomes for one team.
 ```
 
 Inherited Flags:
