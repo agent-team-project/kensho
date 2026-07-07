@@ -409,19 +409,20 @@ func newDaemonEnvCmd() *cobra.Command {
 }
 
 type daemonLifecycleJSON struct {
-	Action              string           `json:"action"`
-	Changed             bool             `json:"changed"`
-	PID                 int              `json:"pid,omitempty"`
-	PreviousPID         int              `json:"previous_pid,omitempty"`
-	Log                 string           `json:"log,omitempty"`
-	AlreadyRunning      bool             `json:"already_running,omitempty"`
-	Stopped             bool             `json:"stopped,omitempty"`
-	Killed              bool             `json:"killed,omitempty"`
-	StalePidfileRemoved bool             `json:"stale_pidfile_removed,omitempty"`
-	SnapshotMissing     bool             `json:"snapshot_missing,omitempty"`
-	RelaunchedBinary    string           `json:"relaunched_binary,omitempty"`
-	Message             string           `json:"message,omitempty"`
-	Status              daemonStatusJSON `json:"status"`
+	Action              string             `json:"action"`
+	Changed             bool               `json:"changed"`
+	PID                 int                `json:"pid,omitempty"`
+	PreviousPID         int                `json:"previous_pid,omitempty"`
+	PreviousExit        *daemon.ExitReason `json:"previous_exit,omitempty"`
+	Log                 string             `json:"log,omitempty"`
+	AlreadyRunning      bool               `json:"already_running,omitempty"`
+	Stopped             bool               `json:"stopped,omitempty"`
+	Killed              bool               `json:"killed,omitempty"`
+	StalePidfileRemoved bool               `json:"stale_pidfile_removed,omitempty"`
+	SnapshotMissing     bool               `json:"snapshot_missing,omitempty"`
+	RelaunchedBinary    string             `json:"relaunched_binary,omitempty"`
+	Message             string             `json:"message,omitempty"`
+	Status              daemonStatusJSON   `json:"status"`
 }
 
 const defaultDaemonReadyTimeout = 3 * time.Second
@@ -619,12 +620,16 @@ func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAd
 	if strings.TrimSpace(httpAddr) != "" {
 		args = append(args, "--http-addr", httpAddr)
 	}
-	return daemonStartDetachedLaunch(teamDir, daemonDetachedLaunch{
+	result, err := daemonStartDetachedLaunch(teamDir, daemonDetachedLaunch{
 		Bin:  bin,
 		Args: args,
 		Dir:  filepath.Dir(teamDir),
 		Env:  os.Environ(),
 	}, readyTimeout)
+	if err != nil {
+		return result, err
+	}
+	return daemonLifecycleWithPreviousExit(teamDir, result), nil
 }
 
 var errDaemonReadyTimeout = errors.New("daemon readiness timeout")
@@ -718,12 +723,14 @@ func startDaemonDetachedLaunch(teamDir string, launch daemonDetachedLaunch, read
 func renderDaemonStartResult(w fmtWriter, result daemonLifecycleJSON) {
 	if result.AlreadyRunning {
 		fmt.Fprintf(w, "agent-teamd already running (pid=%d).\n", result.PID)
+		renderDaemonExitReasonLine(w, "previous exit", result.PreviousExit)
 		return
 	}
 	fmt.Fprintf(w, "agent-teamd started (pid=%d).\nlog: %s\n", result.PID, result.Log)
 	if result.RelaunchedBinary != "" {
 		fmt.Fprintf(w, "binary: %s\n", result.RelaunchedBinary)
 	}
+	renderDaemonExitReasonLine(w, "previous exit", result.PreviousExit)
 }
 
 func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout time.Duration, httpAddr string, httpAddrExplicit bool) (daemonLifecycleJSON, error) {
@@ -750,6 +757,7 @@ func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout
 		}
 		return daemonLifecycleJSON{}, err
 	}
+	result = daemonLifecycleWithPreviousExit(teamDir, result)
 	result.RelaunchedBinary = launch.Bin
 	return result, nil
 }
@@ -1234,25 +1242,27 @@ func renderDaemonReconcile(w fmtWriter, resp *daemonReconcileResponse) error {
 }
 
 type daemonStatusJSON struct {
-	Running        bool           `json:"running"`
-	Ready          bool           `json:"ready"`
-	PID            int            `json:"pid,omitempty"`
-	Instances      int            `json:"instances"`
-	TeamDir        string         `json:"team_dir"`
-	StartedAt      time.Time      `json:"started_at,omitempty"`
-	Build          buildinfo.Info `json:"build,omitempty"`
-	Socket         string         `json:"socket"`
-	SocketExists   bool           `json:"socket_exists"`
-	HTTPAddr       string         `json:"http_addr,omitempty"`
-	HTTPURL        string         `json:"http_url,omitempty"`
-	HTTPAddrFile   string         `json:"http_addr_file,omitempty"`
-	HTTPAddrExists bool           `json:"http_addr_exists,omitempty"`
-	Pidfile        string         `json:"pidfile"`
-	StalePidfile   bool           `json:"stale_pidfile,omitempty"`
-	Log            string         `json:"log"`
-	Error          string         `json:"error,omitempty"`
-	Warnings       []string       `json:"warnings,omitempty"`
-	Actions        []string       `json:"actions,omitempty"`
+	Running        bool               `json:"running"`
+	Reachable      bool               `json:"reachable"`
+	Ready          bool               `json:"ready"`
+	PID            int                `json:"pid,omitempty"`
+	Instances      int                `json:"instances"`
+	TeamDir        string             `json:"team_dir"`
+	StartedAt      time.Time          `json:"started_at,omitempty"`
+	Build          buildinfo.Info     `json:"build,omitempty"`
+	Socket         string             `json:"socket"`
+	SocketExists   bool               `json:"socket_exists"`
+	HTTPAddr       string             `json:"http_addr,omitempty"`
+	HTTPURL        string             `json:"http_url,omitempty"`
+	HTTPAddrFile   string             `json:"http_addr_file,omitempty"`
+	HTTPAddrExists bool               `json:"http_addr_exists,omitempty"`
+	Pidfile        string             `json:"pidfile"`
+	StalePidfile   bool               `json:"stale_pidfile,omitempty"`
+	Log            string             `json:"log"`
+	LastExit       *daemon.ExitReason `json:"last_exit,omitempty"`
+	Error          string             `json:"error,omitempty"`
+	Warnings       []string           `json:"warnings,omitempty"`
+	Actions        []string           `json:"actions,omitempty"`
 }
 
 type daemonStatusOptions struct {
@@ -1341,7 +1351,7 @@ func daemonStatusCommandActions(status daemonStatusJSON) []string {
 	if !status.Running {
 		return []string{"agent-team daemon start"}
 	}
-	if !status.Ready {
+	if !status.Reachable || !status.Ready {
 		return []string{
 			"agent-team daemon restart",
 			"agent-team daemon logs --tail 80",
@@ -1424,9 +1434,11 @@ func waitForDaemonStatus(teamDir string, timeout, interval time.Duration, done f
 func renderDaemonStatus(w fmtWriter, status daemonStatusJSON) {
 	if !status.Running {
 		fmt.Fprintln(w, "agent-teamd: not running")
+		fmt.Fprintln(w, "reachable: no")
 		if status.StalePidfile {
 			fmt.Fprintf(w, "stale pidfile: %s\n", status.Pidfile)
 		}
+		renderDaemonExitReasonLine(w, "last exit", status.LastExit)
 		if status.Error != "" {
 			fmt.Fprintf(w, "error: %s\n", status.Error)
 		}
@@ -1436,6 +1448,7 @@ func renderDaemonStatus(w fmtWriter, status daemonStatusJSON) {
 		return
 	}
 	fmt.Fprintf(w, "agent-teamd: running (pid=%d)\n", status.PID)
+	fmt.Fprintf(w, "reachable: %s\n", yesNo(status.Reachable))
 	fmt.Fprintf(w, "ready: %s\n", yesNo(status.Ready))
 	if status.Ready {
 		fmt.Fprintf(w, "instances: %d\n", status.Instances)
@@ -1462,6 +1475,60 @@ func appendStatusError(current, next string) string {
 	return current + "; " + next
 }
 
+func daemonLifecycleWithPreviousExit(teamDir string, result daemonLifecycleJSON) daemonLifecycleJSON {
+	reason := readDaemonExitReasonSilently(teamDir)
+	result.PreviousExit = reason
+	if result.Status.LastExit == nil {
+		result.Status.LastExit = reason
+	}
+	return result
+}
+
+func readDaemonExitReasonSilently(teamDir string) *daemon.ExitReason {
+	reason, err := daemon.ReadExitReason(teamDir)
+	if err != nil {
+		return nil
+	}
+	return reason
+}
+
+func renderDaemonExitReasonLine(w fmtWriter, label string, reason *daemon.ExitReason) {
+	text := daemonExitReasonText(reason)
+	if text == "" {
+		return
+	}
+	fmt.Fprintf(w, "%s: %s\n", label, text)
+}
+
+func daemonExitReasonText(reason *daemon.ExitReason) string {
+	if reason == nil {
+		return ""
+	}
+	kind := strings.TrimSpace(reason.Kind)
+	if kind == "" {
+		kind = "unknown"
+	}
+	head := kind
+	if kind == daemon.ExitKindSignal && strings.TrimSpace(reason.Signal) != "" {
+		head = "signal " + strings.TrimSpace(reason.Signal)
+	}
+	text := head
+	if strings.TrimSpace(reason.Reason) != "" {
+		text += ": " + strings.TrimSpace(reason.Reason)
+	}
+	var parts []string
+	if reason.PID != 0 {
+		parts = append(parts, fmt.Sprintf("pid=%d", reason.PID))
+	}
+	if !reason.RecordedAt.IsZero() {
+		parts = append(parts, "at="+reason.RecordedAt.UTC().Format(time.RFC3339))
+	}
+	if len(parts) > 0 {
+		text += " (" + strings.Join(parts, " ") + ")"
+	}
+	return text
+}
+
 func collectDaemonStatus(teamDir string) daemonStatusJSON {
 	status := daemonStatusJSON{
 		TeamDir:      teamDir,
@@ -1469,6 +1536,11 @@ func collectDaemonStatus(teamDir string) daemonStatusJSON {
 		HTTPAddrFile: daemon.HTTPAddrPath(teamDir),
 		Pidfile:      daemon.PidPath(teamDir),
 		Log:          daemon.LogPath(teamDir),
+	}
+	if reason, err := daemon.ReadExitReason(teamDir); err == nil {
+		status.LastExit = reason
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		status.Error = appendStatusError(status.Error, err.Error())
 	}
 	if _, err := os.Stat(status.Socket); err == nil {
 		status.SocketExists = true
@@ -1480,7 +1552,7 @@ func collectDaemonStatus(teamDir string) daemonStatusJSON {
 	}
 	pid, err := daemon.ReadPidfile(status.Pidfile)
 	if err != nil {
-		status.Error = err.Error()
+		status.Error = appendStatusError(status.Error, err.Error())
 		return status
 	}
 	if pid == 0 {
@@ -1494,16 +1566,17 @@ func collectDaemonStatus(teamDir string) daemonStatusJSON {
 	}
 	status.Running = true
 	if !status.SocketExists {
-		status.Error = "daemon socket not found"
+		status.Error = appendStatusError(status.Error, "daemon socket not found")
 		return status
 	}
 	client, err := newDaemonClientWithTimeout(teamDir, 500*time.Millisecond)
 	if err != nil {
-		status.Error = err.Error()
+		status.Error = appendStatusError(status.Error, err.Error())
 		return status
 	}
 	apiStatus, err := client.Status()
 	if err == nil {
+		status.Reachable = true
 		status.Ready = apiStatus.Ready
 		if apiStatus.PID != 0 {
 			status.PID = apiStatus.PID
@@ -1515,9 +1588,10 @@ func collectDaemonStatus(teamDir string) daemonStatusJSON {
 	}
 	instances, instancesErr := client.Instances()
 	if instancesErr != nil {
-		status.Error = err.Error()
+		status.Error = appendStatusError(status.Error, err.Error())
 		return status
 	}
+	status.Reachable = true
 	status.Ready = true
 	status.Instances = len(instances)
 	return status

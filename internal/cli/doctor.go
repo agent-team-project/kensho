@@ -415,7 +415,14 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 
 func doctorDaemonStatusWarnings(status daemonStatusJSON) []string {
 	if !status.Running {
-		return []string{"daemon not running — run `agent-team daemon start` before dispatching jobs, ticking pipelines, or managing instances."}
+		return []string{"daemon unreachable: not running — run `agent-team daemon start` before dispatching jobs, ticking pipelines, or managing instances."}
+	}
+	if !status.Reachable {
+		msg := "daemon process is running but its socket/API ping failed"
+		if status.Error != "" {
+			msg += ": " + status.Error
+		}
+		return []string{msg + " — run `agent-team daemon restart` or inspect `agent-team daemon logs --tail 80`."}
 	}
 	if !status.Ready {
 		return []string{"daemon running but not ready — run `agent-team daemon restart` or inspect `agent-team daemon logs --tail 80`."}

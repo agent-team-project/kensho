@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/agent-team-project/agent-team/internal/cli"
@@ -27,7 +28,7 @@ func main() {
 	}
 }
 
-func run(argv []string) error {
+func run(argv []string) (err error) {
 	fs := flag.NewFlagSet("agent-teamd", flag.ContinueOnError)
 	cwd, _ := os.Getwd()
 	target := fs.String("target", cwd, "Repo root containing .agent_team/.")
@@ -50,14 +51,68 @@ func run(argv []string) error {
 	if err != nil || !st.IsDir() {
 		return fmt.Errorf("%s not found — run `agent-team init` first", teamDir)
 	}
+	build := cli.BuildInfo()
+	writeExitReason := func(reason daemon.ExitReason) {
+		reason.PID = os.Getpid()
+		reason.Build = build
+		if writeErr := daemon.WriteExitReason(teamDir, reason); writeErr != nil {
+			fmt.Fprintln(os.Stderr, "agent-teamd: write exit reason:", writeErr)
+		}
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			writeExitReason(daemon.ExitReason{
+				Kind:   daemon.ExitKindPanic,
+				Reason: fmt.Sprint(r),
+				Error:  string(debug.Stack()),
+			})
+			panic(r)
+		}
+	}()
 
-	d, err := daemon.New(daemon.Config{TeamDir: teamDir, HTTPAddr: *httpAddr, Build: cli.BuildInfo()})
+	d, err := daemon.New(daemon.Config{TeamDir: teamDir, HTTPAddr: *httpAddr, Build: build})
 	if err != nil {
+		writeExitReason(daemon.ExitReason{
+			Kind:   daemon.ExitKindError,
+			Reason: err.Error(),
+			Error:  err.Error(),
+		})
 		return err
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
+	signalReasonCh := make(chan daemon.ExitReason, 1)
+	go func() {
+		sig := <-signalCh
+		signalReasonCh <- daemon.ExitReason{
+			Kind:   daemon.ExitKindSignal,
+			Signal: sig.String(),
+			Reason: "received " + sig.String(),
+		}
+		cancel()
+	}()
 
-	return d.Run(ctx)
+	err = d.Run(ctx)
+	select {
+	case reason := <-signalReasonCh:
+		writeExitReason(reason)
+	default:
+		if err != nil {
+			writeExitReason(daemon.ExitReason{
+				Kind:   daemon.ExitKindError,
+				Reason: err.Error(),
+				Error:  err.Error(),
+			})
+		} else {
+			writeExitReason(daemon.ExitReason{
+				Kind:   daemon.ExitKindShutdown,
+				Reason: "clean shutdown",
+			})
+		}
+	}
+	return err
 }

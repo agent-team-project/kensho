@@ -325,6 +325,80 @@ func TestDaemonStatusJSON_Running(t *testing.T) {
 	}
 }
 
+func TestDaemonStatusJSON_RunningButSocketUnreachable(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	pid := os.Getpid()
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.PidPath(teamDir), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedTeamDir := teamDir
+	if eval, err := filepath.EvalSymlinks(teamDir); err == nil {
+		resolvedTeamDir = eval
+	}
+	socket := daemon.SocketPath(resolvedTeamDir)
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(socket, []byte("stale socket placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	var body daemonStatusJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode daemon status json: %v\nbody=%s", err, out.String())
+	}
+	if !body.Running || body.Reachable || body.Ready || !body.SocketExists {
+		t.Fatalf("status json should report running but unreachable daemon: %+v", body)
+	}
+	if !strings.Contains(body.Error, "daemon: status") {
+		t.Fatalf("status error = %q, want socket/API ping failure", body.Error)
+	}
+	if len(body.Actions) != 2 || body.Actions[0] != "agent-team daemon restart" || body.Actions[1] != "agent-team daemon logs --tail 80" {
+		t.Fatalf("status json actions = %+v, want restart/logs", body.Actions)
+	}
+}
+
+func TestDaemonStatusTextShowsLastExitReason(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteExitReason(teamDir, daemon.ExitReason{
+		Kind:       daemon.ExitKindSignal,
+		Signal:     "terminated",
+		PID:        90535,
+		RecordedAt: time.Date(2026, 7, 7, 0, 45, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon status: %v", err)
+	}
+	for _, want := range []string{"last exit: signal terminated", "pid=90535", "2026-07-07T00:45:00Z"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("daemon status missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestDaemonStatusJSON_ReadyWithInstanceCount(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-daemon-status-json-")
 	if err != nil {
@@ -1288,6 +1362,46 @@ func TestDaemonStartJSONAlreadyRunning(t *testing.T) {
 	}
 	if !body.Status.Running || body.Status.PID != pid {
 		t.Fatalf("start json should include running status: %+v", body.Status)
+	}
+}
+
+func TestDaemonStartTextShowsPreviousExitReason(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteExitReason(teamDir, daemon.ExitReason{
+		Kind:       daemon.ExitKindError,
+		Reason:     "listen unix daemon.sock: bind: address already in use",
+		Error:      "listen unix daemon.sock: bind: address already in use",
+		PID:        90535,
+		RecordedAt: time.Date(2026, 7, 7, 0, 45, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	withDaemonFindAgentTeamd(t, "/test/bin/agent-teamd")
+	withDaemonStartDetachedLaunch(t, func(teamDir string, launch daemonDetachedLaunch, readyTimeout time.Duration) (daemonLifecycleJSON, error) {
+		return daemonLifecycleJSON{
+			Action:  "start",
+			Changed: true,
+			PID:     4321,
+			Log:     daemon.LogPath(teamDir),
+			Message: "started",
+			Status:  daemonStatusJSON{Running: true, Reachable: true, Ready: true, PID: 4321, TeamDir: teamDir},
+		}, nil
+	})
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"daemon", "start", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("daemon start: %v\nstderr=%s", err, stderr.String())
+	}
+	for _, want := range []string{"agent-teamd started", "previous exit: error: listen unix daemon.sock", "pid=90535"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("daemon start output missing %q:\n%s", want, out.String())
+		}
 	}
 }
 
