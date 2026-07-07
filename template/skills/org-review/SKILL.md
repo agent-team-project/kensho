@@ -1,6 +1,6 @@
 ---
 name: org-review
-description: Scheduled strategic review of the deployment's own outcomes, spend, capacity, feedback, and review-loop health. Use when dispatched by the org-review schedule or asked to run an organization retrospective. Files at most a few evidence-backed improvement tickets for process, topology, prompts, or budget; never edits the system directly.
+description: Scheduled strategic review of the deployment's own outcomes, spend, capacity, feedback, the health of the self-examining loops, and this loop itself. Use when dispatched by the org-review schedule or asked to run an organization retrospective. Files at most a few evidence-backed improvement tickets for process, topology, prompts, or budget; never edits the system directly.
 ---
 
 # Org review
@@ -77,6 +77,28 @@ say so in the run log instead of pretending the signal exists.
 6. **Existing tickets** - before filing, search the configured PM provider or
    board for open tickets with the same diagnosis. Fold new evidence into the
    existing ticket when one already exists.
+7. **The observation machinery itself (reflexive)** - the self-examining loops
+   and this loop are in scope, not exempt from it. Read the schedule and each
+   loop's firing/output history:
+
+   ```sh
+   agent-team schedule ls
+   ```
+
+   For every scheduled loop (sentinel, feedback-triage, harness-review,
+   debt-sweep, docs-freshness, product-verify, org-review, ...) judge
+   **cadence-fitness**: a loop that fires repeatedly and files nothing may be
+   over-frequent (wasted spend) or mis-scoped; a loop whose signal accumulates
+   faster than its cadence — a backlog visible between runs — is under-frequent;
+   a loop that never fires or never produces value is dead capacity. Then audit
+   **this loop's own track record**: read `org-review-log.md` and the tickets
+   prior org-review runs filed — were they adopted (merged/closed and did the
+   metric they targeted move), or dismissed/ignored? A high dismissal rate,
+   ignored recommendations, or proposals that landed but changed nothing mean
+   *org-review itself* is mis-calibrated (too noisy, wrong altitude, weak
+   evidence) — file that as a finding about this loop, at the same standard you
+   apply to everything else. Guard against infinite regress: analyze one level up
+   (the loops and yourself), never recursively.
 
 ## Analysis discipline
 
@@ -99,6 +121,11 @@ Apply these checks before proposing anything:
 - **Capacity-aware** - distinguish peak capacity, effective concurrency, and
   useful throughput. A team with low effective concurrency may be demand-limited,
   blocked by manual gates, budget-constrained, or overprovisioned; identify which.
+- **Reflexive** - you are in scope. Audit the self-examining loops' cadence-fitness
+  and any dead loops, and your own track record (were prior org-review tickets
+  adopted and did the targeted metric move, or dismissed and ignored?). A
+  self-examining system that exempts its own examiner has a blind spot exactly
+  where it can least afford one.
 - **Small batch** - at most three proposals per run. If there are more findings,
   pick the ones with the strongest evidence and highest expected leverage.
 
