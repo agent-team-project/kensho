@@ -45,6 +45,11 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	j.Kind = payloadJobKind(payload)
 	j.Steps = pipelineJobSteps(pipeline)
 	j.DeliveryContract = pipelineDeliveryArtifactContract(pipeline)
+	if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		j.DeliveryContract = contract
+	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
+		j.DeliveryContract = contract
+	}
 	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
 	if jobIsProbe(j) {
@@ -196,6 +201,10 @@ func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload ma
 	}
 	if jobIsProbe(j) {
 		j.DeliveryContract = ""
+	} else if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		j.DeliveryContract = contract
+	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
+		j.DeliveryContract = contract
 	} else if contract := pipelineDeliveryArtifactContract(pipeline); contract != "" {
 		j.DeliveryContract = contract
 	}
@@ -224,6 +233,11 @@ func resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, ev
 	j.HoldReason = ""
 	j.HoldUntil = time.Time{}
 	j.DeliveryContract = pipelineDeliveryArtifactContract(pipeline)
+	if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		j.DeliveryContract = contract
+	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
+		j.DeliveryContract = contract
+	}
 	j.Instance = ""
 	j.Branch = ""
 	j.Worktree = ""
@@ -271,6 +285,17 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	dispatchPayload["pipeline"] = pipeline.Name
 	dispatchPayload["pipeline_step"] = step.ID
 	dispatchPayload["ticket"] = j.Ticket
+	if kind := strings.TrimSpace(j.Kind); kind != "" {
+		dispatchPayload["kind"] = kind
+	}
+	if strings.EqualFold(strings.TrimSpace(j.DeliveryContract), "none") {
+		dispatchPayload["deliverable"] = "none"
+	} else if contract := normalizeDeliveryArtifactContract(j.DeliveryContract); contract != "" {
+		dispatchPayload["deliverable"] = contract
+		if path := deliveryReportArtifactPath(contract); path != "" {
+			dispatchPayload["report_path"] = path
+		}
+	}
 	if jobIsProbe(j) || payloadIsProbe(dispatchPayload) {
 		dispatchPayload["kind"] = jobstore.KindProbe
 		dispatchPayload["workspace"] = "repo"

@@ -425,6 +425,8 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	}
 	if payloadIsProbe(payload) {
 		j.DeliveryContract = ""
+	} else if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		j.DeliveryContract = contract
 	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
 		j.DeliveryContract = contract
 	}
@@ -696,6 +698,12 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}
 	if kind := payloadJobKind(payload); kind != "" {
 		env = append(env, "AGENT_TEAM_JOB_KIND="+kind)
+	}
+	if deliverable := normalizeDeliveryArtifactContract(firstPayloadString(payload, "deliverable", "delivery_contract")); deliverable != "" {
+		env = append(env, "AGENT_TEAM_DELIVERABLE="+deliverable)
+		if path := deliveryReportArtifactPath(deliverable); path != "" {
+			env = append(env, "AGENT_TEAM_REPORT_PATH="+path)
+		}
 	}
 	if ticket := payloadString(payload, "ticket"); ticket != "" {
 		env = append(env, "AGENT_TEAM_TICKET="+ticket)

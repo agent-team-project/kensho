@@ -1959,6 +1959,61 @@ func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManag
 	}
 }
 
+func TestEvent_NotifyManagerMissingDeliveryArtifactUsesReportContract(t *testing.T) {
+	root := t.TempDir()
+	reportPath := ".agent_team/state/worker-squ-193/report.md"
+	j := &jobstore.Job{
+		ID:               "squ-193",
+		DeliveryContract: "report:" + reportPath,
+	}
+	reason := "delivery artifact missing: expected non-empty report artifact at " + reportPath + " before accepting done"
+
+	NotifyManagerMissingDeliveryArtifact(root, j, "worker-squ-193", reason)
+
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("manager messages = %+v, want one notification", messages)
+	}
+	body := messages[0].Body
+	if !strings.Contains(body, "Expected a non-empty report artifact at "+reportPath+" before accepting done.") {
+		t.Fatalf("manager message = %q, want report artifact expectation", body)
+	}
+	for _, unwanted := range []string{"Expected an open PR", "pushed branch", "committed diff"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("manager message = %q, should not include %q for report contract", body, unwanted)
+		}
+	}
+}
+
+func TestEvent_NotifyManagerMissingDeliveryArtifactKeepsTicketToPRExpectation(t *testing.T) {
+	root := t.TempDir()
+	j := &jobstore.Job{
+		ID:               "squ-155",
+		DeliveryContract: deliveryContractTicketToPR,
+	}
+	reason := "delivery artifact missing: expected an open PR, pushed branch, or non-empty committed diff before accepting done"
+
+	NotifyManagerMissingDeliveryArtifact(root, j, "worker-squ-155", reason)
+
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("manager messages = %+v, want one notification", messages)
+	}
+	body := messages[0].Body
+	if !strings.Contains(body, "Expected an open PR, pushed branch, or committed diff before accepting done.") {
+		t.Fatalf("manager message = %q, want PR expectation", body)
+	}
+	if strings.Contains(body, "report artifact") {
+		t.Fatalf("manager message = %q, should not include report expectation for ticket_to_pr", body)
+	}
+}
+
 func TestEvent_DeliveryArtifactAllowsLinkedTicketOpenPRWithNewCommit(t *testing.T) {
 	repoRoot := t.TempDir()
 	teamDir := filepath.Join(repoRoot, ".agent_team")

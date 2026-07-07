@@ -229,6 +229,8 @@ func newJobCreateCmd() *cobra.Command {
 		targetAgent          string
 		pipeline             string
 		profile              string
+		kindFlag             string
+		deliverable          string
 		id                   string
 		ticketURL            string
 		kickoff              string
@@ -312,10 +314,23 @@ func newJobCreateCmd() *cobra.Command {
 				return err
 			}
 			ticket := args[0]
-			kind, err := job.NormalizeKind(profile)
+			kind, err := jobCreateKind(profile, kindFlag, cmd.Flags().Changed("profile"), cmd.Flags().Changed("kind"))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
 				return exitErr(2)
+			}
+			deliveryContract, deliveryContractSet, err := jobCreateDeliveryContract(deliverable, cmd.Flags().Changed("deliverable"))
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
+				return exitErr(2)
+			}
+			if job.IsReport(kind) {
+				if !deliveryContractSet || !deliveryContractIsReport(deliveryContract) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job create: --kind report requires --deliverable report:<path>.")
+					return exitErr(2)
+				}
+			} else if deliveryContractIsReport(deliveryContract) {
+				kind = job.KindReport
 			}
 			kickoffText, err := dispatchKickoff(ticket, kickoff, kickoffFile, args[1:])
 			if err != nil {
@@ -391,6 +406,9 @@ func newJobCreateCmd() *cobra.Command {
 				applyProbeProfileToJob(j)
 				j.DeliveryContract = daemon.DeliveryArtifactContract(j)
 			}
+			if deliveryContractSet {
+				j.DeliveryContract = deliveryContract
+			}
 			if strings.TrimSpace(id) != "" {
 				normalized := job.NormalizeID(id)
 				if normalized == "" {
@@ -421,6 +439,10 @@ func newJobCreateCmd() *cobra.Command {
 					PipelineSet:             cmd.Flags().Changed("pipeline"),
 					Profile:                 profile,
 					ProfileSet:              cmd.Flags().Changed("profile"),
+					Kind:                    kindFlag,
+					KindSet:                 cmd.Flags().Changed("kind"),
+					Deliverable:             deliverable,
+					DeliverableSet:          cmd.Flags().Changed("deliverable"),
 					ID:                      id,
 					IDSet:                   cmd.Flags().Changed("id"),
 					TicketURL:               ticketURL,
@@ -471,6 +493,7 @@ func newJobCreateCmd() *cobra.Command {
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
 					applyJobKindToPayload(j, payload)
+					applyJobDeliverableToPayload(j, payload)
 					applyJobBudgetToPayload(j, payload)
 					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
@@ -504,6 +527,9 @@ func newJobCreateCmd() *cobra.Command {
 			}
 			if j.Pipeline != "" {
 				data["pipeline"] = j.Pipeline
+			}
+			if j.DeliveryContract != "" {
+				data["delivery_contract"] = j.DeliveryContract
 			}
 			if err := auditCLIJobCommandAuthority(cmd, teamDir, j, "agent-team job create", "job.create"); err != nil {
 				return err
@@ -615,6 +641,8 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&targetAgent, "target", "worker", "Target agent that should own this job.")
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Create this job from a declared pipeline in instances.toml.")
 	cmd.Flags().StringVar(&profile, "profile", "", "Job dispatch profile: default or probe.")
+	cmd.Flags().StringVar(&kindFlag, "kind", "", "Job kind: default, report, or probe. Use --deliverable report:<path> with report jobs.")
+	cmd.Flags().StringVar(&deliverable, "deliverable", "", "Delivery contract to verify before accepting done: pr, branch, ticket_to_pr, none, or report:<path>.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the target agent.")
@@ -642,6 +670,64 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the job as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.")
 	return cmd
+}
+
+func jobCreateKind(profile, kindFlag string, profileSet, kindSet bool) (string, error) {
+	if !kindSet {
+		return job.NormalizeKind(profile)
+	}
+	kind, err := job.NormalizeKind(kindFlag)
+	if err != nil {
+		return "", err
+	}
+	if !profileSet {
+		return kind, nil
+	}
+	profileKind, err := job.NormalizeKind(profile)
+	if err != nil {
+		return "", err
+	}
+	if profileKind != "" && kind != "" && profileKind != kind {
+		return "", fmt.Errorf("--kind %q conflicts with --profile %q", kindFlag, profile)
+	}
+	if kind != "" {
+		return kind, nil
+	}
+	return profileKind, nil
+}
+
+func jobCreateDeliveryContract(raw string, set bool) (string, bool, error) {
+	if !set {
+		return "", false, nil
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", true, fmt.Errorf("--deliverable requires a value")
+	}
+	if strings.EqualFold(trimmed, "none") {
+		return "none", true, nil
+	}
+	contract := daemon.NormalizeDeliveryArtifactContract(trimmed)
+	if contract == "" {
+		return "", true, fmt.Errorf("--deliverable must be pr, branch, ticket_to_pr, none, or report:<path>")
+	}
+	if strings.EqualFold(contract, "report") {
+		return "", true, fmt.Errorf("--deliverable report requires a path; use report:<path>")
+	}
+	return contract, true, nil
+}
+
+func deliveryContractIsReport(contract string) bool {
+	contract = strings.TrimSpace(contract)
+	return strings.EqualFold(contract, "report") || strings.HasPrefix(strings.ToLower(contract), "report:")
+}
+
+func deliveryReportPathFromContract(contract string) string {
+	contract = strings.TrimSpace(contract)
+	if !strings.HasPrefix(strings.ToLower(contract), "report:") {
+		return ""
+	}
+	return strings.TrimSpace(contract[len("report:"):])
 }
 
 func parseReminderLevelsFlag(values []string) ([]int, error) {
@@ -742,11 +828,35 @@ func applyProbeProfileToJob(j *job.Job) {
 }
 
 func applyJobKindToPayload(j *job.Job, payload map[string]any) {
-	if j == nil || payload == nil || !job.IsProbe(j.Kind) {
+	if j == nil || payload == nil {
 		return
 	}
-	payload["kind"] = job.KindProbe
-	payload["workspace"] = "repo"
+	kind, err := job.NormalizeKind(j.Kind)
+	if err != nil || kind == "" {
+		return
+	}
+	payload["kind"] = kind
+	if job.IsProbe(kind) {
+		payload["workspace"] = "repo"
+	}
+}
+
+func applyJobDeliverableToPayload(j *job.Job, payload map[string]any) {
+	if j == nil || payload == nil {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(j.DeliveryContract), "none") {
+		payload["deliverable"] = "none"
+		return
+	}
+	contract := daemon.NormalizeDeliveryArtifactContract(j.DeliveryContract)
+	if contract == "" {
+		return
+	}
+	payload["deliverable"] = contract
+	if path := deliveryReportPathFromContract(contract); path != "" {
+		payload["report_path"] = path
+	}
 }
 
 func applyJobBudgetToPayload(j *job.Job, payload map[string]any) {
@@ -1336,6 +1446,7 @@ func newJobDispatchCmd() *cobra.Command {
 				payload["job_id"] = j.ID
 				payload["job"] = j.ID
 				applyJobKindToPayload(j, payload)
+				applyJobDeliverableToPayload(j, payload)
 				applyJobBudgetToPayload(j, payload)
 				if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
@@ -5317,6 +5428,7 @@ func newJobReopenCmd() *cobra.Command {
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
 					applyJobKindToPayload(j, payload)
+					applyJobDeliverableToPayload(j, payload)
 					applyJobBudgetToPayload(j, payload)
 					if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
@@ -11801,6 +11913,7 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
 	applyJobKindToPayload(j, payload)
+	applyJobDeliverableToPayload(j, payload)
 	applyJobBudgetToPayload(j, payload)
 	if err := applyJobReapWorktreePolicyToPayload(teamDir, j, payload); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
@@ -13520,6 +13633,7 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
 	applyJobKindToPayload(j, payload)
+	applyJobDeliverableToPayload(j, payload)
 	applyJobStepBudgetToPayload(j, step, payload)
 	if j.Pipeline != "" {
 		payload["pipeline"] = j.Pipeline
@@ -15613,6 +15727,10 @@ type jobCreateApplyCommandOptions struct {
 	PipelineSet             bool
 	Profile                 string
 	ProfileSet              bool
+	Kind                    string
+	KindSet                 bool
+	Deliverable             string
+	DeliverableSet          bool
 	ID                      string
 	IDSet                   bool
 	TicketURL               string
@@ -15802,6 +15920,12 @@ func jobCreateApplyCommandArgs(opts jobCreateApplyCommandOptions) []string {
 	}
 	if opts.ProfileSet && strings.TrimSpace(opts.Profile) != "" {
 		args = append(args, "--profile", opts.Profile)
+	}
+	if opts.KindSet && strings.TrimSpace(opts.Kind) != "" {
+		args = append(args, "--kind", opts.Kind)
+	}
+	if opts.DeliverableSet && strings.TrimSpace(opts.Deliverable) != "" {
+		args = append(args, "--deliverable", opts.Deliverable)
 	}
 	if opts.IDSet && strings.TrimSpace(opts.ID) != "" {
 		args = append(args, "--id", opts.ID)
@@ -17281,6 +17405,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	}
 	if j.Pipeline != "" {
 		fmt.Fprintf(w, "Pipeline:    %s\n", j.Pipeline)
+	}
+	if j.DeliveryContract != "" {
+		fmt.Fprintf(w, "Deliverable: %s\n", j.DeliveryContract)
 	}
 	if j.Branch != "" {
 		fmt.Fprintf(w, "Branch:      %s\n", j.Branch)

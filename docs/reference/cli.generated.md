@@ -2781,6 +2781,7 @@ Flags:
       --budget-time duration           Soft wall-clock allowance for this job, for example 45m. Does not arm a cutoff.
       --budget-tokens string           Soft token allowance for this job, for example 40M.
       --commands                       With --dry-run, print the matching job create apply command.
+      --deliverable string             Delivery contract to verify before accepting done: pr, branch, ticket_to_pr, none, or report:<path>.
       --dispatch                       Dispatch the created job immediately using the running daemon.
       --dry-run                        Preview the job that would be created without writing it.
       --fail-on-failed                 With --wait, exit 1 if the job resolves to failed.
@@ -2790,6 +2791,7 @@ Flags:
       --json                           Emit the job as JSON.
       --kickoff string                 Kickoff text for the target agent.
       --kickoff-file string            Read kickoff text from a file, or '-' for stdin.
+      --kind string                    Job kind: default, report, or probe. Use --deliverable report:<path> with report jobs.
       --pipeline string                Create this job from a declared pipeline in instances.toml.
       --profile string                 Job dispatch profile: default or probe.
       --reminder-levels strings        Budget notice percentages for this job, for example 50,80,100.
