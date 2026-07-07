@@ -54,6 +54,7 @@ type Item struct {
 	Fingerprint string           `toml:"fingerprint"`
 	Context     Context          `toml:"context,omitempty"`
 	Origin      *origin.Envelope `toml:"origin,omitempty"`
+	Retention   *Retention       `toml:"retention,omitempty"`
 	Resolution  *Resolution      `toml:"resolution,omitempty"`
 }
 
@@ -77,12 +78,22 @@ type Resolution struct {
 	TS     time.Time `toml:"ts"`
 }
 
+// Retention records a routed delivery attempt that could not reach its target.
+// The item remains in the sender's local store until `feedback flush`
+// successfully re-delivers it through the route's receiver daemon.
+type Retention struct {
+	Route  string    `toml:"route"`
+	Reason string    `toml:"reason"`
+	TS     time.Time `toml:"ts"`
+}
+
 type SubmitInput struct {
-	Body     string
-	Category Category
-	Context  Context
-	Origin   origin.Envelope
-	Now      time.Time
+	Body      string
+	Category  Category
+	Context   Context
+	Origin    origin.Envelope
+	Retention *Retention
+	Now       time.Time
 }
 
 // DeliverInput is the daemon wire payload for cross-repo feedback delivery.
@@ -209,6 +220,9 @@ func NewItem(input SubmitInput) (*Item, error) {
 	if env := input.Origin.Clean(); !env.Empty() {
 		item.Origin = &env
 	}
+	if input.Retention != nil {
+		item.Retention = cleanRetention(input.Retention, now)
+	}
 	if err := Validate(item); err != nil {
 		return nil, err
 	}
@@ -258,6 +272,9 @@ func Read(teamDir, rawID string) (*Item, error) {
 	if item.Resolution != nil {
 		item.Resolution.TS = item.Resolution.TS.UTC()
 	}
+	if item.Retention != nil {
+		item.Retention = cleanRetention(item.Retention, item.Retention.TS)
+	}
 	if item.Origin != nil {
 		env := item.Origin.Clean()
 		if env.Empty() {
@@ -303,6 +320,17 @@ func Write(teamDir string, item *Item) error {
 	}
 	if err := os.Rename(tmp.Name(), target); err != nil {
 		return fmt.Errorf("feedback: rename: %w", err)
+	}
+	return nil
+}
+
+func Delete(teamDir, rawID string) error {
+	path, err := Path(teamDir, rawID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	return nil
 }
@@ -472,6 +500,11 @@ func Validate(item *Item) error {
 	if item.Fingerprint != wantFingerprint {
 		return fmt.Errorf("fingerprint %q does not match body fingerprint %q", item.Fingerprint, wantFingerprint)
 	}
+	if item.Retention != nil {
+		if err := validateRetention(item.Retention); err != nil {
+			return err
+		}
+	}
 	if item.Status == StatusNew {
 		if item.Resolution != nil {
 			return errors.New("new feedback cannot have a resolution")
@@ -482,6 +515,24 @@ func Validate(item *Item) error {
 		return fmt.Errorf("%s feedback requires a resolution", item.Status)
 	}
 	return validateResolution(item.Status, item.Resolution)
+}
+
+func cleanRetention(retention *Retention, fallbackTS time.Time) *Retention {
+	if retention == nil {
+		return nil
+	}
+	ts := retention.TS
+	if ts.IsZero() {
+		ts = fallbackTS
+	}
+	if !ts.IsZero() {
+		ts = ts.UTC()
+	}
+	return &Retention{
+		Route:  strings.TrimSpace(retention.Route),
+		Reason: strings.TrimSpace(retention.Reason),
+		TS:     ts,
+	}
 }
 
 func CaptureContext(teamDir string, info buildinfo.Info) Context {
@@ -611,6 +662,19 @@ func validateResolution(status Status, resolution *Resolution) error {
 		if ticket != "" {
 			return errors.New("dismissed feedback cannot have resolution.ticket")
 		}
+	}
+	return nil
+}
+
+func validateRetention(retention *Retention) error {
+	if strings.TrimSpace(retention.Route) == "" {
+		return errors.New("retention.route is required")
+	}
+	if strings.TrimSpace(retention.Reason) == "" {
+		return errors.New("retention.reason is required")
+	}
+	if retention.TS.IsZero() {
+		return errors.New("retention.ts is required")
 	}
 	return nil
 }

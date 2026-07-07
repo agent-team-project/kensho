@@ -1372,7 +1372,7 @@ Inherited Flags:
 
 Record and inspect local agent feedback.
 
-Record and inspect local agent feedback under `.agent_team/feedback/items/`. Feedback is local and file-backed; it does not contact Linear or require the daemon.
+Record and inspect local agent feedback under `.agent_team/feedback/items/`. Unrouted feedback is local and file-backed. Routed local delivery is daemon-mediated and requires the receiver daemon to be running.
 
 ```text
 agent-team feedback
@@ -1386,10 +1386,28 @@ Inherited Flags:
 
 Subcommands:
 
+- `agent-team feedback flush` - Re-deliver retained routed feedback items.
 - `agent-team feedback ls` - List local feedback items.
 - `agent-team feedback resolve` - Resolve a local feedback item.
 - `agent-team feedback show` - Show one local feedback item.
 - `agent-team feedback submit` - Submit one local feedback item.
+
+## `agent-team feedback flush`
+
+Re-deliver retained routed feedback items.
+
+Re-deliver feedback items retained after routed submit failures. Delivery remains daemon-mediated; local routes require the receiver daemon to be running.
+
+```text
+agent-team feedback flush [flags]
+```
+
+Flags:
+
+```text
+      --repo string    Repo root containing .agent_team. (default "<repo>")
+      --route string   Only flush retained feedback for this route.
+```
 
 ## `agent-team feedback ls`
 

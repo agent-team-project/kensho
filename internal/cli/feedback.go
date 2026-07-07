@@ -19,9 +19,11 @@ func newFeedbackCmd() *cobra.Command {
 		Use:   "feedback",
 		Short: "Record and inspect local agent feedback.",
 		Long: "Record and inspect local agent feedback under `.agent_team/feedback/items/`. " +
-			"Feedback is local and file-backed; it does not contact Linear or require the daemon.",
+			"Unrouted feedback is local and file-backed. Routed local delivery is daemon-mediated " +
+			"and requires the receiver daemon to be running.",
 	}
 	cmd.AddCommand(newFeedbackSubmitCmd())
+	cmd.AddCommand(newFeedbackFlushCmd())
 	cmd.AddCommand(newFeedbackListCmd())
 	cmd.AddCommand(newFeedbackShowCmd())
 	cmd.AddCommand(newFeedbackResolveCmd())
@@ -87,17 +89,30 @@ func newFeedbackSubmitCmd() *cobra.Command {
 }
 
 func submitFeedbackRoute(teamDir, routeName string, input feedback.SubmitInput) (*feedback.Item, string, error) {
+	item, err := deliverFeedbackRoute(teamDir, routeName, feedback.DeliverInput{
+		Body:     input.Body,
+		Category: input.Category,
+		Context:  input.Context,
+		Origin:   input.Origin,
+	})
+	if err != nil {
+		return retainFeedbackLocally(teamDir, input, strings.TrimSpace(routeName), err.Error())
+	}
+	return item, "", nil
+}
+
+func deliverFeedbackRoute(teamDir, routeName string, input feedback.DeliverInput) (*feedback.Item, error) {
 	route, err := feedback.ResolveRoute(teamDir, routeName)
 	if err != nil {
-		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q unavailable (%v); retained locally", strings.TrimSpace(routeName), err))
+		return nil, fmt.Errorf("route %q unavailable (%v)", strings.TrimSpace(routeName), err)
 	}
 	if route.Type != "local" {
-		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q has unsupported type %q for direct submit; retained locally", route.Name, route.Type))
+		return nil, fmt.Errorf("route %q has unsupported type %q for daemon delivery", route.Name, route.Type)
 	}
 	targetTeamDir := filepath.Join(route.Root, teamDirName)
-	client, err := newDaemonClientWithTimeout(targetTeamDir, 5*time.Second)
+	client, err := newDaemonClientForTargetTeamDirWithTimeout(targetTeamDir, 5*time.Second)
 	if err != nil {
-		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q daemon unavailable (%v); retained locally", route.Name, err))
+		return nil, fmt.Errorf("route %q daemon unavailable (%v)", route.Name, err)
 	}
 	resp, err := client.FeedbackDeliver(feedback.DeliverInput{
 		Body:     input.Body,
@@ -106,7 +121,7 @@ func submitFeedbackRoute(teamDir, routeName string, input feedback.SubmitInput) 
 		Origin:   input.Origin,
 	})
 	if err != nil {
-		return retainFeedbackLocally(teamDir, input, fmt.Sprintf("route %q delivery failed (%v); retained locally", route.Name, err))
+		return nil, fmt.Errorf("route %q delivery failed (%v)", route.Name, err)
 	}
 	return &feedback.Item{
 		ID:       resp.ID,
@@ -115,15 +130,105 @@ func submitFeedbackRoute(teamDir, routeName string, input feedback.SubmitInput) 
 		Body:     strings.TrimSpace(input.Body),
 		Status:   feedback.StatusNew,
 		Context:  input.Context,
-	}, "", nil
+	}, nil
 }
 
-func retainFeedbackLocally(teamDir string, input feedback.SubmitInput, reason string) (*feedback.Item, string, error) {
+func retainFeedbackLocally(teamDir string, input feedback.SubmitInput, routeName, reason string) (*feedback.Item, string, error) {
+	routeName = strings.TrimSpace(routeName)
+	input.Retention = &feedback.Retention{
+		Route:  routeName,
+		Reason: strings.TrimSpace(reason),
+	}
 	item, err := feedback.Submit(teamDir, input)
 	if err != nil {
 		return nil, "", err
 	}
-	return item, reason + " as " + item.ID, nil
+	message := fmt.Sprintf("%s; retained locally as %s; run \"agent-team feedback flush --route %s\" after the receiver daemon is available", reason, item.ID, routeName)
+	return item, message, nil
+}
+
+func newFeedbackFlushCmd() *cobra.Command {
+	var (
+		repo  string
+		route string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "flush",
+		Short: "Re-deliver retained routed feedback items.",
+		Long: "Re-deliver feedback items retained after routed submit failures. " +
+			"Delivery remains daemon-mediated; local routes require the receiver daemon to be running.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teamDir, err := resolveTeamDir(cmd, repo)
+			if err != nil {
+				return err
+			}
+			items, err := feedback.List(teamDir)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback flush: %v\n", err)
+				return exitErr(1)
+			}
+			candidates := retainedFeedbackItems(items, route)
+			if len(candidates) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "(no retained feedback)")
+				return nil
+			}
+			failures := 0
+			for _, item := range candidates {
+				delivered, err := flushFeedbackItem(teamDir, item)
+				if err != nil {
+					failures++
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback flush: %s: %v\n", item.ID, err)
+					continue
+				}
+				if err := feedback.Delete(teamDir, item.ID); err != nil {
+					failures++
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team feedback flush: %s: delivered as %s but failed to clear local item: %v\n", item.ID, delivered.ID, err)
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "flushed %s via %s as %s\n", item.ID, item.Retention.Route, delivered.ID)
+			}
+			if failures > 0 {
+				return exitErr(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
+	cmd.Flags().StringVar(&route, "route", "", "Only flush retained feedback for this route.")
+	return cmd
+}
+
+func retainedFeedbackItems(items []*feedback.Item, routeFilter string) []*feedback.Item {
+	routeFilter = strings.TrimSpace(routeFilter)
+	out := make([]*feedback.Item, 0, len(items))
+	for _, item := range items {
+		if item == nil || item.Status != feedback.StatusNew || item.Retention == nil {
+			continue
+		}
+		if routeFilter != "" && item.Retention.Route != routeFilter {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func flushFeedbackItem(teamDir string, item *feedback.Item) (*feedback.Item, error) {
+	if item == nil || item.Retention == nil {
+		return nil, fmt.Errorf("feedback item is not retained")
+	}
+	var env origin.Envelope
+	if item.Origin != nil {
+		env = *item.Origin
+	}
+	return deliverFeedbackRoute(teamDir, item.Retention.Route, feedback.DeliverInput{
+		Body:     item.Body,
+		Category: item.Category,
+		Context:  item.Context,
+		Origin:   env,
+	})
 }
 
 func newFeedbackListCmd() *cobra.Command {
@@ -236,13 +341,15 @@ func renderFeedbackItems(w io.Writer, items []*feedback.Item) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tCATEGORY\tTS\tINSTANCE\tJOB\tTICKET\tBODY")
+	fmt.Fprintln(tw, "ID\tSTATUS\tCATEGORY\tTS\tRETAINED_ROUTE\tRETAIN_REASON\tINSTANCE\tJOB\tTICKET\tBODY")
 	for _, item := range items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			item.ID,
 			item.Status,
 			item.Category,
 			formatFeedbackTime(item.TS),
+			retentionRoute(item),
+			retentionReason(item),
 			emptyDash(item.Context.Instance),
 			emptyDash(item.Context.Job),
 			emptyDash(item.Context.Ticket),
@@ -281,6 +388,12 @@ func renderFeedbackDetail(w io.Writer, item *feedback.Item) {
 	fmt.Fprintf(w, "Body:        %s\n", item.Body)
 	if item.Origin != nil && !item.Origin.Clean().Empty() {
 		fmt.Fprintf(w, "Origin:      %s\n", origin.HeaderValue(*item.Origin))
+	}
+	if item.Retention != nil {
+		fmt.Fprintln(w, "Retention:")
+		fmt.Fprintf(w, "  route:  %s\n", item.Retention.Route)
+		fmt.Fprintf(w, "  reason: %s\n", item.Retention.Reason)
+		fmt.Fprintf(w, "  ts:     %s\n", formatFeedbackTime(item.Retention.TS))
 	}
 	renderFeedbackContext(w, item.Context)
 	if item.Resolution != nil {
@@ -352,4 +465,18 @@ func truncateFeedbackBody(body string, limit int) string {
 		return body[:limit]
 	}
 	return body[:limit-3] + "..."
+}
+
+func retentionRoute(item *feedback.Item) string {
+	if item == nil || item.Retention == nil || strings.TrimSpace(item.Retention.Route) == "" {
+		return "-"
+	}
+	return item.Retention.Route
+}
+
+func retentionReason(item *feedback.Item) string {
+	if item == nil || item.Retention == nil || strings.TrimSpace(item.Retention.Reason) == "" {
+		return "-"
+	}
+	return truncateFeedbackBody(item.Retention.Reason, 72)
 }

@@ -26,7 +26,7 @@ as the output directory instead.
 | `agent-team dispatch <target> <ticket>` | Publish or preview an `agent.dispatch` topology event; add `--dry-run --commands` to print the matching dispatch apply command for matched routes |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 | `agent-team docs site [--commands] [--json]` | Show VitePress developer docs paths, local URL, and dev/build/preview commands |
-| `agent-team feedback submit\|ls\|show\|resolve` | Record local agent feedback under `.agent_team/feedback/items/`, list new or grouped reports, inspect one item, or audit its ticket/dismissal resolution |
+| `agent-team feedback submit\|flush\|ls\|show\|resolve` | Record local agent feedback under `.agent_team/feedback/items/`, retry retained routed delivery through the receiver daemon, list new or grouped reports, inspect one item, or audit its ticket/dismissal resolution |
 | `agent-team shortcuts [--all] [--format <template>] [--json]` | List top-level aliases and Docker-like shortcuts from the live command tree; add `--all` for nested command-group aliases |
 
 ## Runtime and Daemon

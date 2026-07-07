@@ -53,6 +53,17 @@ func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonC
 	if baseURL := configuredDaemonHTTPURL(teamDir); baseURL != "" {
 		return newDaemonHTTPURLClient(teamDir, baseURL, timeout)
 	}
+	return newDaemonUnixSocketClientForTeamDir(teamDir, timeout)
+}
+
+func newDaemonClientForTargetTeamDirWithTimeout(teamDir string, timeout time.Duration) (*daemonClient, error) {
+	if baseURL := persistedDaemonHTTPURL(teamDir); baseURL != "" {
+		return newDaemonHTTPURLClientWithTokenFile(teamDir, baseURL, timeout, daemon.OperatorTokenPath(teamDir)), nil
+	}
+	return newDaemonUnixSocketClientForTeamDir(teamDir, timeout)
+}
+
+func newDaemonUnixSocketClientForTeamDir(teamDir string, timeout time.Duration) (*daemonClient, error) {
 	pid, err := daemon.ReadPidfile(daemon.PidPath(teamDir))
 	if err != nil || pid == 0 || !daemon.PidLiveCheck(pid) {
 		return nil, errDaemonNotRunning
@@ -68,6 +79,10 @@ func configuredDaemonHTTPURL(teamDir string) string {
 	if baseURL := strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_URL")); baseURL != "" {
 		return baseURL
 	}
+	return persistedDaemonHTTPURL(teamDir)
+}
+
+func persistedDaemonHTTPURL(teamDir string) string {
 	if httpAddr, err := daemon.ReadHTTPAddr(teamDir); err == nil && strings.TrimSpace(httpAddr) != "" {
 		return daemon.DaemonHTTPURL(httpAddr)
 	}

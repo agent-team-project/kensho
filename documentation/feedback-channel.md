@@ -61,10 +61,14 @@ root = "/path/to/agent-team"
 ```
 
 Then submit with `agent-team feedback submit --route agent-team "<sentence>"`.
-The item lands in the receiving repo's feedback store, with the sender origin
-visible in `feedback show`. `--category incident` also posts a mailbox ping to
-the receiving `manager` instance. Unknown routes or unavailable target daemons
-retain the item in the sender's local store rather than dropping it.
+The item lands in the receiving repo's feedback store through the receiver
+daemon, with the sender origin visible in `feedback show`. The receiver daemon
+must be running for delivery; the sender does not write directly into the target
+repo. `--category incident` also posts a mailbox ping to the receiving `manager`
+instance. Unknown routes or unavailable target daemons retain the item in the
+sender's local store rather than dropping it. Use `agent-team feedback ls` to
+see retained items and their route/reason, then
+`agent-team feedback flush --route agent-team` after the receiver daemon is back.
 
 ## What you can expect back
 

@@ -221,8 +221,150 @@ kind = "codex"
 	if len(items) != 1 || items[0].Category != feedback.CategoryIncident {
 		t.Fatalf("items = %+v", items)
 	}
+	if items[0].Retention == nil ||
+		items[0].Retention.Route != "receiver" ||
+		!strings.Contains(items[0].Retention.Reason, "unavailable") {
+		t.Fatalf("retention = %+v", items[0].Retention)
+	}
+	listOut, stderr, err := runFeedbackCommand("feedback", "ls")
+	if err != nil {
+		t.Fatalf("feedback ls: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(listOut, "RETAINED_ROUTE") ||
+		!strings.Contains(listOut, "receiver") ||
+		!strings.Contains(listOut, "unavailable") {
+		t.Fatalf("ls output missing retained route/reason:\n%s", listOut)
+	}
 	if items[0].Origin == nil || items[0].Origin.Project != "source-project" || items[0].Origin.Agent != "worker" {
 		t.Fatalf("origin = %+v", items[0].Origin)
+	}
+}
+
+func TestFeedbackSubmitUnreachableLocalRouteRetainsAndFlushDelivers(t *testing.T) {
+	sourceRoot, sourceTeamDir := feedbackTestRepo(t)
+	targetRoot, targetTeamDir := feedbackTestRepo(t)
+	_, envTeamDir := feedbackTestRepo(t)
+	if err := os.WriteFile(filepath.Join(sourceTeamDir, "config.toml"), []byte(`
+[project]
+id = "source-project"
+
+[runtime]
+kind = "codex"
+
+[feedback.routes.receiver]
+type = "local"
+root = "`+targetRoot+`"
+`), 0o644); err != nil {
+		t.Fatalf("write source config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetTeamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatalf("write target instances: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(envTeamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatalf("write env instances: %v", err)
+	}
+	startFeedbackTestDaemon(t, envTeamDir)
+	envHTTPAddr, err := daemon.ReadHTTPAddr(envTeamDir)
+	if err != nil {
+		t.Fatalf("read env daemon http addr: %v", err)
+	}
+	chdirForFeedbackTest(t, sourceRoot)
+	t.Setenv("AGENT_TEAM_DAEMON_URL", daemon.DaemonHTTPURL(envHTTPAddr))
+	t.Setenv(daemon.DaemonTokenFileEnv, daemon.OperatorTokenPath(envTeamDir))
+	t.Setenv("AGENT_TEAM_ROOT", sourceTeamDir)
+	t.Setenv("AGENT_TEAM_INSTANCE", "worker-squ-189")
+	t.Setenv("AGENT_TEAM_ORIGIN_AGENT", "worker")
+	t.Setenv("AGENT_TEAM_JOB_ID", "squ-189")
+	t.Setenv("AGENT_TEAM_TICKET", "SQU-189")
+
+	out, stderr, err := runFeedbackCommand("feedback", "submit", "target daemon starts later", "--route", "receiver", "--category", "incident")
+	if err != nil {
+		t.Fatalf("feedback submit route fallback: %v\nstderr=%s", err, stderr)
+	}
+	retainedID := submittedFeedbackID(t, out)
+	if !strings.Contains(stderr, "retained locally as "+retainedID) ||
+		!strings.Contains(stderr, "feedback flush --route receiver") {
+		t.Fatalf("stderr=%q, want explicit retention notice", stderr)
+	}
+	sourceItems, err := feedback.List(sourceTeamDir)
+	if err != nil {
+		t.Fatalf("list source feedback: %v", err)
+	}
+	if len(sourceItems) != 1 || sourceItems[0].ID != retainedID {
+		t.Fatalf("source retained items = %+v", sourceItems)
+	}
+	if sourceItems[0].Retention == nil ||
+		sourceItems[0].Retention.Route != "receiver" ||
+		!strings.Contains(sourceItems[0].Retention.Reason, "daemon unavailable") {
+		t.Fatalf("retention = %+v", sourceItems[0].Retention)
+	}
+	if targetItems, err := feedback.List(targetTeamDir); err != nil {
+		t.Fatalf("list target feedback before flush: %v", err)
+	} else if len(targetItems) != 0 {
+		t.Fatalf("target items before flush = %+v, want none", targetItems)
+	}
+	if envItems, err := feedback.List(envTeamDir); err != nil {
+		t.Fatalf("list env feedback before flush: %v", err)
+	} else if len(envItems) != 0 {
+		t.Fatalf("env daemon items before flush = %+v, want none", envItems)
+	}
+	listOut, stderr, err := runFeedbackCommand("feedback", "ls")
+	if err != nil {
+		t.Fatalf("feedback ls: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(listOut, retainedID) ||
+		!strings.Contains(listOut, "receiver") ||
+		!strings.Contains(listOut, "daemon unavailable") {
+		t.Fatalf("ls output missing retained item:\n%s", listOut)
+	}
+	showOut, stderr, err := runFeedbackCommand("feedback", "show", retainedID)
+	if err != nil {
+		t.Fatalf("feedback show: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(showOut, "Retention:") ||
+		!strings.Contains(showOut, "route:  receiver") ||
+		!strings.Contains(showOut, "daemon unavailable") {
+		t.Fatalf("show output missing retained details:\n%s", showOut)
+	}
+
+	startFeedbackTestDaemon(t, targetTeamDir)
+	flushOut, stderr, err := runFeedbackCommand("feedback", "flush", "--route", "receiver")
+	if err != nil {
+		t.Fatalf("feedback flush: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(flushOut, "flushed "+retainedID+" via receiver as fb-") || stderr != "" {
+		t.Fatalf("flush out=%q stderr=%q", flushOut, stderr)
+	}
+	sourceItems, err = feedback.List(sourceTeamDir)
+	if err != nil {
+		t.Fatalf("list source feedback after flush: %v", err)
+	}
+	if len(sourceItems) != 0 {
+		t.Fatalf("source retained items after flush = %+v, want none", sourceItems)
+	}
+	targetItems, err := feedback.List(targetTeamDir)
+	if err != nil {
+		t.Fatalf("list target feedback: %v", err)
+	}
+	if len(targetItems) != 1 ||
+		targetItems[0].Category != feedback.CategoryIncident ||
+		targetItems[0].Body != "target daemon starts later" ||
+		targetItems[0].Retention != nil {
+		t.Fatalf("target items = %+v", targetItems)
+	}
+	if targetItems[0].Origin == nil || targetItems[0].Origin.Project != "source-project" || targetItems[0].Origin.Agent != "worker" {
+		t.Fatalf("target origin = %+v", targetItems[0].Origin)
+	}
+	if envItems, err := feedback.List(envTeamDir); err != nil {
+		t.Fatalf("list env feedback after flush: %v", err)
+	} else if len(envItems) != 0 {
+		t.Fatalf("env daemon items after flush = %+v, want none", envItems)
 	}
 }
 
@@ -305,7 +447,7 @@ func startFeedbackTestDaemon(t *testing.T, teamDir string) *daemon.Daemon {
 	go func() { _ = d.Run(ctx) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err := newDaemonClient(teamDir)
+		client, err := newDaemonClientForTargetTeamDirWithTimeout(teamDir, time.Second)
 		if err == nil {
 			if _, err := client.Status(); err == nil {
 				return d
