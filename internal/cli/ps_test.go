@@ -232,6 +232,35 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	}
 }
 
+func TestPsTextWarnsWhenDaemonUnreachable(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "worker-squ-165",
+		Agent:     "worker",
+		Status:    daemon.StatusRunning,
+		PID:       90535,
+		StartedAt: time.Date(2026, 7, 7, 0, 40, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if err := os.WriteFile(daemon.HTTPAddrPath(teamDir), []byte("127.0.0.1:1\n"), 0o644); err != nil {
+		t.Fatalf("write stale http addr: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := runPs(&buf, teamDir, time.Date(2026, 7, 7, 0, 45, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("runPs: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"warning: daemon unreachable", "last-known", "not live", "worker-squ-165"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ps output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestPsFreezesRuntimeBudgetElapsedForTerminalMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

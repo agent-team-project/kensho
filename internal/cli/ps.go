@@ -217,8 +217,12 @@ func runPs(w io.Writer, teamDir string, now time.Time) error {
 }
 
 func runPsWithOptions(w io.Writer, teamDir string, now time.Time, opts psOptions) error {
+	daemonStatus := collectDaemonStatus(teamDir)
 	rows, err := collectFilteredPsRows(teamDir, now, opts)
 	if err != nil {
+		return err
+	}
+	if err := renderPsDaemonReachabilityWarning(w, daemonStatus); err != nil {
 		return err
 	}
 	return renderPsTable(w, rows)
@@ -279,8 +283,12 @@ func runPsQuiet(w io.Writer, teamDir string, now time.Time, opts psOptions) erro
 }
 
 func runPsSummary(w io.Writer, teamDir string, now time.Time, opts psOptions) error {
+	daemonStatus := collectDaemonStatus(teamDir)
 	rows, err := collectFilteredPsRows(teamDir, now, opts)
 	if err != nil {
+		return err
+	}
+	if err := renderPsDaemonReachabilityWarning(w, daemonStatus); err != nil {
 		return err
 	}
 	return renderPsSummary(w, psSummaryRows(rows))
@@ -430,6 +438,18 @@ func renderPsSummary(w io.Writer, summary psSummaryJSON) error {
 		fmt.Fprintf(tw, "%s\t%d\n", phase, summary.Phases[phase])
 	}
 	return tw.Flush()
+}
+
+func renderPsDaemonReachabilityWarning(w io.Writer, status daemonStatusJSON) error {
+	if status.Reachable {
+		return nil
+	}
+	msg := "warning: daemon unreachable; instance states are last-known from state files and persisted daemon metadata, not live."
+	if status.Running && status.Error != "" {
+		msg = "warning: daemon unreachable (" + status.Error + "); instance states are last-known from state files and persisted daemon metadata, not live."
+	}
+	_, err := fmt.Fprintln(w, msg)
+	return err
 }
 
 func psSummaryPhaseOrder() []string {
@@ -783,25 +803,26 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 	}
 	rows := loadInstanceRowsWithStatusStaleAfter(teamDir, agentNames, now, policy.StatusStaleAfter)
 
-	// Try the daemon. errDaemonNotRunning → fall back silently to the
-	// persisted metadata view. Other errors are surfaced (something is broken
-	// with the daemon — better to know than to hide).
-	client, err := newDaemonClient(teamDir)
-	switch {
-	case err == nil:
+	// `daemon status` is the liveness probe: it pings the daemon API and
+	// separates "pid/file exists" from "socket/API reachable". If unreachable,
+	// `ps` is still useful as a last-known state-file view.
+	status := collectDaemonStatus(teamDir)
+	if status.Reachable {
+		client, err := newDaemonClient(teamDir)
+		if err != nil {
+			return nil, err
+		}
 		insts, err := client.Instances()
 		if err != nil {
 			return nil, err
 		}
 		rows = mergeDaemonRows(teamDir, rows, insts, agentNames, now)
-	case errors.Is(err, errDaemonNotRunning):
+	} else {
 		insts, err := daemon.ListMetadata(daemon.DaemonRoot(teamDir))
 		if err != nil {
 			return nil, err
 		}
 		rows = mergeDaemonRows(teamDir, rows, insts, agentNames, now)
-	default:
-		return nil, err
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Instance < rows[j].Instance })
 	rows = annotatePsTeams(teamDir, rows)

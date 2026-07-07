@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -290,18 +291,19 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	errCh := make(chan error, len(listeners))
 	for _, listener := range listeners {
-		go func(listener net.Listener) {
+		listener := listener
+		d.goWithPanicReason("serve "+listener.Addr().String(), func() {
 			err := srv.Serve(listener)
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return
 			}
 			errCh <- nil
-		}(listener)
+		})
 	}
 	if d.events != nil {
-		go d.events.RunSchedules(runCtx)
-		go d.events.RunBudgetQueueDrains(runCtx)
+		d.goWithPanicReason("schedules", func() { d.events.RunSchedules(runCtx) })
+		d.goWithPanicReason("budget queue drains", func() { d.events.RunBudgetQueueDrains(runCtx) })
 	}
 	if topo != nil {
 		notifications, err := loadNotificationConfig(d.cfg.TeamDir)
@@ -309,7 +311,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.logf("notifications: load config failed: %v; using defaults", err)
 			notifications = defaultNotificationConfig()
 		}
-		go runPhaseTransitionWatcher(runCtx, d.cfg.TeamDir, topo, d.channels, notifications, d.logf)
+		d.goWithPanicReason("phase transition watcher", func() {
+			runPhaseTransitionWatcher(runCtx, d.cfg.TeamDir, topo, d.channels, notifications, d.logf)
+		})
 	}
 
 	select {
@@ -364,6 +368,30 @@ func (d *Daemon) logf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(d.cfg.LogOut, "%s "+format+"\n", append([]any{time.Now().UTC().Format(time.RFC3339)}, args...)...)
+}
+
+func (d *Daemon) goWithPanicReason(name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				d.recordExitReason(ExitReason{
+					Kind:   ExitKindPanic,
+					Reason: strings.TrimSpace(name + ": " + fmt.Sprint(r)),
+					Error:  string(debug.Stack()),
+				})
+				panic(r)
+			}
+		}()
+		fn()
+	}()
+}
+
+func (d *Daemon) recordExitReason(reason ExitReason) {
+	reason.PID = os.Getpid()
+	reason.Build = d.cfg.Build
+	if err := WriteExitReason(d.cfg.TeamDir, reason); err != nil {
+		d.logf("exit-reason: write failed: %v", err)
+	}
 }
 
 func (d *Daemon) recordLaunchEnv() {
