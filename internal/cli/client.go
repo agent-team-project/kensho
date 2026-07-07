@@ -59,19 +59,7 @@ func newDaemonClientWithTimeout(teamDir string, timeout time.Duration) (*daemonC
 	}
 	socket := daemon.SocketPath(teamDir)
 	if _, err := os.Stat(socket); err == nil {
-		transport := &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", socket)
-			},
-			// Avoid keeping a pool around past the command's life.
-			DisableKeepAlives: true,
-		}
-		return &daemonClient{
-			hc:      newDaemonHTTPClient(transport, timeout, ""),
-			baseURL: "http://daemon", // host name is irrelevant — DialContext fixes the socket.
-			teamDir: teamDir,
-		}, nil
+		return newDaemonUnixSocketClient(teamDir, socket, timeout), nil
 	}
 	return nil, errDaemonNotRunning
 }
@@ -91,11 +79,31 @@ func newDaemonHTTPURLClient(teamDir, baseURL string, timeout time.Duration) (*da
 	if tokenFile == "" {
 		tokenFile = daemon.OperatorTokenPath(teamDir)
 	}
+	return newDaemonHTTPURLClientWithTokenFile(teamDir, baseURL, timeout, tokenFile), nil
+}
+
+func newDaemonHTTPURLClientWithTokenFile(teamDir, baseURL string, timeout time.Duration, tokenFile string) *daemonClient {
 	return &daemonClient{
 		hc:      newDaemonHTTPClient(nil, timeout, tokenFile),
 		baseURL: strings.TrimRight(baseURL, "/"),
 		teamDir: teamDir,
-	}, nil
+	}
+}
+
+func newDaemonUnixSocketClient(teamDir, socket string, timeout time.Duration) *daemonClient {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		},
+		// Avoid keeping a pool around past the command's life.
+		DisableKeepAlives: true,
+	}
+	return &daemonClient{
+		hc:      newDaemonHTTPClient(transport, timeout, ""),
+		baseURL: "http://daemon", // host name is irrelevant — DialContext fixes the socket.
+		teamDir: teamDir,
+	}
 }
 
 func newDaemonHTTPClient(base http.RoundTripper, timeout time.Duration, tokenFile string) *http.Client {
@@ -239,6 +247,14 @@ type daemonAPIStatus struct {
 	Build     buildinfo.Info `json:"build,omitempty"`
 }
 
+type resourceReadResponse struct {
+	URI      string          `json:"uri"`
+	Kind     string          `json:"kind"`
+	ID       string          `json:"id"`
+	Fragment string          `json:"fragment,omitempty"`
+	Data     json.RawMessage `json:"data"`
+}
+
 type daemonReconcileChange struct {
 	Instance string        `json:"instance"`
 	Agent    string        `json:"agent,omitempty"`
@@ -302,6 +318,23 @@ func (c *daemonClient) Instances() ([]*daemon.Metadata, error) {
 		return nil, fmt.Errorf("daemon: instances decode: %w", err)
 	}
 	return out, nil
+}
+
+func (c *daemonClient) Resource(uri string) (*resourceReadResponse, error) {
+	u := c.baseURL + "/v1/resources?" + url.Values{"uri": []string{uri}}.Encode()
+	resp, err := c.hc.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: resource read: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: resource read: %s", readErrorBody(resp))
+	}
+	var out resourceReadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: resource read decode: %w", err)
+	}
+	return &out, nil
 }
 
 func (c *daemonClient) Reconcile() (*daemonReconcileResponse, error) {

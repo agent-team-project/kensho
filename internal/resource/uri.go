@@ -25,6 +25,12 @@ const (
 	KindState     = "state"
 	KindLog       = "log"
 	KindUsage     = "usage"
+	KindMailbox   = "mailbox"
+	KindChannel   = "channel"
+	KindQueue     = "queue"
+	KindOutbox    = "outbox"
+	KindLock      = "lock"
+	KindTopology  = "topology"
 )
 
 // Deployment is the local control-plane deployment identity from
@@ -100,6 +106,30 @@ func StateURI(deploymentID, instance string) string {
 
 func LogURI(deploymentID, instance string) string {
 	return URI(deploymentID, KindLog, instance)
+}
+
+func MailboxURI(deploymentID, instance string) string {
+	return URI(deploymentID, KindMailbox, instance)
+}
+
+func ChannelURI(deploymentID, channel string) string {
+	return URI(deploymentID, KindChannel, channel)
+}
+
+func QueueURI(deploymentID, id string) string {
+	return URI(deploymentID, KindQueue, id)
+}
+
+func OutboxURI(deploymentID, id string) string {
+	return URI(deploymentID, KindOutbox, id)
+}
+
+func LockURI(deploymentID, id string) string {
+	return URI(deploymentID, KindLock, id)
+}
+
+func TopologyURI(deploymentID string) string {
+	return URI(deploymentID, KindTopology, "current")
 }
 
 func LaunchEnvURI(deploymentID, instance string) string {

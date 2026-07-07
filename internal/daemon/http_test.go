@@ -9,6 +9,9 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/feedback"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/resource"
 )
 
 func TestHTTP_Dispatch_StopList(t *testing.T) {
@@ -129,6 +133,115 @@ func TestHTTP_JobsList(t *testing.T) {
 	resp = mustPost(t, srv.URL+"/v1/jobs", `{}`)
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("post jobs status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestHTTP_ResourceReadJobAndStep(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	writeProjectConfig(t, teamDir, "dep")
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-124", "worker", "build resource reads", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Steps = []jobstore.Step{{
+		ID:     "implement",
+		Target: "worker",
+		Status: jobstore.StatusRunning,
+	}}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	m := NewInstanceManager(DaemonRoot(teamDir), nil)
+	srv := httptest.NewServer(Handler(m, nil, nil, teamDir))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.JobURI("dep", "squ-124")))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("job read status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var jobBody struct {
+		URI  string         `json:"uri"`
+		Kind string         `json:"kind"`
+		ID   string         `json:"id"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobBody); err != nil {
+		t.Fatalf("decode job read: %v", err)
+	}
+	if jobBody.URI != resource.JobURI("dep", "squ-124") || jobBody.Kind != resource.KindJob || jobBody.ID != "squ-124" || jobBody.Data["id"] != "squ-124" {
+		t.Fatalf("job resource = %+v", jobBody)
+	}
+	if jobBody.Data["kickoff"] != "build resource reads" {
+		t.Fatalf("job data missing full read-through payload: %+v", jobBody.Data)
+	}
+
+	resp = mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.StepURI("dep", "squ-124", "implement")))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("step read status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var stepBody struct {
+		Fragment string         `json:"fragment"`
+		Data     map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&stepBody); err != nil {
+		t.Fatalf("decode step read: %v", err)
+	}
+	if stepBody.Fragment != "step=implement" || stepBody.Data["id"] != "implement" || stepBody.Data["target"] != "worker" {
+		t.Fatalf("step resource = %+v", stepBody)
+	}
+}
+
+func TestHTTP_ResourceReadInstanceAndErrors(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	writeProjectConfig(t, teamDir, "dep")
+	daemonRoot := DaemonRoot(teamDir)
+	if err := WriteMetadata(daemonRoot, &Metadata{
+		Instance:  "worker-squ-124",
+		Agent:     "worker",
+		Workspace: t.TempDir(),
+		Status:    StatusRunning,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	m := NewInstanceManager(daemonRoot, nil)
+	if err := m.LoadFromDisk(); err != nil {
+		t.Fatalf("load metadata: %v", err)
+	}
+	srv := httptest.NewServer(Handler(m, nil, nil, teamDir))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.InstanceURI("dep", "worker-squ-124")))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("instance read status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode instance read: %v", err)
+	}
+	if body.Data["instance"] != "worker-squ-124" || body.Data["uri"] != resource.InstanceURI("dep", "worker-squ-124") {
+		t.Fatalf("instance resource = %+v", body.Data)
+	}
+
+	resp = mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.InstanceURI("other", "worker-squ-124")))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("wrong deployment status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp = mustGet(t, srv.URL+"/v1/resources")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing uri status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func writeProjectConfig(t *testing.T, teamDir, id string) {
+	t.Helper()
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatalf("mkdir team dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \""+id+"\"\n"), 0o644); err != nil {
+		t.Fatalf("write project config: %v", err)
 	}
 }
 
