@@ -87,6 +87,49 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 	}
 }
 
+func TestHTTP_JobsList(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("SQU-144", "worker", "kickoff", now)
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Status = jobstore.StatusRunning
+	j.Instance = "worker-squ-144"
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	m := NewInstanceManager(root, nil)
+	srv := httptest.NewServer(Handler(m, nil, nil, teamDir))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/jobs")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("jobs status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var jobs []struct {
+		ID       string          `json:"id"`
+		Instance string          `json:"instance"`
+		Status   jobstore.Status `json:"status"`
+		Kickoff  string          `json:"kickoff"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		t.Fatalf("decode jobs: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != "squ-144" || jobs[0].Instance != "worker-squ-144" || jobs[0].Status != jobstore.StatusRunning {
+		t.Fatalf("jobs = %+v", jobs)
+	}
+	if jobs[0].Kickoff != "" {
+		t.Fatalf("jobs response leaked kickoff text: %+v", jobs[0])
+	}
+
+	resp = mustPost(t, srv.URL+"/v1/jobs", `{}`)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("post jobs status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
 func TestHTTP_ExtendRuntimeBudget(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
@@ -922,6 +965,54 @@ allow = ["daemon.reconcile"]
 	}
 	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "daemon.reconcile" || jobEvents[0].Data["actor_job"] != j.ID {
 		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
+func TestHTTP_UIServedBehindLoopbackTokenAuth(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	instance := "worker-ui"
+	tokenPath, err := EnsureInstanceToken(teamDir, instance)
+	if err != nil {
+		t.Fatalf("EnsureInstanceToken: %v", err)
+	}
+	token, err := ReadTokenFile(tokenPath)
+	if err != nil {
+		t.Fatalf("ReadTokenFile: %v", err)
+	}
+	m := NewInstanceManager(root, nil)
+	handler := loopbackAuthHandler(Handler(m, nil, nil, teamDir), teamDir, m, buildinfo.Current("test"))
+
+	req := httptest.NewRequest(http.MethodGet, "http://daemon/ui/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated ui status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://daemon/ui/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("authenticated ui status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "agent-team-ui") {
+		t.Fatalf("ui body missing root marker: %s", rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://daemon/ui/app.js", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("authenticated app.js status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "/v1/instances") || !strings.Contains(rr.Body.String(), "/v1/jobs") {
+		t.Fatalf("app.js does not call daemon read APIs: %s", rr.Body.String())
 	}
 }
 

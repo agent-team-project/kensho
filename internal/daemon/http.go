@@ -19,6 +19,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/agent-team-project/agent-team/internal/feedback"
 	"github.com/agent-team-project/agent-team/internal/intake"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/pmprovider"
 	"github.com/agent-team-project/agent-team/internal/runtimeotel"
@@ -60,6 +61,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 	}
 	auditor := newAuthorityAuditor(m, events, teamDir)
 	mux := http.NewServeMux()
+	ui := daemonUIHandler(build)
+	mux.Handle("/ui", ui)
+	mux.Handle("/ui/", ui)
 
 	mux.HandleFunc("/v1/dispatch", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -367,6 +371,23 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			list = []*Metadata{}
 		}
 		writeJSON(w, http.StatusOK, list)
+	})
+
+	mux.HandleFunc("/v1/jobs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if strings.TrimSpace(teamDir) == "" {
+			writeError(w, http.StatusServiceUnavailable, "team directory not configured")
+			return
+		}
+		jobs, err := jobstore.List(teamDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, marshalJobs(jobs))
 	})
 
 	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
@@ -956,6 +977,51 @@ func daemonStartedAt(teamDir string) time.Time {
 		return time.Time{}
 	}
 	return le.RecordedAt
+}
+
+type jobListEntry struct {
+	ID                  string          `json:"id"`
+	Ticket              string          `json:"ticket"`
+	TicketURL           string          `json:"ticket_url,omitempty"`
+	Target              string          `json:"target"`
+	ImplementationAgent string          `json:"implementation_agent,omitempty"`
+	Instance            string          `json:"instance,omitempty"`
+	Pipeline            string          `json:"pipeline,omitempty"`
+	Status              jobstore.Status `json:"status"`
+	Held                bool            `json:"held,omitempty"`
+	Branch              string          `json:"branch,omitempty"`
+	PR                  string          `json:"pr,omitempty"`
+	LastEvent           string          `json:"last_event,omitempty"`
+	LastStatus          string          `json:"last_status,omitempty"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
+}
+
+func marshalJobs(jobs []*jobstore.Job) []jobListEntry {
+	out := make([]jobListEntry, 0, len(jobs))
+	for _, j := range jobs {
+		if j == nil {
+			continue
+		}
+		out = append(out, jobListEntry{
+			ID:                  j.ID,
+			Ticket:              j.Ticket,
+			TicketURL:           j.TicketURL,
+			Target:              j.Target,
+			ImplementationAgent: j.ImplementationAgent,
+			Instance:            j.Instance,
+			Pipeline:            j.Pipeline,
+			Status:              j.Status,
+			Held:                j.Held,
+			Branch:              j.Branch,
+			PR:                  j.PR,
+			LastEvent:           j.LastEvent,
+			LastStatus:          j.LastStatus,
+			CreatedAt:           j.CreatedAt,
+			UpdatedAt:           j.UpdatedAt,
+		})
+	}
+	return out
 }
 
 func buildHandshakeHandler(next http.Handler, daemonBuild buildinfo.Info, logOut io.Writer) http.Handler {
