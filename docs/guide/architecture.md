@@ -9,6 +9,7 @@ Template source
   -> agent-team init
   -> .agent_team/
   -> topology, agents, skills, config
+  -> stable agt:// resource identities
   -> agent-teamd daemon
   -> instances, jobs, queues, schedules, intake
   -> operator commands and diagnostics
@@ -30,6 +31,7 @@ It handles:
 - running pipeline and team commands
 - receiving and replaying intake events
 - producing diagnostics and repair plans
+- resolving deployment names and reading daemon-owned resources by `agt://` URI
 
 The CLI is implemented with Cobra under `internal/cli`.
 
@@ -48,6 +50,8 @@ It owns:
 - lifecycle events
 - schedule firing
 - topology event resolution
+- local `/ui` dashboard
+- `/v1/resources` reads for canonical `agt://` URIs
 
 The daemon is intentionally local and repo-scoped. Its socket and state live under `.agent_team/daemon/`.
 
@@ -74,6 +78,10 @@ Important paths:
 | `.agent_team/intake/` | Intake delivery history |
 
 The system avoids a database. Operations are implemented with structured TOML, JSON, JSONL, and filesystem paths.
+The resource model sits above those paths: operators can resolve a deployment
+with `agent-team deployments resolve self` and read daemon-owned state with
+`agent-team read agt://...` while the daemon remains responsible for the
+current storage layout.
 
 ## Runtime Launch
 

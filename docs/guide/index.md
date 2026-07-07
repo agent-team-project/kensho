@@ -48,27 +48,32 @@ The system is now more than a launcher. The main layers are:
    - Track ticket, target agent, lifecycle status, instance, branch, worktree, PR, events, queue, and pipeline steps.
    - Provide the product abstraction above raw instances.
 
-6. **Messaging**
+6. **Resources**
+   - Stable `agt://` URIs name deployments, jobs, instances, workspaces, queues, mailboxes, and topology.
+   - `agent-team deployments ls|resolve` projects the local deployment registry view.
+   - `agent-team read <agt-uri>` asks the owning daemon for a structured resource envelope.
+
+7. **Messaging**
    - Daemon mailbox messages are durable per instance.
    - Dispatch kickoffs, runtime hooks, and `send --interrupt` give operators several delivery modes.
    - Channels provide file-backed pub/sub for shared coordination.
 
-7. **Board control plane**
+8. **Board control plane**
    - Linear and GitHub Projects status-change intake can route tickets by board column.
    - Pipelines can write best-effort Linear state changes back to the ticket.
    - Re-entry and agent-authored webhook loops are guarded by explicit config.
 
-8. **Persistent queue**
+9. **Persistent queue**
    - Queue state is stored under `.agent_team/daemon/queue/`.
    - Pending and dead-letter entries survive daemon restarts.
    - Corrupt or suspicious queue files can be quarantined and restored or dropped explicitly.
 
-9. **Pipelines, schedules, and intake**
+10. **Pipelines, schedules, and intake**
    - Pipelines define multi-step job workflows.
    - Schedules publish periodic events.
    - Linear/GitHub/schedule intake normalizes external events into daemon events and records delivery history.
 
-10. **Diagnostics and repair**
+11. **Diagnostics and repair**
    - `overview`, `next`, `health`, `monitor`, `snapshot`, `doctor`, and `repair` produce read-only diagnosis and scoped next commands.
    - Recovery is intentionally explicit and previewable.
 
@@ -100,6 +105,7 @@ and `[linear].ticket_prefix`, or pass those values during init. See the
 - Read [Quickstart](./quickstart.md) for the first ticketless run.
 - Read [Concepts](./concepts.md) for vocabulary.
 - Read [Architecture](./architecture.md) for the end-to-end control flow.
+- Read [Resource Model](../reference/resource-model.md) for `agt://` URI identity and deployment addressing.
 - Read [Messaging](./messaging.md) for mailbox delivery, runtime hook injection, and hard interrupts.
 - Read [Board Control Plane](./board-control-plane.md) for Linear column dispatch, write-back, and re-entry rules.
 - Read [Observability and Recovery](./observability-and-recovery.md) for usage, gates, signatures, build identity, and operator verbs.

@@ -28,8 +28,12 @@ docs team and weekly freshness loop, the VitePress/ReadTheDocs site, public
 open-source hygiene, team budget allowances and hard cutoffs, reserve vs.
 oversubscribe allocation, `env_allow` launch-env filtering, local
 cross-deployment feedback delivery, the Linear-to-GitHub Projects mirror script,
-and the security/distributed-compute research notes linked below. Those are
-merged, but not yet part of a tagged release.
+authority enforcement with verb-aware CLI shims, stable `agt://` resource
+identity, named deployment resolution, daemon-mediated resource reads, the
+embedded daemon `/ui`, report-job deliverable contracts, the slim consumer init
+profile, the `agent-team ticket` provider bridge, and the
+security/distributed-compute research notes linked below. Those are merged, but
+not yet part of a tagged release.
 
 ## Security And Isolation
 
@@ -45,11 +49,15 @@ Recently shipped:
   and outbound Linear writes know their project/team/instance/job owner.
 - [SQU-92 / PR #96](https://github.com/agent-team-project/agent-team/pull/96)
   added scoped resources and authority allowlists in audit mode.
-- [SQU-122](https://linear.app/squirtlesquad/issue/SQU-122/security-graduate-authority-audit-to-enforcement-for-destructive-verbs)
-  graduates destructive daemon/CLI verbs from audit to enforcement after the
-  violation stream proved the default ACLs were quiet.
 - [SQU-121 / PR #124](https://github.com/agent-team-project/agent-team/pull/124)
   added `env_allow` so topology can filter per-instance launch environments.
+- [SQU-122](https://linear.app/squirtlesquad/issue/SQU-122/security-graduate-authority-audit-to-enforcement-for-destructive-verbs)
+  graduated destructive daemon/CLI verbs from audit-only visibility to
+  enforcement.
+- [SQU-123](https://linear.app/squirtlesquad/issue/SQU-123/security-verb-aware-cli-shims-closed-world-allowlists-at-the-tool)
+  added the verb-aware `agent-team` runtime shim. Under enforcement, the shim
+  resolves invocations through the live Cobra tree and denies unknown or
+  ungranted verbs before they reach the real CLI.
 - [`documentation/security-model.md`](https://github.com/agent-team-project/agent-team/blob/main/documentation/security-model.md)
   records the adopted security model: per-instance identity, brokered provider
   secrets, capability-style authorization, reader/actor separation for public
@@ -61,10 +69,8 @@ Recently shipped:
 
 In progress:
 
-- [SQU-123](https://linear.app/squirtlesquad/issue/SQU-123/security-verb-aware-cli-shims-closed-world-allowlists-at-the-tool)
-  is narrowing the CLI tool surface with verb-aware shims. The current work is
-  still being reviewed and bounced, so the roadmap should treat it as active,
-  not landed.
+- No separate security epic is active in this section at the time of this
+  update. The next hardening layer is the planned control-plane/workspace split.
 
 Planned:
 
@@ -99,6 +105,13 @@ Recently shipped:
 - [SQU-106 / PR #105](https://github.com/agent-team-project/agent-team/pull/105)
   added reserve vs. oversubscribe allocation, so outstanding child promises can
   be counted against parent headroom when an operator wants strict reservation.
+- [SQU-127](https://linear.app/squirtlesquad/issue/SQU-127/daemon-named-deployment-addressing-registry-over-raw-paths-routes-v2)
+  added stable deployment identity and a read-only deployment registry view:
+  `agent-team deployments ls` and `agent-team deployments resolve`.
+- The first resource-identity slice also added canonical `agt://` URIs and
+  `agent-team read <agt-uri>` for daemon-owned reads of project, instance, job,
+  workspace, state, log, usage, mailbox, channel, queue, outbox, lock, and
+  topology resources.
 - [`documentation/resource-constraints.md`](https://github.com/agent-team-project/agent-team/blob/main/documentation/resource-constraints.md)
   now describes the full resource surface: build slots, tokens, provider
   throttling, CI/API quotas, local health, priority, preemption, and
@@ -113,10 +126,8 @@ In progress:
 
 Planned:
 
-- [SQU-127](https://linear.app/squirtlesquad/issue/SQU-127/daemon-named-deployment-addressing-registry-over-raw-paths-routes-v2)
-  introduces named deployment addressing: routes refer to a deployment name
-  whose registry entry can resolve to a Unix socket today or a host/token
-  transport later.
+- Route configuration should start consuming deployment names directly instead
+  of raw local paths where cross-deployment work needs a stable address.
 - Container workspaces are the portability boundary as well as a security
   boundary: a worker described as image + worktree mount + daemon API endpoint +
   budget + capability token is schedulable away from the local checkout.
@@ -145,6 +156,8 @@ Recently shipped:
   ([commit `2a3c80c`](https://github.com/agent-team-project/agent-team/commit/2a3c80c))
   opened the parallel-run window by mirroring open SQU tickets to GitHub
   Projects while keeping Linear as source of truth.
+- `agent-team ticket create|update|comment|close` now exposes provider-backed
+  ticket actions through the CLI for Linear and GitHub.
 
 In progress:
 
@@ -187,6 +200,10 @@ Recently shipped:
   added local cross-team feedback delivery over target daemon sockets, so
   feedback routing can cross team boundaries without treating a filesystem path
   as the long-term resource identity.
+- The daemon now serves an embedded local `/ui` dashboard over its loopback API.
+  The static shell loads unauthenticated, while data requests use bearer tokens.
+- Report jobs now have an explicit artifact contract:
+  `agent-team job create --kind report --deliverable report:<path>`.
 
 In progress:
 

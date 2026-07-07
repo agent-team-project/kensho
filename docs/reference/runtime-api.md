@@ -2,7 +2,7 @@
 
 The daemon API is HTTP over a Unix socket. It normally lives at `.agent_team/daemon.sock`; when that path would exceed the OS socket limit, agent-team uses a deterministic hashed socket under `/tmp/agent-team-<uid>/`.
 
-For runtimes whose sandbox blocks Unix sockets, `agent-team daemon start --http-addr 127.0.0.1:0` also exposes the same API on a loopback-only HTTP listener. The actual address is written to `.agent_team/daemon/http.addr`, surfaced by `agent-team daemon status --json` as `http_url`, and exported to launched runtimes as `AGENT_TEAM_DAEMON_URL`. This endpoint is opt-in and must stay bound to localhost.
+For runtimes whose sandbox blocks Unix sockets, `agent-team daemon start` also exposes the same API on a loopback-only HTTP listener by default. Pass `--http-addr 127.0.0.1:0` for an explicit ephemeral port or another loopback host:port to choose the port. The actual address is written to `.agent_team/daemon/http.addr`, surfaced by `agent-team daemon status --json` as `http_url`, and exported to launched runtimes as `AGENT_TEAM_DAEMON_URL`. This endpoint must stay bound to localhost.
 
 The CLI is the supported interface, but the API boundary is useful when working on daemon features.
 
@@ -22,6 +22,19 @@ GET /v1/health
 
 Returns daemon readiness metadata.
 
+## Dashboard
+
+```http
+GET /ui/
+```
+
+Serves the embedded daemon dashboard. The dashboard uses the local JSON API to
+show instances, jobs, pipelines, budgets, and teams. The static UI shell loads
+without a token so a browser can show the token field; its `/v1` data requests
+still require `Authorization: Bearer <token>`. Operators can read the local
+machine token from `.agent_team/daemon/operator.token`. Agent runtimes receive a
+per-instance token file path in `AGENT_TEAM_DAEMON_TOKEN_FILE`.
+
 ## Instances
 
 ```http
@@ -29,6 +42,42 @@ GET /v1/instances
 ```
 
 Returns runtime metadata rows.
+
+```http
+GET /v1/jobs
+```
+
+Returns durable job rows.
+
+```http
+GET /v1/topology
+```
+
+Returns the loaded topology snapshot.
+
+## Resources
+
+```http
+GET /v1/resources?uri=<url-encoded-agt-uri>
+```
+
+Reads one daemon-owned resource by canonical `agt://` URI and returns an
+envelope:
+
+```json
+{
+  "uri": "agt://project-id/job/squ-42#step=review",
+  "kind": "job",
+  "id": "squ-42",
+  "fragment": "step=review",
+  "data": {}
+}
+```
+
+The daemon verifies that the URI belongs to the local deployment and returns a
+resource-specific JSON `data` value. Supported kinds are project, instance, job,
+workspace, state, log, usage, mailbox, channel, queue, outbox, lock, and
+topology. The CLI wrapper is `agent-team read <agt-uri>`.
 
 ```http
 POST /v1/dispatch

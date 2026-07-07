@@ -36,15 +36,22 @@ that repo-local state as the control plane for agent work.
   ephemeral workers, schedules, teams, triggers, budgets, and pipelines.
 - **Jobs** connect tickets, branches, worktrees, PRs, validation gates, pipeline
   steps, queues, logs, and status.
+- **Resource URIs** give daemon-owned state stable `agt://` identities; use
+  `agent-team deployments ls|resolve` for deployment names and
+  `agent-team read <agt-uri>` for daemon-mediated reads.
 - **`agent-teamd`** owns runtime lifecycle for daemon-backed work: dispatch,
-  stop, resume, queue, mailbox, schedule, and log capture.
+  stop, resume, queue, mailbox, schedule, log capture, and the embedded `/ui`
+  dashboard on the loopback daemon API.
 - **Provider integrations** support ticketless jobs, Linear, and GitHub
-  Issues/Projects.
+  Issues/Projects, with `agent-team ticket` for provider-backed create,
+  update, comment, and close actions.
 - **Runtime profiles** support Claude and Codex, with direct runs still
   available for simple sessions.
 
 Everything is file-backed and repo-scoped. There is no database, marketplace, or
-global agent registry required for normal operation.
+global agent registry required for normal operation. Topology authority
+allowlists can audit or enforce which CLI verbs each agent may invoke, using the
+agent's trusted job/team/instance origin.
 
 ## Five-Minute Quickstart
 
@@ -72,6 +79,7 @@ git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands
 agent-team daemon start --json
+agent-team deployments ls
 agent-team job create "Probe this repo layout and report the available agents" \
   --id gs-probe \
   --profile probe \
@@ -178,6 +186,9 @@ template ref or bundled default
 The CLI is the operator surface. The daemon is the local runtime control plane.
 The repo filesystem is the database. Agents can fail, daemons can restart, and
 operators can still inspect and repair work from the files under `.agent_team/`.
+Stable resource URIs are the identity layer above those files: a job, instance,
+workspace, mailbox, queue item, or topology can be named as an `agt://` URI and
+read through the daemon without teaching callers where it is stored today.
 
 ## Install
 
@@ -229,6 +240,7 @@ Deeper references live in:
 - [Daemon Runtime](./docs/runtime/daemon.md)
 - [Jobs](./docs/workflows/jobs.md)
 - [Pipelines and Teams](./docs/workflows/pipelines-and-teams.md)
+- [Resource Model](./docs/reference/resource-model.md)
 - [CLI Reference](./docs/reference/cli.md)
 - [Roadmap Context](./docs/contributing/roadmap.md)
 - [Changelog](./CHANGELOG.md)

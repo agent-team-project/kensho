@@ -232,6 +232,13 @@ verbs can add `:own`, such as `job.gate.*:own`, to match only when the target
 job id equals the caller's origin job. Unqualified entries match any target
 job. Instance, agent, and team rules are additive.
 
+Under `enforcement = "enforce"`, launched runtimes get an `agent-team` shim
+that resolves invocations through the live Cobra command tree and denies
+unknown or ungranted verbs before they reach the real CLI. The allowlist is
+baked into that shim at launch time. If an enforced agent needs daemon resource
+reads, include `read` in its allowlist; URI identity does not bypass verb
+authority.
+
 ## Validation
 
 Use:

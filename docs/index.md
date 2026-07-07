@@ -22,6 +22,8 @@ features:
     details: Start, stop, restart, inspect, monitor, attach, and repair agent instances through a per-repo daemon.
   - title: Durable work units
     details: Jobs connect tickets, agents, instances, queue entries, worktrees, branches, PRs, and pipeline state.
+  - title: Resource identities
+    details: Stable agt:// URIs name deployments, jobs, instances, workspaces, logs, queues, and topology through daemon-mediated reads.
   - title: Operator-first recovery
     details: Health, overview, next, repair, quarantine, and snapshot commands explain what is wrong and which scoped command to run next.
 ---
@@ -37,6 +39,7 @@ It covers:
 - template authoring and initialization
 - agents, skills, status files, channels, and mailboxes
 - the daemon, instance lifecycle, runtime metadata, and logs
+- stable `agt://` resource identities and deployment addressing
 - durable jobs, queues, quarantine, pipelines, teams, schedules, and intake
 - diagnostics, repair loops, snapshots, and operator workflows
 - local development, tests, smoke checks, and contribution expectations

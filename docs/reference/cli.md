@@ -23,10 +23,13 @@ as the output directory instead.
 | `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults; `agents` is a plural alias |
 | `agent-team agent doctor [agent\|--all]` | Validate installed agent definitions and agent-level runtime defaults; add `--strict` / `--strict-runtime` for CI checks or `--commands` for focused follow-ups |
 | `agent-team doctor [--canary [agent]] [--strict] [--commands]` | Validate local layout, durable job files, runtime availability, workflow wiring, daemon binary, and template provenance; add `--canary` after daemon restarts to dispatch a throwaway runtime smoke test |
+| `agent-team deployments ls` / `agent-team deployments resolve <name-or-uri>` | Read the projected deployment registry view and resolve names such as `self`, `local`, `.`, or route names to canonical `agt://` deployment URIs |
+| `agent-team read <agt-uri>` | Read a daemon-owned resource by canonical `agt://` URI through the owning deployment's daemon; add `--json` for the full resource envelope |
 | `agent-team dispatch <target> <ticket>` | Publish or preview an `agent.dispatch` topology event; add `--dry-run --commands` to print the matching dispatch apply command for matched routes |
 | `agent-team docs cli` | Generate or check markdown reference from the live command tree |
 | `agent-team docs site [--commands] [--json]` | Show VitePress developer docs paths, local URL, and dev/build/preview commands |
 | `agent-team feedback submit\|flush\|ls\|show\|resolve` | Record local agent feedback under `.agent_team/feedback/items/`, retry retained routed delivery through the receiver daemon, list new or grouped reports, inspect one item, or audit its ticket/dismissal resolution |
+| `agent-team ticket create\|update\|comment\|close` | Create and update PM tickets through the configured Linear or GitHub provider; use `--body-file -` for stdin bodies and `--json` for provider result records |
 | `agent-team shortcuts [--all] [--format <template>] [--json]` | List top-level aliases and Docker-like shortcuts from the live command tree; add `--all` for nested command-group aliases |
 
 ## Runtime and Daemon
@@ -103,7 +106,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 
 | Command | Purpose |
 | --- | --- |
-| `agent-team job create <ticket>` | Create a durable job; add `--dispatch --wait` for bounded create-and-run automation, `--commands` for dry-run apply commands, and `--wait --wait-next-state`/`--wait-step` for pipeline stage handoff |
+| `agent-team job create <ticket>` | Create a durable job; add `--kind report --deliverable report:<path>` for report-only delivery contracts, `--dispatch --wait` for bounded create-and-run automation, `--commands` for dry-run apply commands, and `--wait --wait-next-state`/`--wait-step` for pipeline stage handoff |
 | `agent-team job ls` | List jobs; filter held state, hold deadlines, and mixed-runtime ownership; sort rows by fields including `runtime`, cap output with `--limit`, or print visible-row follow-ups with `--commands` |
 | `agent-team job show <job-id>` | Show job detail, runtime metadata, gate results, queue, quarantine, outbox, status previews, and actions; add `--events N --events-sort newest` for newest-first audit tails, `--commands` to print only repo-scoped follow-up commands; `inspect` is an alias |
 | `agent-team job gate set <job-id> <gate-name>` | Append an explicit `pass`/`fail` gate result with optional `--signature` and `--log-ref`; failed signatures are classified by the job pipeline's `infra_signatures` |

@@ -88,6 +88,7 @@ export default defineConfig({
       {
         text: 'Reference',
         items: [
+          { text: 'Resource Model', link: '/reference/resource-model' },
           { text: 'CLI Reference', link: '/reference/cli' },
           { text: 'Generated CLI Reference', link: '/reference/cli.generated' },
           { text: 'File Formats', link: '/reference/file-formats' },

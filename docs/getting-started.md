@@ -103,11 +103,16 @@ Check the generated team:
 agent-team doctor --commands
 agent-team daemon start --json
 agent-team daemon status --format '{{.Ready}} {{.PID}}'
+agent-team deployments ls
 ```
 
 `doctor --commands` prints the next safe operator commands when something is
 missing. A valid fresh repo usually suggests starting the daemon and previewing
 `sync`.
+The `daemon start --json` result includes `status.http_url` when the loopback
+API is available; open `<http_url>/ui/` locally for the embedded dashboard and
+paste the local operator token from `.agent_team/daemon/operator.token` when the
+dashboard asks for a bearer token.
 
 ## Check Runtime Auth
 
@@ -162,6 +167,15 @@ Inspect the job and logs:
 ```sh
 agent-team job show gs-probe --events all
 agent-team logs --job gs-probe --tail 80 --clean
+```
+
+Every initialized repo also has a stable deployment identity. Resolve it before
+using URI reads:
+
+```sh
+agent-team deployments resolve self
+DEPLOYMENT_ID="$(agent-team deployments resolve self --format '{{.URI}}' | cut -d/ -f3)"
+agent-team read "agt://${DEPLOYMENT_ID}/topology/current"
 ```
 
 Budget rows appear once a job has an allowance. The bundled worker instance

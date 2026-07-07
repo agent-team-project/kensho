@@ -32,6 +32,36 @@ The repo is the unit of orchestration. Its `.agent_team/` directory contains:
 - intake delivery history
 - logs and events
 
+## Deployment
+
+A deployment is one initialized `.agent_team/` control plane with a stable
+`[project].id`. That id is used in `agt://` resource URIs, for example:
+
+```text
+agt://<deployment-id>/project/<deployment-id>
+```
+
+`agent-team deployments ls` shows the current repo's deployment name view.
+`agent-team deployments resolve self` resolves the local deployment to its
+canonical URI. The view is read-only and projected from existing repo state.
+
+## Resource URI
+
+A resource URI names daemon-owned state without exposing the storage path as
+the integration contract. Current resource kinds include project, instance,
+job, workspace, state, log, usage, mailbox, channel, queue, outbox, lock, and
+topology.
+
+```sh
+agent-team read agt://<deployment-id>/job/squ-42
+agent-team read agt://<deployment-id>/job/squ-42#step=review --json
+```
+
+`agent-team read` asks the owning deployment's daemon for a structured resource
+envelope. It does not fall back to direct `.agent_team/` file reads. See
+[Resource Model](../reference/resource-model.md) for the exact URI shape and
+supported kinds.
+
 ## Agent
 
 An agent is an authored definition under `.agent_team/agents/<name>/`.
