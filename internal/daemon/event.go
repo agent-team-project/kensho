@@ -1020,7 +1020,24 @@ func NotifyManagerMissingDeliveryArtifact(daemonRoot string, j *jobstore.Job, in
 	if instance == "" {
 		instance = "the instance"
 	}
-	body := fmt.Sprintf("Job %s was marked failed after %s exited cleanly: %s. Expected an open PR, pushed branch, or committed diff before accepting done.",
-		j.ID, instance, reason)
+	body := fmt.Sprintf("Job %s was marked failed after %s exited cleanly: %s. %s",
+		j.ID, instance, reason, deliveryArtifactExpectation(j))
 	_ = AppendMessage(daemonRoot, "manager", &Message{From: "daemon", Body: body})
+}
+
+func deliveryArtifactExpectation(j *jobstore.Job) string {
+	contract := deliveryArtifactContract(j)
+	if path := deliveryReportArtifactPath(contract); path != "" {
+		return "Expected a non-empty report artifact at " + path + " before accepting done."
+	}
+	switch contract {
+	case deliveryContractReport:
+		return "Expected a report:<path> deliverable contract before accepting done."
+	case deliveryContractBranch:
+		return "Expected a pushed branch or committed diff before accepting done."
+	case deliveryContractPR, deliveryContractTicketToPR:
+		return "Expected an open PR, pushed branch, or committed diff before accepting done."
+	default:
+		return "Expected an open PR, pushed branch, or committed diff before accepting done."
+	}
 }
