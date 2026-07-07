@@ -115,6 +115,68 @@ func TestAgentTeamShimAllowsDeclaredAuthorityVerb(t *testing.T) {
 	}
 }
 
+func TestReviewerPromptMatchesRuntimeCommandSurface(t *testing.T) {
+	root := filepath.Join("..", "..")
+	prompt := readFile(t, filepath.Join(root, "template", "agents", "reviewer", "agent.md"))
+	config := readFile(t, filepath.Join(root, "template", "agents", "reviewer", "config.toml"))
+	topology := readFile(t, filepath.Join(root, "template", "instances.toml.tmpl"))
+
+	for _, want := range []string{
+		"inbox check",
+		"inbox ack <id>",
+		"agent-team budget status --self",
+		"agent-team job show $AGENT_TEAM_JOB_ID --json",
+		"agent-team job gate set $AGENT_TEAM_JOB_ID",
+		"agent-team feedback submit",
+		"github-auth.sh",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("reviewer prompt missing allowed command surface %q", want)
+		}
+	}
+
+	for _, denied := range []string{
+		"agent-team job extend",
+		"agent-team job step",
+		"agent-team job merge",
+		"status set",
+		"status skill",
+		"--description",
+	} {
+		if strings.Contains(prompt, denied) {
+			t.Fatalf("reviewer prompt advertises denied or unavailable command %q", denied)
+		}
+	}
+
+	for _, deniedSkill := range []string{`"pull-request"`, `"status"`} {
+		if strings.Contains(config, deniedSkill) {
+			t.Fatalf("reviewer config includes non-reviewer skill %s", deniedSkill)
+		}
+	}
+
+	if strings.Contains(topology, "Report via `job gate set`") {
+		t.Fatal("review pipeline instructions advertise bare `job gate set`; use `agent-team job gate set`")
+	}
+
+	reviewerAuthority := sectionAfter(t, topology, "[authority.agents.reviewer]")
+	for _, want := range []string{
+		`"budget.status"`,
+		`"feedback.*"`,
+		`"inbox.*"`,
+		`"job.gate.*:own"`,
+		`"job.show"`,
+	} {
+		if !strings.Contains(reviewerAuthority, want) {
+			t.Fatalf("reviewer authority missing %s in %q", want, reviewerAuthority)
+		}
+	}
+	for _, deniedVerb := range []string{"job.step", "job.extend", "job.merge"} {
+		if strings.Contains(reviewerAuthority, deniedVerb) {
+			t.Fatalf("reviewer authority grants denied verb %q in %q", deniedVerb, reviewerAuthority)
+		}
+	}
+}
+
 func TestAgentTeamShimAllowsKnownLeafVerbsWithPositionals(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -393,4 +455,17 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func sectionAfter(t *testing.T, body, header string) string {
+	t.Helper()
+	start := strings.Index(body, header)
+	if start < 0 {
+		t.Fatalf("missing section %s", header)
+	}
+	section := body[start+len(header):]
+	if next := strings.Index(section, "\n["); next >= 0 {
+		section = section[:next]
+	}
+	return section
 }
