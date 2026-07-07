@@ -309,7 +309,7 @@ func newRepairCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for retried or advanced step dispatches (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for retried or advanced step dispatches (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for retried or advanced step dispatches. Overrides env and repo config.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Retry at most this many dead-letter queue items or failed pipeline jobs, and advance at most this many ready pipeline jobs or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview repair actions without mutating state or starting the daemon.")

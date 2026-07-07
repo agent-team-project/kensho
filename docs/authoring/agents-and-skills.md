@@ -37,10 +37,12 @@ Supported frontmatter values are scalar and block-scalar fields needed by agent 
 
 `description` becomes the runtime-facing agent description.
 
-`runtime` can be `claude` or `codex`, and `runtime_bin` can point at a binary
-or wrapper for that runtime. These agent-level defaults apply when dispatch does
-not pass an explicit runtime and `AGENT_TEAM_RUNTIME` is not set. Repo runtime
-config remains the fallback after agent frontmatter. Use
+`runtime` can be `claude`, `codex`, or `docker`, and `runtime_bin` can point at
+a binary or wrapper for that runtime. These agent-level defaults apply when
+dispatch does not pass an explicit runtime and `AGENT_TEAM_RUNTIME` is not set.
+Repo runtime config remains the fallback after agent frontmatter. The Docker
+profile is dispatch-only and runs the agent inside the configured container
+image. Use
 `agent-team agent doctor --strict`,
 `agent-team pipeline doctor --strict` or
 `agent-team team doctor --strict` to fail fast when an agent or pipeline

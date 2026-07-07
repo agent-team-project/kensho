@@ -515,6 +515,36 @@ retry_on_crash = true
 	}
 }
 
+func TestParse_DockerRuntime(t *testing.T) {
+	top, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+runtime = "docker"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+runtime = "docker"
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if top.Instances["worker"].Runtime != "docker" {
+		t.Fatalf("instance runtime = %q, want docker", top.Instances["worker"].Runtime)
+	}
+	if got := top.Pipelines["ticket_to_pr"].Steps[0].Runtime; got != "docker" {
+		t.Fatalf("step runtime = %q, want docker", got)
+	}
+}
+
 func TestParse_PipelineInfraSignaturesValidation(t *testing.T) {
 	_, err := Parse([]byte(`
 [pipelines.ticket_to_pr]
@@ -835,7 +865,7 @@ runtime = "llama"
 	if err == nil {
 		t.Fatal("expected invalid runtime error")
 	}
-	if !strings.Contains(err.Error(), "runtime must be claude or codex") {
+	if !strings.Contains(err.Error(), "runtime must be claude, codex, or docker") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -849,7 +879,7 @@ runtime = "llama"
 	if err == nil {
 		t.Fatal("expected invalid runtime error")
 	}
-	if !strings.Contains(err.Error(), "runtime must be claude or codex") {
+	if !strings.Contains(err.Error(), "runtime must be claude, codex, or docker") {
 		t.Fatalf("error = %v", err)
 	}
 }

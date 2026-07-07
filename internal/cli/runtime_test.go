@@ -351,7 +351,7 @@ func TestRuntimeSetRejectsInvalidRuntime(t *testing.T) {
 	if !errors.As(err, &ec) || int(ec) != 2 {
 		t.Fatalf("error = %v, want exit 2", err)
 	}
-	if !strings.Contains(errOut.String(), `runtime must be "claude" or "codex"`) {
+	if !strings.Contains(errOut.String(), `runtime must be "claude", "codex", or "docker"`) {
 		t.Fatalf("stderr = %q", errOut.String())
 	}
 }
@@ -548,6 +548,8 @@ func TestRuntimeLsJSONListsSupportedRuntimes(t *testing.T) {
 			return "/usr/local/bin/claude", nil
 		case "codex":
 			return "", exec.ErrNotFound
+		case "docker":
+			return "/usr/local/bin/docker", nil
 		default:
 			t.Fatalf("look path bin = %q", bin)
 			return "", exec.ErrNotFound
@@ -566,8 +568,8 @@ func TestRuntimeLsJSONListsSupportedRuntimes(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
-	if len(rows) != 2 {
-		t.Fatalf("rows = %+v, want claude and codex", rows)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %+v, want claude, codex, and docker", rows)
 	}
 	byRuntime := map[string]runtimeInfo{}
 	for _, row := range rows {
@@ -584,6 +586,9 @@ func TestRuntimeLsJSONListsSupportedRuntimes(t *testing.T) {
 	}
 	if row := byRuntime["codex"]; row.ProbeCommand != "agent-team runtime probe --runtime codex" || row.DaemonProbeCommand != "agent-team runtime probe --codex-daemon-check" || row.SelectCommand != "agent-team runtime set codex" {
 		t.Fatalf("codex commands = %+v, want probe, daemon probe, and select hints", row)
+	}
+	if row := byRuntime["docker"]; row.Selected || !row.Available || row.Binary != "docker" || row.RuntimeImage != runtimebin.DefaultDockerImage || row.DirectRun || !row.DaemonDispatch || row.Resume || row.ManagedResume {
+		t.Fatalf("docker row = %+v, want daemon-only docker profile", row)
 	}
 }
 
@@ -607,13 +612,13 @@ func TestRuntimeLsUsesRepoSelectedBinary(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime ls --format failed: %v\nstderr: %s", err, errOut.String())
 	}
-	for _, want := range []string{"claude false claude", "codex true codex-wrapper"} {
+	for _, want := range []string{"claude false claude", "codex true codex-wrapper", "docker false docker"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("runtime ls format missing %q:\n%s", want, out.String())
 		}
 	}
-	if !seen["claude"] || !seen["codex-wrapper"] || seen["codex"] {
-		t.Fatalf("looked up binaries = %+v, want claude and selected codex-wrapper only", seen)
+	if !seen["claude"] || !seen["codex-wrapper"] || !seen["docker"] || seen["codex"] {
+		t.Fatalf("looked up binaries = %+v, want claude, selected codex-wrapper, and docker only", seen)
 	}
 }
 
@@ -639,6 +644,7 @@ func TestRuntimeLsCommandsPreserveRepoScopeAndCustomBinary(t *testing.T) {
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--runtime", "claude"}), " "),
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--runtime", "codex", "--runtime-bin", "codex-wrapper"}), " "),
 		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--codex-daemon-check", "--runtime-bin", "codex-wrapper"}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "--repo", tmp, "runtime", "probe", "--runtime", "docker"}), " "),
 		"",
 	}, "\n")
 	if out.String() != want {
@@ -2239,7 +2245,7 @@ func TestRuntimeCommand_InvalidRuntimeFlagExitsTwo(t *testing.T) {
 	if !errors.As(err, &ec) || int(ec) != 2 {
 		t.Fatalf("error = %v, want exit 2", err)
 	}
-	if !strings.Contains(errOut.String(), `--runtime must be "claude" or "codex"`) {
+	if !strings.Contains(errOut.String(), `--runtime must be "claude", "codex", or "docker"`) {
 		t.Fatalf("stderr = %q, want invalid runtime flag error", errOut.String())
 	}
 }

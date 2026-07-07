@@ -274,7 +274,7 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		cmd.Flags().BoolVar(&verifyPR, "verify-pr", false, "With --cleanup-merged, verify the recorded GitHub PR is merged with gh before cleanup.")
 		cmd.Flags().BoolVar(&advanceJob, "advance", false, "With --reconcile-job, dispatch the next ready pipeline step after PR metadata is reconciled.")
 		cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance dispatch: auto, worktree, or repo.")
-		cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude or codex). Overrides env and repo config.")
+		cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.")
 		cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for --advance dispatch. Overrides env and repo config.")
 		cmd.Flags().BoolVar(&wait, "wait", false, "With --advance, wait for the reconciled job to reach a lifecycle status, event, or next-step state.")
 		cmd.Flags().StringSliceVar(&waitStatuses, "wait-status", nil, "With --wait, status to wait for: queued, running, blocked, done, failed, or terminal. Can repeat or comma-separate.")

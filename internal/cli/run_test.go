@@ -1008,8 +1008,47 @@ func TestRun_InvalidRuntimeFlagExitsTwo(t *testing.T) {
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
 	}
-	if !strings.Contains(stderr.String(), `--runtime must be "claude" or "codex"`) {
+	if !strings.Contains(stderr.String(), `--runtime must be "claude", "codex", or "docker"`) {
 		t.Fatalf("stderr = %q, want runtime flag validation", stderr.String())
+	}
+}
+
+func TestDaemonURLForRuntimeEnvPrefersDockerHostGateway(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.HTTPAddrPath(teamDir), []byte("127.0.0.1:54321\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "http://host.docker.internal:54321/")
+
+	if got, want := daemonURLForRuntimeEnv(teamDir), "http://host.docker.internal:54321"; got != want {
+		t.Fatalf("daemonURLForRuntimeEnv() = %q, want %q", got, want)
+	}
+}
+
+func TestDaemonURLForRuntimeEnvPrefersRepoLoopbackOverInheritedLoopback(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	if err := os.MkdirAll(daemon.DaemonRoot(teamDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(daemon.HTTPAddrPath(teamDir), []byte("127.0.0.1:54321\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "http://127.0.0.1:11111")
+
+	if got, want := daemonURLForRuntimeEnv(teamDir), "http://127.0.0.1:54321"; got != want {
+		t.Fatalf("daemonURLForRuntimeEnv() = %q, want %q", got, want)
+	}
+}
+
+func TestDaemonURLForRuntimeEnvFallsBackToInheritedWhenNoRepoHTTPAddr(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "http://127.0.0.1:11111/")
+
+	if got, want := daemonURLForRuntimeEnv(teamDir), "http://127.0.0.1:11111"; got != want {
+		t.Fatalf("daemonURLForRuntimeEnv() = %q, want %q", got, want)
 	}
 }
 

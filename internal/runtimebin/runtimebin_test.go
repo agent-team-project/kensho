@@ -38,6 +38,20 @@ func TestCurrentCodexRuntimeDefaultsBinary(t *testing.T) {
 	}
 }
 
+func TestCurrentDockerRuntimeDefaultsBinaryAndImage(t *testing.T) {
+	t.Setenv(EnvRuntime, "docker")
+	t.Setenv(EnvBinary, "")
+	t.Setenv(EnvImage, "")
+
+	rt, err := Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Kind != KindDocker || rt.Binary != "docker" || rt.Image != DefaultDockerImage {
+		t.Fatalf("Current() = %+v, want docker runtime, binary, and default image", rt)
+	}
+}
+
 func TestCurrentFromConfigUsesRepoRuntime(t *testing.T) {
 	t.Setenv(EnvRuntime, "")
 	t.Setenv(EnvBinary, "")
@@ -52,6 +66,24 @@ func TestCurrentFromConfigUsesRepoRuntime(t *testing.T) {
 	}
 	if rt.Kind != KindCodex || rt.Binary != "codex-wrapper" {
 		t.Fatalf("CurrentFromConfig() = %+v, want codex/codex-wrapper", rt)
+	}
+}
+
+func TestCurrentFromConfigUsesDockerImage(t *testing.T) {
+	t.Setenv(EnvRuntime, "")
+	t.Setenv(EnvBinary, "")
+	t.Setenv(EnvImage, "")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[runtime]\nkind = \"docker\"\nimage = \"agent-team:dev\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rt, err := CurrentFromConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Kind != KindDocker || rt.Binary != "docker" || rt.Image != "agent-team:dev" {
+		t.Fatalf("CurrentFromConfig() = %+v, want docker/default binary/custom image", rt)
 	}
 }
 

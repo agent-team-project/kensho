@@ -236,7 +236,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&latest, "latest", false, "Send to the most recently started daemon-known instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Send to the N most recently started daemon-known instances after other filters (0 = all).")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Send to daemon-known instances for this agent. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Send to daemon-known instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Send to daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Send to daemon-known instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phaseFilters, "phase", nil, "Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to daemon-known instances whose status.toml is stale.")
@@ -792,7 +792,7 @@ func sendRuntimeFilterSet(filters []string) (map[string]bool, error) {
 		}
 		kind, err := runtimebin.ParseKind(raw)
 		if err != nil {
-			return nil, fmt.Errorf("unknown --runtime %q (want claude or codex)", raw)
+			return nil, fmt.Errorf("unknown --runtime %q (want claude, codex, or docker)", raw)
 		}
 		out[string(kind)] = true
 	}

@@ -20,6 +20,7 @@ The command reports:
 
 - selected runtime kind
 - binary name and resolved path
+- image name for image-backed runtimes
 - repo config source
 - environment overrides
 - direct-run, daemon-dispatch, direct-resume, managed-resume, and subagent capabilities
@@ -106,6 +107,12 @@ Binary selection is:
 4. `.agent_team/config.toml` `[runtime].binary` or `[runtime].bin`, but only when `AGENT_TEAM_RUNTIME` is not set
 5. built-in default for the selected runtime
 
+Docker image selection is:
+
+1. `AGENT_TEAM_RUNTIME_IMAGE`
+2. `.agent_team/config.toml` `[runtime].image`
+3. built-in default, `agent-team:ci`
+
 Daemon dispatch also considers agent frontmatter. When a dispatch does not pass
 an explicit runtime and `AGENT_TEAM_RUNTIME` is unset, `runtime` and
 `runtime_bin` in `.agent_team/agents/<agent>/agent.md` take precedence over the
@@ -133,6 +140,14 @@ kind = "codex"
 binary = "codex"
 ```
 
+Docker daemon-dispatch config:
+
+```toml
+[runtime]
+kind = "docker"
+image = "agent-team:ci"
+```
+
 One-off shell override:
 
 ```sh
@@ -149,23 +164,25 @@ agent-team run worker --runtime codex --runtime-bin /opt/bin/codex-wrapper --pro
 agent-team template run bundled manager --runtime codex --prompt "check status" --last-message
 agent-team dispatch worker SQU-42 --runtime codex --kickoff "implement the ticket"
 agent-team job dispatch squ-42 --runtime codex --runtime-bin /opt/bin/codex-wrapper
+agent-team job dispatch squ-42 --runtime docker
 agent-team pipeline advance ticket_to_pr --runtime codex --dry-run --preview-routes
+agent-team pipeline advance ticket_to_pr --runtime docker --dry-run --preview-routes
 agent-team team advance delivery --runtime codex --dry-run --preview-routes
 ```
 
 ## Capability Matrix
 
-| Capability | Claude profile | Codex profile |
-| --- | --- | --- |
-| Direct interactive `run` | yes | yes |
-| Daemon-managed one-shot `run --prompt` | yes | yes |
-| Direct clean one-shot `run --prompt --last-message` | no | yes |
-| Direct CLI resume outside daemon ownership | yes | yes |
-| Native subagent registry | yes | no |
-| Managed resume/start | yes | yes, when metadata has a captured Codex session id |
-| Interactive daemon `attach` resume flow | yes | yes, via `codex resume <session>` |
-| `logs --last-message` sidecar | no | yes for `codex exec` |
-| Worker status, mailbox, channel scripts | yes | yes, through `AGENT_TEAM_*` shell environment policy |
+| Capability | Claude profile | Codex profile | Docker profile |
+| --- | --- | --- | --- |
+| Direct interactive `run` | yes | yes | no |
+| Daemon-managed one-shot `run --prompt` | yes | yes | yes, for ephemeral dispatch |
+| Direct clean one-shot `run --prompt --last-message` | no | yes | no |
+| Direct CLI resume outside daemon ownership | yes | yes | no |
+| Native subagent registry | yes | no | no |
+| Managed resume/start | yes | yes, when metadata has a captured Codex session id | no |
+| Interactive daemon `attach` resume flow | yes | yes, via `codex resume <session>` | no |
+| `logs --last-message` sidecar | no | yes for `codex exec` | yes, from the inner Codex profile |
+| Worker status, mailbox, channel scripts | yes | yes, through `AGENT_TEAM_*` shell environment policy | yes, through loopback HTTP and the per-instance token file |
 
 ## Claude Profile
 
@@ -348,6 +365,40 @@ That means:
 
 Use jobs, queue, and pipeline commands for orchestration around Codex runs instead of relying on in-session subagent dispatch.
 
+## Docker Profile
+
+The Docker profile is for daemon-dispatched ephemeral agents. It runs the
+`docker` CLI on the host, starts one container per dispatched job, and delegates
+inside the container to the Codex profile:
+
+```sh
+docker build -t agent-team:ci .
+agent-team job dispatch squ-42 --runtime docker
+agent-team pipeline advance ticket_to_pr --runtime docker
+```
+
+`agent-team run --runtime docker` is intentionally unsupported because the
+container adapter needs daemon dispatch metadata, a worktree, and an instance
+state directory to mount.
+
+The daemon-created container launch mounts:
+
+- the job worktree as the container workdir
+- the linked worktree's Git common directory when it is outside the worktree
+- the instance state directory at `.agent_team/state/<instance>` inside the worktree
+- Codex `auth.json` and `config.toml` from `CODEX_HOME` or `~/.codex`, read-only
+- GitHub CLI config and `~/.gitconfig`, read-only, when present
+
+The container receives `AGENT_TEAM_DAEMON_URL` rewritten from local loopback to
+`host.docker.internal:<port>` and receives `AGENT_TEAM_DAEMON_TOKEN_FILE`
+pointing at the mounted per-instance token file. Non-path job context such as
+`AGENT_TEAM_JOB_ID`, `AGENT_TEAM_TICKET`, and pipeline step names is forwarded.
+
+Build or pull an image that contains `agent-team`, `codex`, `git`, `gh`,
+`curl`, `python3`, and shell tooling before dispatch. The repository Dockerfile
+builds the local `agent-team:ci` image and installs the Codex CLI so
+subscription auth from the mounted Codex files can survive containerization.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | First check |
@@ -359,6 +410,7 @@ Use jobs, queue, and pipeline commands for orchestration around Codex runs inste
 | `resume_fallback` event after Codex start | Workspace or Codex rollout preflight failed before `codex exec resume` | Inspect `agent-team events --action resume_fallback`, confirm the workspace still exists, and check `CODEX_HOME` / `~/.codex/sessions` |
 | Tool scripts cannot find state | Missing `AGENT_TEAM_*` environment in runtime shell | Check `agent-team runtime` and inspect the daemon child log |
 | Codex exits before running any task | Codex auth, provider reachability, sandbox setup, stdin handling, or last-message capture is broken | `agent-team runtime probe --runtime codex --json`, then `agent-team runtime probe --runtime codex --exec --timeout 2m` |
+| Docker dispatch cannot reach daemon | The daemon is not exposing loopback HTTP, the token file is missing, or Docker cannot resolve `host.docker.internal` | Restart `agent-teamd` with loopback HTTP enabled, then run a docker probe that curls `AGENT_TEAM_DAEMON_URL` with the mounted token |
 
 ## Observed Probe Findings
 

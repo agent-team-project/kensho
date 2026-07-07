@@ -101,7 +101,7 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to validate for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to validate for this invocation (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to validate for this invocation. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&canary, "canary", false, "Dispatch a throwaway daemon-backed runtime canary and verify it exits cleanly.")
 	cmd.Flags().DurationVar(&canaryTimeout, "canary-timeout", defaultDoctorCanaryTimeout, "Maximum time to wait for the daemon-backed canary to exit.")

@@ -139,7 +139,7 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the dispatched agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for the dispatched instance (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for the dispatched instance. Overrides env and repo config.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology matches without publishing to the daemon.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching dispatch apply command when the preview has actionable routes. agent-team follow-ups preserve the selected repo scope.")

@@ -221,7 +221,7 @@ func liveUsageForBudgetNotice(meta Metadata, now time.Time) usage.Record {
 	rec := usage.Record{
 		Instance:   meta.Instance,
 		Agent:      meta.Agent,
-		Runtime:    meta.Runtime,
+		Runtime:    metadataEffectiveRuntime(&meta),
 		StartedAt:  meta.StartedAt.UTC(),
 		EndedAt:    now.UTC(),
 		CapturedAt: now.UTC(),
@@ -231,7 +231,7 @@ func liveUsageForBudgetNotice(meta Metadata, now time.Time) usage.Record {
 	if !rec.StartedAt.IsZero() && !rec.EndedAt.Before(rec.StartedAt) {
 		rec.DurationMS = rec.EndedAt.Sub(rec.StartedAt).Milliseconds()
 	}
-	if !strings.EqualFold(meta.Runtime, "codex") {
+	if !strings.EqualFold(rec.Runtime, "codex") {
 		rec.TokensAvailable = false
 		return rec
 	}
@@ -355,6 +355,9 @@ func budgetNoticeEventData(meta Metadata, notice budgetNotice) map[string]string
 		"instance":  meta.Instance,
 		"runtime":   meta.Runtime,
 	}
+	if effective := metadataEffectiveRuntime(&meta); effective != "" && !strings.EqualFold(effective, meta.Runtime) {
+		data["effective_runtime"] = effective
+	}
 	if notice.StepID != "" {
 		data["step"] = notice.StepID
 	}
@@ -387,6 +390,9 @@ func budgetHardCutoffEventData(meta Metadata, cutoff budgetHardCutoff) map[strin
 		"hard_limit": fmt.Sprint(cutoff.HardLimit),
 		"instance":   meta.Instance,
 		"runtime":    meta.Runtime,
+	}
+	if effective := metadataEffectiveRuntime(&meta); effective != "" && !strings.EqualFold(effective, meta.Runtime) {
+		data["effective_runtime"] = effective
 	}
 	if cutoff.Multiplier > 0 {
 		data["hard_multiplier"] = fmt.Sprintf("%g", cutoff.Multiplier)

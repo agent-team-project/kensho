@@ -51,7 +51,7 @@ agent-team queue watch --state dead
 agent-team queue show <id>
 ```
 
-Use `--runtime claude|codex` to narrow active queue entries by the runtime recorded in the dispatch payload, falling back to daemon metadata when a queued item already names a concrete instance. Runtime-filtered summaries include a `runtimes` count and exclude quarantined files whose runtime cannot be known from the quarantine index.
+Use `--runtime claude|codex|docker` to narrow active queue entries by the runtime recorded in the dispatch payload, falling back to daemon metadata when a queued item already names a concrete instance. Runtime-filtered summaries include a `runtimes` count and exclude quarantined files whose runtime cannot be known from the quarantine index.
 Use `queue watch` when a retry, drain, or repair loop is expected to change active queue rows while you are inspecting them.
 Add `--commands` to queue or outbox list views when scripts should print only the ACTION-column commands for the currently visible rows after filters, sort, and limit are applied.
 When `queue ls`, `queue show`, `queue quarantine ls`, `queue quarantine show`, `outbox ls`, `outbox show`, `outbox quarantine ls`, `outbox quarantine show`, or top-level queue/outbox recovery commands are run with an explicit `--repo` or legacy `--target`, `--commands` output preserves that selector in emitted `agent-team` follow-ups so scripts can run from outside the target checkout.

@@ -2483,13 +2483,15 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 	}
 	otelCtx.Runtime = string(rt.Kind)
 	var otelLaunch runtimeotel.Launch
-	if strings.TrimSpace(traceparent) != "" {
-		otelLaunch, err = runtimeotel.BuildLaunchWithTraceparent(otelCfg, rt.Kind, otelCtx, traceparent)
-	} else {
-		otelLaunch, err = runtimeotel.BuildLaunch(otelCfg, rt.Kind, otelCtx)
-	}
-	if err != nil {
-		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+	if rt.Kind != runtimebin.KindDocker {
+		if strings.TrimSpace(traceparent) != "" {
+			otelLaunch, err = runtimeotel.BuildLaunchWithTraceparent(otelCfg, rt.Kind, otelCtx, traceparent)
+		} else {
+			otelLaunch, err = runtimeotel.BuildLaunch(otelCfg, rt.Kind, otelCtx)
+		}
+		if err != nil {
+			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
+		}
 	}
 	env = append(env, otelLaunch.Env...)
 
@@ -2597,6 +2599,12 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 			"-",
 		)
 		return args, codexEventPrompt(kickoff, prompt, agents), rt, env, nil
+	case runtimebin.KindDocker:
+		args, err := r.prepareDockerAgentArgs(rt, agentName, instance, stateDir, cwd, prompt, env)
+		if err != nil {
+			return nil, "", runtimebin.Runtime{}, nil, err
+		}
+		return args, "", rt, env, nil
 	default:
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}

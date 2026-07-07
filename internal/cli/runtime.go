@@ -44,7 +44,7 @@ func newRuntimeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to inspect for this invocation. Overrides env and repo config.")
 	cmd.AddCommand(newRuntimeSetCmd())
 	cmd.AddCommand(newRuntimeUnsetCmd())
@@ -98,7 +98,7 @@ func newRuntimeSetCmd() *cobra.Command {
 			}
 			kind, err := runtimebin.ParseKind(args[0])
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime set: runtime must be %q or %q.\n", runtimebin.KindClaude, runtimebin.KindCodex)
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team runtime set: runtime must be %q, %q, or %q.\n", runtimebin.KindClaude, runtimebin.KindCodex, runtimebin.KindDocker)
 				return exitErr(2)
 			}
 			binary := strings.TrimSpace(runtimeBinary)
@@ -237,7 +237,7 @@ func newRuntimeProfileCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
-	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude or codex). Overrides env and repo config.")
+	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary to inspect for this invocation. Overrides env and repo config.")
 	return cmd
 }
@@ -313,6 +313,7 @@ type runtimeInfo struct {
 	Selected           bool     `json:"selected,omitempty"`
 	Binary             string   `json:"binary"`
 	RuntimeBinary      string   `json:"runtime_binary,omitempty"`
+	RuntimeImage       string   `json:"runtime_image,omitempty"`
 	Path               string   `json:"path,omitempty"`
 	Available          bool     `json:"available"`
 	DirectRun          bool     `json:"direct_run"`
@@ -522,7 +523,7 @@ func newRuntimeMetadataLsCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, "Repo root containing .agent_team (legacy; prefer global --repo).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show metadata with this status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show metadata for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show metadata for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instanceFilters, "instance", nil, "Only show metadata with this instance name. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&runtimeStaleOnly, "runtime-stale", false, "Only show running metadata whose recorded runtime PID is no longer live.")
@@ -753,13 +754,12 @@ func runtimeMetadataShowCommandArgs(row teamRuntimeRow, opts runtimeMetadataComm
 
 func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelection) (runtimebin.Runtime, error) {
 	if kindRaw := strings.TrimSpace(selection.Kind); kindRaw != "" {
-		kind, err := runtimebin.ParseKind(kindRaw)
+		rt, err := runtimebin.Resolve(runtimebin.ResolveOptions{
+			Explicit:   runtimebin.Fields{Kind: kindRaw, Binary: selection.Binary},
+			ConfigPath: configPath,
+		})
 		if err != nil {
-			return runtimebin.Runtime{}, fmt.Errorf("--runtime must be %q or %q", runtimebin.KindClaude, runtimebin.KindCodex)
-		}
-		rt := runtimebin.Runtime{Kind: kind, Binary: runtimebin.DefaultBinaryForKind(kind)}
-		if bin := strings.TrimSpace(selection.Binary); bin != "" {
-			rt.Binary = bin
+			return runtimebin.Runtime{}, fmt.Errorf("--runtime must be %q, %q, or %q", runtimebin.KindClaude, runtimebin.KindCodex, runtimebin.KindDocker)
 		}
 		return rt, nil
 	}
@@ -1017,12 +1017,13 @@ func collectRuntimeInfoForConfigWithSelection(configPath string, selection runti
 		return runtimeInfo{}, err
 	}
 	info := runtimeInfo{
-		Runtime:    string(rt.Kind),
-		Binary:     rt.Binary,
-		EnvRuntime: os.Getenv(runtimebin.EnvRuntime),
-		EnvBinary:  os.Getenv(runtimebin.EnvBinary),
-		ConfigPath: filepath.ToSlash(configPath),
-		DirectRun:  true,
+		Runtime:      string(rt.Kind),
+		Binary:       rt.Binary,
+		RuntimeImage: rt.Image,
+		EnvRuntime:   os.Getenv(runtimebin.EnvRuntime),
+		EnvBinary:    os.Getenv(runtimebin.EnvBinary),
+		ConfigPath:   filepath.ToSlash(configPath),
+		DirectRun:    true,
 	}
 	if path, err := runtimeLookPath(rt.Binary); err == nil {
 		info.Path = path
@@ -1045,6 +1046,10 @@ func collectRuntimeInfoForConfigWithSelection(configPath string, selection runti
 		info.ManagedResume = true
 		info.Resume = true
 		info.Notes = append(info.Notes, "codex adapter supports direct launches, daemon-managed one-shot exec runs with --prompt, and managed resume through codex exec resume; AGENT_TEAM_* vars are exposed to Codex shell commands; native subagent registration is not available")
+	case runtimebin.KindDocker:
+		info.DirectRun = false
+		info.DaemonDispatch = true
+		info.Notes = append(info.Notes, fmt.Sprintf("docker adapter runs daemon-dispatched ephemeral agents in image %q and delegates to the Codex profile inside the container; direct interactive run and managed resume are not supported", rt.Image))
 	default:
 		return runtimeInfo{}, fmt.Errorf("unsupported runtime %q", rt.Kind)
 	}
@@ -1063,7 +1068,7 @@ func collectRuntimeListForConfig(configPath string) ([]runtimeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	kinds := []runtimebin.Kind{runtimebin.KindClaude, runtimebin.KindCodex}
+	kinds := []runtimebin.Kind{runtimebin.KindClaude, runtimebin.KindCodex, runtimebin.KindDocker}
 	rows := make([]runtimeInfo, 0, len(kinds))
 	for _, kind := range kinds {
 		binary := runtimebin.DefaultBinaryForKind(kind)
@@ -1118,6 +1123,9 @@ func runtimeConfigPathForTarget(target string) string {
 func renderRuntimeInfo(w fmtWriter, info runtimeInfo) {
 	fmt.Fprintf(w, "runtime:          %s\n", info.Runtime)
 	fmt.Fprintf(w, "binary:           %s\n", info.Binary)
+	if info.RuntimeImage != "" {
+		fmt.Fprintf(w, "image:            %s\n", info.RuntimeImage)
+	}
 	if info.Path != "" {
 		fmt.Fprintf(w, "path:             %s\n", info.Path)
 	} else {
@@ -1238,16 +1246,21 @@ func renderRuntimeList(w fmtWriter, rows []runtimeInfo) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "RUNTIME\tSELECTED\tBINARY\tPATH\tAVAILABLE\tDIRECT\tDAEMON\tRESUME\tMANAGED\tSUBAGENTS")
+	fmt.Fprintln(tw, "RUNTIME\tSELECTED\tBINARY\tIMAGE\tPATH\tAVAILABLE\tDIRECT\tDAEMON\tRESUME\tMANAGED\tSUBAGENTS")
 	for _, row := range rows {
 		path := row.Path
 		if path == "" {
 			path = "(not found)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		image := row.RuntimeImage
+		if image == "" {
+			image = "—"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			row.Runtime,
 			runtimeYesNo(row.Selected),
 			row.Binary,
+			image,
 			path,
 			runtimeYesNo(row.Available),
 			runtimeYesNo(row.DirectRun),

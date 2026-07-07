@@ -126,7 +126,7 @@ func newAttachCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Log compatibility mode: attach to the N most recently started instances (0 = disabled).")
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "Log compatibility mode: print the selected log tail and exit instead of following.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Log compatibility mode: only attach to instances with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Log compatibility mode: only attach to instances for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Log compatibility mode: only attach to instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Log compatibility mode: only attach to instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Log compatibility mode: only attach to instances in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Log compatibility mode: only attach to instances whose status.toml is stale.")

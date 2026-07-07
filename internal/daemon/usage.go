@@ -22,7 +22,7 @@ func captureUsageForMetadata(meta *Metadata, now time.Time) error {
 	record, err := usage.Capture(usage.CaptureInput{
 		Instance:  meta.Instance,
 		Agent:     meta.Agent,
-		Runtime:   meta.Runtime,
+		Runtime:   metadataEffectiveRuntime(meta),
 		LogPath:   meta.LogPath,
 		StartedAt: meta.StartedAt,
 		EndedAt:   terminalUsageTime(meta),

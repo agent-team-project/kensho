@@ -213,6 +213,73 @@ func TestBudgetNoticeWritesEventsAndMailboxForCodexTokenCrossing(t *testing.T) {
 	}
 }
 
+func TestBudgetNoticeUsesEffectiveRuntimeForDockerDelegatedCodex(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	now := time.Now().UTC()
+	j := &jobstore.Job{
+		ID:             "squ-131",
+		Ticket:         "SQU-131",
+		Target:         "worker",
+		Instance:       "worker-squ-131",
+		Status:         jobstore.StatusRunning,
+		TokenBudget:    100,
+		TimeBudget:     "10m",
+		ReminderLevels: []int{50, 80, 100},
+		CreatedAt:      now.Add(-time.Minute),
+		UpdatedAt:      now.Add(-time.Minute),
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	logPath := filepath.Join(t.TempDir(), "docker-codex.jsonl")
+	if err := os.WriteFile(logPath, []byte(`{"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":20}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write codex log: %v", err)
+	}
+	m := NewInstanceManager(DaemonRoot(teamDir), nil)
+	meta := Metadata{
+		Instance:         "worker-squ-131",
+		Agent:            "worker",
+		Job:              "squ-131",
+		Runtime:          "docker",
+		EffectiveRuntime: "codex",
+		Workspace:        t.TempDir(),
+		Status:           StatusRunning,
+		StartedAt:        now.Add(-1 * time.Minute),
+		LogPath:          logPath,
+	}
+
+	if err := m.checkBudgetNotices(meta, now); err != nil {
+		t.Fatalf("checkBudgetNotices: %v", err)
+	}
+	updated, err := jobstore.Read(teamDir, "squ-131")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if got, want := updated.TokenBudgetNotices, []int{50, 80, 100}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("token notices = %v, want %v", got, want)
+	}
+	if len(updated.TimeBudgetNotices) != 0 {
+		t.Fatalf("time notices = %v, want none", updated.TimeBudgetNotices)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-131")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events = %+v, want three budget_notice events", events)
+	}
+	if events[0].Data["dimension"] != "tokens" || events[0].Data["runtime"] != "docker" || events[0].Data["effective_runtime"] != "codex" {
+		t.Fatalf("event data = %+v", events[0].Data)
+	}
+	messages, err := ReadMessages(DaemonRoot(teamDir), "worker-squ-131")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 3 || !strings.Contains(messages[0].Body, "budget_notice") {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
 func TestBudgetNoticeForClaudeRuntimeUsesTimeOnly(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	now := time.Now().UTC()

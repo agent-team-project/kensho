@@ -146,7 +146,7 @@ func newSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each sync action with a Go template, e.g. '{{.Instance}} {{.Action}}'.")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Only sync plan rows with lifecycle status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
-	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only sync daemon-known plan rows for this runtime: claude or codex. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&runtimes, "runtime", nil, "Only sync daemon-known plan rows for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only sync plan rows for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&phases, "phase", nil, "Only sync plan rows in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Only sync plan rows with this name. Can repeat or comma-separate.")
