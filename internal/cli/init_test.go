@@ -111,7 +111,7 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(workerConfig); !strings.Contains(got, ".agent_team/config.toml") || !strings.Contains(got, `team = ["linear", "status"]`) {
+	if got := string(workerConfig); !strings.Contains(got, ".agent_team/config.toml") || !strings.Contains(got, `team = ["linear", "github", "status"]`) {
 		t.Errorf("worker config missing team-skill guidance: %s", got)
 	} else if strings.Contains(got, "docs-freshness") || strings.Contains(got, "release") {
 		t.Errorf("slim worker config included full-profile skills: %s", got)

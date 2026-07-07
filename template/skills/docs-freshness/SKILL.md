@@ -38,7 +38,7 @@ Keep it current over exhaustive. If nothing changed, touch nothing.
 ## Output
 
 - **Dispatched to fix**: make the corrections directly on a branch, open a PR (`gh --repo agent-team-project/agent-team`), keep the diff scoped to docs.
-- **Scheduled sweep (audit mode)**: file ONE ticket labeled `docs` + `stale-docs` to Backlog per sweep, listing each drift with file:line and the ground truth it contradicts, ranked by severity (missing command > undocumented feature > stale link > wording). Fold into an open docs ticket if one already covers the area. If the docs are current, say so and file nothing.
+- **Scheduled sweep (audit mode)**: file ONE ticket through `agent-team ticket create` labeled `docs` + `stale-docs` to Backlog or the provider's equivalent holding area per sweep, listing each drift with file:line and the ground truth it contradicts, ranked by severity (missing command > undocumented feature > stale link > wording). Fold into an open docs ticket with `agent-team ticket comment` if one already covers the area. If the docs are current, say so and file nothing.
 
 ## Rules
 

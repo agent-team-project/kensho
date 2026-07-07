@@ -4,7 +4,7 @@
 # Pull in shared skills (under ../../skills/) by name, or anywhere by path:
 # Team-wide shared skills belong in .agent_team/config.toml, not this file:
 #   [skills]
-#   team = ["linear", "status"]
+#   team = ["linear", "github", "status"]
 [skills]
 extra = ["linear", "github", "status", "inbox", "channel"]
 # disable = []   # opt-out from local defaults if needed

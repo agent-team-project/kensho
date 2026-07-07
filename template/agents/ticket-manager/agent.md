@@ -17,9 +17,21 @@ You run as a **subagent** — the user cannot answer interactive prompts. Do not
 
 ## Accessing The PM Provider
 
-Access Linear through the **`linear`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps the Linear GraphQL API, reads the API key from env or `.env`, and reads team/prefix values from `.agent_team/config.toml`.
+Use the provider-abstracted ticket verb for every write that it supports:
 
-Access GitHub through the **`github`** skill — invoke it via the `Skill` tool at the start of the session and follow the patterns it provides. The skill wraps GitHub REST/GraphQL APIs, reads `GITHUB_TOKEN`/`GH_TOKEN` from env or `.env`, and reads repo/project values from `.agent_team/config.toml`.
+```sh
+agent-team ticket create --title "<title>" --body-file <path> --label <name> --state <state> --json
+agent-team ticket update <ticket-or-issue> --title "<title>" --body-file <path> --label <name> --state <state> --json
+agent-team ticket comment <ticket-or-issue> --body-file <path> --json
+agent-team ticket close <ticket-or-issue> --body-file <path> --state <state> --json
+```
+
+The verb dispatches through `[pm].provider` and is the canonical path for create/update/comment/close. Do not call `template/skills/linear/scripts/linear-graphql.sh`, `github-api.sh`, or provider APIs directly for these write operations unless the ticket verb cannot express the required provider-specific operation.
+
+Use provider skills only for read/search/project operations that the ticket verb does not expose yet:
+
+- For Linear reads/searches/relationship operations, invoke the **`linear`** skill and follow its query patterns.
+- For GitHub reads/searches/project inspection, invoke the **`github`** skill and follow its REST/GraphQL patterns.
 
 Don't duplicate provider auth/API logic in this file — source it from the appropriate skill.
 
@@ -40,15 +52,15 @@ Then stop.
 
 ## Workflow
 
-1. Invoke the configured provider skill once (`linear` or `github`) to load its API patterns.
-2. Read `.agent_team/config.toml` for `pm.provider` (falling back to `team.pm_tool`) and provider-specific keys. If the configured PM provider is not `"linear"` or `"github"`, report the ticketless/enable-provider message above and stop.
+1. Read `.agent_team/config.toml` for `pm.provider` (falling back to `team.pm_tool`) and provider-specific keys. If the configured PM provider is not `"linear"` or `"github"`, report the ticketless/enable-provider message above and stop.
+2. Invoke the configured provider skill once (`linear` or `github`) only if you need reads/searches/project metadata before writing.
 3. Read the consumer repo's orientation docs if present — start with applicable `AGENTS.md` files and look for ticket conventions, project routing rules, or labeling guidance.
 4. Identify yourself: run the provider viewer query — cache the actor id/login locally for filtering.
 5. When asked to update progress:
    - First search: check the user's current assigned tickets for matches (title keywords, relevant state).
-   - Prefer **commenting** on the closest match over creating a new ticket.
-   - Only create a new ticket if nothing existing covers the work. When in doubt, comment on the closest match.
-6. When creating issues: pass provider IDs from config, choose a project using the routing logic above, apply configured labels if one fits.
+   - Prefer **commenting** on the closest match with `agent-team ticket comment` over creating a new ticket.
+   - Only create a new ticket with `agent-team ticket create` if nothing existing covers the work. When in doubt, comment on the closest match.
+6. When creating issues: use `agent-team ticket create`, choose a project/state using the routing logic above when the verb/provider supports it, and apply configured labels if one fits.
 7. Confirm what you did after making changes, including the issue identifier or number, the project it landed in, and the URL.
 
 ## Projects and labels

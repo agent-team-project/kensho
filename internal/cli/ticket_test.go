@@ -14,11 +14,15 @@ import (
 )
 
 func TestTicketCreateRoutesToLinearProvider(t *testing.T) {
+	clearTicketOriginEnv(t)
 	root := writeTicketCommandConfig(t, `[pm]
 provider = "linear"
 
 [linear]
 team_id = "team-1"
+
+[project]
+id = "project-1"
 `)
 	var gotAuth string
 	var gotInput map[string]any
@@ -45,6 +49,11 @@ team_id = "team-1"
 	defer server.Close()
 	t.Setenv("AGENT_TEAM_LINEAR_GRAPHQL_URL", server.URL)
 	t.Setenv("LINEAR_API_KEY", "linear-token")
+	t.Setenv("AGENT_TEAM_TEAM", "platform")
+	t.Setenv("AGENT_TEAM_INSTANCE", "feedback-triage")
+	t.Setenv("AGENT_TEAM_ORIGIN_AGENT", "manager")
+	t.Setenv("AGENT_TEAM_JOB_ID", "feedback-sweep")
+	t.Setenv("AGENT_TEAM_ORIGIN_TRIGGER", "schedule:feedback-triage")
 
 	out, stderr, err := runRootResolverCommand("--repo", root, "ticket", "create", "--title", "Linear title", "--body", "Linear body", "--json")
 	if err != nil {
@@ -60,12 +69,28 @@ team_id = "team-1"
 	if gotAuth != "linear-token" {
 		t.Fatalf("Authorization = %q, want linear token", gotAuth)
 	}
-	if gotInput["teamId"] != "team-1" || gotInput["title"] != "Linear title" || gotInput["description"] != "Linear body" {
+	if gotInput["teamId"] != "team-1" || gotInput["title"] != "Linear title" {
 		t.Fatalf("linear input = %+v", gotInput)
+	}
+	description, _ := gotInput["description"].(string)
+	for _, want := range []string{
+		"Linear body",
+		"agent-team-origin:",
+		"project=project-1",
+		"team=platform",
+		"instance=feedback-triage",
+		"agent=manager",
+		"job=feedback-sweep",
+		"trigger=schedule:feedback-triage",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("linear description missing %q:\n%s", want, description)
+		}
 	}
 }
 
 func TestTicketCreateRoutesToGitHubProvider(t *testing.T) {
+	clearTicketOriginEnv(t)
 	root := writeTicketCommandConfig(t, `[pm]
 provider = "github"
 
@@ -129,4 +154,24 @@ func writeTicketCommandConfig(t *testing.T, body string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return root
+}
+
+func clearTicketOriginEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"AGENT_TEAM_PROJECT",
+		"AGENT_TEAM_DEPLOYMENT_URI",
+		"AGENT_TEAM_TEAM",
+		"AGENT_TEAM_INSTANCE",
+		"AGENT_TEAM_ORIGIN_INSTANCE",
+		"AGENT_TEAM_ORIGIN_INSTANCE_URI",
+		"AGENT_TEAM_ORIGIN_AGENT",
+		"AGENT_TEAM_JOB_ID",
+		"AGENT_TEAM_ORIGIN_JOB",
+		"AGENT_TEAM_ORIGIN_JOB_URI",
+		"AGENT_TEAM_ORIGIN_TRIGGER",
+		"AGENT_TEAM_ORIGIN_BUILD",
+	} {
+		t.Setenv(key, "")
+	}
 }

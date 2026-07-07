@@ -2,6 +2,6 @@
 #
 # Team-wide shared skills belong in .agent_team/config.toml, not this file:
 #   [skills]
-#   team = ["linear", "status"]
+#   team = ["linear", "github", "status"]
 [skills]
-extra = ["linear", "status", "inbox"]
+extra = ["linear", "github", "status", "inbox"]

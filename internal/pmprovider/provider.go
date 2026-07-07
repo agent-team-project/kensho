@@ -158,6 +158,7 @@ func ApplyTicket(ctx context.Context, teamDir string, req TicketRequest) TicketR
 			Message: "PM provider ticket action failed",
 		}
 	}
+	req = appendTicketRequestOrigin(teamDir, req)
 	return provider.ApplyTicket(ctx, teamDir, req)
 }
 
@@ -229,7 +230,7 @@ func appendOriginFooter(teamDir string, req Request, body string) string {
 	if strings.TrimSpace(body) == "" {
 		return body
 	}
-	env := origin.Envelope{}
+	env := ticketOriginEnvelope(teamDir)
 	if req.Job != nil {
 		env = req.Job.Origin
 		projectID, _ := origin.ProjectID(teamDir)
@@ -241,4 +242,40 @@ func appendOriginFooter(teamDir string, req Request, body string) string {
 		})
 	}
 	return origin.AppendFooter(body, env)
+}
+
+func appendTicketRequestOrigin(teamDir string, req TicketRequest) TicketRequest {
+	if strings.TrimSpace(req.Body) == "" {
+		return req
+	}
+	switch req.Action {
+	case TicketCreate, TicketComment, TicketClose:
+		req.Body = origin.AppendFooter(req.Body, ticketOriginEnvelope(teamDir))
+	}
+	return req
+}
+
+func ticketOriginEnvelope(teamDir string) origin.Envelope {
+	projectID, _ := origin.ProjectID(teamDir)
+	return origin.Merge(origin.Envelope{
+		Project:       os.Getenv("AGENT_TEAM_PROJECT"),
+		DeploymentURI: os.Getenv("AGENT_TEAM_DEPLOYMENT_URI"),
+		Team:          os.Getenv("AGENT_TEAM_TEAM"),
+		Instance:      firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_INSTANCE"), os.Getenv("AGENT_TEAM_INSTANCE")),
+		InstanceURI:   os.Getenv("AGENT_TEAM_ORIGIN_INSTANCE_URI"),
+		Agent:         os.Getenv("AGENT_TEAM_ORIGIN_AGENT"),
+		Job:           firstNonEmpty(os.Getenv("AGENT_TEAM_ORIGIN_JOB"), os.Getenv("AGENT_TEAM_JOB_ID")),
+		JobURI:        os.Getenv("AGENT_TEAM_ORIGIN_JOB_URI"),
+		Trigger:       os.Getenv("AGENT_TEAM_ORIGIN_TRIGGER"),
+		Build:         os.Getenv("AGENT_TEAM_ORIGIN_BUILD"),
+	}, origin.Envelope{Project: projectID})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }

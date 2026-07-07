@@ -20,7 +20,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 ## Review protocol
 
-1. **Read the ticket first** (linear skill when configured, otherwise the job kickoff): what was asked, what the acceptance criteria are.
+1. **Read the ticket first** (the configured provider skill when Linear/GitHub is configured, otherwise the job kickoff): what was asked, what the acceptance criteria are.
 2. **Read the full diff** (`gh pr diff <n>`), then the changed files in context — a diff hunk that looks fine can still be wrong where it lands.
 3. **Hand-verify your checklist.** Your step `instructions` are a checklist of hand-verifiable items — actually verify them (run the named commands, check the specific rows/values/counts), do not vibe-check. If no instructions were provided, default to: acceptance criteria met; tests exist for the changed behavior and fail without the change; no unrelated files touched; no dead code or commented-out blocks; error paths handled.
 4. **Judge CONTENT only.** Explicit carve-outs — these are NOT yours to judge and NOT grounds to bounce:

@@ -7,6 +7,14 @@ description: Access Linear via the GraphQL API when the repo is configured for L
 
 Call Linear's public GraphQL API through the helper bundled with this skill at `${AGENT_TEAM_ROOT}/skills/linear/scripts/linear-graphql.sh`. All team/project/label IDs that vary per consumer live in `$PWD/.agent_team/config.toml` — the helper checks that Linear is enabled before it sends any request. No IDs are hardcoded in this skill.
 
+For normal PM ticket writes, prefer the provider-abstracted CLI surface:
+
+```sh
+agent-team ticket create|update|comment|close ...
+```
+
+Use this Linear helper for low-level reads/searches, provider-specific operations that the ticket verb does not expose yet, and backward reference while older prompts are being migrated. Do not choose it as the default create/update/comment/close path.
+
 ## Configuration
 
 Linear is optional. Ticketless repos use:

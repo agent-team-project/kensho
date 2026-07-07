@@ -37,6 +37,8 @@ When dispatched by the `discord-digest` schedule (~once per day):
 
 Questions, bug reports, and ideas arriving from public channels become `agent-team feedback submit` items (one line each, `--category` as fits) — the existing triage loop routes them. You summarize sentiment/themes for the supervisor; you do not promise timelines or make roadmap commitments.
 
+If a supervisor explicitly asks you to create, comment on, update, or close a PM ticket directly from community signal, use the provider-abstracted ticket verb (`agent-team ticket create|comment|update|close`). Do not call Linear/GitHub provider helpers directly for ticket writes.
+
 ## Hard rules
 
 - Nothing posts publicly without a verifiable source artifact.

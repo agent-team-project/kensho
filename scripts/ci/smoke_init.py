@@ -20,6 +20,8 @@ import time
 import json
 import signal
 import shlex
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 EXPECTED_AFTER_INIT = [
@@ -192,6 +194,7 @@ def main(argv: list[str]) -> int:
         except Exception as e:  # noqa: BLE001
             problems.append(f"instances.toml not valid TOML: {e}")
         check_bundled_topology_canary(binary, target, problems)
+        check_ticket_verb_linear_smoke(binary, target, problems)
 
         # Template provenance must be present and parseable for future upgrade.
         lock_path = target / ".agent_team" / ".template.lock"
@@ -358,6 +361,124 @@ def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str
         or summary.get("statuses", {}).get("unknown") != 3
     ):
         problems.append(f"bundled topology canary returned unexpected summary: rc={r.returncode}\nbody={body}\nstdout={r.stdout}\nstderr={r.stderr}")
+
+
+def check_ticket_verb_linear_smoke(binary: Path, target: Path, problems: list[str]) -> None:
+    """Verify rendered Linear config drives `agent-team ticket create`."""
+    requests: list[dict[str, object]] = []
+
+    class LinearHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length).decode("utf-8")
+            try:
+                payload = json.loads(raw)
+            except Exception as e:  # noqa: BLE001
+                requests.append({"error": f"invalid JSON: {e}", "raw": raw})
+                self.send_response(400)
+                self.end_headers()
+                return
+            requests.append({
+                "authorization": self.headers.get("Authorization"),
+                "payload": payload,
+            })
+            body = {
+                "data": {
+                    "issueCreate": {
+                        "success": True,
+                        "issue": {
+                            "id": "lin-smoke-1",
+                            "identifier": "SMK-1",
+                            "url": "https://linear.app/smoke/issue/SMK-1/ticket-verb-smoke",
+                            "title": "Ticket verb smoke",
+                            "state": {"name": "Todo"},
+                            "labels": {"nodes": []},
+                        },
+                    },
+                },
+            }
+            data = json.dumps(body).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), LinearHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = os.environ.copy()
+        env.update({
+            "AGENT_TEAM_LINEAR_GRAPHQL_URL": f"http://127.0.0.1:{server.server_port}",
+            "LINEAR_API_KEY": "linear-ticket-verb-token",
+            "AGENT_TEAM_TEAM": "smoke",
+            "AGENT_TEAM_INSTANCE": "feedback-triage",
+            "AGENT_TEAM_ORIGIN_AGENT": "manager",
+            "AGENT_TEAM_JOB_ID": "ticket-verb-smoke",
+            "AGENT_TEAM_ORIGIN_TRIGGER": "schedule:feedback-triage",
+        })
+        r = subprocess.run(
+            [
+                str(binary),
+                "ticket",
+                "create",
+                "--repo",
+                str(target),
+                "--title",
+                "Ticket verb smoke",
+                "--body",
+                "Smoke body from a skill filing path.",
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    if r.returncode != 0:
+        problems.append(f"agent-team ticket create Linear smoke failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}\nrequests={requests}")
+        return
+    try:
+        result = json.loads(r.stdout)
+    except Exception as e:  # noqa: BLE001
+        problems.append(f"agent-team ticket create Linear smoke returned invalid JSON: {e}\nstdout={r.stdout}\nstderr={r.stderr}")
+        return
+    if result.get("provider") != "linear" or result.get("issue") != "SMK-1":
+        problems.append(f"agent-team ticket create Linear smoke returned unexpected result: {result}")
+    if len(requests) != 1:
+        problems.append(f"agent-team ticket create Linear smoke made {len(requests)} requests, want 1: {requests}")
+        return
+    req = requests[0]
+    if req.get("authorization") != "linear-ticket-verb-token":
+        problems.append(f"agent-team ticket create Linear smoke used wrong Authorization header: {req}")
+    payload = req.get("payload")
+    if not isinstance(payload, dict):
+        problems.append(f"agent-team ticket create Linear smoke captured invalid payload: {req}")
+        return
+    if "issueCreate" not in str(payload.get("query", "")):
+        problems.append(f"agent-team ticket create Linear smoke did not call issueCreate: {payload}")
+    variables = payload.get("variables")
+    if not isinstance(variables, dict):
+        problems.append(f"agent-team ticket create Linear smoke payload missing variables: {payload}")
+        return
+    input_payload = variables.get("input")
+    if not isinstance(input_payload, dict):
+        problems.append(f"agent-team ticket create Linear smoke payload missing input: {payload}")
+        return
+    if input_payload.get("teamId") != "smoke-team-uuid":
+        problems.append(f"agent-team ticket create Linear smoke used wrong teamId: {input_payload}")
+    description = str(input_payload.get("description", ""))
+    for needle in ("Smoke body from a skill filing path.", "agent-team-origin:", "team=smoke", "instance=feedback-triage", "job=ticket-verb-smoke"):
+        if needle not in description:
+            problems.append(f"agent-team ticket create Linear smoke description missing {needle!r}: {description}")
 
 
 def write_plan_shape_topology_fixture(team_dir: Path) -> None:

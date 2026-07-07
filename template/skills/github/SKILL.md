@@ -9,6 +9,14 @@ Call GitHub API endpoints through the helper bundled with this skill at `${AGENT
 
 For worker-owned `gh` CLI calls and GitHub HTTPS pushes, use `${AGENT_TEAM_ROOT}/skills/github/scripts/github-auth.sh`. It pins the GitHub actor by resolving a token from `AGENT_TEAM_GITHUB_TOKEN`, a configured `[github].agent_login` via `gh auth token --user`, `GITHUB_TOKEN`/`GH_TOKEN`, or `.env`. When `github.agent_login` is set, the helper verifies `/user` before it runs the command, so a personal ambient `gh auth` account cannot silently take over worker pushes.
 
+For normal PM issue writes, prefer the provider-abstracted CLI surface:
+
+```sh
+agent-team ticket create|update|comment|close ...
+```
+
+Use this GitHub helper for low-level reads/searches, project inspection, `gh` identity pinning, and provider-specific operations that the ticket verb does not expose yet.
+
 ## Configuration
 
 GitHub is optional. Ticketless repos use:

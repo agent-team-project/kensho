@@ -41,6 +41,13 @@ At most THREE tickets per run. Each is EITHER a gate proposal (preventable-by-ma
 - Folds into an existing open `harness` ticket if already tracked.
 - **Prefer a gate over a prompt reminder** whenever the finding is mechanically checkable: a CI gate removes the class permanently; a prompt reminder only nudges. "Tell workers to run gofmt" is worse than "CI runs gofmt."
 
+Create and update PM tickets through the provider-abstracted verb, not through provider-specific API helpers:
+
+```sh
+agent-team ticket create --title "<title>" --body-file <ticket-body.md> --label harness --json
+agent-team ticket comment <ticket-or-issue> --body-file <evidence.md> --json
+```
+
 If the evidence shows no trends, say so and file nothing — a quiet harness is a valid result.
 
 ## Closing

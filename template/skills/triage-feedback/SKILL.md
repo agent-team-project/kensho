@@ -30,18 +30,27 @@ Read routes from `$PWD/.agent_team/config.toml` (`python3 -c 'import tomllib; ..
 upstream = "agent-team"            # route name for framework-level items
 
 [feedback.routes.agent-team]
-kind     = "linear"
-team_key = "SQU"                   # destination Linear team
-label    = "feedback"              # applied to filed tickets
+type  = "local"                    # destination repo with its own .agent_team/config.toml
+root  = "../agent-team"            # used with agent-team ticket --repo <root>
+label = "feedback"                 # applied to filed tickets
 ```
 
 Classify each MATERIALIZE cluster:
 
-- **Deployment-local** (our config, our prompts, our pipeline instructions): file on THIS repo's board (the `[linear]` config) — fixable here without upstream changes.
+- **Deployment-local** (our config, our prompts, our pipeline instructions): file on THIS repo's board through its configured PM provider — fixable here without upstream changes.
 - **Framework** (the agent-team CLI/daemon itself misbehaved or lacks a capability): file via the `upstream` route.
 - **External** (another project's tooling that our agents touch): file via that project's named route if one is declared; otherwise treat as deployment-local with a note.
 
-File through the `linear` skill using the route's `team_key` and `label`. For any non-local route, also apply a `source-project:<project.id>` label where `<project.id>` is read from `[project].id` in this repo's `.agent_team/config.toml`. Include the machine footer `agent-team-origin: project=<id> team=<team> instance=<instance> trigger=<trigger>` at the end of filed ticket descriptions or folded evidence comments; the `linear-graphql.sh` helper appends it automatically when the daemon exported `AGENT_TEAM_*` origin variables.
+File and fold through the provider-abstracted ticket verb:
+
+```sh
+agent-team ticket create --repo <target-repo> --title "<title>" --body-file <ticket-body.md> --label feedback --json
+agent-team ticket comment --repo <target-repo> <ticket-or-issue> --body-file <evidence.md> --json
+```
+
+Use the current repo as `<target-repo>` for deployment-local items. For a named route, use that route's local repo root when one is declared. If a legacy route only names a provider/team (for example `kind = "linear"` with no target repo/config), do not fall back to `linear-graphql.sh`; retain the feedback item with a note that the route needs a provider-agnostic local target.
+
+For any non-local route, also apply a `source-project:<project.id>` label where `<project.id>` is read from `[project].id` in this repo's `.agent_team/config.toml`. The `agent-team ticket` verb appends the machine footer `agent-team-origin: project=<id> team=<team> instance=<instance> trigger=<trigger>` when daemon origin context is exported.
 
 ## Guardrails (hard rules)
 

@@ -35,6 +35,13 @@ At most THREE tickets per run — the best three, not the first three. Each tick
 - Proposes a concrete, bounded remediation a single worker job could land, with acceptance criteria.
 - Quotes the evidence commands and their output.
 
+Create and update PM tickets through the provider-abstracted verb, not through provider-specific API helpers:
+
+```sh
+agent-team ticket create --title "<title>" --body-file <ticket-body.md> --label tech-debt --json
+agent-team ticket comment <ticket-or-issue> --body-file <evidence.md> --json
+```
+
 If a finding is already ticketed, comment the new evidence onto the existing ticket instead of duplicating. If the subsystem is genuinely clean, say so — a clean bill of health is a valid audit result; file nothing.
 
 ## Closing
