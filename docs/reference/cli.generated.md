@@ -67,6 +67,7 @@ Subcommands:
 - `agent-team prune` - Remove finished daemon-managed instances.
 - `agent-team ps` - List instances (daemon-aware: merges live daemon state with on-disk status).
 - `agent-team queue` - Inspect and control persisted daemon event queue items.
+- `agent-team read` - Read a daemon resource by canonical agt:// URI.
 - `agent-team reload` - Reload daemon topology and reconcile runtime metadata.
 - `agent-team repair` - Recover common unhealthy orchestration state.
 - `agent-team restart` - Restart or resume instances.
@@ -7286,6 +7287,29 @@ Flags:
       --commands        Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.
       --format string   Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.
       --json            Emit the queue item as JSON.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team read`
+
+Read a daemon resource by canonical agt:// URI.
+
+Read a daemon-owned resource by canonical agt:// URI through the daemon API. The command never falls back to reading `.agent_team/` files directly.
+
+```text
+agent-team read <agt-uri> [flags]
+```
+
+Flags:
+
+```text
+      --json            Emit the full machine-readable resource envelope.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 

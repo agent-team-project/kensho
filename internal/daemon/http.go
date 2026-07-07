@@ -411,6 +411,33 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, marshalJobs(jobs))
 	})
 
+	mux.HandleFunc("/v1/resources", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		uri := strings.TrimSpace(r.URL.Query().Get("uri"))
+		if uri == "" {
+			writeError(w, http.StatusBadRequest, "uri query parameter is required")
+			return
+		}
+		read, err := ResolveResourceRead(teamDir, m, channels, events, uri)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrResourceDeploymentUnavailable):
+				writeError(w, http.StatusServiceUnavailable, err.Error())
+			case errors.Is(err, ErrResourceWrongDeployment), errors.Is(err, ErrResourceNotFound):
+				writeError(w, http.StatusNotFound, err.Error())
+			case errors.Is(err, ErrResourceUnsupported):
+				writeError(w, http.StatusBadRequest, err.Error())
+			default:
+				writeError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, read)
+	})
+
 	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
