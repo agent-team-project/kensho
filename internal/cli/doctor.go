@@ -186,12 +186,14 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 				}
 				problems = append(problems, fmt.Sprintf("[%s] has unsupported value %q in %s", providerSource, provider, cfgPath))
 			}
+			missingProviderConfig := false
 			if provider == pmprovider.ProviderLinear {
 				linear, _ := cfg["linear"].(map[string]any)
 				for _, k := range []string{"team_id", "ticket_prefix"} {
 					v, _ := linear[k].(string)
 					if v == "" {
-						problems = append(problems, fmt.Sprintf("[linear].%s missing/empty in %s", k, cfgPath))
+						problems = append(problems, providerRequiredConfigProblem("linear", k, provider, providerSource, cfgPath))
+						missingProviderConfig = true
 					}
 				}
 			}
@@ -200,9 +202,13 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 				for _, k := range []string{"owner", "repo"} {
 					v, _ := github[k].(string)
 					if v == "" {
-						problems = append(problems, fmt.Sprintf("[github].%s missing/empty in %s", k, cfgPath))
+						problems = append(problems, providerRequiredConfigProblem("github", k, provider, providerSource, cfgPath))
+						missingProviderConfig = true
 					}
 				}
+			}
+			if missingProviderConfig {
+				actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "doctor", "--target", abs}), " "))
 			}
 		}
 	}
@@ -460,6 +466,21 @@ func doctorHealthIssueHandledElsewhere(code string) bool {
 	default:
 		return false
 	}
+}
+
+func providerRequiredConfigProblem(section, key string, provider pmprovider.ProviderName, providerSource, cfgPath string) string {
+	if providerSource == "" {
+		providerSource = "pm.provider"
+	}
+	return fmt.Sprintf("[%s].%s is required when %s = %q in %s", section, key, dottedConfigLabel(providerSource), provider, cfgPath)
+}
+
+func dottedConfigLabel(key string) string {
+	parts := strings.Split(strings.TrimSpace(key), ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return key
+	}
+	return fmt.Sprintf("[%s].%s", parts[0], parts[1])
 }
 
 func appendDoctorActions(actions []string, next ...string) []string {

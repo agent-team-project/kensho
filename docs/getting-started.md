@@ -106,6 +106,11 @@ agent-team daemon status --format '{{.Ready}} {{.PID}}'
 agent-team deployments ls
 ```
 
+The generated `.agent_team/config.toml` starts with a first-run checklist. It
+names the rendered template profile, the active PM provider, the provider keys
+required for that mode, and optional sections that can stay blank until you need
+them. In ticketless mode, no Linear or GitHub keys are required.
+
 `doctor --commands` prints the next safe operator commands when something is
 missing. A valid fresh repo usually suggests starting the daemon and previewing
 `sync`.

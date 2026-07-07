@@ -110,6 +110,12 @@ the default `slim` consumer profile: manager, worker, reviewer, provider
 skills, and the ticket-to-PR pipeline. `agent-team init --profile full` renders
 the self-dogfood topology with extra teams and scheduled governance loops.
 
+Generated `.agent_team/config.toml` files start with a short checklist derived
+from the resolved template parameters. It identifies the active profile and PM
+provider, lists provider keys required for that mode, and reminds operators that
+unused provider sections and optional runtime/health/project fields can stay at
+their defaults.
+
 ## `agent.md`
 
 Agent definition.

@@ -32,9 +32,11 @@ agent-team job logs gs-probe --tail 80 --clean
 
 `agent-team init` writes `.agent_team/` and the explicit settings above keep
 both `[pm].provider` and legacy `[team].pm_tool` in ticketless mode. In that
-mode, the durable job kickoff is the work item. Commit `.agent_team/` before
-dispatching worktree-backed jobs; Git needs an initial `HEAD` to create worker
-worktrees.
+mode, the durable job kickoff is the work item. The generated
+`.agent_team/config.toml` starts with a first-run checklist showing the selected
+template profile, PM provider, provider keys required now, and optional sections
+that can stay blank. Commit `.agent_team/` before dispatching worktree-backed
+jobs; Git needs an initial `HEAD` to create worker worktrees.
 
 `agent-team daemon start --json` includes the loopback `http_url` for the local
 daemon API and embedded dashboard. Open `<http_url>/ui/` from the same machine

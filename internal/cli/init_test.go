@@ -107,6 +107,18 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	if !strings.Contains(body, `profile = "slim"`) {
 		t.Errorf("config.toml missing selected slim profile: %s", body)
 	}
+	for _, want := range []string{
+		`Template profile: "slim"`,
+		`PM provider: "linear"`,
+		"Required provider keys now:",
+		"linear.team_id",
+		"linear.ticket_prefix",
+		"Provider sections for modes you are not using can stay blank.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("config.toml missing first-run guide %q:\n%s", want, body)
+		}
+	}
 	workerConfig, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "agents", "worker", "config.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -268,6 +280,8 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 		`ticket_prefix = ""`,
 		`team = []`,
 		`profile = "slim"`,
+		`PM provider: "none"`,
+		"Required provider keys now: none.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticketless config missing %q:\n%s", want, body)
@@ -318,6 +332,43 @@ func TestInit_WorkerPushVerifyHelperRendered(t *testing.T) {
 	} {
 		if !strings.Contains(agent, want) {
 			t.Errorf("worker prompt missing %q:\n%s", want, agent)
+		}
+	}
+}
+
+func TestInit_GitHubConfigGuide(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init", "--target", tmp,
+		"--set", "pm.provider=github",
+		"--set", "github.owner=acme",
+		"--set", "github.repo=widgets",
+		"--no-input",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init github: %v\nstderr: %s", err, errOut.String())
+	}
+
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cfg)
+	for _, want := range []string{
+		`provider = "github"`,
+		`pm_tool = "github"`,
+		`owner = "acme"`,
+		`repo = "widgets"`,
+		`PM provider: "github"`,
+		"github.owner",
+		"github.repo",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("github config missing %q:\n%s", want, body)
 		}
 	}
 }

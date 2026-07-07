@@ -47,7 +47,7 @@ ticket_prefix = ""
 	if !errors.As(err, &ec) || int(ec) != 1 {
 		t.Errorf("expected exit 1, got %v", err)
 	}
-	if !strings.Contains(errOut.String(), "[linear].team_id missing/empty") {
+	if !strings.Contains(errOut.String(), `[linear].team_id is required when [team].pm_tool = "linear"`) {
 		t.Errorf("missing team_id complaint: %s", errOut.String())
 	}
 }
@@ -83,8 +83,41 @@ ticket_prefix = ""
 	if !errors.As(err, &ec) || int(ec) != 1 {
 		t.Errorf("expected exit 1, got %v", err)
 	}
-	if !strings.Contains(errOut.String(), "[linear].team_id missing/empty") {
+	if !strings.Contains(errOut.String(), `[linear].team_id is required when [pm].provider = "linear"`) {
 		t.Errorf("missing team_id complaint: %s", errOut.String())
+	}
+}
+
+func TestDoctor_FailsOnEmptyGitHubKeys(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(`[pm]
+provider = "github"
+
+[github]
+owner = ""
+repo = ""
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error: empty GitHub owner/repo")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Errorf("expected exit 1, got %v", err)
+	}
+	if !strings.Contains(errOut.String(), `[github].owner is required when [pm].provider = "github"`) {
+		t.Errorf("missing owner complaint: %s", errOut.String())
 	}
 }
 
