@@ -618,7 +618,10 @@ func (r *EventResolver) jobHasDeliveryArtifact(j *jobstore.Job, meta *Metadata) 
 	if pushedBranchExists(repoRoot, worktree, branch) {
 		return true
 	}
-	return committedBranchDiffExists(repoRoot, worktree, branch)
+	if committedBranchDiffExists(repoRoot, worktree, branch) {
+		return true
+	}
+	return openTicketPullRequestWithRecentCommitExists(repoRoot, worktree, j, deliveryArtifactDispatchCutoff(j, meta))
 }
 
 func normalizeDeliveryArtifactContract(raw string) string {
@@ -723,6 +726,135 @@ func committedBranchDiffExists(repoRoot, worktree, branch string) bool {
 		}
 	}
 	return false
+}
+
+type ticketPullRequestRef struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+}
+
+type pullRequestCommitView struct {
+	State   string `json:"state"`
+	Commits []struct {
+		CommittedDate string `json:"committedDate"`
+	} `json:"commits"`
+}
+
+func openTicketPullRequestWithRecentCommitExists(repoRoot, worktree string, j *jobstore.Job, cutoff time.Time) bool {
+	ticket := deliveryTicketIdentifier(j)
+	if ticket == "" || cutoff.IsZero() {
+		return false
+	}
+	dir := deliveryGitDir(repoRoot, worktree)
+	if dir == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	query := fmt.Sprintf("%q in:title,body", ticket)
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list", "--state", "open", "--search", query, "--json", "number,url", "--limit", "20")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	var refs []ticketPullRequestRef
+	if err := json.Unmarshal(out, &refs); err != nil {
+		return false
+	}
+	for _, ref := range refs {
+		pr := strings.TrimSpace(ref.URL)
+		if pr == "" && ref.Number > 0 {
+			pr = fmt.Sprint(ref.Number)
+		}
+		if pr == "" {
+			continue
+		}
+		if openPullRequestHasCommitAtOrAfter(dir, pr, cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
+func openPullRequestHasCommitAtOrAfter(dir, pr string, cutoff time.Time) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", pr, "--json", "state,commits")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	var view pullRequestCommitView
+	if err := json.Unmarshal(out, &view); err != nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(view.State), "OPEN") {
+		return false
+	}
+	cutoff = cutoff.UTC().Truncate(time.Second)
+	for _, commit := range view.Commits {
+		committedAt, ok := parseGitHubTimestamp(commit.CommittedDate)
+		if ok && !committedAt.Before(cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
+func deliveryTicketIdentifier(j *jobstore.Job) string {
+	if j == nil {
+		return ""
+	}
+	for _, raw := range []string{j.Ticket, j.TicketURL} {
+		if id := jobstore.ExtractTicketIdentifier(raw); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func deliveryArtifactDispatchCutoff(j *jobstore.Job, meta *Metadata) time.Time {
+	if j != nil {
+		var earliestStep time.Time
+		for _, step := range j.Steps {
+			started := step.RunningAt
+			if started.IsZero() {
+				started = step.StartedAt
+			}
+			if started.IsZero() {
+				continue
+			}
+			if earliestStep.IsZero() || started.Before(earliestStep) {
+				earliestStep = started
+			}
+		}
+		if !earliestStep.IsZero() {
+			return earliestStep.UTC()
+		}
+	}
+	if meta != nil && !meta.StartedAt.IsZero() {
+		return meta.StartedAt.UTC()
+	}
+	if j != nil {
+		return j.CreatedAt.UTC()
+	}
+	return time.Time{}
+}
+
+func parseGitHubTimestamp(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		t, err := time.Parse(layout, raw)
+		if err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func deliveryGitDir(repoRoot, worktree string) string {

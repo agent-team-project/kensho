@@ -196,6 +196,31 @@ func seedPushedBranchArtifact(t *testing.T, teamDir, jobID string) string {
 	return branch
 }
 
+func stubTicketPullRequestGh(t *testing.T, listJSON, viewJSON string) {
+	t.Helper()
+	binDir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+cat <<'JSON'
+%s
+JSON
+exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+cat <<'JSON'
+%s
+JSON
+exit 0
+fi
+exit 1
+`, listJSON, viewJSON)
+	path := filepath.Join(binDir, "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func (f *fakeSpawner) lastEnv() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1931,6 +1956,61 @@ func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManag
 	}
 	if len(messages) != 1 || !strings.Contains(messages[0].Body, "squ-155") || !strings.Contains(messages[0].Body, "delivery artifact missing") {
 		t.Fatalf("manager messages = %+v, want missing-deliverable notification", messages)
+	}
+}
+
+func TestEvent_DeliveryArtifactAllowsLinkedTicketOpenPRWithNewCommit(t *testing.T) {
+	repoRoot := t.TempDir()
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	dispatchedAt := time.Date(2026, 7, 7, 12, 0, 0, 500_000_000, time.UTC)
+	stubTicketPullRequestGh(t,
+		`[{"number":169,"url":"https://github.com/acme/repo/pull/169"}]`,
+		fmt.Sprintf(`{"state":"OPEN","commits":[{"committedDate":%q}]}`, dispatchedAt.Add(time.Minute).Format(time.RFC3339)),
+	)
+	j := &jobstore.Job{
+		ID:               "squ-167b",
+		Ticket:           "SQU-167",
+		Target:           "worker",
+		DeliveryContract: deliveryContractBranch,
+		CreatedAt:        dispatchedAt.Add(-time.Hour),
+		UpdatedAt:        dispatchedAt.Add(-time.Hour),
+	}
+	meta := &Metadata{
+		Instance:  "worker-squ-167b",
+		Workspace: repoRoot,
+		StartedAt: dispatchedAt,
+	}
+
+	if reason := MissingDeliveryArtifactReason(teamDir, j, meta); reason != "" {
+		t.Fatalf("missing reason = %q, want linked ticket PR with new commit to count as deliverable", reason)
+	}
+}
+
+func TestEvent_DeliveryArtifactRejectsLinkedTicketOpenPRWithoutNewCommit(t *testing.T) {
+	repoRoot := t.TempDir()
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	dispatchedAt := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	stubTicketPullRequestGh(t,
+		`[{"number":169,"url":"https://github.com/acme/repo/pull/169"}]`,
+		fmt.Sprintf(`{"state":"OPEN","commits":[{"committedDate":%q}]}`, dispatchedAt.Add(-time.Minute).Format(time.RFC3339)),
+	)
+	j := &jobstore.Job{
+		ID:               "squ-167c",
+		Ticket:           "SQU-167",
+		Target:           "worker",
+		DeliveryContract: deliveryContractBranch,
+		CreatedAt:        dispatchedAt.Add(-time.Hour),
+		UpdatedAt:        dispatchedAt.Add(-time.Hour),
+	}
+	meta := &Metadata{
+		Instance:  "worker-squ-167c",
+		Workspace: repoRoot,
+		StartedAt: dispatchedAt,
+	}
+
+	reason := MissingDeliveryArtifactReason(teamDir, j, meta)
+	if !strings.Contains(reason, "delivery artifact missing") {
+		t.Fatalf("missing reason = %q, want stale ticket PR commit to fail the gate", reason)
 	}
 }
 
