@@ -59,7 +59,7 @@ agent-team job send squ-42 "Please continue with the new constraint"
 agent-team team send delivery --all "Pause after current step"
 agent-team inbox ls --unread
 agent-team inbox ls --team delivery --unread
-agent-team inbox show manager --unread
+agent-team inbox check manager
 agent-team inbox ack manager --all
 agent-team next --source inbox --reason unread
 agent-team next --source inbox --reason unread --commands
@@ -81,8 +81,8 @@ agent-team send manager "Stop and handle this before continuing." --interrupt
 
 - `inbox ls` summarizes total and unread messages per instance, including mailboxes created for future instances with `send --allow-missing`.
 - `inbox ls --team <team>` narrows the summary to declared team instances and their daemon-known ephemeral children.
-- `inbox show <instance>` lists message IDs, senders, unread state, and bodies.
-- `inbox ack <instance> <message-id>` advances the cursor through one message; `--all` marks every current message read. Use `--dry-run` before changing the cursor.
+- `inbox check [instance]` lists unread message IDs, senders, and bodies. With no instance argument, it reads `AGENT_TEAM_INSTANCE`.
+- `inbox ack [instance] MESSAGE_ID` acknowledges only the next unread message and refuses to skip earlier unread messages; `--all` marks every current unread message read after you have handled them. Use `--dry-run` before changing the cursor.
 
 `overview`, `team overview`, `next`, `team next`, `monitor`, and `team monitor` include unread inbox counts and actions. `snapshot`, `team snapshot`, `pipeline snapshot`, and `job snapshot` also include inbox summaries for handoff artifacts; latest message bodies are redacted unless `--no-redact` is used. Use `next --source inbox --reason unread` when a script or operator view should focus only on unread mailbox work, and add `--commands` when that script needs one command per line.
 
