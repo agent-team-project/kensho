@@ -1780,6 +1780,7 @@ Flags:
       --format string      Render the init result with a Go template, e.g. '{{.TeamDir}} {{.Kind}}'.
       --json               Emit machine-readable JSON on success.
       --no-input           Fail with a clear error if required parameters are missing instead of prompting.
+      --profile slim       Template profile to render, e.g. slim or `full` for the bundled template.
       --set stringArray    Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.
       --target string      Target repo root. (default "<repo>")
       --template default   default (uses the supplied/bundled template ref) or `empty` (scaffold only, no manifest). (default "default")
