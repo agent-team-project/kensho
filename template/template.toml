@@ -101,7 +101,7 @@ description = "GitHub Projects status option that dispatches the default ticket_
 key         = "github.agent_login"
 type        = "string"
 default     = ""
-description = "Optional GitHub login for the agent token; project status webhooks authored by this login are ignored to prevent dispatch loops."
+description = "Optional GitHub login for the agent token; worker GitHub auth verifies this actor and project status webhooks authored by this login are ignored to prevent dispatch loops."
 
 [[parameter]]
 key         = "github.agent_id"

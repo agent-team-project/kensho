@@ -844,6 +844,9 @@ def verify_restart_policy(binary: Path, repo: Path, env: dict[str, str]) -> None
 
 def verify_startup_command_surface(repo: Path, worker: str) -> None:
     marker = repo / ".agent_team" / "state" / worker / "startup-command-surface.json"
+    deadline = time.time() + 5
+    while not marker.is_file() and time.time() < deadline:
+        time.sleep(0.1)
     if not marker.is_file():
         raise DemoError(f"fake worker did not write startup command marker: {marker}")
     data = json.loads(marker.read_text(encoding="utf-8"))

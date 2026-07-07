@@ -9,8 +9,10 @@ user_invocable: true
 ## Workflow
 
 1. **Commit** any uncommitted changes with a clear commit message.
-2. **Push** the branch.
-3. **Create the PR** with `gh pr create`.
+2. **Push** the branch with the worker push helper:
+   `BRANCH="$(git branch --show-current)"; "${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/agents/worker/scripts/git-push-verify.sh" "$BRANCH"`.
+3. **Create the PR** with the pinned GitHub wrapper:
+   `GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"; "$GH_AUTH" gh pr create ...`.
 
 ## PR format
 
@@ -40,3 +42,4 @@ Look for ticket references already in the conversation: Linear URLs (e.g. `https
 
 - PM-tool URL resolution is handled by the calling agent and the configured provider context; this skill only formats the PR body and invokes `gh`.
 - The `Co-Authored-By` trailer in commits is handled by the calling agent's commit workflow, not this skill.
+- Do not run raw `gh` from a worker. Use `github-auth.sh gh ...` so PR creation uses the configured GitHub actor rather than the ambient active account.

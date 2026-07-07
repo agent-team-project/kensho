@@ -127,8 +127,9 @@ repo = ""
 # pipeline when an issue item is moved into it.
 agent_column = "Ready for Agent"
 
-# Optional: actor identity for the agent token. Project status webhooks authored
-# by this actor are ignored so agent write-backs do not redispatch work.
+# Optional: actor identity for the agent token. Worker `gh` calls and GitHub
+# HTTPS pushes verify this actor before running, and project status webhooks
+# authored by this actor are ignored so agent write-backs do not redispatch work.
 # agent_login = "agent-bot"
 # agent_id = "123456"
 

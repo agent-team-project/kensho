@@ -56,6 +56,7 @@ id = "a1290ed4-258f-4706-964b-c1aa3d82f6fc"
 [github]
 owner = "agent-team-project"
 repo = "kensho"
+agent_login = "agent-team-project"
 project_number = 1
 project_status_field = "Status"
 agent_column = "Ready for Agent"

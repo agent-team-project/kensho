@@ -13,7 +13,63 @@ usage() {
 
 remote_tip() {
     branch=$1
-    git ls-remote origin "refs/heads/$branch" | awk '{print $1; exit}'
+    run_git ls-remote origin "refs/heads/$branch" | awk '{print $1; exit}'
+}
+
+team_root() {
+    if [ -n "${AGENT_TEAM_ROOT:-}" ]; then
+        printf '%s\n' "$AGENT_TEAM_ROOT"
+        return 0
+    fi
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    printf '%s/.agent_team\n' "$repo_root"
+}
+
+github_auth_helper() {
+    printf '%s/skills/github/scripts/github-auth.sh\n' "$(team_root)"
+}
+
+origin_url() {
+    git remote get-url origin 2>/dev/null || true
+}
+
+origin_kind() {
+    remote=$1
+    host=${AGENT_TEAM_GITHUB_HOST:-github.com}
+    case "$remote" in
+        "https://$host"/*)
+            printf '%s\n' "github-https"
+            ;;
+        "git@$host":*|"ssh://git@$host"/*)
+            printf '%s\n' "github-ssh"
+            ;;
+        *)
+            printf '%s\n' "other"
+            ;;
+    esac
+}
+
+run_git() {
+    remote=$(origin_url)
+    kind=$(origin_kind "$remote")
+    case "$kind" in
+        github-https)
+            helper=$(github_auth_helper)
+            if [ ! -x "$helper" ]; then
+                echo "git-push-verify: GitHub auth helper is missing or not executable: $helper" >&2
+                return 2
+            fi
+            "$helper" git "$@"
+            ;;
+        github-ssh)
+            echo "git-push-verify: refusing GitHub SSH remote for worker push: $remote" >&2
+            echo "git-push-verify: use an HTTPS origin so github-auth.sh can pin the GitHub actor" >&2
+            return 2
+            ;;
+        *)
+            git "$@"
+            ;;
+    esac
 }
 
 push_verify() {
@@ -28,7 +84,7 @@ push_verify() {
 
     attempt=1
     while [ "$attempt" -le 2 ]; do
-        git push -u origin "$branch"
+        run_git push -u origin "$branch"
         push_status=$?
         if [ "$push_status" -ne 0 ]; then
             echo "git-push-verify: git push exited $push_status; checking origin/$branch with ls-remote" >&2

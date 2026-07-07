@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,9 +184,11 @@ func TestInit_WorkerPushVerifyHelperRendered(t *testing.T) {
 	}
 	body := string(bodyBytes)
 	for _, want := range []string{
-		"git ls-remote origin",
+		"github-auth.sh",
+		"run_git ls-remote origin",
 		"git rev-parse HEAD",
 		`[ "$remote_sha" = "$local_sha" ]`,
+		"run_git push -u origin",
 		"retrying push once",
 	} {
 		if !strings.Contains(body, want) {
@@ -213,6 +216,175 @@ func TestInit_WorkerPushVerifyHelperRendered(t *testing.T) {
 		if !strings.Contains(agent, want) {
 			t.Errorf("worker prompt missing %q:\n%s", want, agent)
 		}
+	}
+}
+
+func TestWorkerPushVerifyHelperPinsGitHubIdentityForGitHubRemote(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git unavailable")
+	}
+
+	tmp := initBundledTemplateForTest(t)
+	setGitHubAgentLoginForInitTest(t, tmp, "agent-team-project")
+	helperPath := filepath.Join(tmp, ".agent_team", "agents", "worker", "scripts", "git-push-verify.sh")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForInitTest(t, repo, "init")
+	runGitForInitTest(t, repo, "config", "user.email", "worker@example.com")
+	runGitForInitTest(t, repo, "config", "user.name", "Worker Test")
+	runGitForInitTest(t, repo, "checkout", "-b", "bench-718")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForInitTest(t, repo, "add", "file.txt")
+	runGitForInitTest(t, repo, "commit", "-m", "initial")
+
+	localSHA := runGitForInitTest(t, repo, "rev-parse", "HEAD")
+	fakeBin := filepath.Join(tmp, "fakebin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGit := filepath.Join(fakeBin, "git")
+	const fakeGitBody = `#!/bin/sh
+while [ "$1" = "-c" ]; do
+    shift 2
+done
+case "$1" in
+    remote)
+        if [ "${2:-}" = "get-url" ] && [ "${3:-}" = "origin" ]; then
+            echo "https://github.com/agent-team-project/kensho.git"
+            exit 0
+        fi
+        ;;
+    push)
+        {
+            echo "cmd=push"
+            echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+            echo "GH_TOKEN=$GH_TOKEN"
+            echo "AGENT_TEAM_GITHUB_LOGIN=$AGENT_TEAM_GITHUB_LOGIN"
+            echo "GIT_TERMINAL_PROMPT=$GIT_TERMINAL_PROMPT"
+            if [ -n "$GIT_ASKPASS" ] && [ -x "$GIT_ASKPASS" ]; then
+                echo "GIT_ASKPASS=executable"
+            else
+                echo "GIT_ASKPASS=missing"
+            fi
+        } >> "$GIT_PUSH_VERIFY_FAKE_LOG"
+        exit 0
+        ;;
+    ls-remote)
+        {
+            echo "cmd=ls-remote"
+            echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+            echo "GH_TOKEN=$GH_TOKEN"
+            echo "AGENT_TEAM_GITHUB_LOGIN=$AGENT_TEAM_GITHUB_LOGIN"
+            echo "GIT_TERMINAL_PROMPT=$GIT_TERMINAL_PROMPT"
+            if [ -n "$GIT_ASKPASS" ] && [ -x "$GIT_ASKPASS" ]; then
+                echo "GIT_ASKPASS=executable"
+            else
+                echo "GIT_ASKPASS=missing"
+            fi
+        } >> "$GIT_PUSH_VERIFY_FAKE_LOG"
+        printf '%s\trefs/heads/bench-718\n' "$LOCAL_SHA"
+        exit 0
+        ;;
+esac
+exec "$REAL_GIT" "$@"
+`
+	if err := os.WriteFile(fakeGit, []byte(fakeGitBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeCurl := filepath.Join(fakeBin, "curl")
+	const fakeCurlBody = `#!/bin/sh
+printf '%s\n' "$*" >> "$GIT_PUSH_VERIFY_CURL_LOG"
+printf '{"login":"agent-team-project"}\n'
+`
+	if err := os.WriteFile(fakeCurl, []byte(fakeCurlBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGh := filepath.Join(fakeBin, "gh")
+	if err := os.WriteFile(fakeGh, []byte("#!/bin/sh\nexit 37\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pushLog := filepath.Join(tmp, "push-auth.log")
+	curlLog := filepath.Join(tmp, "curl.log")
+	env := []string{
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"REAL_GIT=" + gitPath,
+		"LOCAL_SHA=" + localSHA,
+		"AGENT_TEAM_ROOT=" + filepath.Join(tmp, ".agent_team"),
+		"AGENT_TEAM_GITHUB_TOKEN=bot-token",
+		"GITHUB_TOKEN=",
+		"GH_TOKEN=",
+		"GIT_PUSH_VERIFY_FAKE_LOG=" + pushLog,
+		"GIT_PUSH_VERIFY_CURL_LOG=" + curlLog,
+	}
+
+	if out, err := runPushVerifyHelperForInitTest(t, helperPath, repo, env, "bench-718"); err != nil {
+		t.Fatalf("GitHub auth push helper failed: %v\n%s", err, out)
+	}
+	logBytes, err := os.ReadFile(pushLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(logBytes)
+	for _, want := range []string{
+		"cmd=push",
+		"cmd=ls-remote",
+		"GITHUB_TOKEN=bot-token",
+		"GH_TOKEN=bot-token",
+		"AGENT_TEAM_GITHUB_LOGIN=agent-team-project",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=executable",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("pinned git env log missing %q:\n%s", want, log)
+		}
+	}
+	curlBytes, err := os.ReadFile(curlLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(curlBytes), "Authorization: Bearer bot-token") {
+		t.Fatalf("actor verification did not use the pinned token:\n%s", string(curlBytes))
+	}
+}
+
+func TestGitHubAuthHelperRejectsUnexpectedActor(t *testing.T) {
+	tmp := initBundledTemplateForTest(t)
+	setGitHubAgentLoginForInitTest(t, tmp, "agent-team-project")
+	helperPath := filepath.Join(tmp, ".agent_team", "skills", "github", "scripts", "github-auth.sh")
+	fakeBin := filepath.Join(tmp, "fakebin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeCurl := filepath.Join(fakeBin, "curl")
+	if err := os.WriteFile(fakeCurl, []byte("#!/bin/sh\nprintf '{\"login\":\"jamesaud\"}\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGh := filepath.Join(fakeBin, "gh")
+	if err := os.WriteFile(fakeGh, []byte("#!/bin/sh\nexit 37\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(helperPath, "token")
+	cmd.Dir = tmp
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AGENT_TEAM_ROOT="+filepath.Join(tmp, ".agent_team"),
+		"AGENT_TEAM_GITHUB_TOKEN=personal-token",
+		"GITHUB_TOKEN=",
+		"GH_TOKEN=",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("github-auth helper accepted mismatched actor:\n%s", string(out))
+	}
+	if !strings.Contains(string(out), "GitHub token actor is jamesaud, expected agent-team-project") {
+		t.Fatalf("mismatch error did not explain actor mismatch:\n%s", string(out))
 	}
 }
 
@@ -305,6 +477,24 @@ exec "$REAL_GIT" "$@"
 	}
 	if !strings.Contains(out, "push verification failed") {
 		t.Fatalf("failure output missing clear verification error:\n%s", out)
+	}
+}
+
+func setGitHubAgentLoginForInitTest(t *testing.T, tmp, login string) {
+	t.Helper()
+	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+	cfgBytes, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(cfgBytes)
+	old := `agent_login = ""`
+	if !strings.Contains(cfg, old) {
+		t.Fatalf("rendered config missing %q:\n%s", old, cfg)
+	}
+	cfg = strings.Replace(cfg, old, fmt.Sprintf(`agent_login = %q`, login), 1)
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

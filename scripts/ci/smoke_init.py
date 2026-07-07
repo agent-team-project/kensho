@@ -35,6 +35,7 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/agents/worker/config.toml",
     ".agent_team/skills/github/SKILL.md",
     ".agent_team/skills/github/scripts/github-api.sh",
+    ".agent_team/skills/github/scripts/github-auth.sh",
     ".agent_team/skills/linear/SKILL.md",
     ".agent_team/skills/linear/scripts/linear-graphql.sh",
     ".agent_team/skills/pull-request/SKILL.md",

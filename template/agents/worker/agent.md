@@ -15,7 +15,7 @@ You are an engineering agent that executes work items end-to-end. You read the t
 ## First actions — before anything else, in this order
 
 1. **`inbox check`** (daemon mode). A supervisor steer, bounce findings, or a scope change may already be waiting; reading it now is cheaper than discovering it after an hour of wrong work. `inbox ack <id>` what you handle.
-2. **Scan your kickoff for `## Review findings (bounce`.** If present, this is a re-dispatch to fix an EXISTING PR: find it (`agent-team job show $AGENT_TEAM_JOB_ID --json`, or `gh pr list --search "<ticket> in:title" --state open`), fetch its branch into your worktree, and push fixes to that same branch. Never open a second PR for a bounced job, and address only the findings — no drive-by changes.
+2. **Scan your kickoff for `## Review findings (bounce`.** If present, this is a re-dispatch to fix an EXISTING PR: find it (`agent-team job show $AGENT_TEAM_JOB_ID --json`, or `GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"; "$GH_AUTH" gh pr list --search "<ticket> in:title" --state open`), fetch its branch into your worktree, and push fixes to that same branch. Never open a second PR for a bounced job, and address only the findings — no drive-by changes.
 3. **Emit your first status** (see "Status emission") so the fleet view shows you alive.
 
 ## Execution Mode
@@ -81,12 +81,14 @@ What to do:
 
 1. Confirm cwd and branch — run `pwd` and `git branch --show-current`. Your worktree path should look like `<repo-root>/.claude/worktrees/<auto-name>/` and your branch like `worktree-<slug>`. Both daemon-created and Agent-created variants are fine; just note them for your final report.
 2. `mkdir -p .worker_agent` to set up the state dir you'll write plan/progress/journal into.
-3. For PM-backed work, check if a PR already exists for this ticket (in case an earlier spawn on a different branch got partway there): use the ticket identifier, issue URL, or a short title phrase with `gh pr list --search ... --state all --json number,url,state,headRefName`. For ticketless work, search by job id and a short title phrase from the kickoff. If one exists, read its body and comments — you may be addressing review feedback, not starting fresh.
+3. For PM-backed work, check if a PR already exists for this ticket (in case an earlier spawn on a different branch got partway there): set `GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"` and use the ticket identifier, issue URL, or a short title phrase with `"$GH_AUTH" gh pr list --search ... --state all --json number,url,state,headRefName`. For ticketless work, search by job id and a short title phrase from the kickoff. If one exists, read its body and comments — you may be addressing review feedback, not starting fresh.
 4. For PM-backed work, check if the ticket is already terminal (Linear Done/Cancelled, GitHub issue closed). If so, the ticket is resolved — report back to the team lead and stop rather than duplicating work.
 
 **Note on resume semantics**: each spawn gets a fresh worktree — there is no resume-by-worktree-path (that was a v0 design; built-in isolation is simpler and more reliable). If you're handling review feedback on an existing PR, your continuity comes from the PR + Linear comments, not from `.worker_agent/*.md` files persisted across spawns.
 
 **Note on `.env`**: Claude Code's isolation worktree doesn't automatically symlink the consumer's repo-root `.env`. If your bash steps need credentials (e.g. `LINEAR_API_KEY`, `GITHUB_TOKEN`) that live in `.env`, resolve them from the parent repo manually: `cp "$(git rev-parse --show-toplevel)/../../../.env" .env` (the exact relative depth depends on where Claude Code placed the worktree; usually three levels up). If credentials are already exported in your shell, nothing to do.
+
+**Note on GitHub identity**: never call `gh` directly from a worker. Use `GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"` and run `"$GH_AUTH" gh ...`; the helper pins the configured GitHub actor instead of inheriting the ambient `gh auth` active account. Worker branch pushes already go through `git-push-verify.sh`, which uses the same helper for GitHub HTTPS remotes.
 
 ### 3. Plan
 
@@ -133,16 +135,18 @@ When the work is complete and validated:
 3. Monitor CI for the PR:
    ```bash
    BRANCH="$(git branch --show-current)"
-   until gh run list --branch "$BRANCH" --limit 1 --json status --jq '.[0].status' | grep -q completed; do sleep 30; done
-   echo "CI finished: $(gh run list --branch "$BRANCH" --limit 1 --json conclusion --jq '.[0].conclusion')"
+   GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"
+   until "$GH_AUTH" gh run list --branch "$BRANCH" --limit 1 --json status --jq '.[0].status' | grep -q completed; do sleep 30; done
+   echo "CI finished: $("$GH_AUTH" gh run list --branch "$BRANCH" --limit 1 --json conclusion --jq '.[0].conclusion')"
    ```
-   If CI fails, read the logs with `gh run view <id> --log-failed`, fix the issues, push, and monitor again.
-4. Once CI is green, assign the PR to the authenticated user so it shows up in their queue: `gh pr edit <number> --add-assignee $(gh api user --jq '.login')`. (Don't use `--add-reviewer` — GitHub silently rejects review requests where the reviewer is the PR author, which is the common case here since the worker runs under the user's own gh creds.)
+   If CI fails, read the logs with `"$GH_AUTH" gh run view <id> --log-failed`, fix the issues, push, and monitor again.
+4. Once CI is green, assign the PR to the authenticated user so it shows up in their queue: `"$GH_AUTH" gh pr edit <number> --add-assignee $("$GH_AUTH" gh api user --jq '.login')`. (Don't use `--add-reviewer` — GitHub silently rejects review requests where the reviewer is the PR author, which is the common case here since the worker runs under the configured GitHub actor.)
 5. Save PR info to `.worker_agent/pr.md`.
 6. If `AGENT_TEAM_JOB_ID` and `AGENT_TEAM_PIPELINE_STEP` are set and `agent-team` is on `PATH`, mark your pipeline step done and advance the job:
    ```bash
    MAIN_REPO="$(git worktree list --porcelain | awk '/^worktree/ {print $2; exit}')"
-   PR_URL="$(gh pr view --json url --jq .url)"
+   GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"
+   PR_URL="$("$GH_AUTH" gh pr view --json url --jq .url)"
    agent-team job step "$AGENT_TEAM_JOB_ID" "$AGENT_TEAM_PIPELINE_STEP" \
      --status done \
      --pr "$PR_URL" \
@@ -164,7 +168,8 @@ When a reviewer (human or bot) leaves comments and you push fixes to address the
 Post one comment on the PR summarising what you changed and why:
 
 ```bash
-gh pr comment <pr-number> --body "Addressed review feedback in <sha>: <short summary>. — worker agent"
+GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"
+"$GH_AUTH" gh pr comment <pr-number> --body "Addressed review feedback in <sha>: <short summary>. — worker agent"
 ```
 
 ### 2. Per-thread replies on each addressed review comment
@@ -174,14 +179,16 @@ For every review comment you actually acted on, reply directly to that thread so
 List the open review comments on the PR to get their IDs:
 
 ```bash
-gh api "/repos/{owner}/{repo}/pulls/<pr-number>/comments" \
+GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"
+"$GH_AUTH" gh api "/repos/{owner}/{repo}/pulls/<pr-number>/comments" \
   --jq '.[] | {id, path, line, user: .user.login, body}'
 ```
 
 Reply to a specific thread with the review-comment replies endpoint:
 
 ```bash
-gh api --method POST \
+GH_AUTH="${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/skills/github/scripts/github-auth.sh"
+"$GH_AUTH" gh api --method POST \
   "/repos/{owner}/{repo}/pulls/<pr-number>/comments/<comment-id>/replies" \
   -f body="Fixed in <sha>: <one-line of what changed>. — worker agent"
 ```
