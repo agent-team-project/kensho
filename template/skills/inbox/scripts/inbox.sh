@@ -8,6 +8,7 @@
 # Usage:
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh check
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack <id>
+#   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack --all
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send <to> <body...>
 
 set -euo pipefail
@@ -17,6 +18,7 @@ usage() {
 usage:
   inbox.sh check
   inbox.sh ack <id>
+  inbox.sh ack --all
   inbox.sh send <to> <body...>
 EOF
     exit 2
@@ -98,12 +100,18 @@ case "$verb" in
     ack)
         [[ $# -ge 1 ]] || usage
         id="$1"; shift
+        ack_all=0
+        if [[ "$id" == "--all" ]]; then
+            ack_all=1
+            id=""
+        fi
         require_team_root
         require_instance
         AGENT_TEAM_ROOT="$AGENT_TEAM_ROOT" \
         AGENT_TEAM_INSTANCE="$AGENT_TEAM_INSTANCE" \
         INBOX_VERB=ack \
         INBOX_ACK_ID="$id" \
+        INBOX_ACK_ALL="$ack_all" \
             python3 "$(dirname "$0")/_inbox_read.py"
         ;;
     send)

@@ -1564,17 +1564,21 @@ Inherited Flags:
 
 Subcommands:
 
-- `agent-team inbox ack` - Advance an instance inbox cursor.
+- `agent-team inbox ack` - Acknowledge unread inbox messages in order.
+- `agent-team inbox check` - Show unread messages for the current instance inbox.
 - `agent-team inbox ls` - List inbox summaries by instance.
 - `agent-team inbox prune` - Prune acknowledged inbox messages.
+- `agent-team inbox send` - Send a mailbox message to a daemon-managed instance.
 - `agent-team inbox show` - Show messages for one instance inbox.
 
 ## `agent-team inbox ack`
 
-Advance an instance inbox cursor.
+Acknowledge unread inbox messages in order.
+
+Acknowledge unread inbox messages by advancing the inbox cursor. Ack-by-id only accepts the next unread message, so it cannot accidentally skip earlier unread messages. With no instance argument, the target defaults to AGENT_TEAM_INSTANCE. Use --all to acknowledge every current message.
 
 ```text
-agent-team inbox ack <instance> <message-id>|--all [flags]
+agent-team inbox ack [instance] <message-id>|--all [flags]
 ```
 
 Flags:
@@ -1585,6 +1589,34 @@ Flags:
       --dry-run         Preview the cursor update without writing it.
       --format string   Render the ack result with a Go template, e.g. '{{.Instance}} {{.Acked}}'.
       --json            Emit machine-readable JSON.
+      --self            Acknowledge the inbox for AGENT_TEAM_INSTANCE.
+      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team inbox check`
+
+Show unread messages for the current instance inbox.
+
+Show unread messages for one inbox. With no instance argument, the target defaults to AGENT_TEAM_INSTANCE; use --self to make that selection explicit.
+
+```text
+agent-team inbox check [instance] [flags]
+```
+
+Flags:
+
+```text
+      --commands        Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.
+      --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
+      --json            Emit machine-readable JSON.
+      --self            Read the inbox for AGENT_TEAM_INSTANCE.
+      --tail int        Show only the N most recent unread messages (0 = all).
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
@@ -1605,7 +1637,7 @@ agent-team inbox ls [flags]
 Flags:
 
 ```text
-      --commands        Print inbox show commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.
+      --commands        Print inbox check commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.
       --format string   Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.
       --json            Emit machine-readable JSON.
       --limit int       Limit inbox summaries after filtering and sorting; 0 means no limit.
@@ -1651,6 +1683,35 @@ Inherited Flags:
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
 ```
 
+## `agent-team inbox send`
+
+Send a mailbox message to a daemon-managed instance.
+
+Send a direct message through the daemon mailbox. This is the inbox-scoped alias for `agent-team send &lt;to&gt; &lt;message...&gt;`.
+
+```text
+agent-team inbox send <to> [message...] [flags]
+```
+
+Flags:
+
+```text
+      --commands              With --dry-run, print the matching inbox send apply command when the preview has an actionable recipient. agent-team follow-ups preserve the selected repo scope.
+      --dry-run               Preview the target without appending a mailbox message.
+      --format string         Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.
+      --from string           Sender label recorded with the message. (default "(cli)")
+      --json                  Emit machine-readable JSON.
+      --message string        Message text to send.
+      --message-file string   Read message text from a file, or '-' for stdin.
+      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
 ## `agent-team inbox show`
 
 Show messages for one instance inbox.
@@ -1662,7 +1723,7 @@ agent-team inbox show <instance> [flags]
 Flags:
 
 ```text
-      --commands        Print an inbox ack command for the latest displayed unread message. agent-team follow-ups preserve the selected repo scope.
+      --commands        Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --tail int        Show only the N most recent matching messages (0 = all).

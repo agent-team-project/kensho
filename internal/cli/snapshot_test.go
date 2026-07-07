@@ -2293,7 +2293,7 @@ func TestSnapshotDiffCommandReportsJobSnapshotChanges(t *testing.T) {
 			LatestID: "msg-160",
 		}},
 		Actions: []string{
-			"agent-team inbox show worker-squ-160 --unread",
+			"agent-team inbox check worker-squ-160",
 			"agent-team inspect worker-squ-160",
 		},
 		JobEvents: []job.Event{{
@@ -2413,7 +2413,7 @@ func TestSnapshotDiffCommandReportsJobSnapshotChanges(t *testing.T) {
 		!hasSnapshotDiffChange(result.Changes, "runtime", "exit_code", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "queue", "q-160", "changed") ||
 		!hasSnapshotDiffChange(result.Changes, "inbox", "worker-squ-160", "removed") ||
-		!hasSnapshotDiffChange(result.Changes, "actions", "action/agent-team inbox show worker-squ-160 --unread", "removed") ||
+		!hasSnapshotDiffChange(result.Changes, "actions", "action/agent-team inbox check worker-squ-160", "removed") ||
 		!hasSnapshotDiffChange(result.Changes, "actions", "action/agent-team job logs squ-160 --last-message", "added") ||
 		!hasSnapshotDiffChange(result.Changes, "events", "lifecycle/exit-160", "added") {
 		t.Fatalf("missing expected job snapshot changes: %+v", result.Changes)

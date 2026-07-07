@@ -72,8 +72,8 @@ func TestInboxLsJSONIncludesMetadataAndBareMailbox(t *testing.T) {
 		t.Fatalf("inbox ls --commands: %v\nstderr=%s", err, stderr)
 	}
 	wantCommands := strings.Join([]string{
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "future-worker", "--unread", "--repo", tmp}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "check", "future-worker", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "check", "manager", "--repo", tmp}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(stdout); got != wantCommands {
 		t.Fatalf("inbox ls --commands = %q, want %q", got, wantCommands)
@@ -135,7 +135,7 @@ func TestInboxLsSortAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox ls sorted commands: %v\nstderr=%s", err, stderr)
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-c", "--unread", "--repo", tmp}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "check", "worker-c", "--repo", tmp}), " ")
 	if got := strings.TrimSpace(stdout); got != wantCommand {
 		t.Fatalf("inbox ls sorted commands = %q, want %q", got, wantCommand)
 	}
@@ -305,6 +305,187 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout); got != "" {
 		t.Fatalf("inbox show no-op commands = %q, want empty", got)
+	}
+}
+
+func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	for _, msg := range []*daemon.Message{
+		{ID: "msg-1", From: "manager", Body: "first", TS: now},
+		{ID: "msg-2", From: "reviewer", Body: "second", TS: now.Add(time.Minute)},
+	} {
+		if err := daemon.AppendMessage(root, "worker", msg); err != nil {
+			t.Fatalf("append %s: %v", msg.ID, err)
+		}
+	}
+	t.Setenv("AGENT_TEAM_INSTANCE", "worker")
+
+	stdout, stderr, err := executeInboxCommand("inbox", "check", "--target", tmp, "--json")
+	if err != nil {
+		t.Fatalf("inbox check self: %v\nstderr=%s", err, stderr)
+	}
+	var messages []inboxMessageRow
+	if err := json.Unmarshal([]byte(stdout), &messages); err != nil {
+		t.Fatalf("decode check messages: %v\nbody=%s", err, stdout)
+	}
+	if len(messages) != 2 || messages[0].ID != "msg-1" || messages[1].ID != "msg-2" || !messages[0].Unread || !messages[1].Unread {
+		t.Fatalf("check messages = %+v", messages)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "check", "--self", "--target", tmp, "--commands")
+	if err != nil {
+		t.Fatalf("inbox check commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-1", "--repo", tmp}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox check commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--json")
+	if err != nil {
+		t.Fatalf("inbox show tail json: %v\nstderr=%s", err, stderr)
+	}
+	messages = nil
+	if err := json.Unmarshal([]byte(stdout), &messages); err != nil {
+		t.Fatalf("decode tailed show messages: %v\nbody=%s", err, stdout)
+	}
+	if len(messages) != 1 || messages[0].ID != "msg-2" || !messages[0].Unread {
+		t.Fatalf("tailed show messages = %+v, want only msg-2 displayed", messages)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--commands")
+	if err != nil {
+		t.Fatalf("inbox show tail commands: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox show tail commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "check", "worker", "--target", tmp, "--tail", "1", "--commands")
+	if err != nil {
+		t.Fatalf("inbox check tail commands: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox check tail commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-1", "--target", tmp)
+	if err != nil {
+		t.Fatalf("inbox ack oldest command target: %v\nstderr=%s", err, stderr)
+	}
+	if cursor, err := daemon.ReadCursor(root, "worker"); err != nil {
+		t.Fatalf("read cursor after ack: %v", err)
+	} else if cursor != "msg-1" {
+		t.Fatalf("cursor after ack = %q, want msg-1", cursor)
+	}
+}
+
+func TestInboxCheckMissingInboxUsesCheckErrorPrefix(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, stderr, err := executeInboxCommand("inbox", "check", "missing", "--target", tmp)
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if got, want := strings.TrimSpace(stderr), "agent-team inbox check: no such inbox: missing"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestInboxAckByIDRequiresNextUnreadMessage(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	for _, id := range []string{"msg-1", "msg-2", "msg-3"} {
+		if err := daemon.AppendMessage(root, "worker", &daemon.Message{ID: id, Body: id}); err != nil {
+			t.Fatalf("append %s: %v", id, err)
+		}
+	}
+	t.Setenv("AGENT_TEAM_INSTANCE", "worker")
+
+	_, stderr, err := executeInboxCommand("inbox", "ack", "msg-2", "--target", tmp)
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr, `message id "msg-2" is not the next unread message`) || !strings.Contains(stderr, `handle "msg-1" first`) {
+		t.Fatalf("stderr = %q, want ordered ack hint", stderr)
+	}
+	cursor, err := daemon.ReadCursor(root, "worker")
+	if err != nil {
+		t.Fatalf("read cursor after rejected ack: %v", err)
+	}
+	if cursor != "" {
+		t.Fatalf("cursor after rejected ack = %q, want empty", cursor)
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "ack", "msg-1", "--target", tmp, "--json")
+	if err != nil {
+		t.Fatalf("inbox ack next unread: %v\nstderr=%s", err, stderr)
+	}
+	var ack inboxAckResult
+	if err := json.Unmarshal([]byte(stdout), &ack); err != nil {
+		t.Fatalf("decode ack: %v\nbody=%s", err, stdout)
+	}
+	if ack.Acked != 1 || ack.CursorAfter != "msg-1" || ack.UnreadAfter != 2 {
+		t.Fatalf("ack msg-1 = %+v", ack)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "--all", "--self", "--target", tmp, "--json")
+	if err != nil {
+		t.Fatalf("inbox ack all: %v\nstderr=%s", err, stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &ack); err != nil {
+		t.Fatalf("decode ack all: %v\nbody=%s", err, stdout)
+	}
+	if !ack.All || ack.Acked != 2 || ack.CursorAfter != "msg-3" || ack.UnreadAfter != 0 {
+		t.Fatalf("ack all = %+v", ack)
+	}
+}
+
+func TestInboxSendDirectMessage(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusRunning,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	stdout, stderr, err := executeInboxCommand("inbox", "send", "manager", "hello", "--target", tmp, "--json")
+	if err != nil {
+		t.Fatalf("inbox send: %v\nstderr=%s", err, stderr)
+	}
+	var sent sendJSON
+	if err := json.Unmarshal([]byte(stdout), &sent); err != nil {
+		t.Fatalf("decode send: %v\nbody=%s", err, stdout)
+	}
+	if !sent.Delivered || sent.To != "manager" || sent.From != "(cli)" || sent.ID == "" {
+		t.Fatalf("send result = %+v", sent)
+	}
+	messages, err := daemon.ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Body != "hello" {
+		t.Fatalf("messages = %+v", messages)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "send", "manager", "preview", "--target", tmp, "--dry-run", "--commands")
+	if err != nil {
+		t.Fatalf("inbox send commands: %v\nstderr=%s", err, stderr)
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "send", "manager", "--repo", tmp, "preview"}), " ")
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox send commands = %q, want %q", got, wantCommand)
 	}
 }
 
@@ -756,8 +937,8 @@ instances = ["manager", "worker"]
 		t.Fatalf("inbox ls --team --commands: %v\nstderr=%s", err, stderr)
 	}
 	wantCommands := strings.Join([]string{
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "manager", "--unread", "--repo", tmp}), " "),
-		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "show", "worker-squ-1", "--unread", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "check", "manager", "--repo", tmp}), " "),
+		strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "check", "worker-squ-1", "--repo", tmp}), " "),
 	}, "\n")
 	if got := strings.TrimSpace(stdout); got != wantCommands {
 		t.Fatalf("team inbox commands = %q, want %q", got, wantCommands)

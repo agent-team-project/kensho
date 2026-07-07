@@ -3362,7 +3362,7 @@ target = "worker"
 		"agent-team pipeline queue quarantine ticket_to_pr",
 		"agent-team pipeline outbox ticket_to_pr --summary",
 		"agent-team pipeline outbox quarantine ticket_to_pr",
-		"agent-team inbox show worker-squ-704-implement --unread",
+		"agent-team inbox check worker-squ-704-implement",
 	} {
 		if !containsString(snapshot.Actions, want) {
 			t.Fatalf("snapshot actions missing %q: %+v", want, snapshot.Actions)
@@ -3474,7 +3474,7 @@ target = "worker"
 	for _, wantArgs := range [][]string{
 		{"agent-team", "--repo", target, "pipeline", "advance", "ticket_to_pr", "--dry-run", "--preview-routes"},
 		{"agent-team", "--repo", target, "pipeline", "queue", "ticket_to_pr", "--summary"},
-		{"agent-team", "--repo", target, "inbox", "show", "worker-squ-704-implement", "--unread"},
+		{"agent-team", "--repo", target, "inbox", "check", "worker-squ-704-implement"},
 	} {
 		wantCommand := strings.Join(shellQuoteArgs(wantArgs), " ")
 		if !strings.Contains(commandsOut.String(), wantCommand) {

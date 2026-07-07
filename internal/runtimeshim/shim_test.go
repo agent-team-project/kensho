@@ -16,11 +16,91 @@ func TestAgentTeamShimAllowsReadOnlyVerbs(t *testing.T) {
 
 	runShim(t, shim, "--repo", "/tmp/repo", "job", "show", "squ-1")
 	runShim(t, shim, "inbox", "ls")
+	runShim(t, shim, "inbox", "check", "--self")
 
 	got := strings.TrimSpace(readFile(t, calls))
-	want := "--repo /tmp/repo job show squ-1\ninbox ls"
+	want := "--repo /tmp/repo job show squ-1\ninbox ls\ninbox check --self"
 	if got != want {
 		t.Fatalf("real agent-team args = %q", got)
+	}
+}
+
+func TestInboxRuntimeShimPromptPathCheckAndAckAreOrdered(t *testing.T) {
+	tmp := t.TempDir()
+	teamDir := filepath.Join(tmp, ".agent_team")
+	inboxDir := filepath.Join(teamDir, "daemon", "worker")
+	if err := os.MkdirAll(inboxDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mailbox := filepath.Join(inboxDir, "mailbox.jsonl")
+	body := strings.Join([]string{
+		`{"id":"msg-1","from":"manager","body":"first"}`,
+		`{"id":"msg-2","from":"reviewer","body":"second"}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(mailbox, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skillDir, err := filepath.Abs(filepath.Join("..", "..", "template", "skills", "inbox"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, err := InstallWithOptions(filepath.Join(tmp, "runtime"), map[string]string{"inbox": skillDir}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox := filepath.Join(bin, "inbox")
+	env := append(os.Environ(),
+		"AGENT_TEAM_ROOT="+teamDir,
+		"AGENT_TEAM_INSTANCE=worker",
+	)
+
+	check := exec.Command(inbox, "check")
+	check.Env = env
+	out, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inbox check: %v\n%s", err, out)
+	}
+	for _, want := range []string{"first", "second", "Ack with: inbox ack <id>"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("inbox check output missing %q:\n%s", want, out)
+		}
+	}
+
+	ackSecond := exec.Command(inbox, "ack", "msg-2")
+	ackSecond.Env = env
+	out, err = ackSecond.CombinedOutput()
+	if err == nil {
+		t.Fatalf("inbox ack msg-2 succeeded unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(string(out), "not the next unread message") || !strings.Contains(string(out), "msg-1") {
+		t.Fatalf("inbox ack msg-2 output = %q, want ordered ack hint", out)
+	}
+	cursor := strings.TrimSpace(readOptionalFile(t, filepath.Join(inboxDir, "mailbox-cursor.txt")))
+	if cursor != "" {
+		t.Fatalf("cursor after rejected ack = %q, want empty", cursor)
+	}
+
+	ackFirst := exec.Command(inbox, "ack", "msg-1")
+	ackFirst.Env = env
+	out, err = ackFirst.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inbox ack msg-1: %v\n%s", err, out)
+	}
+	cursor = strings.TrimSpace(readOptionalFile(t, filepath.Join(inboxDir, "mailbox-cursor.txt")))
+	if cursor != "msg-1" {
+		t.Fatalf("cursor after ack msg-1 = %q", cursor)
+	}
+
+	ackAll := exec.Command(inbox, "ack", "--all")
+	ackAll.Env = env
+	out, err = ackAll.CombinedOutput()
+	if err != nil {
+		t.Fatalf("inbox ack --all: %v\n%s", err, out)
+	}
+	cursor = strings.TrimSpace(readOptionalFile(t, filepath.Join(inboxDir, "mailbox-cursor.txt")))
+	if cursor != "msg-2" {
+		t.Fatalf("cursor after ack --all = %q", cursor)
 	}
 }
 
@@ -288,6 +368,18 @@ func runShimExpectExit(t *testing.T, shim string, args ...string) (string, int) 
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func readOptionalFile(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

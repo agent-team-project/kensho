@@ -278,7 +278,7 @@ func pipelineSnapshotActions(snapshot *pipelineSnapshotResult) []string {
 	}
 	for _, row := range snapshot.Inbox {
 		if row.Unread > 0 {
-			add(fmt.Sprintf("agent-team inbox show %s --unread", row.Instance))
+			add(fmt.Sprintf("agent-team inbox check %s", row.Instance))
 		}
 	}
 	if len(snapshot.SectionErrors) > 0 {

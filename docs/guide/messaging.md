@@ -13,7 +13,7 @@ agent-team job send squ-42 "Please continue with the new constraint"
 agent-team pipeline send ticket_to_pr --dry-run --commands "checkpoint status"
 agent-team team send delivery --all "Pause after your current step"
 agent-team inbox ls --unread
-agent-team inbox show manager --unread
+agent-team inbox check manager
 agent-team inbox ack manager --all
 agent-team channel publish standup "worker squ-42 is blocked on review"
 ```
@@ -79,14 +79,20 @@ chatter.
 
 ## Agent-Side Reads
 
-Bundled agents use the `inbox` skill when they need to poll directly:
+Bundled agents use the `inbox` skill's short command aliases when they need to
+poll directly:
 
 ```sh
-"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh check
-"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack <message-id>
+inbox check
+inbox ack MESSAGE_ID
 ```
 
-The script reads the instance mailbox and cursor on disk. A daemon is required
+`inbox check` lists unread messages for the current instance. `inbox ack
+MESSAGE_ID` is ordered: it only accepts the next unread message and refuses to
+skip earlier unread messages. Use `inbox ack --all` only after handling every
+current unread message.
+
+The aliases read the instance mailbox and cursor on disk. A daemon is required
 for sending through the skill, but not for checking already-written messages.
 
 ## Channels

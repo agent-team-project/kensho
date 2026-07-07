@@ -211,7 +211,7 @@ func agentTeamShimBody(real string, opts Options) string {
 		"# drift from it. Unknown verbs exit non-zero and are denied.\n" +
 		"always_allowed() {\n" +
 		"  case \"$1\" in\n" +
-		"    status|inbox|inbox.*|feedback.submit|budget.status|job.show) return 0 ;;\n" +
+		"    status|inbox|inbox.check|inbox.*|feedback.submit|budget.status|job.show) return 0 ;;\n" +
 		"  esac\n" +
 		"  return 1\n" +
 		"}\n" +
