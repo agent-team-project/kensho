@@ -81,8 +81,15 @@ dispatch a *well-scoped first slice*, never the whole epic.
 - **Security/network/auth surfaces legitimately cost more rounds.** SQU-123 took 8; every round
   caught a real defect. Cost scales with blast radius — that's the system working, not slowness.
 - **Merge, then:** `job step <id> approve --status done --instance manager --force`, `job close`,
-  `job cleanup --merged`, set the Linear ticket to Done, `git pull --rebase origin main`.
-- **Epics:** merging a slice never closes the epic. Comment slice progress; keep the epic open.
+  `job cleanup --merged`, `git pull --rebase origin main`.
+- **Closure is MERGE-GATED — never manually close a ticket before its PR merges** (this rule exists
+  because manual closes caused real mistakes: epics closed on a *design* merge, tickets closed while
+  work was stranded). Every **implementation** PR body carries `Closes #<gh-issue>` so GitHub
+  auto-closes the ticket *on merge* — you never touch issue state by hand. **Design/slice** PRs carry
+  `Advances #<epic>` — the epic STAYS OPEN. A PR whose body would close an epic directly is a **bounce**.
+- **Epics:** merging a slice never closes the epic. Track children as a task-list (`- [ ] #child`) in the
+  epic body; the epic closes only when all children close. Note dependencies as `Blocked by #X` on the
+  child. (PM is GitHub post-cutover — `provider=github`; Linear is a read-only archive.)
 
 ## Parallelism & velocity (the lesson I learned the hard way)
 
