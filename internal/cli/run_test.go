@@ -294,26 +294,6 @@ func initInto(t *testing.T, dir string) {
 	}
 }
 
-func appendAuthorityTopology(t *testing.T, path string) {
-	t.Helper()
-	body := `
-
-[authority.agents.worker]
-allow = ["job.gate.*:own"]
-
-[authority.teams.delivery]
-allow = ["event.publish"]
-`
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(body); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func writeOTelRunConfig(t *testing.T, dir string) {
 	t.Helper()
 	body := `[team]
@@ -465,7 +445,6 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 func TestRun_ExportsAuthorityAllowlistFromTopology(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
-	appendAuthorityTopology(t, filepath.Join(tmp, ".agent_team", "instances.toml"))
 
 	cap, restore := captureRun(t, nil)
 	defer restore()
@@ -478,7 +457,8 @@ func TestRun_ExportsAuthorityAllowlistFromTopology(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if got := envValue(cap.env, runtimeshim.EnvAuthorityAllowlist); got != "event.publish,job.gate.*:own" {
+	want := "budget.status,channel.*,feedback.*,inbox.*,job.events,job.gate.*:own,job.show,job.step:own,status.*"
+	if got := envValue(cap.env, runtimeshim.EnvAuthorityAllowlist); got != want {
 		t.Fatalf("%s = %q, want topology allowlist", runtimeshim.EnvAuthorityAllowlist, got)
 	}
 }

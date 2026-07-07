@@ -209,13 +209,16 @@ agent-team team snapshot delivery --output delivery.json
 
 ## Authority
 
-Authority allowlists live in topology and are audit-only in the current phase:
-violations append `authority_violation` daemon/job events and appear in
-`agent-team job triage`, but requests are not blocked.
+Authority allowlists live in topology. `enforcement = "audit"` records
+violations without blocking; `enforcement = "enforce"` records the same
+violation and denies disallowed audited mutations.
 
 ```toml
 [authority]
-enforce = false
+enforcement = "audit"
+
+[authority.instances.manager]
+allow = ["*"]
 
 [authority.agents.worker]
 allow = ["inbox.send", "channel.*", "job.gate.*:own"]
@@ -227,7 +230,7 @@ allow = ["*"]
 Allow entries are exact verbs or prefix wildcards such as `queue.*`. Job
 verbs can add `:own`, such as `job.gate.*:own`, to match only when the target
 job id equals the caller's origin job. Unqualified entries match any target
-job. Agent and team rules are additive.
+job. Instance, agent, and team rules are additive.
 
 ## Validation
 

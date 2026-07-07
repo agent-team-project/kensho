@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -1001,6 +1003,154 @@ allow = ["inbox.send"]
 	}
 }
 
+func TestHTTP_AuthorityEnforcementDeniesUnauthorizedRemove(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "worker-squ-122",
+		Agent:     "worker",
+		Origin:    origin.Envelope{Team: "delivery", Agent: "worker", Instance: "worker-squ-122", Job: "SQU-122"},
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata actor: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "victim",
+		Agent:     "worker",
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata victim: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["instance.remove"]
+
+[authority.agents.worker]
+allow = ["inbox.send"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/remove", bytes.NewReader([]byte(`{"instance":"victim"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Instance: "worker-squ-122", Agent: "manager", Team: "delivery", Job: "SQU-122"}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("remove status = %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	if _, err := ReadMetadata(root, "victim"); err != nil {
+		t.Fatalf("victim metadata should remain: %v", err)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" {
+		t.Fatalf("lifecycle events = %+v", events)
+	}
+	if !strings.Contains(events[0].Message, "verb=instance.remove") || !strings.Contains(events[0].Message, "allowlist_source=authority.agents.worker") {
+		t.Fatalf("violation message = %q", events[0].Message)
+	}
+}
+
+func TestHTTP_AuthorityEnforcementAllowsManagerRemove(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "manager",
+		Agent:     "manager",
+		Origin:    origin.Envelope{Team: "delivery", Agent: "manager", Instance: "manager"},
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata manager: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "victim",
+		Agent:     "worker",
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata victim: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["instance.remove"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/remove", bytes.NewReader([]byte(`{"instance":"victim"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Instance: "manager"}))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("remove status = %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	if _, err := ReadMetadata(root, "victim"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("victim metadata err = %v, want not exist", err)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	for _, ev := range events {
+		if ev.Action == authorityViolationAction {
+			t.Fatalf("unexpected authority violation: %+v", ev)
+		}
+	}
+}
+
 func TestHTTP_LoopbackTokenOriginFeedsAuthorityAudit(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
@@ -1073,6 +1223,156 @@ allow = ["daemon.reconcile"]
 	}
 	if len(jobEvents) != 1 || jobEvents[0].Type != authorityViolationAction || jobEvents[0].Data["verb"] != "daemon.reconcile" || jobEvents[0].Data["actor_job"] != j.ID {
 		t.Fatalf("job events = %+v", jobEvents)
+	}
+}
+
+func TestHTTP_LoopbackTokenOriginCannotBeWidenedByHeader(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	instance := "worker-squ-122"
+	tokenPath, err := EnsureInstanceToken(teamDir, instance)
+	if err != nil {
+		t.Fatalf("EnsureInstanceToken: %v", err)
+	}
+	token, err := ReadTokenFile(tokenPath)
+	if err != nil {
+		t.Fatalf("ReadTokenFile: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  instance,
+		Agent:     "worker",
+		Origin:    origin.Envelope{Team: "delivery", Agent: "worker", Instance: instance, Job: "SQU-122"},
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata actor: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "victim",
+		Agent:     "worker",
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata victim: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["instance.remove"]
+
+[authority.agents.worker]
+allow = ["inbox.send"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	handler := loopbackAuthHandler(Handler(m, nil, resolver, teamDir), teamDir, m, buildinfo.Current("test"))
+
+	req, err := http.NewRequest(http.MethodPost, "http://daemon/v1/remove", bytes.NewReader([]byte(`{"instance":"victim"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Instance: "manager", Agent: "manager", Team: "delivery"}))
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("remove status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := ReadMetadata(root, "victim"); err != nil {
+		t.Fatalf("victim metadata should remain: %v", err)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" || events[0].Origin.Instance != instance {
+		t.Fatalf("lifecycle events = %+v", events)
+	}
+}
+
+func TestHTTP_LoopbackTokenOriginCannotBeWidenedByHeaderWithoutMetadata(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	instance := "worker-squ-122"
+	tokenPath, err := EnsureInstanceToken(teamDir, instance)
+	if err != nil {
+		t.Fatalf("EnsureInstanceToken: %v", err)
+	}
+	token, err := ReadTokenFile(tokenPath)
+	if err != nil {
+		t.Fatalf("ReadTokenFile: %v", err)
+	}
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "victim",
+		Agent:     "worker",
+		Workspace: t.TempDir(),
+		StartedAt: now,
+		Status:    StatusStopped,
+	}); err != nil {
+		t.Fatalf("WriteMetadata victim: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[teams.delivery]
+instances = ["manager", "worker"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.agents.manager]
+allow = ["instance.remove"]
+
+[authority.agents.worker]
+allow = ["inbox.send"]
+`)
+	m := NewInstanceManager(root, nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	handler := loopbackAuthHandler(Handler(m, nil, resolver, teamDir), teamDir, m, buildinfo.Current("test"))
+
+	req, err := http.NewRequest(http.MethodPost, "http://daemon/v1/remove", bytes.NewReader([]byte(`{"instance":"victim"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{Agent: "manager", Team: "delivery"}))
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("remove status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := ReadMetadata(root, "victim"); err != nil {
+		t.Fatalf("victim metadata should remain: %v", err)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatalf("ListLifecycleEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Action != authorityViolationAction || events[0].Origin.Agent != "worker" || events[0].Origin.Instance != instance {
+		t.Fatalf("lifecycle events = %+v", events)
 	}
 }
 

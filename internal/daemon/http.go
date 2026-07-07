@@ -60,6 +60,13 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeErrorWithBuild(w, code, msg, build)
 	}
 	auditor := newAuthorityAuditor(m, events, teamDir)
+	authorize := func(w http.ResponseWriter, r *http.Request, verb, resource string, fallback origin.Envelope) bool {
+		if err := auditor.audit(r, verb, resource, fallback); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return false
+		}
+		return true
+	}
 	mux := http.NewServeMux()
 	ui := daemonUIHandler(build)
 	mux.Handle("/ui", ui)
@@ -100,7 +107,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "workspace is required")
 			return
 		}
-		auditor.audit(r, "instance.dispatch", "instance:"+body.Name, origin.Envelope{})
+		if !authorize(w, r, "instance.dispatch", "instance:"+body.Name, origin.Envelope{}) {
+			return
+		}
 		meta, err := m.Dispatch(DispatchInput{
 			Agent:               body.Agent,
 			Name:                body.Name,
@@ -163,7 +172,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
-		auditor.audit(r, "instance.stop", "instance:"+body.Instance, origin.Envelope{})
+		if !authorize(w, r, "instance.stop", "instance:"+body.Instance, origin.Envelope{}) {
+			return
+		}
 		_, err := m.StopWithOptions(body.Instance, StopOptions{
 			Force:   body.Force,
 			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
@@ -197,7 +208,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "by_ms must be > 0")
 			return
 		}
-		auditor.audit(r, "instance.extend", "instance:"+body.Instance, origin.Envelope{})
+		if !authorize(w, r, "instance.extend", "instance:"+body.Instance, origin.Envelope{}) {
+			return
+		}
 		extension, err := m.ExtendRuntimeBudget(body.Instance, time.Duration(body.ByMillis)*time.Millisecond, body.Actor)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -231,7 +244,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "instance is required")
 			return
 		}
-		auditor.audit(r, "instance.start", "instance:"+body.Instance, origin.Envelope{})
+		if !authorize(w, r, "instance.start", "instance:"+body.Instance, origin.Envelope{}) {
+			return
+		}
 		meta, err := m.Start(body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -266,7 +281,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
-		auditor.audit(r, "instance.restart", "instance:"+body.Instance, origin.Envelope{})
+		if !authorize(w, r, "instance.restart", "instance:"+body.Instance, origin.Envelope{}) {
+			return
+		}
 		meta, err := m.RestartWithOptions(body.Instance, RestartOptions{
 			Force:   body.Force,
 			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
@@ -310,7 +327,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "timeout_ms must be >= 0")
 			return
 		}
-		auditor.audit(r, "instance.interrupt", "instance:"+body.To, origin.Envelope{Instance: body.From})
+		if !authorize(w, r, "instance.interrupt", "instance:"+body.To, origin.Envelope{Instance: body.From}) {
+			return
+		}
 		result, err := m.Interrupt(body.To, InterruptOptions{
 			From:    body.From,
 			Body:    body.Body,
@@ -352,7 +371,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, "instance is required")
 			return
 		}
-		auditor.audit(r, "instance.remove", "instance:"+body.Instance, origin.Envelope{})
+		if !authorize(w, r, "instance.remove", "instance:"+body.Instance, origin.Envelope{}) {
+			return
+		}
 		if err := m.Remove(body.Instance, body.Force, 10*time.Second); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -414,7 +435,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		auditor.audit(r, "daemon.reconcile", "daemon:reconcile", origin.Envelope{})
+		if !authorize(w, r, "daemon.reconcile", "daemon:reconcile", origin.Envelope{}) {
+			return
+		}
 		before, err := ListMetadata(m.daemonRoot)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -484,7 +507,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, MailboxUnknownTargetMessage(body.To, target.Suggestions))
 			return
 		}
-		auditor.audit(r, "inbox.send", "inbox:"+body.To, origin.Envelope{Instance: body.From})
+		if !authorize(w, r, "inbox.send", "inbox:"+body.To, origin.Envelope{Instance: body.From}) {
+			return
+		}
 		msg := &Message{From: body.From, To: body.To, Body: body.Body, TS: time.Now().UTC()}
 		if err := AppendMessage(m.daemonRoot, body.To, msg); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -521,7 +546,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		}
 		sender, _ := origin.ParseHeaderValue(r.Header.Get(origin.HeaderName))
 		sender = origin.Merge(sender, body.Origin).Clean()
-		auditor.audit(r, "feedback.deliver", "feedback", sender)
+		if !authorize(w, r, "feedback.deliver", "feedback", sender) {
+			return
+		}
 		item, err := feedback.Submit(teamDir, feedback.SubmitInput{
 			Body:     body.Body,
 			Category: category,
@@ -652,10 +679,12 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		if body.Payload == nil {
 			body.Payload = map[string]any{}
 		}
-		auditor.audit(r, "event.publish", "event:"+body.Type, origin.Envelope{
+		if !authorize(w, r, "event.publish", "event:"+body.Type, origin.Envelope{
 			Job:     eventJobID(body.Payload),
 			Trigger: origin.TriggerFromEvent(body.Type, body.Payload),
-		})
+		}) {
+			return
+		}
 		result, err := events.EventWithResult(body.Type, body.Payload)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -693,7 +722,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "intake.publish", "intake:"+provider, origin.Envelope{})
+		if !authorize(w, r, "intake.publish", "intake:"+provider, origin.Envelope{}) {
+			return
+		}
 		if provider == "linear" || provider == "github" {
 			if reason := providerIntakeIgnoreReason(teamDir, events, provider, ev); reason != "" {
 				appendIgnoredIntakeLifecycleEvent(teamDir, provider, reason, ev)
@@ -749,7 +780,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
-		auditor.audit(r, "outbox.drain", "outbox", origin.Envelope{})
+		if !authorize(w, r, "outbox.drain", "outbox", origin.Envelope{}) {
+			return
+		}
 		result, err := events.DrainOutboxWithResult(r.URL.Query().Get("dry_run") == "true")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -799,7 +832,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
-		auditor.audit(r, "queue.drain", "queue", origin.Envelope{})
+		if !authorize(w, r, "queue.drain", "queue", origin.Envelope{}) {
+			return
+		}
 		var (
 			result *QueueDrainResult
 			err    error
@@ -852,7 +887,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 				return
 			}
-			auditor.audit(r, "queue.drop", "queue:"+id, origin.Envelope{})
+			if !authorize(w, r, "queue.drop", "queue:"+id, origin.Envelope{}) {
+				return
+			}
 			var err error
 			if events != nil {
 				err = events.DropQueueItem(id)
@@ -877,7 +914,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 				writeError(w, http.StatusServiceUnavailable, "topology not configured")
 				return
 			}
-			auditor.audit(r, "queue.retry", "queue:"+id, origin.Envelope{})
+			if !authorize(w, r, "queue.retry", "queue:"+id, origin.Envelope{}) {
+				return
+			}
 			outcome, err := events.RetryQueueItem(id)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
@@ -902,7 +941,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
-		auditor.audit(r, "schedule.fire", "schedules", origin.Envelope{})
+		if !authorize(w, r, "schedule.fire", "schedules", origin.Envelope{}) {
+			return
+		}
 		var (
 			result *ScheduleFireResult
 			err    error
@@ -956,7 +997,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
 		}
-		auditor.audit(r, "topology.reload", "topology", origin.Envelope{})
+		if !authorize(w, r, "topology.reload", "topology", origin.Envelope{}) {
+			return
+		}
 		topo, err := topology.LoadFromTeamDir(teamDir)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1532,6 +1575,13 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 	writeError := func(w http.ResponseWriter, code int, msg string) {
 		writeErrorWithBuild(w, code, msg, build)
 	}
+	authorize := func(verb, resource string, actor origin.Envelope) bool {
+		if err := auditor.audit(r, verb, resource, actor); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return false
+		}
+		return true
+	}
 	requestActor := func(fallback origin.Envelope) origin.Envelope {
 		if auditor == nil {
 			return fallback.Clean()
@@ -1562,7 +1612,9 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "channel.publish", "channel:"+storage, actor)
+		if !authorize("channel.publish", "channel:"+storage, actor) {
+			return
+		}
 		res, err := channels.Publish(storage, body.Sender, body.Body)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1591,7 +1643,9 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "channel.subscribe", "channel:"+storage, actor)
+		if !authorize("channel.subscribe", "channel:"+storage, actor) {
+			return
+		}
 		cursor, fresh, err := channels.Subscribe(storage, body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1621,7 +1675,9 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "channel.unsubscribe", "channel:"+storage, actor)
+		if !authorize("channel.unsubscribe", "channel:"+storage, actor) {
+			return
+		}
 		removed, err := channels.Unsubscribe(storage, body.Instance)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1651,7 +1707,9 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "channel.ack", "channel:"+storage, actor)
+		if !authorize("channel.ack", "channel:"+storage, actor) {
+			return
+		}
 		if err := channels.Ack(storage, body.Instance, body.Cursor); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1726,7 +1784,9 @@ func dispatchChannelRoute(w http.ResponseWriter, r *http.Request, channels *Chan
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditor.audit(r, "channel.delete", "channel:"+storage, actor)
+		if !authorize("channel.delete", "channel:"+storage, actor) {
+			return
+		}
 		removed, err := channels.Delete(storage)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

@@ -354,16 +354,38 @@ def wait_terminal(binary: Path, repo: Path, instance: str, timeout: str = "45s")
         not_known = "is not known to the daemon" in (proc.stderr + proc.stdout)
         if not_known:
             # Ambiguous: reconciled-after-terminal (success) or queued-not-yet-
-            # spawned (keep waiting). The queue disambiguates.
+            # spawned / just-dispatched-before-metadata (keep waiting). The
+            # queue plus lifecycle log disambiguate.
             queued = subprocess.run(
                 [str(binary), "queue", "ls", "--target", str(repo), "--json"],
                 capture_output=True, text=True,
             )
-            if instance not in queued.stdout:
+            if instance not in queued.stdout and instance_has_terminal_event(repo, instance):
                 return
         if time.time() >= deadline:
             raise DemoError(f"wait {instance} failed: rc={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}")
         time.sleep(1)
+
+
+def instance_has_terminal_event(repo: Path, instance: str) -> bool:
+    events = repo / ".agent_team" / "daemon" / "events.jsonl"
+    if not events.is_file():
+        return False
+    terminal_actions = {"exit", "crash", "stop"}
+    terminal_statuses = {"exited", "crashed", "stopped"}
+    for line in events.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("instance") != instance:
+            continue
+        if event.get("action") in terminal_actions or event.get("status") in terminal_statuses:
+            return True
+    return False
 
 
 def run(binary: Path, *args: object, env: dict[str, str] | None = None, parse_json: bool = False):

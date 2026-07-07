@@ -184,7 +184,10 @@ pipelines = ["ticket_to_pr"]
 channels = ["supervisor"]
 
 [authority]
-enforce = false
+enforcement = "audit"
+
+[authority.instances.manager]
+allow = ["*"]
 
 [authority.agents.worker]
 allow = ["inbox.send", "channel.*", "job.gate.*:own"]
@@ -227,11 +230,11 @@ plus daemon-required `AGENT_TEAM_*` keys are inherited by the launched runtime.
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
 undeclared channels still work. Team-scoped channels always use the owning
 topology team for storage; actor team is authority-audit input only.
-`[authority]` allowlists are audit-only in this release: violations append
-`authority_violation` events and show up in job triage, but requests are not
-blocked while `enforce` remains false. Job verbs can use `:own`, such as
-`job.gate.*:own`, to match only when the target job id equals the caller's
-origin job.
+`[authority]` allowlists default to `enforcement = "audit"`: violations append
+`authority_violation` events and show up in job triage without blocking.
+`enforcement = "enforce"` denies disallowed audited mutations after recording
+the same event. Job verbs can use `:own`, such as `job.gate.*:own`, to match
+only when the target job id equals the caller's origin job.
 
 ## Job TOML
 

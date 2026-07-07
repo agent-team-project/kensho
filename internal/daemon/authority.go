@@ -36,36 +36,38 @@ type AuthorityAuditOptions struct {
 	EventActor string
 }
 
-// AuditAuthority appends audit-only authority_violation events for disallowed
-// actions. It never blocks the caller's mutation; failures to write observability
-// events are intentionally ignored.
-func AuditAuthority(opts AuthorityAuditOptions) {
+// AuditAuthority appends authority_violation events for disallowed actions. In
+// audit mode it never blocks the caller's mutation; in enforce mode it returns
+// an error after recording the violation. Failures to write observability events
+// are intentionally ignored.
+func AuditAuthority(opts AuthorityAuditOptions) error {
 	topo := opts.Topology
 	if topo == nil || topo.Authority == nil || !topo.Authority.Configured() {
-		return
+		return nil
 	}
 	actor := opts.Actor.Clean()
 	verb := strings.TrimSpace(opts.Verb)
 	resource := strings.TrimSpace(opts.Resource)
+	if authorityActorIdentityEmpty(actor) {
+		return nil
+	}
 	targetJob := strings.TrimSpace(opts.TargetJob)
 	if targetJob == "" {
 		targetJob = strings.TrimSpace(opts.JobID)
 	}
-	if topo.Authority.Allows(topology.AuthorityDecision{
-		Agent:     actor.Agent,
-		Team:      actor.Team,
-		Verb:      verb,
-		ActorJob:  actor.Job,
-		TargetJob: targetJob,
-	}) {
-		return
+	decision := authorityDecisionForActor(topo, actor, verb, targetJob)
+	eval := topo.Authority.Evaluate(decision)
+	if eval.Allowed {
+		return nil
 	}
-	message := authorityViolationMessage(actor, verb, resource)
+	message := authorityViolationMessage(actor, eval, verb, resource)
 	data := map[string]string{
-		"verb":     verb,
-		"resource": resource,
-		"agent":    actor.Agent,
-		"team":     actor.Team,
+		"verb":             verb,
+		"resource":         resource,
+		"agent":            actor.Agent,
+		"team":             actor.Team,
+		"instance":         actor.Instance,
+		"allowlist_source": eval.SourceDescription(),
 		// The actor's ORIGIN job verbatim — the jobstore event's Origin.Job is
 		// backfilled from the target job for completeness, but an absent actor
 		// job is signal (it is why :own failed) and must stay observable.
@@ -101,22 +103,26 @@ func AuditAuthority(opts AuthorityAuditOptions) {
 			Data:     data,
 		})
 	}
+	if topo.Authority.Enforced() {
+		return fmt.Errorf("%s", message)
+	}
+	return nil
 }
 
-func (a *authorityAuditor) audit(r *http.Request, verb, resource string, fallback origin.Envelope) {
+func (a *authorityAuditor) audit(r *http.Request, verb, resource string, fallback origin.Envelope) error {
 	if a == nil || a.events == nil {
-		return
+		return nil
 	}
 	topo := a.events.Topology()
 	if topo == nil || !topo.Authority.Configured() {
-		return
+		return nil
 	}
 	actor := a.originForRequest(r, fallback)
 	daemonRoot := ""
 	if a.mgr != nil {
 		daemonRoot = a.mgr.daemonRoot
 	}
-	AuditAuthority(AuthorityAuditOptions{
+	return AuditAuthority(AuthorityAuditOptions{
 		TeamDir:    a.teamDir,
 		DaemonRoot: daemonRoot,
 		Topology:   topo,
@@ -129,21 +135,22 @@ func (a *authorityAuditor) audit(r *http.Request, verb, resource string, fallbac
 
 func (a *authorityAuditor) originForRequest(r *http.Request, fallback origin.Envelope) origin.Envelope {
 	var fromHeader origin.Envelope
+	var trusted origin.Envelope
 	if r != nil {
 		fromHeader, _ = origin.ParseHeaderValue(r.Header.Get(origin.HeaderName))
+		trusted, _ = trustedBearerOriginFromRequest(r)
 	}
-	actor := origin.Merge(fromHeader, fallback)
+	actor := origin.Merge(trusted, origin.Merge(fromHeader, fallback))
+	if a != nil && a.events != nil {
+		actor = authorityOriginFromTopology(a.events.Topology(), actor)
+	}
 	if a != nil && a.mgr != nil && strings.TrimSpace(actor.Instance) != "" {
 		if meta, err := ReadMetadata(a.mgr.daemonRoot, actor.Instance); err == nil && meta != nil {
-			metaOrigin := meta.Origin
-			if metaOrigin.Agent == "" {
-				metaOrigin.Agent = meta.Agent
-			}
-			if metaOrigin.Instance == "" {
-				metaOrigin.Instance = meta.Instance
-			}
-			actor = origin.Merge(actor, metaOrigin)
+			actor = origin.Merge(authorityOriginFromMetadata(meta, a.events), actor)
 		}
+	}
+	if a != nil && a.events != nil {
+		actor = authorityOriginFromTopology(a.events.Topology(), actor)
 	}
 	if strings.TrimSpace(actor.Project) == "" && a != nil {
 		actor.Project = projectIDForTeamDir(a.teamDir)
@@ -154,7 +161,92 @@ func (a *authorityAuditor) originForRequest(r *http.Request, fallback origin.Env
 	return actor.Clean()
 }
 
-func authorityViolationMessage(actor origin.Envelope, verb, resource string) string {
+func authorityActorIdentityEmpty(actor origin.Envelope) bool {
+	actor = actor.Clean()
+	return actor.Instance == "" && actor.Agent == "" && actor.Team == ""
+}
+
+func authorityDecisionForActor(topo *topology.Topology, actor origin.Envelope, verb, targetJob string) topology.AuthorityDecision {
+	actor = actor.Clean()
+	instance := actor.Instance
+	agent := actor.Agent
+	team := actor.Team
+	if topo != nil && instance != "" {
+		if inst := topo.FindRuntimeInstance(instance, ""); inst != nil {
+			instance = inst.Name
+			if strings.TrimSpace(inst.Agent) != "" {
+				agent = strings.TrimSpace(inst.Agent)
+			}
+		} else if inst := topo.FindRuntimeInstance(instance, agent); inst != nil {
+			instance = inst.Name
+			if strings.TrimSpace(inst.Agent) != "" {
+				agent = strings.TrimSpace(inst.Agent)
+			}
+		}
+		if resolvedTeam := topo.TeamForInstance(actor.Instance); resolvedTeam != "" {
+			team = resolvedTeam
+		}
+	}
+	return topology.AuthorityDecision{
+		Instance:  instance,
+		Agent:     agent,
+		Team:      team,
+		Verb:      verb,
+		ActorJob:  actor.Job,
+		TargetJob: targetJob,
+	}
+}
+
+func authorityOriginFromTopology(topo *topology.Topology, actor origin.Envelope) origin.Envelope {
+	actor = actor.Clean()
+	if topo == nil || actor.Instance == "" {
+		return actor
+	}
+	if inst := topo.FindRuntimeInstance(actor.Instance, ""); inst != nil {
+		if strings.TrimSpace(inst.Agent) != "" {
+			actor.Agent = strings.TrimSpace(inst.Agent)
+		}
+	} else if inst := topo.FindRuntimeInstance(actor.Instance, actor.Agent); inst != nil {
+		if strings.TrimSpace(inst.Agent) != "" {
+			actor.Agent = strings.TrimSpace(inst.Agent)
+		}
+	}
+	if team := topo.TeamForInstance(actor.Instance); team != "" {
+		actor.Team = team
+	}
+	return actor.Clean()
+}
+
+func authorityOriginFromMetadata(meta *Metadata, events *EventResolver) origin.Envelope {
+	if meta == nil {
+		return origin.Envelope{}
+	}
+	out := meta.Origin
+	if out.Instance == "" {
+		out.Instance = meta.Instance
+	}
+	if out.Agent == "" {
+		out.Agent = meta.Agent
+	}
+	if out.Job == "" {
+		out.Job = meta.Job
+	}
+	if events != nil {
+		if topo := events.Topology(); topo != nil {
+			if inst := topo.FindRuntimeInstance(out.Instance, ""); inst != nil && strings.TrimSpace(inst.Agent) != "" {
+				out.Agent = strings.TrimSpace(inst.Agent)
+			} else if inst := topo.FindRuntimeInstance(out.Instance, out.Agent); inst != nil && strings.TrimSpace(inst.Agent) != "" {
+				out.Agent = strings.TrimSpace(inst.Agent)
+			}
+			if team := topo.TeamForInstance(out.Instance); team != "" {
+				out.Team = team
+			}
+		}
+	}
+	return out.Clean()
+}
+
+func authorityViolationMessage(actor origin.Envelope, eval topology.AuthorityEvaluation, verb, resource string) string {
 	agent := strings.TrimSpace(actor.Agent)
 	if agent == "" {
 		agent = "unknown"
@@ -163,5 +255,9 @@ func authorityViolationMessage(actor origin.Envelope, verb, resource string) str
 	if team == "" {
 		team = "unknown"
 	}
-	return fmt.Sprintf("authority violation: agent=%s team=%s verb=%s resource=%s", agent, team, verb, resource)
+	instance := strings.TrimSpace(actor.Instance)
+	if instance == "" {
+		instance = "unknown"
+	}
+	return fmt.Sprintf("authority violation: verb=%s actor=%s/%s instance=%s resource=%s allowlist_source=%s", verb, team, agent, instance, resource, eval.SourceDescription())
 }

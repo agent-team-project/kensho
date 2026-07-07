@@ -252,9 +252,10 @@ Linear writes carry that context.
 Scoping audit mode followed in
 [SQU-92 / PR #96](https://github.com/agent-team-project/agent-team/pull/96).
 Topology can declare resource scope as `machine`, `team`, or `job`, and
-per-agent authority allowlists describe who should be able to call which daemon
-verbs. Today this is audit mode, not enforcement: would-be violations are logged
-for triage, but not blocked.
+per-instance/agent/team authority allowlists describe who should be able to call
+which daemon verbs. Audit mode still logs would-be violations for triage;
+enforce mode now denies disallowed destructive mutations after recording the
+same event.
 
 That is an honest boundary. This is blast-radius control for cooperating local
 agents, not a security boundary against a hostile local process. The design

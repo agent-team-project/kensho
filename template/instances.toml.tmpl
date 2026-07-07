@@ -520,20 +520,29 @@ schedules   = ["feedback-triage"]
 # scope = "team"
 # # Add "supervisor" to [teams.<name>].channels to declare ownership.
 #
-# [authority]
-# enforce = false # Phase 1 is audit-only; violations are logged, not blocked.
-#
-# [authority.agents.worker]
-# allow = ["inbox.send", "channel.*", "job.gate.*:own", "status.*", "feedback.submit", "feedback.deliver"]
-#
-# [authority.agents.reviewer]
-# allow = ["inbox.send", "channel.*", "job.gate.*:own"]
-#
-# [authority.agents.manager]
-# allow = ["*"]
-#
-# [authority.teams.platform]
-# allow = ["event.publish", "queue.*", "schedule.fire", "topology.reload"]
+[authority]
+enforcement = "audit"
+
+[authority.instances.manager]
+allow = ["*"]
+
+[authority.agents.worker]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
+
+[authority.agents.reviewer]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "status.*"]
+
+[authority.agents.manager]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.ticket-manager]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.auditor]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.comms]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
 
 # Optional fixed-interval schedule. Uncomment and adapt to publish a `schedule`
 # event with name = "nightly" every 24 hours.

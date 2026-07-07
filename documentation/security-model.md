@@ -9,14 +9,14 @@ The agents are cooperative; the risks are mis-scoping, bugs, and manipulation:
 1. **Prompt injection via public input.** The repo is public: issues, PRs, and discussions are untrusted text that triage and comms agents will read. A crafted issue can instruct an agent that reads it. This is the top risk as of the open-sourcing.
 2. **Secret exposure.** Agents inherit environment and filesystem access; `.env` is readable by any process as the user; child logs capture whatever agents print.
 3. **Blast radius.** An agent process is the full user account. Worktree isolation is convention — nothing stops `cd /` — and we currently *disable* the runtimes' own sandboxes (`--dangerously-bypass-approvals-and-sandbox`) for daemon workers.
-4. **Authority creep.** API-level verb authority exists in audit mode (SQU-92); nothing OS-level backs it.
+4. **Authority creep.** API-level verb authority can now deny destructive verbs (SQU-122); nothing OS-level backs it.
 
 ## The layers
 
 | Layer | What | Status |
 |---|---|---|
 | L0 | Identity/attribution — origin envelope on every resource | ✓ shipped (SQU-90) |
-| L1 | API authority — per-agent verb allowlists, `:own` scopes | ✓ audit mode (SQU-92); enforcement graduates when violation streams are quiet |
+| L1 | API authority — per-instance/agent/team verb allowlists, `:own` scopes | ✓ destructive-verb enforcement (SQU-122) |
 | L2 | OS sandboxing — runtime-native profiles, then containers | design (this doc) |
 | L3 | Secret hygiene — per-instance env allowlists, log redaction | design (this doc) |
 | L4 | Untrusted-input profiles for public-facing agents | design (this doc) |

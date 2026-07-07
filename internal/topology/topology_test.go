@@ -254,7 +254,10 @@ event = "agent.dispatch"
 match.target = "worker"
 
 [authority]
-enforce = false
+enforcement = "audit"
+
+[authority.instances.manager]
+allow = ["*"]
 
 [authority.agents.worker]
 allow = ["inbox.*", "job.gate.set:own"]
@@ -282,8 +285,11 @@ channels = ["supervisor"]
 	if team := top.Teams["platform"]; team == nil || !reflect.DeepEqual(team.Channels, []string{"#supervisor"}) {
 		t.Fatalf("team = %+v", team)
 	}
-	if top.Authority == nil || top.Authority.Enforce {
+	if top.Authority == nil || top.Authority.Enforcement != AuthorityModeAudit || top.Authority.Enforced() {
 		t.Fatalf("authority = %+v", top.Authority)
+	}
+	if !top.Authority.Allows(AuthorityDecision{Instance: "manager", Verb: "job.merge"}) {
+		t.Fatalf("manager instance should be allowed by instance wildcard")
 	}
 	if !top.Authority.Allows(AuthorityDecision{Agent: "worker", Verb: "inbox.check"}) {
 		t.Fatalf("worker inbox.check should be allowed by wildcard")
@@ -309,6 +315,9 @@ channels = ["supervisor"]
 	wantAllow := []string{"inbox.*", "job.*", "job.gate.set:own", "queue.retry"}
 	if got := top.AuthorityAllowlistForInstance("worker-squ-92", "worker"); !reflect.DeepEqual(got, wantAllow) {
 		t.Fatalf("AuthorityAllowlistForInstance = %#v, want %#v", got, wantAllow)
+	}
+	if got := top.AuthorityAllowlistForInstance("manager", "manager"); !reflect.DeepEqual(got, []string{"*"}) {
+		t.Fatalf("AuthorityAllowlistForInstance(manager) = %#v, want wildcard", got)
 	}
 	if got := ScopedResourceName("build", ScopeTeam, "platform", "squ-92"); got != "team.platform.build" {
 		t.Fatalf("ScopedResourceName = %q", got)

@@ -53,6 +53,13 @@ const (
 	BudgetAllocationReserve       = "reserve"
 )
 
+// Authority enforcement modes control whether disallowed audited verbs are
+// only recorded or actively refused.
+const (
+	AuthorityModeAudit   = "audit"
+	AuthorityModeEnforce = "enforce"
+)
+
 // Event types recognised by the daemon's resolver. Intake publishes normalized
 // event names such as `ticket.created` and `pr.merged`; topology triggers match
 // those names exactly.
@@ -248,12 +255,12 @@ type Budget struct {
 	Allocation   string
 }
 
-// Authority is the audit/enforcement policy declared in topology. Phase 1 uses
-// it for audit-only violation logging; Enforce is parsed but defaults false.
+// Authority is the audit/enforcement policy declared in topology.
 type Authority struct {
-	Enforce bool
-	Agents  map[string]*AuthorityRule
-	Teams   map[string]*AuthorityRule
+	Enforcement string
+	Instances   map[string]*AuthorityRule
+	Agents      map[string]*AuthorityRule
+	Teams       map[string]*AuthorityRule
 }
 
 // AuthorityRule is a verb allowlist for one agent or team. Verbs may be exact
@@ -265,6 +272,7 @@ type AuthorityRule struct {
 
 // AuthorityDecision is one audited daemon or CLI action.
 type AuthorityDecision struct {
+	Instance  string
 	Agent     string
 	Team      string
 	Verb      string
@@ -272,30 +280,74 @@ type AuthorityDecision struct {
 	TargetJob string
 }
 
+// AuthorityEvaluation is the result of checking one audited action against the
+// declared topology allowlists.
+type AuthorityEvaluation struct {
+	Allowed  bool
+	Decision AuthorityDecision
+	Sources  []string
+}
+
 // Configured reports whether at least one allowlist exists.
 func (a *Authority) Configured() bool {
 	if a == nil {
 		return false
 	}
-	return len(a.Agents) > 0 || len(a.Teams) > 0
+	return len(a.Instances) > 0 || len(a.Agents) > 0 || len(a.Teams) > 0
+}
+
+// Enforced reports whether disallowed audited verbs should be refused.
+func (a *Authority) Enforced() bool {
+	if a == nil {
+		return false
+	}
+	return a.Enforcement == AuthorityModeEnforce
 }
 
 // Allows reports whether the actor is allowed to perform the decision's verb.
 func (a *Authority) Allows(decision AuthorityDecision) bool {
+	return a.Evaluate(decision).Allowed
+}
+
+// Evaluate reports whether the actor is allowed to perform the decision's verb
+// and records which allowlist sources were considered.
+func (a *Authority) Evaluate(decision AuthorityDecision) AuthorityEvaluation {
+	eval := AuthorityEvaluation{Allowed: true}
 	if !a.Configured() {
-		return true
+		return eval
 	}
 	decision = cleanAuthorityDecision(decision)
+	eval = AuthorityEvaluation{Decision: decision}
 	if decision.Verb == "" {
-		return false
+		return eval
 	}
-	if rule := a.Agents[decision.Agent]; rule != nil && rule.Allows(decision) {
-		return true
+	for _, candidate := range []struct {
+		source string
+		rule   *AuthorityRule
+	}{
+		{source: "authority.instances." + decision.Instance, rule: a.Instances[decision.Instance]},
+		{source: "authority.agents." + decision.Agent, rule: a.Agents[decision.Agent]},
+		{source: "authority.teams." + decision.Team, rule: a.Teams[decision.Team]},
+	} {
+		if candidate.rule == nil {
+			continue
+		}
+		eval.Sources = append(eval.Sources, candidate.source)
+		if candidate.rule.Allows(decision) {
+			eval.Allowed = true
+			return eval
+		}
 	}
-	if rule := a.Teams[decision.Team]; rule != nil && rule.Allows(decision) {
-		return true
+	return eval
+}
+
+// SourceDescription returns a compact description of the allowlist source for
+// error messages and audit output.
+func (e AuthorityEvaluation) SourceDescription() string {
+	if len(e.Sources) == 0 {
+		return "none"
 	}
-	return false
+	return strings.Join(e.Sources, ",")
 }
 
 // Allows reports whether this rule includes the decision's verb and scope.
@@ -314,6 +366,7 @@ func (r *AuthorityRule) Allows(decision AuthorityDecision) bool {
 
 func cleanAuthorityDecision(decision AuthorityDecision) AuthorityDecision {
 	return AuthorityDecision{
+		Instance:  strings.TrimSpace(decision.Instance),
 		Agent:     strings.TrimSpace(decision.Agent),
 		Team:      strings.TrimSpace(decision.Team),
 		Verb:      strings.TrimSpace(decision.Verb),
@@ -687,6 +740,12 @@ func (t *Topology) AuthorityAllowlistForInstance(instance, agent string) []strin
 	if agent != "" {
 		addRule(t.Authority.Agents[agent])
 	}
+	if instance != "" {
+		addRule(t.Authority.Instances[instance])
+	}
+	if inst := t.FindRuntimeInstance(instance, agent); inst != nil && strings.TrimSpace(inst.Name) != "" {
+		addRule(t.Authority.Instances[strings.TrimSpace(inst.Name)])
+	}
 	if team := t.TeamForInstance(instance); team != "" {
 		addRule(t.Authority.Teams[team])
 	}
@@ -814,9 +873,10 @@ type rawBudget struct {
 }
 
 type rawAuthority struct {
-	Enforce bool                         `toml:"enforce"`
-	Agents  map[string]*rawAuthorityRule `toml:"agents"`
-	Teams   map[string]*rawAuthorityRule `toml:"teams"`
+	Enforcement string                       `toml:"enforcement"`
+	Instances   map[string]*rawAuthorityRule `toml:"instances"`
+	Agents      map[string]*rawAuthorityRule `toml:"agents"`
+	Teams       map[string]*rawAuthorityRule `toml:"teams"`
 }
 
 type rawAuthorityRule struct {
@@ -1513,6 +1573,14 @@ func finaliseAuthority(raw *rawAuthority) (*Authority, error) {
 	if raw == nil {
 		return nil, nil
 	}
+	enforcement, err := normalizeAuthorityMode(raw.Enforcement)
+	if err != nil {
+		return nil, err
+	}
+	instances, err := finaliseAuthorityRules("authority.instances", raw.Instances)
+	if err != nil {
+		return nil, err
+	}
 	agents, err := finaliseAuthorityRules("authority.agents", raw.Agents)
 	if err != nil {
 		return nil, err
@@ -1521,7 +1589,18 @@ func finaliseAuthority(raw *rawAuthority) (*Authority, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Authority{Enforce: raw.Enforce, Agents: agents, Teams: teams}, nil
+	return &Authority{Enforcement: enforcement, Instances: instances, Agents: agents, Teams: teams}, nil
+}
+
+func normalizeAuthorityMode(raw string) (string, error) {
+	switch mode := strings.TrimSpace(raw); mode {
+	case "", AuthorityModeAudit:
+		return AuthorityModeAudit, nil
+	case AuthorityModeEnforce:
+		return AuthorityModeEnforce, nil
+	default:
+		return "", fmt.Errorf("authority.enforcement must be %q or %q", AuthorityModeAudit, AuthorityModeEnforce)
+	}
 }
 
 func finaliseAuthorityRules(kind string, raw map[string]*rawAuthorityRule) (map[string]*AuthorityRule, error) {

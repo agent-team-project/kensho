@@ -86,6 +86,10 @@ func newJobExtendCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
 				return exitErr(2)
 			}
+			if err := auditCLIJobAuthority(teamDir, j, "job.extend", "job:"+j.ID); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
+				return exitErr(3)
+			}
 			var res *runtimeExtensionResponse
 			row := extendCommandResult{}
 			if by > 0 {

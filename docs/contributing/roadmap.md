@@ -44,9 +44,10 @@ Recently shipped:
   added the origin envelope so jobs, queue items, events, locks, usage records,
   and outbound Linear writes know their project/team/instance/job owner.
 - [SQU-92 / PR #96](https://github.com/agent-team-project/agent-team/pull/96)
-  added scoped resources and authority allowlists in audit mode. Enforcement is
-  intentionally off until the violation stream proves the default ACLs are
-  right.
+  added scoped resources and authority allowlists in audit mode.
+- [SQU-122](https://linear.app/squirtlesquad/issue/SQU-122/security-graduate-authority-audit-to-enforcement-for-destructive-verbs)
+  graduates destructive daemon/CLI verbs from audit to enforcement after the
+  violation stream proved the default ACLs were quiet.
 - [SQU-121 / PR #124](https://github.com/agent-team-project/agent-team/pull/124)
   added `env_allow` so topology can filter per-instance launch environments.
 - [`documentation/security-model.md`](https://github.com/agent-team-project/agent-team/blob/main/documentation/security-model.md)
@@ -67,9 +68,6 @@ In progress:
 
 Planned:
 
-- [SQU-122](https://linear.app/squirtlesquad/issue/SQU-122/security-graduate-authority-audit-to-enforcement-for-destructive-verbs)
-  graduates destructive daemon/CLI verbs from audit to enforcement once the
-  evidence says the allowlists are stable.
 - [SQU-124](https://linear.app/squirtlesquad/issue/SQU-124/security-control-planeworkspace-write-split-agents-mutate-shared-state)
   splits agent workspaces from the shared `.agent_team` control plane so agents
   mutate durable shared state only through authority-checked daemon verbs.

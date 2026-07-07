@@ -166,8 +166,9 @@ Important layering rules:
   commands, origin envelopes, usage accounting, and scoped resources.
 - Budgets are keyed by team; locks and channels may be scoped by machine, team,
   or job.
-- Authority policy is currently audit-oriented. Violations are recorded for
-  triage, while reads remain open.
+- Authority policy supports audit and enforce modes. Audit records violations
+  for triage; enforce denies disallowed audited mutations while operator/no
+  origin calls and reads remain open.
 
 ## Contributor Checks
 

@@ -894,10 +894,7 @@ func topologyAuthorityAllowlistForInstance(teamDir, instance, agent string) (all
 	if err != nil || topo == nil {
 		return nil, false
 	}
-	// Enforce whenever the topology configures authority at all — an instance
-	// whose resolved allowlist is empty under a configured authority section
-	// is deny-all-beyond-read-only, distinct from no-authority pass-through.
-	enforce = topo.Authority != nil && topo.Authority.Configured()
+	enforce = topo.Authority != nil && topo.Authority.Enforced()
 	return topo.AuthorityAllowlistForInstance(instance, agent), enforce
 }
 

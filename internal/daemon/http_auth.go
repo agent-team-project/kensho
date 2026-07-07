@@ -18,6 +18,7 @@ const (
 )
 
 type daemonTransportContextKey struct{}
+type bearerOriginContextKey struct{}
 
 func daemonConnContext(ctx context.Context, c net.Conn) context.Context {
 	if c != nil && strings.HasPrefix(c.LocalAddr().Network(), "tcp") {
@@ -90,12 +91,28 @@ func requestWithBearerOrigin(r *http.Request, tokenOrigin origin.Envelope) *http
 	}
 	fromHeader, _ := origin.ParseHeaderValue(r.Header.Get(origin.HeaderName))
 	merged := origin.Merge(tokenOrigin, fromHeader)
-	clone := r.Clone(r.Context())
+	ctx := context.WithValue(r.Context(), bearerOriginContextKey{}, tokenOrigin)
+	clone := r.Clone(ctx)
 	clone.Header = r.Header.Clone()
 	if rendered := origin.HeaderValue(merged); rendered != "" {
 		clone.Header.Set(origin.HeaderName, rendered)
 	}
 	return clone
+}
+
+func trustedBearerOriginFromRequest(r *http.Request) (origin.Envelope, bool) {
+	if r == nil {
+		return origin.Envelope{}, false
+	}
+	value, ok := r.Context().Value(bearerOriginContextKey{}).(origin.Envelope)
+	if !ok {
+		return origin.Envelope{}, false
+	}
+	value = value.Clean()
+	if value.Empty() {
+		return origin.Envelope{}, false
+	}
+	return value, true
 }
 
 func writeAuthError(w http.ResponseWriter, build buildinfo.Info, message string) {

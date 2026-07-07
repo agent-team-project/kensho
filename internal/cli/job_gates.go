@@ -81,7 +81,10 @@ func newJobGateSetCmd() *cobra.Command {
 				LogRef:    logRef,
 				Actor:     defaultJobGateActor(actor),
 			}
-			auditCLIJobAuthority(teamDir, j, "job.gate.set", "job:"+j.ID+":gate:"+record.Name)
+			if err := auditCLIJobAuthority(teamDir, j, "job.gate.set", "job:"+j.ID+":gate:"+record.Name); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job gate set: %v\n", err)
+				return exitErr(3)
+			}
 			if err := job.AppendGateRecord(teamDir, record); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job gate set: %v\n", err)
 				return exitErr(1)

@@ -97,6 +97,9 @@ def main(argv: list[str]) -> int:
     if not binary.is_file():
         print(f"binary not found: {binary}", file=sys.stderr)
         return 2
+    clean_env = scrub_agent_team_env(os.environ.copy())
+    os.environ.clear()
+    os.environ.update(clean_env)
 
     problems: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -3736,6 +3739,10 @@ def run(cmd: list[str], env: dict[str, str] | None = None) -> None:
         print(r.stdout, file=sys.stderr)
         print(r.stderr, file=sys.stderr)
         sys.exit(1)
+
+
+def scrub_agent_team_env(env: dict[str, str]) -> dict[str, str]:
+    return {key: value for key, value in env.items() if not key.startswith("AGENT_TEAM_")}
 
 
 def generated_artifacts(root: Path) -> list[str]:

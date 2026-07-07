@@ -113,6 +113,26 @@ allow = ["job.*"]
 	}
 }
 
+func writeJobAuthorityEnforcingTopology(t *testing.T, teamDir string) {
+	t.Helper()
+	body := topoFixture + `
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["job.*"]
+
+[authority.agents.worker]
+allow = ["job.gate.*:own", "job.merge:own"]
+
+[authority.agents.reviewer]
+allow = ["job.gate.*:own", "job.merge:own"]
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+}
+
 func setJobAuthorityOriginEnv(t *testing.T, agent, jobID string) {
 	t.Helper()
 	t.Setenv("AGENT_TEAM_PROJECT", "project-1")
@@ -14953,6 +14973,53 @@ func TestJobMergeAuthorityAuditAllowlist(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestJobMergeAuthorityEnforcementDeniesWorkerCrossJob(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeJobAuthorityEnforcingTopology(t, teamDir)
+	logPath := installRecordingFakeGHForJobTest(t, 0)
+	j := mustNewJob(t, "SQU-612", "worker")
+	j.PR = "https://github.com/acme/repo/pull/612"
+	j.Branch = "worker-squ-612"
+	j.Merge = &job.Merge{Strategy: "squash"}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	setJobAuthorityOriginEnv(t, "worker", "SQU-actor")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "merge", j.ID, "--repo", tmp, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("job merge succeeded; want authority denial")
+	}
+	var code ExitCode
+	if !errors.As(err, &code) || int(code) != 3 {
+		t.Fatalf("err = %v, want exit 3; stderr=%s", err, stderr.String())
+	}
+	if body := stderr.String(); !strings.Contains(body, "authority violation") || !strings.Contains(body, "verb=job.merge") || !strings.Contains(body, "allowlist_source=authority.agents.worker") {
+		t.Fatalf("stderr = %q", body)
+	}
+	if body, err := os.ReadFile(logPath); err == nil && strings.TrimSpace(string(body)) != "" {
+		t.Fatalf("gh should not be invoked, log=%s", string(body))
+	}
+	updated, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status == job.StatusDone || updated.LastEvent == "merged" {
+		t.Fatalf("updated job = %+v, want not merged", updated)
+	}
+	jobViolations := jobAuthorityViolationEvents(t, teamDir, j.ID)
+	if len(jobViolations) != 1 || jobViolations[0].Data["verb"] != "job.merge" {
+		t.Fatalf("job violations = %+v", jobViolations)
 	}
 }
 

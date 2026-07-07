@@ -486,6 +486,30 @@ instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-tria
 pipelines   = ["ticket_to_pr"]
 schedules   = ["feedback-triage"]
 
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["*"]
+
+[authority.agents.worker]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
+
+[authority.agents.reviewer]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "status.*"]
+
+[authority.agents.manager]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.ticket-manager]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.auditor]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
+[authority.agents.comms]
+allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+
 # Optional fixed-interval schedule. Uncomment and adapt to publish a `schedule`
 # event with name = "nightly" every 24 hours.
 #

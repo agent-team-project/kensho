@@ -4451,6 +4451,10 @@ func newJobBounceCmd() *cobra.Command {
 				}
 				return renderJobBouncePreview(cmd.OutOrStdout(), j, selectedStep, bounceNumber, jsonOut, jobTmpl)
 			}
+			if err := auditCLIJobAuthority(teamDir, j, "job.bounce", "job:"+j.ID); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job bounce: %v\n", err)
+				return exitErr(3)
+			}
 			data := map[string]string{
 				"step":     selectedStep,
 				"bounce":   fmt.Sprint(bounceNumber),
@@ -5626,7 +5630,10 @@ func newJobMergeCmd() *cobra.Command {
 			if dryRun {
 				return renderJobMergeResult(cmd.OutOrStdout(), result, jsonOut)
 			}
-			auditCLIJobAuthority(teamDir, j, "job.merge", "job:"+j.ID)
+			if err := auditCLIJobAuthority(teamDir, j, "job.merge", "job:"+j.ID); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job merge: %v\n", err)
+				return exitErr(3)
+			}
 			if err := applyJobMerge(cmd.Context(), teamDir, j, result); err != nil {
 				var blocked mergeBlockedError
 				if errors.As(err, &blocked) {
@@ -7895,16 +7902,16 @@ func writeJobWithAudit(teamDir string, j *job.Job, eventType, actor, message str
 	return nil
 }
 
-func auditCLIJobAuthority(teamDir string, j *job.Job, verb, resource string) {
+func auditCLIJobAuthority(teamDir string, j *job.Job, verb, resource string) error {
 	if j == nil {
-		return
+		return nil
 	}
 	top, err := topology.LoadFromTeamDir(teamDir)
 	if err != nil || top == nil || top.Authority == nil || !top.Authority.Configured() {
-		return
+		return nil
 	}
-	actor := cliAuthorityActor(teamDir, j)
-	daemon.AuditAuthority(daemon.AuthorityAuditOptions{
+	actor := cliAuthorityActor(teamDir, j, top)
+	return daemon.AuditAuthority(daemon.AuthorityAuditOptions{
 		TeamDir:    teamDir,
 		DaemonRoot: daemon.DaemonRoot(teamDir),
 		Topology:   top,
@@ -7917,7 +7924,7 @@ func auditCLIJobAuthority(teamDir string, j *job.Job, verb, resource string) {
 	})
 }
 
-func cliAuthorityActor(teamDir string, j *job.Job) origin.Envelope {
+func cliAuthorityActor(teamDir string, j *job.Job, top *topology.Topology) origin.Envelope {
 	build := buildinfo.Current("")
 	var fromEnv origin.Envelope
 	if raw := daemonOriginHeaderFromEnv(build); raw != "" {
@@ -7940,7 +7947,18 @@ func cliAuthorityActor(teamDir string, j *job.Job) origin.Envelope {
 			if metaOrigin.Instance == "" {
 				metaOrigin.Instance = meta.Instance
 			}
-			actor = origin.Merge(actor, metaOrigin)
+			if metaOrigin.Job == "" {
+				metaOrigin.Job = meta.Job
+			}
+			if top != nil {
+				if inst := top.FindRuntimeInstance(metaOrigin.Instance, metaOrigin.Agent); inst != nil && strings.TrimSpace(inst.Agent) != "" {
+					metaOrigin.Agent = strings.TrimSpace(inst.Agent)
+				}
+				if team := top.TeamForInstance(metaOrigin.Instance); team != "" {
+					metaOrigin.Team = team
+				}
+			}
+			actor = origin.Merge(metaOrigin, actor)
 		}
 	}
 	return actor.Clean()

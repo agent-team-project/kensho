@@ -750,13 +750,13 @@ type ephemeralRuntime struct {
 }
 
 // authorityForInstance resolves the closed-world verb allowlist baked into the
-// generated shim. enforce is true whenever the topology configures authority at
-// all, so a configured-but-empty instance allowlist means deny-all-beyond-read-only.
+// generated shim. enforce is true only when topology explicitly opts into
+// authority enforcement; audit mode keeps the shim pass-through.
 func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool) {
 	r.mu.Lock()
 	topo := r.topo
 	r.mu.Unlock()
-	if topo == nil || topo.Authority == nil || !topo.Authority.Configured() {
+	if topo == nil || topo.Authority == nil || !topo.Authority.Enforced() {
 		return nil, false
 	}
 	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true
