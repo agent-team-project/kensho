@@ -41,14 +41,14 @@ Classify each MATERIALIZE cluster:
 - **Framework** (the agent-team CLI/daemon itself misbehaved or lacks a capability): file via the `upstream` route.
 - **External** (another project's tooling that our agents touch): file via that project's named route if one is declared; otherwise treat as deployment-local with a note.
 
-File and fold through the provider-abstracted ticket verb:
+File and fold through the provider-abstracted ticket verb. All PM writes go through this seam (`create`, `update`, `comment`, `close`) regardless of the configured provider:
 
 ```sh
 agent-team ticket create --repo <target-repo> --title "<title>" --body-file <ticket-body.md> --label feedback --json
 agent-team ticket comment --repo <target-repo> <ticket-or-issue> --body-file <evidence.md> --json
 ```
 
-Use the current repo as `<target-repo>` for deployment-local items. For a named route, use that route's local repo root when one is declared. If a legacy route only names a provider/team (for example `kind = "linear"` with no target repo/config), do not fall back to `linear-graphql.sh`; retain the feedback item with a note that the route needs a provider-agnostic local target.
+Use the current repo as `<target-repo>` for deployment-local items. For a named route, use that route's local repo root when one is declared; otherwise keep the current repo as `<target-repo>` and still call `agent-team ticket ...`. Do not inspect `kind`, `team_key`, or provider names to choose a helper, and never retain a materialized item solely because a route is legacy Linear metadata. Under `[pm].provider = "linear"`, the ticket verb creates and comments in Linear transparently.
 
 For any non-local route, also apply a `source-project:<project.id>` label where `<project.id>` is read from `[project].id` in this repo's `.agent_team/config.toml`. The `agent-team ticket` verb appends the machine footer `agent-team-origin: project=<id> team=<team> instance=<instance> trigger=<trigger>` when daemon origin context is exported.
 
