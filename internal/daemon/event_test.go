@@ -156,6 +156,15 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func gitRevParse(t *testing.T, dir, ref string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--verify", ref+"^{commit}").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse %s: %v", ref, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func seedPushedBranchArtifact(t *testing.T, teamDir, jobID string) string {
 	t.Helper()
 	repoRoot := filepath.Dir(teamDir)
@@ -1912,6 +1921,70 @@ func TestEvent_TicketWorktreeDispatchNamesBranchFromTicket(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }
 
+func TestEvent_WorktreeDispatchBasesRequeuedJobOnExistingBranch(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "base")
+	runGit(t, repoRoot, "checkout", "-B", "main")
+	runGit(t, repoRoot, "checkout", "-b", "squ-198-rejected")
+	if err := os.WriteFile(filepath.Join(repoRoot, "rejected.txt"), []byte("rejected implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "rejected.txt")
+	runGit(t, repoRoot, "commit", "-m", "rejected implementation")
+	rejectedHead := gitRevParse(t, repoRoot, "squ-198-rejected")
+	runGit(t, repoRoot, "checkout", "main")
+
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+	now := time.Now().UTC()
+	j := &jobstore.Job{
+		ID:        "squ-198",
+		Ticket:    "SQU-198",
+		Target:    "worker",
+		Status:    jobstore.StatusQueued,
+		Branch:    "squ-198-rejected",
+		Worktree:  repoRoot,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-198","ticket":"SQU-198","job_id":"squ-198","workspace":"worktree","kickoff":"fix review findings"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	meta, err := ReadMetadata(root, "worker-squ-198")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if got := gitRevParse(t, meta.Workspace, "HEAD"); got != rejectedHead {
+		t.Fatalf("worktree HEAD = %s, want rejected branch head %s", got, rejectedHead)
+	}
+	if _, err := os.Stat(filepath.Join(meta.Workspace, "rejected.txt")); err != nil {
+		t.Fatalf("bounced worktree missing rejected implementation file: %v", err)
+	}
+
+	_, _ = m.Stop("worker-squ-198")
+	_ = m.WaitForReaper("worker-squ-198", 5*time.Second)
+}
+
 func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManager(t *testing.T) {
 	root := t.TempDir()
 	repoRoot := t.TempDir()
@@ -1956,6 +2029,65 @@ func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManag
 	}
 	if len(messages) != 1 || !strings.Contains(messages[0].Body, "squ-155") || !strings.Contains(messages[0].Body, "delivery artifact missing") {
 		t.Fatalf("manager messages = %+v, want missing-deliverable notification", messages)
+	}
+}
+
+func TestEvent_StalePipelineExitDoesNotFailActiveBouncedStep(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+	now := time.Now().UTC()
+	j := &jobstore.Job{
+		ID:               "squ-198",
+		Ticket:           "SQU-198",
+		Target:           "worker",
+		Pipeline:         "ticket_to_pr",
+		DeliveryContract: deliveryContractTicketToPR,
+		Status:           jobstore.StatusRunning,
+		Instance:         "worker-squ-198-bounce",
+		LastEvent:        "advance_dispatched",
+		LastStatus:       "running implement",
+		CreatedAt:        now.Add(-time.Hour),
+		UpdatedAt:        now,
+		Steps: []jobstore.Step{
+			{ID: "implement", Target: "worker", Status: jobstore.StatusRunning, Instance: "worker-squ-198-bounce", StartedAt: now.Add(-time.Minute), RunningAt: now.Add(-time.Minute)},
+			{ID: "review", Target: "reviewer", Status: jobstore.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	m := NewInstanceManager(root, newFakeSpawner(time.Second).spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	zero := 0
+	resolver.reconcileEphemeralJobExit(&Metadata{
+		Instance: "reviewer-squ-198-review",
+		Job:      "squ-198",
+		Ticket:   "SQU-198",
+		Status:   StatusExited,
+		ExitCode: &zero,
+	})
+
+	updated, err := jobstore.Read(teamDir, "squ-198")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if updated.Status != jobstore.StatusRunning || updated.Instance != "worker-squ-198-bounce" || updated.LastEvent != "advance_dispatched" {
+		t.Fatalf("updated job = %+v, want active bounced implement unchanged", updated)
+	}
+	if updated.Steps[0].Status != jobstore.StatusRunning || updated.Steps[0].Instance != "worker-squ-198-bounce" || updated.Steps[1].Status != jobstore.StatusBlocked {
+		t.Fatalf("steps = %+v, want active implement and blocked review unchanged", updated.Steps)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-198")
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	for _, ev := range events {
+		if ev.Type == "deliverable_missing" {
+			t.Fatalf("stale reviewer exit emitted deliverable_missing: %+v", events)
+		}
 	}
 }
 

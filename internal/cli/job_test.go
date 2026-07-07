@@ -7486,6 +7486,56 @@ func TestJobWaitPollsUntilLastEvent(t *testing.T) {
 	}
 }
 
+func TestJobWaitEventReplaysEventLogFromWaitWindow(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:        "squ-198",
+		Ticket:    "SQU-198",
+		Target:    "worker",
+		Status:    job.StatusRunning,
+		LastEvent: "created",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	waitSince := time.Now().UTC()
+	if err := job.AppendEvent(teamDir, &job.Event{
+		TS:      waitSince.Add(time.Millisecond),
+		JobID:   "squ-198",
+		Type:    "advance_dispatched",
+		Status:  job.StatusRunning,
+		Actor:   "cli",
+		Message: "running implement",
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	updated, err := job.Read(teamDir, "squ-198")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	updated.LastEvent = "linear_writeback_skipped"
+	updated.LastStatus = "write-back skipped"
+	updated.UpdatedAt = time.Now().UTC()
+	if err := job.Write(teamDir, updated); err != nil {
+		t.Fatalf("write overwritten event job: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	got, err := runJobWaitSince(ctx, teamDir, "squ-198", nil, map[string]bool{"advance_dispatched": true}, nil, false, "", time.Millisecond, waitSince)
+	if err != nil {
+		t.Fatalf("runJobWaitSince: %v", err)
+	}
+	if got.Status != job.StatusRunning || got.LastEvent != "linear_writeback_skipped" {
+		t.Fatalf("wait result = %+v, want current job after replayed event", got)
+	}
+}
+
 func TestJobWaitPollsUntilNextStepState(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

@@ -67,7 +67,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	branch := ""
 	cleanupWorkspace := func() {}
 	if !payloadIsProbe(payload) && (payloadString(payload, "workspace") == "worktree" || payloadString(payload, "isolation") == "worktree") {
-		workspace, branch, cleanupWorkspace, err = r.prepareEphemeralWorktree(name, payloadString(payload, "ticket"))
+		workspace, branch, cleanupWorkspace, err = r.prepareEphemeralWorktree(name, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -1075,18 +1075,20 @@ func codexEventPrompt(kickoff, prompt string, agents []*loader.Agent) string {
 	return b.String()
 }
 
-func (r *EventResolver) prepareEphemeralWorktree(instance, ticket string) (string, string, func(), error) {
+func (r *EventResolver) prepareEphemeralWorktree(instance string, payload map[string]any) (string, string, func(), error) {
 	repoRoot := r.teamDirParent()
 	if repoRoot == "" {
 		return "", "", nil, errors.New("event worktree: repo root is required")
 	}
 	tag := newSessionID()[0:8]
+	ticket := payloadString(payload, "ticket")
 	branch := ephemeralWorktreeBranch(instance, ticket, tag)
 	worktreePath := filepath.Join(repoRoot, ".claude", "worktrees", instance+"-"+tag)
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return "", "", nil, fmt.Errorf("event worktree: create parent: %w", err)
 	}
-	cmd := exec.Command("git", "-C", repoRoot, "worktree", "add", "-b", branch, worktreePath, "HEAD")
+	baseRef := r.ephemeralWorktreeBaseRef(repoRoot, payload)
+	cmd := exec.Command("git", "-C", repoRoot, "worktree", "add", "-b", branch, worktreePath, baseRef)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", "", nil, fmt.Errorf("event worktree: git worktree add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -1100,6 +1102,58 @@ func (r *EventResolver) prepareEphemeralWorktree(instance, ticket string) (strin
 		_ = exec.Command("git", "-C", repoRoot, "branch", "-D", branch).Run()
 	}
 	return worktreePath, branch, cleanup, nil
+}
+
+func (r *EventResolver) ephemeralWorktreeBaseRef(repoRoot string, payload map[string]any) string {
+	const fallback = "HEAD"
+	jobID := eventJobID(payload)
+	if strings.TrimSpace(jobID) == "" || strings.TrimSpace(r.teamDir) == "" {
+		return fallback
+	}
+	j, err := jobstore.Read(r.teamDir, jobID)
+	if err != nil || j == nil {
+		return fallback
+	}
+	if ref := existingJobBranchRef(repoRoot, j.Branch); ref != "" {
+		return ref
+	}
+	if ref := existingWorktreeHead(j.Worktree); ref != "" {
+		return ref
+	}
+	return fallback
+}
+
+func existingJobBranchRef(repoRoot, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	for _, ref := range []string{branch, "origin/" + branch} {
+		if gitCommitRefExists(repoRoot, ref) {
+			return ref
+		}
+	}
+	return ""
+}
+
+func gitCommitRefExists(repoRoot, ref string) bool {
+	if strings.TrimSpace(repoRoot) == "" || strings.TrimSpace(ref) == "" {
+		return false
+	}
+	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "--verify", ref+"^{commit}")
+	return cmd.Run() == nil
+}
+
+func existingWorktreeHead(worktree string) string {
+	worktree = strings.TrimSpace(worktree)
+	if worktree == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", worktree, "rev-parse", "--verify", "HEAD^{commit}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func ephemeralWorktreeBranch(instance, ticket, tag string) string {
