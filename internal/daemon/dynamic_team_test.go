@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -19,6 +20,7 @@ import (
 func TestDynamicTeamSpawnCharterLifecycle(t *testing.T) {
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
+	installFakeAgentTeamCLI(t)
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \"parent-dep\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -46,13 +48,19 @@ match.target = "worker"
 	tokens_per_day = 100
 	allocation = "reserve"
 
-	[budgets.delivery]
-	tokens_per_day = 100
-	allocation = "reserve"
+		[budgets.delivery]
+		tokens_per_day = 100
+		allocation = "reserve"
 
-	[authority.agents.manager]
-	allow = ["team.spawn", "job.show", "inbox.*"]
-`)
+		[authority]
+		enforcement = "enforce"
+
+		[authority.agents.manager]
+		allow = ["team.spawn", "job.show", "inbox.*"]
+
+		[authority.teams.delivery]
+		allow = ["job.*", "inbox.*"]
+	`)
 	fake := newFakeSpawner(time.Second)
 	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
@@ -73,7 +81,7 @@ match.target = "worker"
 			Time:   "30m",
 		},
 		Authority: TeamSpawnAuthority{
-			Verbs:     []string{"job.show", "inbox.send", "instance.remove"},
+			Verbs:     []string{"job.show", "inbox.send", "job.merge", "instance.remove"},
 			Resources: []string{"agt://parent-dep/job/gh155-dynteam"},
 		},
 		Lifecycle: TeamSpawnLifecycle{TTL: "2h", Reap: "on_goal_complete"},
@@ -137,7 +145,8 @@ match.target = "worker"
 	if !reflect.DeepEqual(charter.Authority.GrantedVerbs, []string{"inbox.send", "job.show"}) {
 		t.Fatalf("granted verbs = %#v", charter.Authority.GrantedVerbs)
 	}
-	if len(charter.Authority.Denied) != 1 || charter.Authority.Denied[0].Verb != "instance.remove" {
+	if !deniedGrantContains(charter.Authority.Denied, "job.merge", "not present in parent capability") ||
+		!deniedGrantContains(charter.Authority.Denied, "instance.remove", "not present in parent capability") {
 		t.Fatalf("denied grants = %+v", charter.Authority.Denied)
 	}
 
@@ -198,6 +207,7 @@ match.target = "worker"
 	if !ok || capability.CharterURI != charter.URI || !reflect.DeepEqual(capability.Authority.GrantedVerbs, charter.Authority.GrantedVerbs) {
 		t.Fatalf("capability resource = %#v", read.Data)
 	}
+	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "job.merge")
 
 	if err := m.WaitForReaper(charter.Instance, 5*time.Second); err != nil {
 		t.Fatalf("wait reaper: %v", err)
@@ -379,4 +389,61 @@ func budgetStatusByTeam(rows []budget.TeamStatus, team string) *budget.TeamStatu
 		}
 	}
 	return nil
+}
+
+func deniedGrantContains(denied []TeamCharterDeniedGrant, verb, reason string) bool {
+	for _, item := range denied {
+		if item.Verb == verb && item.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+func installFakeAgentTeamCLI(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "agent-team.log")
+	agentTeam := filepath.Join(binDir, "agent-team")
+	body := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"__resolve-verb\" ]; then\n" +
+		"  shift\n" +
+		"  case \"$1 $2\" in\n" +
+		"    'job merge') echo job.merge; exit 0 ;;\n" +
+		"    'job show') echo job.show; exit 0 ;;\n" +
+		"    'inbox send') echo inbox.send; exit 0 ;;\n" +
+		"    *) exit 1 ;;\n" +
+		"  esac\n" +
+		"fi\n" +
+		"printf '%s\\n' \"$*\" >> " + shellQuoteTest(logPath) + "\n"
+	if err := os.WriteFile(agentTeam, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake agent-team: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string) {
+	t.Helper()
+	parts := strings.Split(verb, ".")
+	args := append([]string{}, parts...)
+	args = append(args, "gh155-dynteam")
+	shim := filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
+	out, err := exec.Command(shim, args...).CombinedOutput()
+	if err == nil {
+		t.Fatalf("shim allowed %s; output=%s", verb, out)
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("shim %s failed with %T: %v; output=%s", verb, err, err, out)
+	}
+	if exitErr.ExitCode() != 3 || !strings.Contains(string(out), "denied verb "+verb) {
+		t.Fatalf("shim denial for %s = code %d output %q", verb, exitErr.ExitCode(), out)
+	}
+}
+
+func shellQuoteTest(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

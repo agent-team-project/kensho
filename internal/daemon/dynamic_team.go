@@ -332,11 +332,19 @@ func (r *EventResolver) attenuateTeamAuthority(charter *TeamCharter, req TeamSpa
 		RequestedResources: requestedResources,
 	}
 	parentAllow := []string{}
-	if r != nil && r.topo != nil && charter != nil {
+	childAllow := []string{}
+	authorityConfigured := false
+	if r != nil && r.topo != nil && r.topo.Authority != nil && r.topo.Authority.Configured() && charter != nil {
+		authorityConfigured = true
 		parentAllow = r.topo.AuthorityAllowlistForInstance(charter.Creator.Instance, charter.Creator.Agent)
+		childAgent := ""
+		if inst := r.topo.FindRuntimeInstance(charter.Instance, ""); inst != nil {
+			childAgent = inst.Agent
+		}
+		childAllow = r.topo.AuthorityAllowlistForInstance(charter.Instance, childAgent)
 	}
 	if len(requestedVerbs) == 0 {
-		out.GrantedVerbs = append([]string(nil), parentAllow...)
+		out.GrantedVerbs = intersectAuthorityAllowlists(parentAllow, childAllow, authorityConfigured)
 	} else {
 		for _, verb := range requestedVerbs {
 			decision := topology.AuthorityDecision{
@@ -347,10 +355,14 @@ func (r *EventResolver) attenuateTeamAuthority(charter *TeamCharter, req TeamSpa
 				ActorJob:  charter.Creator.Job,
 				TargetJob: charter.Creator.Job,
 			}
-			if authorityAllowedByPatterns(parentAllow, decision) {
+			if authorityAllowedByPatterns(parentAllow, decision, authorityConfigured) && authorityAllowedByPatterns(childAllow, decision, authorityConfigured) {
 				out.GrantedVerbs = append(out.GrantedVerbs, verb)
 			} else {
-				out.Denied = append(out.Denied, TeamCharterDeniedGrant{Verb: verb, Reason: "not present in parent capability"})
+				reason := "not present in parent capability"
+				if authorityAllowedByPatterns(parentAllow, decision, authorityConfigured) {
+					reason = "not present in child capability"
+				}
+				out.Denied = append(out.Denied, TeamCharterDeniedGrant{Verb: verb, Reason: reason})
 			}
 		}
 	}
@@ -377,9 +389,9 @@ func (r *EventResolver) attenuateTeamAuthority(charter *TeamCharter, req TeamSpa
 	return out
 }
 
-func authorityAllowedByPatterns(patterns []string, decision topology.AuthorityDecision) bool {
+func authorityAllowedByPatterns(patterns []string, decision topology.AuthorityDecision, configured bool) bool {
 	if len(patterns) == 0 {
-		return true
+		return !configured
 	}
 	for _, pattern := range patterns {
 		if (&topology.AuthorityRule{Allow: []string{pattern}}).Allows(decision) {
@@ -387,6 +399,102 @@ func authorityAllowedByPatterns(patterns []string, decision topology.AuthorityDe
 		}
 	}
 	return false
+}
+
+func intersectAuthorityAllowlists(parentAllow, childAllow []string, configured bool) []string {
+	if !configured {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, parent := range parentAllow {
+		for _, child := range childAllow {
+			if grant, ok := intersectAuthorityAllow(parent, child); ok && !seen[grant] {
+				seen[grant] = true
+				out = append(out, grant)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func intersectAuthorityAllow(left, right string) (string, bool) {
+	leftVerb, leftQualifier := splitAuthorityAllowLocal(left)
+	rightVerb, rightQualifier := splitAuthorityAllowLocal(right)
+	verb, ok := intersectAuthorityVerb(leftVerb, rightVerb)
+	if !ok {
+		return "", false
+	}
+	qualifier, ok := intersectAuthorityQualifier(leftQualifier, rightQualifier)
+	if !ok {
+		return "", false
+	}
+	if qualifier == "" {
+		return verb, true
+	}
+	return verb + ":" + qualifier, true
+}
+
+func splitAuthorityAllowLocal(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	verb, qualifier, ok := strings.Cut(value, ":")
+	if !ok {
+		return value, ""
+	}
+	return strings.TrimSpace(verb), strings.TrimSpace(qualifier)
+}
+
+func intersectAuthorityVerb(left, right string) (string, bool) {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return "", false
+	}
+	if left == "*" {
+		return right, true
+	}
+	if right == "*" {
+		return left, true
+	}
+	if left == right {
+		return left, true
+	}
+	if authorityVerbPatternContains(left, right) {
+		return right, true
+	}
+	if authorityVerbPatternContains(right, left) {
+		return left, true
+	}
+	return "", false
+}
+
+func authorityVerbPatternContains(pattern, candidate string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if pattern == candidate {
+		return true
+	}
+	if strings.HasSuffix(pattern, ".*") {
+		return strings.HasPrefix(candidate, strings.TrimSuffix(pattern, "*"))
+	}
+	return false
+}
+
+func intersectAuthorityQualifier(left, right string) (string, bool) {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	switch {
+	case left == "":
+		return right, true
+	case right == "":
+		return left, true
+	case left == right:
+		return left, true
+	default:
+		return "", false
+	}
 }
 
 func (r *EventResolver) attachTeamCharterAllocation(charter *TeamCharter) {

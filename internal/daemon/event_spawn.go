@@ -777,6 +777,45 @@ func (r *EventResolver) authorityForInstance(agentName, instance string) (allow 
 	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true
 }
 
+func (r *EventResolver) runtimeAuthorityForInstance(agentName, instance string, payload map[string]any) (allow []string, enforce bool) {
+	if allow, ok := r.charterAuthorityForPayload(instance, payload); ok {
+		return allow, true
+	}
+	return r.authorityForInstance(agentName, instance)
+}
+
+func (r *EventResolver) charterAuthorityForPayload(instance string, payload map[string]any) ([]string, bool) {
+	if payload == nil || r == nil || r.mgr == nil {
+		return nil, false
+	}
+	charterID := charterIDFromURI(payloadString(payload, "charter_uri"))
+	if charterID == "" {
+		return nil, false
+	}
+	charter, err := ReadTeamCharter(r.mgr.daemonRoot, charterID)
+	if err != nil || charter == nil {
+		return nil, false
+	}
+	if strings.TrimSpace(charter.Instance) != strings.TrimSpace(instance) {
+		return nil, false
+	}
+	if capabilityURI := payloadString(payload, "capability_uri"); capabilityURI != "" && capabilityURI != charter.Authority.CapabilityURI {
+		return nil, false
+	}
+	if deploymentURI := payloadString(payload, "deployment_uri"); deploymentURI != "" && deploymentURI != charter.ChildDeploymentURI {
+		return nil, false
+	}
+	return append([]string(nil), charter.Authority.GrantedVerbs...), true
+}
+
+func charterIDFromURI(uri string) string {
+	parsed, err := resource.Parse(strings.TrimSpace(uri))
+	if err != nil || parsed.Kind != resource.KindCharter {
+		return ""
+	}
+	return parsed.ID
+}
+
 func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) (*ephemeralRuntime, error) {
 	if strings.TrimSpace(r.teamDir) == "" {
 		return nil, errors.New("event runtime: team dir is required")
@@ -935,7 +974,7 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
-	authorityAllow, authorityEnforce := r.authorityForInstance(agentName, instance)
+	authorityAllow, authorityEnforce := r.runtimeAuthorityForInstance(agentName, instance, payload)
 	shimBinDir, err := runtimeshim.InstallWithOptions(runtimeDir, skillPaths, runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
