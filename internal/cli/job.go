@@ -539,12 +539,13 @@ func newJobCreateCmd() *cobra.Command {
 			}
 			if dispatchNow {
 				if len(j.Steps) > 0 {
+					waitSince := time.Now().UTC()
 					res, err := advanceJob(cmd, teamDir, j, workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin})
 					if err != nil {
 						return err
 					}
 					if wait {
-						waited, err := waitForJobCommand(cmd, teamDir, res.Job.ID, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team job create")
+						waited, err := waitForJobCommandSince(cmd, teamDir, res.Job.ID, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team job create", waitSince)
 						if err != nil {
 							if err == context.Canceled {
 								return nil
@@ -579,12 +580,13 @@ func newJobCreateCmd() *cobra.Command {
 					}
 					return nil
 				}
+				waitSince := time.Now().UTC()
 				res, requestedName, err := dispatchJobWithPrefix(cmd, teamDir, j, "", workspace, runtimeSelection{Kind: runtimeKind, Binary: runtimeBin}, "agent-team job create")
 				if err != nil {
 					return err
 				}
 				if wait {
-					waited, err := waitForJobCommand(cmd, teamDir, res.Job.ID, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team job create")
+					waited, err := waitForJobCommandSince(cmd, teamDir, res.Job.ID, waitFilters.statuses, waitFilters.events, waitFilters.nextStates, waitFilters.nextStateSet, waitFilters.step, waitTimeout, waitInterval, "agent-team job create", waitSince)
 					if err != nil {
 						if err == context.Canceled {
 							return nil
@@ -11367,10 +11369,19 @@ func parseJobWaitEvents(raw []string) map[string]bool {
 }
 
 func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, interval time.Duration) (*job.Job, error) {
+	return runJobWaitSince(ctx, teamDir, id, statuses, events, nextStates, nextStateSet, step, interval, time.Time{})
+}
+
+func runJobWaitSince(ctx context.Context, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, interval time.Duration, eventSince time.Time) (*job.Job, error) {
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
 	step = strings.TrimSpace(step)
+	if eventSince.IsZero() {
+		eventSince = time.Now().UTC()
+	} else {
+		eventSince = eventSince.UTC()
+	}
 	var last *job.Job
 	for {
 		j, err := job.Read(teamDir, id)
@@ -11379,7 +11390,7 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 		}
 		last = j
 		statusMatched := len(statuses) == 0 || statuses[j.Status]
-		eventMatched := len(events) == 0 || events[strings.TrimSpace(j.LastEvent)]
+		eventMatched := len(events) == 0 || events[strings.TrimSpace(j.LastEvent)] || jobWaitEventOccurredSince(teamDir, id, events, eventSince)
 		nextMatched := jobWaitNextMatched(j, nextStates, nextStateSet, step)
 		if statusMatched && eventMatched && nextMatched {
 			return j, nil
@@ -11395,6 +11406,26 @@ func runJobWait(ctx context.Context, teamDir, id string, statuses map[job.Status
 		case <-timer.C:
 		}
 	}
+}
+
+func jobWaitEventOccurredSince(teamDir, id string, events map[string]bool, since time.Time) bool {
+	if len(events) == 0 {
+		return true
+	}
+	history, err := job.ListEvents(teamDir, id)
+	if err != nil {
+		return false
+	}
+	for _, ev := range history {
+		if !events[strings.TrimSpace(ev.Type)] {
+			continue
+		}
+		if !since.IsZero() && ev.TS.Before(since) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func jobWaitNextMatched(j *job.Job, nextStates map[string]bool, nextStateSet bool, step string) bool {
@@ -11413,6 +11444,10 @@ func jobWaitNextMatched(j *job.Job, nextStates map[string]bool, nextStateSet boo
 }
 
 func waitForJobCommand(cmd *cobra.Command, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, timeout, interval time.Duration, prefix string) (*job.Job, error) {
+	return waitForJobCommandSince(cmd, teamDir, id, statuses, events, nextStates, nextStateSet, step, timeout, interval, prefix, time.Time{})
+}
+
+func waitForJobCommandSince(cmd *cobra.Command, teamDir, id string, statuses map[job.Status]bool, events map[string]bool, nextStates map[string]bool, nextStateSet bool, step string, timeout, interval time.Duration, prefix string, eventSince time.Time) (*job.Job, error) {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 	cancel := func() {}
@@ -11420,7 +11455,7 @@ func waitForJobCommand(cmd *cobra.Command, teamDir, id string, statuses map[job.
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-	waited, err := runJobWait(ctx, teamDir, id, statuses, events, nextStates, nextStateSet, step, interval)
+	waited, err := runJobWaitSince(ctx, teamDir, id, statuses, events, nextStates, nextStateSet, step, interval, eventSince)
 	if err == nil {
 		return waited, nil
 	}

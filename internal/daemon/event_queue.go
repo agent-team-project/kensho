@@ -94,6 +94,10 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 			message = fmt.Sprintf("instance exited with code %d", *meta.ExitCode)
 		}
 	}
+	if stalePipelineInstanceExit(j, meta.Instance) {
+		_, _ = budget.ReleaseJobInstanceAllocations(r.teamDir, j, meta.Instance, now)
+		return
+	}
 	if meta.Instance != "" {
 		j.Instance = meta.Instance
 	}
@@ -178,6 +182,24 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	// r.mu, and this reuses the normal dispatch path (which does its own locking).
 	r.tryAutoAdvancePipeline(j, meta, status)
 	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
+}
+
+func stalePipelineInstanceExit(j *jobstore.Job, instance string) bool {
+	if j == nil || len(j.Steps) == 0 || strings.TrimSpace(instance) == "" {
+		return false
+	}
+	active := false
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Status != jobstore.StatusRunning && step.Status != jobstore.StatusQueued {
+			continue
+		}
+		active = true
+		if strings.TrimSpace(step.Instance) == strings.TrimSpace(instance) {
+			return false
+		}
+	}
+	return active
 }
 
 func (r *EventResolver) onTerminalMetadata(meta *Metadata) {
