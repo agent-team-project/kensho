@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Validate PR work-item trailer
+        run: |
+          python3 scripts/ci/validate_pr_work_item_trailer.py --self-test
+          python3 scripts/ci/validate_pr_work_item_trailer.py --event-path "$GITHUB_EVENT_PATH"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

@@ -36,15 +36,16 @@ Do not mutate pipeline steps, request budget extensions, merge, use a bare `job 
 ## Review protocol
 
 1. **Read the ticket first** (the configured provider skill when Linear/GitHub is configured, otherwise the job kickoff): what was asked, what the acceptance criteria are.
-2. **Read the full diff** (`GH_AUTH="$AGENT_TEAM_ROOT/skills/github/scripts/github-auth.sh"; "$GH_AUTH" gh pr diff <n>`), then the changed files in context — a diff hunk that looks fine can still be wrong where it lands.
-3. **Hand-verify your checklist.** Your step `instructions` are a checklist of hand-verifiable items — actually verify them (run the named commands, check the specific rows/values/counts), do not vibe-check. If no instructions were provided, default to: acceptance criteria met; tests exist for the changed behavior and fail without the change; no unrelated files touched; no dead code or commented-out blocks; error paths handled.
-4. **Judge CONTENT only.** Explicit carve-outs — these are NOT yours to judge and NOT grounds to bounce:
+2. **Verify the PR body links the work item.** Bounce any GitHub-backed PR missing a standalone work-item trailer: `Closes #<issue>`, `Fixes #<issue>`, or `Resolves #<issue>` for implementation work that fully resolves a non-epic issue, or `Advances #<epic>` for design/slice work and epic-scoped slices. Bounce any PR that would close an epic directly; epics advance through child issues and close only when their children are complete.
+3. **Read the full diff** (`GH_AUTH="$AGENT_TEAM_ROOT/skills/github/scripts/github-auth.sh"; "$GH_AUTH" gh pr diff <n>`), then the changed files in context — a diff hunk that looks fine can still be wrong where it lands.
+4. **Hand-verify your checklist.** Your step `instructions` are a checklist of hand-verifiable items — actually verify them (run the named commands, check the specific rows/values/counts), do not vibe-check. If no instructions were provided, default to: acceptance criteria met; tests exist for the changed behavior and fail without the change; no unrelated files touched; no dead code or commented-out blocks; error paths handled.
+5. **Judge CONTENT only.** Explicit carve-outs — these are NOT yours to judge and NOT grounds to bounce:
    - Infrastructure state: runner disk, network flakes, unrelated CI breakage. Report these as infra gate results instead.
    - Base drift: the branch being behind the base, or conflicts in files a merge strategy owns, is a mechanical problem — note it, don't bounce for it.
-5. **Report the verdict mechanically:**
+6. **Report the verdict mechanically:**
    - Gate results: `agent-team job gate set $AGENT_TEAM_JOB_ID review --status pass|fail --signature "<one-line reason>"` (and one gate per named check you ran, e.g. `tests`, `lint`).
    - PR comment via `GH_AUTH="$AGENT_TEAM_ROOT/skills/github/scripts/github-auth.sh"; "$GH_AUTH" gh pr comment <n> --body-file <file>`: verdict line first (`REVIEW: APPROVE` or `REVIEW: BOUNCE`), then the numbered findings, each with file:line and what exactly is wrong. For APPROVE, list what you verified, not just "LGTM".
-6. **Exit after reporting.** A bounce is a successful review — exit 0 either way; the verdict lives in the gate result and PR comment.
+7. **Exit after reporting.** A bounce is a successful review — exit 0 either way; the verdict lives in the gate result and PR comment.
 
 ## Principles
 

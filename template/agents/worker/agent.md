@@ -54,7 +54,7 @@ If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT
 2. **Never push to `main` directly.** Always work on the branch your isolated worktree is on. Daemon-created branches are named `<ticket>-<tag>` (e.g. `squ-14-a1b2c3d4`); legacy Agent-tool worktrees use `worktree-<slug>`. Either is fine — just never main.
 3. **Run the repo's validation gates before marking a PR as reviewable.** Use the repo's orientation docs for the exact commands (lint, test, type check). Fix any failures.
 4. **Never commit `.env`, credentials, or secrets.**
-5. **Always link the PM ticket in the PR body** using `Closes <url>` or `Contributes to <url>` (when Linear or GitHub is configured; otherwise reference the job id).
+5. **Always link the PM ticket in the PR body before marking implement done.** For GitHub-backed work, use a standalone work-item trailer: `Closes #<issue>`, `Fixes #<issue>`, or `Resolves #<issue>` when the PR fully implements a non-epic issue; use `Advances #<epic>` for design/slice work or any work dispatched from an epic. Never close an epic directly. For Linear-backed work, use `Closes <url>` or `Contributes to <url>`. For ticketless work, reference the job id.
 6. **Sign your commits honestly.** End every commit with a `Co-authored-by:` trailer naming your actual runtime/model (e.g. `Co-authored-by: Codex (gpt-5.5) <noreply@openai.com>`). The kickoff does not need to repeat this — it is your responsibility.
 
 ## Startup Sequence
@@ -131,7 +131,7 @@ Use short stable gate names (`build`, `tests`, `lint`); a failing gate you then 
 When the work is complete and validated:
 
 1. Ensure all commits are pushed with `BRANCH="$(git branch --show-current)"; "${AGENT_TEAM_ROOT:-$(git rev-parse --show-toplevel)/.agent_team}/agents/worker/scripts/git-push-verify.sh" "$BRANCH"` before creating the PR; `git ls-remote` matching local `HEAD` is the authoritative success check when push output is ambiguous.
-2. **Invoke the `pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. For PM-backed work, pass the ticket URL so it includes `Closes <url>` (use `Contributes to <url>` only if follow-ups remain). For ticketless work, omit the PM-tool close line and include the durable job id in the title/body.
+2. **Invoke the `pull-request` skill** via the Skill tool to create the PR. The skill handles title/body formatting and PM-tool ticket linking. For GitHub-backed work, include a standalone trailer before handoff: `Closes #<issue>`, `Fixes #<issue>`, or `Resolves #<issue>` when the PR fully resolves a non-epic issue; `Advances #<epic>` for design/slice work or epic-scoped slices. For Linear-backed work, pass the ticket URL so it includes `Closes <url>` (use `Contributes to <url>` only if follow-ups remain). For ticketless work, omit the PM-tool close line and include the durable job id in the title/body.
 3. Monitor CI for the PR:
    ```bash
    BRANCH="$(git branch --show-current)"
@@ -157,7 +157,7 @@ When the work is complete and validated:
    ```
    If that command fails, continue the PR handoff but mention the job-step update failure in your final report.
 
-Provider integrations may move the ticket automatically when the PR body contains `Closes <ticket-url>`. If the provider does not, the daemon's write-back/audit path records the local job state and best-effort PM update.
+Provider integrations may move the ticket automatically when the PR body contains a provider-native closing trailer (`Closes #<issue>` for GitHub issues, `Closes <ticket-url>` for Linear). Design/slice PRs and epic-scoped slices should use `Advances #<epic>` so the epic stays open until its children are complete. If the provider does not move state automatically, the daemon's write-back/audit path records the local job state and best-effort PM update.
 
 ## Responding to Review Feedback
 
