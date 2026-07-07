@@ -7,15 +7,19 @@ import argparse
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 
+ISSUE_REF = (
+    r"(?:#\d+|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/\d+)"
+)
 CLOSING_TRAILER_RE = re.compile(
     r"^\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
-    r"#\d+(?:[,\s]+#\d+)*\s*\.?\s*$",
+    rf"{ISSUE_REF}(?:[,\s]+{ISSUE_REF})*\s*\.?\s*$",
     re.IGNORECASE,
 )
 ADVANCES_TRAILER_RE = re.compile(
-    r"^\s*advances\s+#\d+(?:[,\s]+#\d+)*\s*\.?\s*$",
+    rf"^\s*(?:advances|refs)\s+{ISSUE_REF}(?:[,\s]+{ISSUE_REF})*\s*\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -26,9 +30,10 @@ Add one of:
   Fixes #123
   Resolves #123
   Advances #216
+  Refs https://github.com/OWNER/REPO/issues/216
 
 Use a closing keyword for implementation work that fully resolves a
-non-epic issue. Use `Advances #<epic>` for design/slice PRs or epic work.
+non-epic issue. Use `Advances` or `Refs` for design/slice PRs or epic work.
 """
 
 
@@ -74,14 +79,21 @@ def run_self_test() -> bool:
         "## Summary\n\n- ship it\n\nCloses #123\n",
         "Fixes #123.",
         "resolved #1, #2",
+        "Closes https://github.com/agent-team-project/kensho/issues/123",
+        "Fixes #123, https://github.com/agent-team-project/kensho/issues/124",
         "Advances #216",
+        "Advances https://github.com/OWNER/REPO/issues/216",
+        "Refs #216",
+        "Refs https://github.com/agent-team-project/kensho/issues/216.",
         "## Footer\n\nADVANCES #216\n",
     ]
     invalid = [
         "",
         "This fixes #123 in passing, but is not a trailer.",
         "Contributes to #123",
-        "Closes https://github.com/agent-team-project/kensho/issues/216",
+        "https://github.com/agent-team-project/kensho/issues/216",
+        "Closes https://github.com/agent-team-project/kensho/pull/216",
+        "Advances https://gitlab.com/agent-team-project/kensho/issues/216",
         "Closes the issue",
     ]
 
@@ -92,6 +104,25 @@ def run_self_test() -> bool:
     for body in invalid:
         if has_work_item_trailer(body):
             failures.append(f"expected invalid body to fail: {body!r}")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        edited_event = Path(tmpdir) / "edited-pr-event.json"
+        edited_event.write_text(
+            json.dumps(
+                {
+                    "action": "edited",
+                    "pull_request": {
+                        "body": "## Summary\n\nUpdate gate checks.\n\nRefs https://github.com/OWNER/REPO/issues/216"
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        body, skipped = body_from_event(edited_event)
+        if skipped:
+            failures.append("expected edited pull_request event not to be skipped")
+        elif not has_work_item_trailer(body):
+            failures.append("expected edited pull_request event body to pass")
 
     if failures:
         print("PR work-item trailer self-test failed:", file=sys.stderr)

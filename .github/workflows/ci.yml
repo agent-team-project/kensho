@@ -4,8 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
+  work-item-trailer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate PR work-item trailer
+        run: |
+          python3 scripts/ci/validate_pr_work_item_trailer.py --self-test
+          python3 scripts/ci/validate_pr_work_item_trailer.py --event-path "$GITHUB_EVENT_PATH"
+
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -24,11 +40,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Validate PR work-item trailer
-        run: |
-          python3 scripts/ci/validate_pr_work_item_trailer.py --self-test
-          python3 scripts/ci/validate_pr_work_item_trailer.py --event-path "$GITHUB_EVENT_PATH"
 
       - uses: actions/setup-node@v4
         with:
