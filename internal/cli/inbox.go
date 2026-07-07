@@ -87,6 +87,7 @@ func newInboxCheckCmd() *cobra.Command {
 				return err
 			}
 			return runInboxShow(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, instance, inboxShowOptions{
+				Command:        "check",
 				UnreadOnly:     true,
 				Tail:           tail,
 				Commands:       commands,
@@ -220,6 +221,7 @@ func newInboxShowCmd() *cobra.Command {
 				return err
 			}
 			return runInboxShow(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], inboxShowOptions{
+				Command:    "show",
 				UnreadOnly: unreadOnly,
 				Tail:       tail,
 				Commands:   commands,
@@ -542,6 +544,7 @@ type inboxListOptions struct {
 }
 
 type inboxShowOptions struct {
+	Command        string
 	UnreadOnly     bool
 	Tail           int
 	Commands       bool
@@ -861,9 +864,13 @@ func collectInboxSummaryRows(daemonRoot string, instances []string, metaByInstan
 }
 
 func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inboxShowOptions) error {
+	command := opts.Command
+	if command == "" {
+		command = "show"
+	}
 	instance = strings.TrimSpace(instance)
 	if instance == "" {
-		fmt.Fprintln(stderr, "agent-team inbox show: instance is required.")
+		fmt.Fprintf(stderr, "agent-team inbox %s: instance is required.\n", command)
 		return exitErr(2)
 	}
 	daemonRoot := daemon.DaemonRoot(teamDir)
@@ -872,7 +879,7 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 		return err
 	}
 	if !exists {
-		fmt.Fprintf(stderr, "agent-team inbox show: no such inbox: %s\n", instance)
+		fmt.Fprintf(stderr, "agent-team inbox %s: no such inbox: %s\n", command, instance)
 		return exitErr(2)
 	}
 	messages, err := daemon.ReadMessages(daemonRoot, instance)
@@ -884,10 +891,10 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 		return err
 	}
 	rows := inboxMessageRows(instance, messages, cursor, opts.UnreadOnly)
-	firstUnreadID := firstDisplayedUnreadInboxMessageID(rows)
 	if opts.Tail > 0 && len(rows) > opts.Tail {
 		rows = rows[len(rows)-opts.Tail:]
 	}
+	firstUnreadID := firstDisplayedUnreadInboxMessageID(rows)
 	if opts.Commands {
 		return renderInboxAckApplyCommand(stdout, firstUnreadID != "", inboxAckApplyCommandOptions{
 			Instance: instance,

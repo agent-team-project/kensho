@@ -348,8 +348,23 @@ func TestInboxCheckDefaultsToSelfAndSuggestsFirstUnreadAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox check tail commands: %v\nstderr=%s", err, stderr)
 	}
-	if got := strings.TrimSpace(stdout); got != wantCommand {
-		t.Fatalf("inbox check tail commands = %q, want first unread %q", got, wantCommand)
+	wantTailCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--repo", tmp}), " ")
+	if got := strings.TrimSpace(stdout); got != wantTailCommand {
+		t.Fatalf("inbox check tail commands = %q, want first displayed unread %q", got, wantTailCommand)
+	}
+}
+
+func TestInboxCheckMissingInboxUsesCheckErrorPrefix(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	_, stderr, err := executeInboxCommand("inbox", "check", "missing", "--target", tmp)
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if got, want := strings.TrimSpace(stderr), "agent-team inbox check: no such inbox: missing"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
