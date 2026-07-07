@@ -378,7 +378,7 @@ func (c *GitHubClient) resolveToken(teamDir string) (string, error) {
 	if token := strings.TrimSpace(c.Token); token != "" {
 		return token, nil
 	}
-	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+	for _, name := range []string{"AGENT_TEAM_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"} {
 		if token := strings.TrimSpace(os.Getenv(name)); token != "" {
 			return token, nil
 		}
@@ -391,7 +391,7 @@ func (c *GitHubClient) resolveToken(teamDir string) (string, error) {
 			}
 			return "", err
 		}
-		for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		for _, name := range []string{"AGENT_TEAM_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"} {
 			if token := strings.TrimSpace(values[name]); token != "" {
 				return token, nil
 			}

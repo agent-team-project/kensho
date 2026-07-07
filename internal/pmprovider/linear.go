@@ -73,6 +73,7 @@ type config struct {
 		TicketPrefix    string   `toml:"ticket_prefix"`
 		InProgressState string   `toml:"in_progress_state"`
 		AttentionState  string   `toml:"attention_state"`
+		ClosedState     string   `toml:"closed_state"`
 		Labels          []string `toml:"labels"`
 	} `toml:"linear"`
 	GitHub struct {

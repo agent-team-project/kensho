@@ -88,6 +88,7 @@ Subcommands:
 - `agent-team team` - Inspect declared agent teams.
 - `agent-team template` - Manage templates (bundled + cached) used by `agent-team init`.
 - `agent-team tick` - Run one orchestration maintenance cycle.
+- `agent-team ticket` - Create and update PM tickets through the configured provider.
 - `agent-team topology` - Show declared instances and triggers (reads .agent_team/instances.toml).
 - `agent-team upgrade` - Check or apply a template upgrade using the repo&#39;s template lock.
 - `agent-team usage` - Show runtime token usage rollups.
@@ -10825,6 +10826,104 @@ Inherited Flags:
 
 ```text
       --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+## `agent-team ticket`
+
+Create and update PM tickets through the configured provider.
+
+Create and update PM tickets through `[pm].provider`. Supported providers are Linear and GitHub.
+
+```text
+agent-team ticket
+```
+
+Inherited Flags:
+
+```text
+      --repo string   Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.
+```
+
+Subcommands:
+
+- `agent-team ticket close` - Close a ticket using the configured PM provider.
+- `agent-team ticket comment` - Comment on a ticket using the configured PM provider.
+- `agent-team ticket create` - Create a ticket using the configured PM provider.
+- `agent-team ticket update` - Update a ticket using the configured PM provider.
+
+## `agent-team ticket close`
+
+Close a ticket using the configured PM provider.
+
+```text
+agent-team ticket close <ticket> [flags]
+```
+
+Flags:
+
+```text
+      --body string        Ticket body or comment text.
+      --body-file string   Read ticket body or comment text from this file. Use '-' for stdin.
+      --json               Emit ticket result as JSON.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --state string       Provider state to use for close. Required for Linear unless [linear].closed_state is configured.
+```
+
+## `agent-team ticket comment`
+
+Comment on a ticket using the configured PM provider.
+
+```text
+agent-team ticket comment <ticket> [flags]
+```
+
+Flags:
+
+```text
+      --body string        Ticket body or comment text.
+      --body-file string   Read ticket body or comment text from this file. Use '-' for stdin.
+      --json               Emit ticket result as JSON.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+```
+
+## `agent-team ticket create`
+
+Create a ticket using the configured PM provider.
+
+```text
+agent-team ticket create --title <title> [flags]
+```
+
+Flags:
+
+```text
+      --body string        Ticket body or comment text.
+      --body-file string   Read ticket body or comment text from this file. Use '-' for stdin.
+      --json               Emit ticket result as JSON.
+      --label strings      Label to add. Can repeat or comma-separate.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --state string       Initial provider state.
+      --title string       Ticket title.
+```
+
+## `agent-team ticket update`
+
+Update a ticket using the configured PM provider.
+
+```text
+agent-team ticket update <ticket> [flags]
+```
+
+Flags:
+
+```text
+      --body string        Ticket body or comment text.
+      --body-file string   Read ticket body or comment text from this file. Use '-' for stdin.
+      --json               Emit ticket result as JSON.
+      --label strings      Label to add. Can repeat or comma-separate.
+      --repo string        Repo root containing .agent_team. (default "<repo>")
+      --state string       Provider state to set.
+      --title string       New ticket title.
 ```
 
 ## `agent-team topology`

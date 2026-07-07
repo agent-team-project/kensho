@@ -26,6 +26,7 @@ type Provider interface {
 	ResolveActorID(teamDir string) (string, error)
 	SelfStatusChangeForActor(ev *intake.Event, actorID string) (bool, string)
 	WriteBack(ctx context.Context, teamDir string, req Request) Result
+	ApplyTicket(ctx context.Context, teamDir string, req TicketRequest) TicketResult
 }
 
 type Config struct {
@@ -114,6 +115,52 @@ func WriteBack(ctx context.Context, teamDir string, req Request) Result {
 	return provider.WriteBack(ctx, teamDir, req)
 }
 
+type TicketAction string
+
+const (
+	TicketCreate  TicketAction = "create"
+	TicketUpdate  TicketAction = "update"
+	TicketComment TicketAction = "comment"
+	TicketClose   TicketAction = "close"
+)
+
+type TicketRequest struct {
+	Action TicketAction
+	Ticket string
+	Title  string
+	Body   string
+	State  string
+	Labels []string
+	Actor  string
+}
+
+type TicketResult struct {
+	Provider ProviderName `json:"provider"`
+	Action   TicketAction `json:"action"`
+	Issue    string       `json:"issue,omitempty"`
+	URL      string       `json:"url,omitempty"`
+	Title    string       `json:"title,omitempty"`
+	State    string       `json:"state,omitempty"`
+	Labels   []string     `json:"labels,omitempty"`
+	Comment  bool         `json:"comment,omitempty"`
+	Skipped  bool         `json:"skipped,omitempty"`
+	Changed  bool         `json:"changed,omitempty"`
+	Message  string       `json:"message,omitempty"`
+	Error    string       `json:"error,omitempty"`
+}
+
+func ApplyTicket(ctx context.Context, teamDir string, req TicketRequest) TicketResult {
+	provider, err := ForTeamDir(teamDir)
+	if err != nil {
+		return TicketResult{
+			Action:  req.Action,
+			Error:   err.Error(),
+			Message: "PM provider ticket action failed",
+		}
+	}
+	return provider.ApplyTicket(ctx, teamDir, req)
+}
+
 func (NoneProvider) Name() ProviderName {
 	return ProviderNone
 }
@@ -154,6 +201,15 @@ func (NoneProvider) WriteBack(_ context.Context, teamDir string, req Request) Re
 	result.Skipped = true
 	result.Message = "Linear not configured for this repo"
 	return finish(result)
+}
+
+func (NoneProvider) ApplyTicket(_ context.Context, _ string, req TicketRequest) TicketResult {
+	return TicketResult{
+		Provider: ProviderNone,
+		Action:   req.Action,
+		Skipped:  true,
+		Message:  "PM provider is not configured for this repo",
+	}
 }
 
 func writeBackConfigError(teamDir string, req Request, err error) Result {
