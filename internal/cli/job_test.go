@@ -2121,6 +2121,52 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 		t.Fatalf("dry-run wrote job file, err=%v", err)
 	}
 
+	reportCmd := NewRootCmd()
+	reportOut, reportErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reportCmd.SetOut(reportOut)
+	reportCmd.SetErr(reportErr)
+	reportCmd.SetArgs([]string{"job", "create", "SQU-52", "--repo", tmp, "--kind", "report", "--deliverable", "report:reports/squ-52.md", "--dry-run", "--json"})
+	if err := reportCmd.Execute(); err != nil {
+		t.Fatalf("report job create dry-run: %v\nstderr=%s", err, reportErr.String())
+	}
+	var reportPreview jobCreatePreview
+	if err := json.Unmarshal(reportOut.Bytes(), &reportPreview); err != nil {
+		t.Fatalf("decode report job create dry-run json: %v\nbody=%s", err, reportOut.String())
+	}
+	if reportPreview.Job == nil || reportPreview.Job.Kind != job.KindReport || reportPreview.Job.DeliveryContract != "report:reports/squ-52.md" {
+		t.Fatalf("report preview job = %+v", reportPreview.Job)
+	}
+
+	reportCommandsCmd := NewRootCmd()
+	reportCommandsOut, reportCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
+	reportCommandsCmd.SetOut(reportCommandsOut)
+	reportCommandsCmd.SetErr(reportCommandsErr)
+	reportCommandsCmd.SetArgs([]string{"job", "create", "SQU-53", "--repo", tmp, "--kind", "report", "--deliverable", "report:reports/squ-53.md", "--dry-run", "--commands"})
+	if err := reportCommandsCmd.Execute(); err != nil {
+		t.Fatalf("report job create --commands: %v\nstderr=%s", err, reportCommandsErr.String())
+	}
+	wantReportCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team", "job", "create", "SQU-53",
+		"--repo", tmp,
+		"--kind", "report",
+		"--deliverable", "report:reports/squ-53.md",
+	}), " ") + "\n"
+	if got := reportCommandsOut.String(); got != wantReportCommand {
+		t.Fatalf("report job create --commands = %q, want %q", got, wantReportCommand)
+	}
+
+	missingReportPathCmd := NewRootCmd()
+	missingReportPathOut, missingReportPathErr := &bytes.Buffer{}, &bytes.Buffer{}
+	missingReportPathCmd.SetOut(missingReportPathOut)
+	missingReportPathCmd.SetErr(missingReportPathErr)
+	missingReportPathCmd.SetArgs([]string{"job", "create", "SQU-54", "--repo", tmp, "--kind", "report", "--dry-run"})
+	if err := missingReportPathCmd.Execute(); err == nil {
+		t.Fatalf("report job create without deliverable succeeded; stdout=%s stderr=%s", missingReportPathOut.String(), missingReportPathErr.String())
+	}
+	if !strings.Contains(missingReportPathErr.String(), "--kind report requires --deliverable report:<path>") {
+		t.Fatalf("missing report path stderr = %q", missingReportPathErr.String())
+	}
+
 	textCmd := NewRootCmd()
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
@@ -4529,6 +4575,166 @@ ticket = "SQU-155"
 	}
 	if len(messages) != 1 || !strings.Contains(messages[0].Body, "squ-155") || !strings.Contains(messages[0].Body, "delivery artifact missing") {
 		t.Fatalf("manager messages = %+v", messages)
+	}
+}
+
+func TestJobReconcileStatusDoneWithReportDeliverablePasses(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	reportPath := ".agent_team/state/worker-squ-192/report.md"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, reportPath)), 0o755); err != nil {
+		t.Fatalf("mkdir report dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, reportPath), []byte("research findings\n"), 0o644); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	j := &job.Job{
+		ID:               "squ-192",
+		Ticket:           "SQU-192",
+		Target:           "worker",
+		Kind:             job.KindReport,
+		DeliveryContract: "report:" + reportPath,
+		Status:           job.StatusRunning,
+		CreatedAt:        now.Add(-time.Hour),
+		UpdatedAt:        now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-192"), `[status]
+phase = "done"
+description = "report complete"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-192"
+ticket = "SQU-192"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile status: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobStatusReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode status reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].JobID != "squ-192" || result[0].After != job.StatusDone || result[0].Event != "status_reconcile" {
+		t.Fatalf("result = %+v, want done status_reconcile", result)
+	}
+	updated, err := job.Read(teamDir, "squ-192")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusDone || updated.LastEvent != "status_reconcile" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobReconcileStatusDoneWithoutReportDeliverableFails(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:               "squ-193",
+		Ticket:           "SQU-193",
+		Target:           "worker",
+		Kind:             job.KindReport,
+		DeliveryContract: "report:.agent_team/state/worker-squ-193/report.md",
+		Status:           job.StatusRunning,
+		CreatedAt:        now.Add(-time.Hour),
+		UpdatedAt:        now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-193"), `[status]
+phase = "done"
+description = "report complete"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-193"
+ticket = "SQU-193"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile status: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobStatusReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode status reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].JobID != "squ-193" || result[0].After != job.StatusFailed || result[0].Event != "deliverable_missing" {
+		t.Fatalf("result = %+v, want failed deliverable_missing", result)
+	}
+	if !strings.Contains(result[0].Message, "non-empty report artifact") {
+		t.Fatalf("message = %q, want report artifact reason", result[0].Message)
+	}
+	updated, err := job.Read(teamDir, "squ-193")
+	if err != nil {
+		t.Fatalf("read updated job: %v", err)
+	}
+	if updated.Status != job.StatusFailed || updated.LastEvent != "deliverable_missing" {
+		t.Fatalf("updated job = %+v", updated)
+	}
+}
+
+func TestJobReconcileStatusDoneProbeWithoutDeliveryArtifactPasses(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:               "squ-194",
+		Ticket:           "SQU-194",
+		Target:           "worker",
+		Kind:             job.KindProbe,
+		Pipeline:         "ticket_to_pr",
+		DeliveryContract: "ticket_to_pr",
+		Status:           job.StatusRunning,
+		CreatedAt:        now.Add(-time.Hour),
+		UpdatedAt:        now.Add(-time.Hour),
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-squ-194"), `[status]
+phase = "done"
+description = "probe complete"
+since = "2026-06-18T12:00:00Z"
+
+[work]
+job = "squ-194"
+ticket = "SQU-194"
+`, now)
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job reconcile status: %v\nstderr=%s", err, stderr.String())
+	}
+	var result []jobStatusReconcileResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode status reconcile json: %v\nbody=%s", err, out.String())
+	}
+	if len(result) != 1 || result[0].JobID != "squ-194" || result[0].After != job.StatusDone || result[0].Event != "status_reconcile" {
+		t.Fatalf("result = %+v, want probe done status_reconcile", result)
 	}
 }
 

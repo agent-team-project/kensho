@@ -35,7 +35,8 @@ const (
 
 // Supported job kinds. Empty kind is the normal delivery workflow.
 const (
-	KindProbe = "probe"
+	KindProbe  = "probe"
+	KindReport = "report"
 )
 
 // ProbeSkipReason is recorded on pipeline steps intentionally bypassed for
@@ -266,16 +267,23 @@ func NormalizeKind(raw string) (string, error) {
 	switch kind {
 	case "", "default":
 		return "", nil
+	case KindReport:
+		return KindReport, nil
 	case KindProbe:
 		return KindProbe, nil
 	default:
-		return "", fmt.Errorf("unknown job profile %q", raw)
+		return "", fmt.Errorf("unknown job kind %q", raw)
 	}
 }
 
 // IsProbe reports whether kind selects the reduced report-only probe contract.
 func IsProbe(kind string) bool {
 	return strings.EqualFold(strings.TrimSpace(kind), KindProbe)
+}
+
+// IsReport reports whether kind selects a report-artifact delivery contract.
+func IsReport(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(kind), KindReport)
 }
 
 // New builds a queued job with normalized defaults.

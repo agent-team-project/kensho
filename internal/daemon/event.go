@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ const (
 const (
 	deliveryContractBranch     = "branch"
 	deliveryContractPR         = "pr"
+	deliveryContractReport     = "report"
 	deliveryContractTicketToPR = "ticket_to_pr"
 )
 
@@ -550,6 +552,13 @@ func (r *EventResolver) missingDeliveryArtifactReason(j *jobstore.Job, meta *Met
 	if r.jobHasDeliveryArtifact(j, meta) {
 		return ""
 	}
+	contract := deliveryArtifactContract(j)
+	if path := deliveryReportArtifactPath(contract); path != "" {
+		return "delivery artifact missing: expected non-empty report artifact at " + path + " before accepting done"
+	}
+	if contract == deliveryContractReport {
+		return "delivery artifact missing: expected report:<path> deliverable contract before accepting done"
+	}
 	return "delivery artifact missing: expected an open PR, pushed branch, or non-empty committed diff before accepting done"
 }
 
@@ -579,8 +588,14 @@ func deliveryArtifactContract(j *jobstore.Job) string {
 	if jobIsProbe(j) {
 		return ""
 	}
+	if strings.EqualFold(strings.TrimSpace(j.DeliveryContract), "none") {
+		return ""
+	}
 	if contract := normalizeDeliveryArtifactContract(j.DeliveryContract); contract != "" {
 		return contract
+	}
+	if jobstore.IsReport(j.Kind) {
+		return deliveryContractReport
 	}
 	if strings.EqualFold(strings.TrimSpace(j.Pipeline), deliveryContractTicketToPR) {
 		return deliveryContractTicketToPR
@@ -597,6 +612,7 @@ func (r *EventResolver) jobHasDeliveryArtifact(j *jobstore.Job, meta *Metadata) 
 	if j == nil {
 		return false
 	}
+	contract := deliveryArtifactContract(j)
 	repoRoot := r.teamDirParent()
 	branch := strings.TrimSpace(j.Branch)
 	worktree := strings.TrimSpace(j.Worktree)
@@ -612,6 +628,9 @@ func (r *EventResolver) jobHasDeliveryArtifact(j *jobstore.Job, meta *Metadata) 
 			worktree = strings.TrimSpace(meta.Workspace)
 		}
 	}
+	if deliveryReportArtifactPath(contract) != "" || contract == deliveryContractReport {
+		return reportDeliveryArtifactExists(repoRoot, r.teamDir, worktree, deliveryReportArtifactPath(contract))
+	}
 	if openPullRequestExists(repoRoot, worktree, pr) {
 		return true
 	}
@@ -625,11 +644,24 @@ func (r *EventResolver) jobHasDeliveryArtifact(j *jobstore.Job, meta *Metadata) 
 }
 
 func normalizeDeliveryArtifactContract(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	trimmed := strings.TrimSpace(raw)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, deliveryContractReport+":") {
+		path := strings.TrimSpace(trimmed[len(deliveryContractReport)+1:])
+		if path == "" {
+			return ""
+		}
+		return deliveryContractReport + ":" + path
+	}
+	switch lower {
+	case "", "none":
+		return ""
 	case deliveryContractBranch:
 		return deliveryContractBranch
 	case deliveryContractPR:
 		return deliveryContractPR
+	case deliveryContractReport:
+		return deliveryContractReport
 	case deliveryContractTicketToPR:
 		return deliveryContractTicketToPR
 	default:
@@ -641,6 +673,15 @@ func payloadDeliveryArtifactContract(payload map[string]any) string {
 	if payload == nil || payloadIsProbe(payload) {
 		return ""
 	}
+	if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		return contract
+	}
+	if jobstore.IsReport(payloadJobKind(payload)) {
+		if path := strings.TrimSpace(firstPayloadString(payload, "report_path", "report")); path != "" {
+			return deliveryContractReport + ":" + path
+		}
+		return deliveryContractReport
+	}
 	if strings.EqualFold(strings.TrimSpace(payloadString(payload, "pipeline")), deliveryContractTicketToPR) {
 		return deliveryContractTicketToPR
 	}
@@ -651,6 +692,71 @@ func payloadDeliveryArtifactContract(payload map[string]any) string {
 		return deliveryContractBranch
 	}
 	return ""
+}
+
+func explicitPayloadDeliveryArtifactContract(payload map[string]any) (string, bool) {
+	if payload == nil {
+		return "", false
+	}
+	for _, key := range []string{"deliverable", "delivery_contract"} {
+		if _, ok := payload[key]; ok {
+			raw := strings.TrimSpace(payloadString(payload, key))
+			if strings.EqualFold(raw, "none") {
+				return "none", true
+			}
+			return normalizeDeliveryArtifactContract(raw), true
+		}
+	}
+	return "", false
+}
+
+func NormalizeDeliveryArtifactContract(raw string) string {
+	return normalizeDeliveryArtifactContract(raw)
+}
+
+func deliveryReportArtifactPath(contract string) string {
+	contract = normalizeDeliveryArtifactContract(contract)
+	lower := strings.ToLower(contract)
+	if !strings.HasPrefix(lower, deliveryContractReport+":") {
+		return ""
+	}
+	return strings.TrimSpace(contract[len(deliveryContractReport)+1:])
+}
+
+func reportDeliveryArtifactExists(repoRoot, teamDir, worktree, reportPath string) bool {
+	reportPath = strings.TrimSpace(reportPath)
+	if reportPath == "" {
+		return false
+	}
+	for _, candidate := range reportArtifactCandidates(repoRoot, teamDir, worktree, reportPath) {
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func reportArtifactCandidates(repoRoot, teamDir, worktree, reportPath string) []string {
+	if filepath.IsAbs(reportPath) {
+		return []string{filepath.Clean(reportPath)}
+	}
+	bases := []string{repoRoot, worktree, teamDir}
+	seen := map[string]bool{}
+	var out []string
+	for _, base := range bases {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			continue
+		}
+		candidate := filepath.Clean(filepath.Join(base, reportPath))
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func pipelineDeliveryArtifactContract(pipeline *topology.Pipeline) string {
