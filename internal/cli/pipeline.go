@@ -5668,6 +5668,7 @@ func newPipelineRunCmd() *cobra.Command {
 		repo                 string
 		id                   string
 		ticketURL            string
+		epic                 string
 		kickoff              string
 		kickoffFile          string
 		budgetTokens         string
@@ -5704,6 +5705,7 @@ func newPipelineRunCmd() *cobra.Command {
 			return runPipelineJobCreate(cmd, teamDir, args[0], args[1], args[2:], pipelineRunOptions{
 				ID:                      id,
 				TicketURL:               ticketURL,
+				Epic:                    epic,
 				Kickoff:                 kickoff,
 				KickoffFile:             kickoffFile,
 				BudgetTokens:            budgetTokens,
@@ -5724,6 +5726,8 @@ func newPipelineRunCmd() *cobra.Command {
 					IDSet:                   cmd.Flags().Changed("id"),
 					TicketURL:               ticketURL,
 					TicketURLSet:            cmd.Flags().Changed("ticket-url"),
+					Epic:                    epic,
+					EpicSet:                 cmd.Flags().Changed("epic"),
 					Dispatch:                dispatchNow,
 					Workspace:               workspace,
 					WorkspaceSet:            cmd.Flags().Changed("workspace"),
@@ -5761,6 +5765,7 @@ func newPipelineRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
+	cmd.Flags().StringVar(&epic, "epic", "", "Epic/project attribution tag for resource reporting.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&budgetTokens, "budget-tokens", "", "Soft token allowance for this pipeline job, for example 40M.")
@@ -5789,6 +5794,7 @@ func newPipelineRunCmd() *cobra.Command {
 type pipelineRunOptions struct {
 	ID                      string
 	TicketURL               string
+	Epic                    string
 	Kickoff                 string
 	KickoffFile             string
 	BudgetTokens            string
@@ -5825,6 +5831,8 @@ type pipelineRunApplyCommandOptions struct {
 	IDSet                   bool
 	TicketURL               string
 	TicketURLSet            bool
+	Epic                    string
+	EpicSet                 bool
 	Dispatch                bool
 	Workspace               string
 	WorkspaceSet            bool
@@ -5871,6 +5879,9 @@ func pipelineRunApplyCommandArgs(opts pipelineRunApplyCommandOptions) []string {
 	}
 	if opts.TicketURLSet && strings.TrimSpace(opts.TicketURL) != "" {
 		args = append(args, "--ticket-url", opts.TicketURL)
+	}
+	if opts.EpicSet && strings.TrimSpace(opts.Epic) != "" {
+		args = append(args, "--epic", opts.Epic)
 	}
 	if opts.Dispatch {
 		args = append(args, "--dispatch")
@@ -6016,6 +6027,7 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	if strings.TrimSpace(opts.TicketURL) != "" {
 		j.TicketURL = strings.TrimSpace(opts.TicketURL)
 	}
+	j.Epic = job.EpicFromInputs(opts.Epic, j.TicketURL, j.Origin.Project)
 	j.Pipeline = pipelineDef.Name
 	j.Steps = jobStepsFromPipeline(pipelineDef)
 	job.SetImplementationAgentFromSteps(j)
@@ -6051,6 +6063,9 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	}
 	if j.TicketURL != "" {
 		data["ticket_url"] = j.TicketURL
+	}
+	if j.Epic != "" {
+		data["epic"] = j.Epic
 	}
 	if err := writeJobWithAudit(teamDir, j, "created", "cli", "created "+j.Ticket, data); err != nil {
 		return err

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/agent-team-project/agent-team/internal/origin"
 )
 
 func TestNormalizeID(t *testing.T) {
@@ -58,6 +60,40 @@ func TestTicketIdentity(t *testing.T) {
 		if j.ID != tc.id || j.Ticket != tc.ticket || j.TicketURL != tc.ticketURL {
 			t.Fatalf("job from %q = %+v", tc.raw, j)
 		}
+	}
+}
+
+func TestEpicAttributionDerivation(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		explicit      string
+		ticketURL     string
+		originProject string
+		want          string
+	}{
+		{name: "explicit wins", explicit: "resource-governance", ticketURL: "https://github.com/agent-team-project/kensho/issues/202", originProject: "project-1", want: "resource-governance"},
+		{name: "github issue URL", ticketURL: "https://github.com/agent-team-project/kensho/issues/202", want: "agent-team-project/kensho#202"},
+		{name: "linear issue URL", ticketURL: "https://linear.app/squirtlesquad/issue/squ-42/status-monitor", want: "SQU-42"},
+		{name: "generic URL", ticketURL: "https://tracker.example.com/projects/core/epic-1?ignored=true", want: "tracker.example.com/projects/core/epic-1"},
+		{name: "origin project fallback", originProject: "project-1", want: "project-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EpicFromInputs(tc.explicit, tc.ticketURL, tc.originProject); got != tc.want {
+				t.Fatalf("EpicFromInputs = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	j := &Job{
+		TicketURL: "https://github.com/agent-team-project/kensho/issues/202",
+		Origin:    origin.Envelope{Project: "project-1"},
+	}
+	if got := EpicForJob(j); got != "agent-team-project/kensho#202" {
+		t.Fatalf("EpicForJob = %q, want GitHub issue tag", got)
+	}
+	j.Epic = "manual"
+	if got := EpicForJob(j); got != "manual" {
+		t.Fatalf("EpicForJob explicit = %q, want manual", got)
 	}
 }
 

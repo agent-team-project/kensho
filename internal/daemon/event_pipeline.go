@@ -42,6 +42,7 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		j.TicketURL = ticketURL
 	}
+	j.Epic = jobstore.EpicFromInputs(payloadString(payload, "epic"), j.TicketURL, j.Origin.Project)
 	j.Kind = payloadJobKind(payload)
 	j.Steps = pipelineJobSteps(pipeline)
 	j.DeliveryContract = pipelineDeliveryArtifactContract(pipeline)
@@ -72,6 +73,9 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	}
 	if j.TicketURL != "" {
 		data["ticket_url"] = j.TicketURL
+	}
+	if j.Epic != "" {
+		data["epic"] = j.Epic
 	}
 	if err := r.writeJobWithAudit(j, pipelineEvent, "daemon", "", data); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
@@ -217,6 +221,7 @@ func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload ma
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		j.TicketURL = ticketURL
 	}
+	j.Epic = jobstore.EpicFromInputs(payloadString(payload, "epic"), j.TicketURL, j.Origin.Project)
 	if len(j.Steps) == 0 {
 		j.Steps = pipelineJobSteps(pipeline)
 	}
@@ -268,6 +273,9 @@ func pipelineAuditData(pipelineName, eventType string, j *jobstore.Job, reentry 
 	}
 	if j != nil && j.TicketURL != "" {
 		data["ticket_url"] = j.TicketURL
+	}
+	if j != nil && j.Epic != "" {
+		data["epic"] = j.Epic
 	}
 	return data
 }

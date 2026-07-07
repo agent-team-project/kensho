@@ -1550,6 +1550,7 @@ func newTeamRunCmd() *cobra.Command {
 		pipeline      string
 		id            string
 		ticketURL     string
+		epic          string
 		kickoff       string
 		kickoffFile   string
 		dispatchNow   bool
@@ -1594,6 +1595,7 @@ func newTeamRunCmd() *cobra.Command {
 			return runPipelineJobCreate(cmd, teamDir, pipelineName, args[1], args[2:], pipelineRunOptions{
 				ID:          id,
 				TicketURL:   ticketURL,
+				Epic:        epic,
 				Kickoff:     kickoff,
 				KickoffFile: kickoffFile,
 				DispatchNow: dispatchNow,
@@ -1611,6 +1613,8 @@ func newTeamRunCmd() *cobra.Command {
 					IDSet:          cmd.Flags().Changed("id"),
 					TicketURL:      ticketURL,
 					TicketURLSet:   cmd.Flags().Changed("ticket-url"),
+					Epic:           epic,
+					EpicSet:        cmd.Flags().Changed("epic"),
 					Dispatch:       dispatchNow,
 					Workspace:      workspace,
 					WorkspaceSet:   cmd.Flags().Changed("workspace"),
@@ -1641,6 +1645,7 @@ func newTeamRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pipeline, "pipeline", "", "Team pipeline to use when the team declares more than one.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
+	cmd.Flags().StringVar(&epic, "epic", "", "Epic/project attribution tag for resource reporting.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the first pipeline step.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dispatchNow, "dispatch", false, "Dispatch the first ready pipeline step immediately using the running daemon.")

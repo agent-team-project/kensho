@@ -29,6 +29,7 @@ func newOutcomesReportCmd() *cobra.Command {
 		since   string
 		team    string
 		agent   string
+		byEpic  bool
 		jsonOut bool
 	)
 	cwd, _ := os.Getwd()
@@ -58,6 +59,7 @@ func newOutcomesReportCmd() *cobra.Command {
 				Since:   sinceAt,
 				Team:    strings.TrimSpace(team),
 				Agent:   strings.TrimSpace(agent),
+				ByEpic:  byEpic,
 				TeamDir: teamDir,
 			})
 			if jsonOut {
@@ -71,6 +73,7 @@ func newOutcomesReportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&since, "since", "", "Only include outcomes finalized since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&team, "team", "", "Only include outcomes for one team.")
 	cmd.Flags().StringVar(&agent, "agent", "", "Only include outcomes for one agent type.")
+	cmd.Flags().BoolVar(&byEpic, "by-epic", false, "Aggregate outcome trends by epic/project attribution instead of week, team, and agent.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outcome report as JSON.")
 	return cmd
 }
@@ -78,6 +81,10 @@ func newOutcomesReportCmd() *cobra.Command {
 func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 	if len(report.Rows) == 0 {
 		fmt.Fprintln(w, "(no outcome records)")
+		return
+	}
+	if report.ByEpic {
+		renderOutcomesByEpicReport(w, report)
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -115,6 +122,42 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 		summary.ReviewRounds,
 		formatOutcomeFloat(summary.AverageReviewRounds),
 		formatOutcomeTokenRatio(summary.TokensConsumed, summary.TokenBudget),
+		formatOutcomeDuration(summary.AverageTimeToMergeMS),
+		summary.WatchdogEvents,
+		summary.BudgetExceededEvents)
+	_ = tw.Flush()
+}
+
+func renderOutcomesByEpicReport(w io.Writer, report outcomes.Report) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "EPIC\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS\tEPIC_ALLOC\tAVG_TTM\tWATCHDOG\tBUDGET")
+	for _, row := range report.Rows {
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%d\t%d\n",
+			emptyDash(row.Epic),
+			row.Jobs,
+			row.Done,
+			row.Failed,
+			row.Bounces,
+			formatOutcomeFloat(row.AverageBounces),
+			row.ReviewRounds,
+			formatOutcomeFloat(row.AverageReviewRounds),
+			formatOutcomeTokenRatio(row.TokensConsumed, row.TokenBudget),
+			formatOutcomeTokenRatio(row.TokensConsumed, row.EpicAllocation),
+			formatOutcomeDuration(row.AverageTimeToMergeMS),
+			row.WatchdogEvents,
+			row.BudgetExceededEvents)
+	}
+	summary := report.Summary
+	fmt.Fprintf(tw, "TOTAL\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\t%s\t%s\t%d\t%d\n",
+		summary.Jobs,
+		summary.Done,
+		summary.Failed,
+		summary.Bounces,
+		formatOutcomeFloat(summary.AverageBounces),
+		summary.ReviewRounds,
+		formatOutcomeFloat(summary.AverageReviewRounds),
+		formatOutcomeTokenRatio(summary.TokensConsumed, summary.TokenBudget),
+		formatOutcomeTokenRatio(summary.TokensConsumed, summary.EpicAllocation),
 		formatOutcomeDuration(summary.AverageTimeToMergeMS),
 		summary.WatchdogEvents,
 		summary.BudgetExceededEvents)

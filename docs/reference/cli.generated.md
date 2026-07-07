@@ -2788,6 +2788,7 @@ Flags:
       --deliverable string             Delivery contract to verify before accepting done: pr, branch, ticket_to_pr, none, or report:<path>.
       --dispatch                       Dispatch the created job immediately using the running daemon.
       --dry-run                        Preview the job that would be created without writing it.
+      --epic string                    Epic/project attribution tag for resource reporting.
       --fail-on-failed                 With --wait, exit 1 if the job resolves to failed.
       --format string                  Render the job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --id string                      Override the normalized job id (default: ticket slug).
@@ -4480,9 +4481,10 @@ Flags:
 ```text
       --advance                   After updating metadata, dispatch the next ready pipeline step.
       --branch string             Set branch.
-      --clear strings             Clear metadata fields: ticket-url, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.
+      --clear strings             Clear metadata fields: ticket-url, epic, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.
       --commands                  With --dry-run, print the matching job update apply command when the preview has actionable work.
       --dry-run                   Preview metadata updates and optional advance dispatch without writing job or daemon state.
+      --epic string               Set epic/project attribution tag.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
       --instance string           Set owning instance.
@@ -5152,6 +5154,7 @@ Flags:
 
 ```text
       --agent string    Only include outcomes for one agent type.
+      --by-epic         Aggregate outcome trends by epic/project attribution instead of week, team, and agent.
       --json            Emit the outcome report as JSON.
       --since string    Only include outcomes finalized since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.
       --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -6474,6 +6477,7 @@ Flags:
       --commands                       With --dry-run, print the matching pipeline run apply command. agent-team follow-ups preserve the selected repo scope.
       --dispatch                       Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                        Preview the pipeline job that would be created without writing it.
+      --epic string                    Epic/project attribution tag for resource reporting.
       --fail-on-failed                 With --wait, exit 1 if the job resolves to failed.
       --format string                  Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Status}}'.
       --id string                      Override the normalized job id (default: ticket slug).
@@ -10057,6 +10061,7 @@ Flags:
       --commands                  With --dry-run, print the matching team run apply command. agent-team follow-ups preserve the selected repo scope.
       --dispatch                  Dispatch the first ready pipeline step immediately using the running daemon.
       --dry-run                   Preview the pipeline job that would be created without writing it.
+      --epic string               Epic/project attribution tag for resource reporting.
       --fail-on-failed            With --wait, exit 1 if the job resolves to failed.
       --format string             Render the created or advanced job with a Go template, e.g. '{{.ID}} {{.Pipeline}}'.
       --id string                 Override the normalized job id (default: ticket slug).

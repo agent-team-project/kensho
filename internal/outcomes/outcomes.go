@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
+	"github.com/agent-team-project/agent-team/internal/allowance"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/agent-team-project/agent-team/internal/usage"
@@ -30,6 +32,7 @@ type Record struct {
 	JobID                    string           `json:"job_id"`
 	Ticket                   string           `json:"ticket,omitempty"`
 	TicketURL                string           `json:"ticket_url,omitempty"`
+	Epic                     string           `json:"epic,omitempty"`
 	PR                       string           `json:"pr,omitempty"`
 	Pipeline                 string           `json:"pipeline,omitempty"`
 	Team                     string           `json:"team,omitempty"`
@@ -105,6 +108,7 @@ type ReportOptions struct {
 	Since   time.Time
 	Team    string
 	Agent   string
+	ByEpic  bool
 	TeamDir string
 	Now     time.Time
 }
@@ -113,6 +117,7 @@ type ReportOptions struct {
 type Report struct {
 	GeneratedAt time.Time  `json:"generated_at"`
 	Since       time.Time  `json:"since,omitempty"`
+	ByEpic      bool       `json:"by_epic,omitempty"`
 	Rows        []TrendRow `json:"rows"`
 	Summary     TrendRow   `json:"summary"`
 }
@@ -120,6 +125,7 @@ type Report struct {
 // TrendRow aggregates terminal outcomes by week, team, and agent.
 type TrendRow struct {
 	Week                    string         `json:"week,omitempty"`
+	Epic                    string         `json:"epic,omitempty"`
 	Team                    string         `json:"team,omitempty"`
 	Agent                   string         `json:"agent,omitempty"`
 	Jobs                    int            `json:"jobs"`
@@ -141,6 +147,8 @@ type TrendRow struct {
 	TokenBudget             int64          `json:"token_budget,omitempty"`
 	TokensConsumed          int64          `json:"tokens_consumed,omitempty"`
 	TokenBudgetRatio        float64        `json:"token_budget_ratio,omitempty"`
+	EpicAllocation          int64          `json:"epic_allocation,omitempty"`
+	EpicAllocationRatio     float64        `json:"epic_allocation_ratio,omitempty"`
 	RuntimeDurationMS       int64          `json:"runtime_duration_ms,omitempty"`
 	AverageTimeToMergeMS    int64          `json:"average_time_to_merge_ms,omitempty"`
 	AverageTimeToTerminalMS int64          `json:"average_time_to_terminal_ms,omitempty"`
@@ -210,6 +218,7 @@ func BuildRecord(teamDir string, j *jobstore.Job, now time.Time) (*Record, error
 		JobID:             j.ID,
 		Ticket:            j.Ticket,
 		TicketURL:         j.TicketURL,
+		Epic:              jobstore.EpicForJob(j),
 		PR:                j.PR,
 		Pipeline:          j.Pipeline,
 		Team:              teamForJob(teamDir, j),
@@ -342,26 +351,38 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	report := Report{GeneratedAt: now.UTC(), Since: utcOrZero(opts.Since)}
+	report := Report{GeneratedAt: now.UTC(), Since: utcOrZero(opts.Since), ByEpic: opts.ByEpic}
 	byKey := map[string]*TrendRow{}
 	capacities := declaredReplicaCapacities(opts.TeamDir)
 	summaryCapacityKeys := map[string]bool{}
+	allocations := epicAllocations(opts.TeamDir)
+	summaryAllocationKeys := map[string]bool{}
 	for _, rec := range records {
 		if !recordMatches(rec, opts) {
 			continue
 		}
-		key := trendKey(rec)
+		key := trendKey(rec, opts)
 		row := byKey[key]
 		if row == nil {
-			row = &TrendRow{Week: rec.Week, Team: rec.Team, Agent: rec.Agent}
-			row.DeclaredReplicaCapacity = replicaCapacityFor(capacities, rec.Team, rec.Agent)
+			row = trendRowForRecord(rec, opts, capacities, allocations)
 			byKey[key] = row
 		}
-		if cap := replicaCapacityFor(capacities, rec.Team, rec.Agent); cap > 0 {
-			capKey := capacityKey(rec.Team, rec.Agent)
-			if !summaryCapacityKeys[capKey] {
-				summaryCapacityKeys[capKey] = true
-				report.Summary.DeclaredReplicaCapacity += cap
+		if !opts.ByEpic {
+			if cap := replicaCapacityFor(capacities, rec.Team, rec.Agent); cap > 0 {
+				capKey := capacityKey(rec.Team, rec.Agent)
+				if !summaryCapacityKeys[capKey] {
+					summaryCapacityKeys[capKey] = true
+					report.Summary.DeclaredReplicaCapacity += cap
+				}
+			}
+		}
+		if opts.ByEpic {
+			epic := strings.TrimSpace(rec.Epic)
+			if allocation := allocations[epic]; allocation > 0 {
+				if !summaryAllocationKeys[epic] {
+					summaryAllocationKeys[epic] = true
+					report.Summary.EpicAllocation += allocation
+				}
 			}
 		}
 		row.add(rec)
@@ -373,6 +394,9 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 		report.Rows = append(report.Rows, *row)
 	}
 	sort.SliceStable(report.Rows, func(i, j int) bool {
+		if opts.ByEpic {
+			return report.Rows[i].Epic < report.Rows[j].Epic
+		}
 		if report.Rows[i].Week != report.Rows[j].Week {
 			return report.Rows[i].Week < report.Rows[j].Week
 		}
@@ -383,6 +407,17 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 	})
 	report.Summary.finalize()
 	return report
+}
+
+func trendRowForRecord(rec Record, opts ReportOptions, capacities map[string]int, allocations map[string]int64) *TrendRow {
+	if opts.ByEpic {
+		row := &TrendRow{Epic: strings.TrimSpace(rec.Epic)}
+		row.EpicAllocation = allocations[row.Epic]
+		return row
+	}
+	row := &TrendRow{Week: rec.Week, Team: rec.Team, Agent: rec.Agent}
+	row.DeclaredReplicaCapacity = replicaCapacityFor(capacities, rec.Team, rec.Agent)
+	return row
 }
 
 // WeekKey returns an ISO week key for trend grouping.
@@ -809,7 +844,10 @@ func recordMatches(rec Record, opts ReportOptions) bool {
 	return true
 }
 
-func trendKey(rec Record) string {
+func trendKey(rec Record, opts ReportOptions) string {
+	if opts.ByEpic {
+		return strings.TrimSpace(rec.Epic)
+	}
 	return rec.Week + "\x00" + rec.Team + "\x00" + rec.Agent
 }
 
@@ -865,6 +903,7 @@ func (r *TrendRow) finalize() {
 		r.AverageBounces = round2(float64(r.Bounces) / float64(r.Jobs))
 	}
 	r.TokenBudgetRatio = ratio(r.TokensConsumed, r.TokenBudget)
+	r.EpicAllocationRatio = ratio(r.TokensConsumed, r.EpicAllocation)
 	if r.timeToMergeSamples > 0 {
 		r.AverageTimeToMergeMS /= int64(r.timeToMergeSamples)
 	}
@@ -1010,4 +1049,45 @@ func replicaCapacityFor(capacities map[string]int, team, agent string) int {
 		}
 	}
 	return capacities[capacityKey("", agent)]
+}
+
+func epicAllocations(teamDir string) map[string]int64 {
+	if strings.TrimSpace(teamDir) == "" {
+		return nil
+	}
+	path := filepath.Join(teamDir, "config.toml")
+	var cfg map[string]any
+	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+		return nil
+	}
+	outcomesCfg, ok := anyMap(cfg["outcomes"])
+	if !ok {
+		return nil
+	}
+	rawAllocations, ok := anyMap(outcomesCfg["epic_allocations"])
+	if !ok {
+		return nil
+	}
+	allocations := map[string]int64{}
+	for epic, raw := range rawAllocations {
+		epic = strings.TrimSpace(epic)
+		if epic == "" {
+			continue
+		}
+		value, err := allowance.ParseTokenValue(raw, "outcomes.epic_allocations."+epic)
+		if err != nil || value <= 0 {
+			continue
+		}
+		allocations[epic] = value
+	}
+	return allocations
+}
+
+func anyMap(v any) (map[string]any, bool) {
+	switch m := v.(type) {
+	case map[string]any:
+		return m, true
+	default:
+		return nil, false
+	}
 }

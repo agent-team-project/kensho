@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,11 +16,21 @@ func TestOutcomesReportCommandRendersJSONAndTable(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
+	config := `[pm]
+provider = "none"
+
+[outcomes.epic_allocations]
+resource-governance = "200"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	if err := outcomes.WriteRecord(teamDir, &outcomes.Record{
 		Version:     1,
 		JobID:       "squ-135",
 		Ticket:      "SQU-135",
+		Epic:        "resource-governance",
 		Status:      "done",
 		Week:        "2026-W28",
 		Team:        "delivery",
@@ -73,5 +84,18 @@ func TestOutcomesReportCommandRendersJSONAndTable(t *testing.T) {
 	text := tableOut.String()
 	if !strings.Contains(text, "EFF_CONC") || !strings.Contains(text, "CAPACITY") || !strings.Contains(text, "2026-W28") || !strings.Contains(text, "150/200") {
 		t.Fatalf("table output = %q", text)
+	}
+
+	epicCmd := NewRootCmd()
+	epicOut, epicErr := &bytes.Buffer{}, &bytes.Buffer{}
+	epicCmd.SetOut(epicOut)
+	epicCmd.SetErr(epicErr)
+	epicCmd.SetArgs([]string{"outcomes", "report", "--target", tmp, "--by-epic"})
+	if err := epicCmd.Execute(); err != nil {
+		t.Fatalf("outcomes report by epic: %v\nstderr=%s", err, epicErr.String())
+	}
+	epicText := epicOut.String()
+	if !strings.Contains(epicText, "EPIC_ALLOC") || !strings.Contains(epicText, "resource-governance") || !strings.Contains(epicText, "150/200") {
+		t.Fatalf("by-epic table output = %q", epicText)
 	}
 }

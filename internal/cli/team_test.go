@@ -6163,7 +6163,7 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
 	sendMessageInput = strings.NewReader("team command from stdin\n")
-	commandsCmd.SetArgs([]string{"team", "run", "delivery", "SQU-813", "--repo", root, "--pipeline", "ticket_to_pr", "--kickoff-file", "-", "--dry-run", "--commands"})
+	commandsCmd.SetArgs([]string{"team", "run", "delivery", "SQU-813", "--repo", root, "--pipeline", "ticket_to_pr", "--epic", "resource-governance", "--kickoff-file", "-", "--dry-run", "--commands"})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("team run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -6171,6 +6171,7 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 		"agent-team", "team", "run", "delivery", "SQU-813",
 		"--repo", root,
 		"--pipeline", "ticket_to_pr",
+		"--epic", "resource-governance",
 		"--kickoff", "SQU-813: team command from stdin",
 	}), " ") + "\n"
 	if got := commandsOut.String(); got != wantTeamRunCommand {
@@ -6225,7 +6226,7 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
 	createCmd.SetOut(createOut)
 	createCmd.SetErr(createErr)
-	createCmd.SetArgs([]string{"team", "run", "delivery", "SQU-812", "--repo", root, "--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-812/team-run", "--format", "{{.ID}} {{.Pipeline}}"})
+	createCmd.SetArgs([]string{"team", "run", "delivery", "SQU-812", "--repo", root, "--ticket-url", "https://linear.app/squirtlesquad/issue/SQU-812/team-run", "--epic", "resource-governance", "--format", "{{.ID}} {{.Pipeline}}"})
 	if err := createCmd.Execute(); err != nil {
 		t.Fatalf("team run create: %v\nstderr=%s", err, createErr.String())
 	}
@@ -6236,7 +6237,7 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read created team run job: %v", err)
 	}
-	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-812/team-run" {
+	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || created.TicketURL != "https://linear.app/squirtlesquad/issue/SQU-812/team-run" || created.Epic != "resource-governance" {
 		t.Fatalf("created job = %+v", created)
 	}
 }

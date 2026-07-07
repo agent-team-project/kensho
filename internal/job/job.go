@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,6 +58,7 @@ type Job struct {
 	DeploymentParentURI    string          `toml:"deployment_parent_uri,omitempty"`
 	Ticket                 string          `toml:"ticket"`
 	TicketURL              string          `toml:"ticket_url,omitempty"`
+	Epic                   string          `toml:"epic,omitempty"`
 	Target                 string          `toml:"target"`
 	ImplementationAgent    string          `toml:"implementation_agent,omitempty"`
 	Kickoff                string          `toml:"kickoff,omitempty"`
@@ -226,6 +228,54 @@ func TicketIdentity(raw string) (ticket, ticketURL string) {
 		return id, ticketURL
 	}
 	return raw, ticketURL
+}
+
+// EpicFromInputs returns the stable epic/project attribution tag implied by
+// explicit job metadata, a ticket URL, or the origin project in that order.
+func EpicFromInputs(explicit, ticketURL, originProject string) string {
+	if epic := strings.TrimSpace(explicit); epic != "" {
+		return epic
+	}
+	if epic := EpicFromTicketURL(ticketURL); epic != "" {
+		return epic
+	}
+	return strings.TrimSpace(originProject)
+}
+
+// EpicForJob returns the best available epic/project attribution for a job.
+func EpicForJob(j *Job) string {
+	if j == nil {
+		return ""
+	}
+	return EpicFromInputs(j.Epic, j.TicketURL, j.Origin.Project)
+}
+
+// EpicFromTicketURL extracts a compact identifier from known ticket URL shapes.
+func EpicFromTicketURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(strings.TrimPrefix(u.Host, "www."))
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if host == "github.com" && len(parts) >= 4 {
+		kind := strings.ToLower(parts[2])
+		if kind == "issues" || kind == "pull" || kind == "pulls" {
+			return parts[0] + "/" + parts[1] + "#" + parts[3]
+		}
+	}
+	if host == "linear.app" && len(parts) >= 3 && strings.EqualFold(parts[1], "issue") {
+		return strings.ToUpper(parts[2])
+	}
+	path := strings.Trim(u.EscapedPath(), "/")
+	if path == "" {
+		return host
+	}
+	return host + "/" + path
 }
 
 // ExtractTicketIdentifier finds ticket identifiers such as SQU-42 in free text.

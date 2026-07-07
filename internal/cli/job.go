@@ -233,6 +233,7 @@ func newJobCreateCmd() *cobra.Command {
 		deliverable          string
 		id                   string
 		ticketURL            string
+		epic                 string
 		kickoff              string
 		kickoffFile          string
 		budgetTokens         string
@@ -420,6 +421,7 @@ func newJobCreateCmd() *cobra.Command {
 			if strings.TrimSpace(ticketURL) != "" {
 				j.TicketURL = strings.TrimSpace(ticketURL)
 			}
+			j.Epic = job.EpicFromInputs(epic, j.TicketURL, j.Origin.Project)
 			if strings.TrimSpace(instance) != "" {
 				j.Instance = strings.TrimSpace(instance)
 			}
@@ -447,6 +449,8 @@ func newJobCreateCmd() *cobra.Command {
 					IDSet:                   cmd.Flags().Changed("id"),
 					TicketURL:               ticketURL,
 					TicketURLSet:            cmd.Flags().Changed("ticket-url"),
+					Epic:                    epic,
+					EpicSet:                 cmd.Flags().Changed("epic"),
 					BudgetTokens:            budgetTokens,
 					BudgetTokensSet:         cmd.Flags().Changed("budget-tokens"),
 					BudgetTime:              budgetTime,
@@ -492,6 +496,7 @@ func newJobCreateCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					applyJobAttributionToPayload(j, payload)
 					applyJobKindToPayload(j, payload)
 					applyJobDeliverableToPayload(j, payload)
 					applyJobBudgetToPayload(j, payload)
@@ -524,6 +529,9 @@ func newJobCreateCmd() *cobra.Command {
 			}
 			if j.TicketURL != "" {
 				data["ticket_url"] = j.TicketURL
+			}
+			if j.Epic != "" {
+				data["epic"] = j.Epic
 			}
 			if j.Pipeline != "" {
 				data["pipeline"] = j.Pipeline
@@ -647,6 +655,7 @@ func newJobCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&deliverable, "deliverable", "", "Delivery contract to verify before accepting done: pr, branch, ticket_to_pr, none, or report:<path>.")
 	cmd.Flags().StringVar(&id, "id", "", "Override the normalized job id (default: ticket slug).")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Canonical ticket URL to store on the job.")
+	cmd.Flags().StringVar(&epic, "epic", "", "Epic/project attribution tag for resource reporting.")
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Kickoff text for the target agent.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&budgetTokens, "budget-tokens", "", "Soft token allowance for this job, for example 40M.")
@@ -840,6 +849,18 @@ func applyJobKindToPayload(j *job.Job, payload map[string]any) {
 	payload["kind"] = kind
 	if job.IsProbe(kind) {
 		payload["workspace"] = "repo"
+	}
+}
+
+func applyJobAttributionToPayload(j *job.Job, payload map[string]any) {
+	if j == nil || payload == nil {
+		return
+	}
+	if ticketURL := strings.TrimSpace(j.TicketURL); ticketURL != "" {
+		payload["ticket_url"] = ticketURL
+	}
+	if epic := job.EpicForJob(j); epic != "" {
+		payload["epic"] = epic
 	}
 }
 
@@ -1447,6 +1468,7 @@ func newJobDispatchCmd() *cobra.Command {
 				}
 				payload["job_id"] = j.ID
 				payload["job"] = j.ID
+				applyJobAttributionToPayload(j, payload)
 				applyJobKindToPayload(j, payload)
 				applyJobDeliverableToPayload(j, payload)
 				applyJobBudgetToPayload(j, payload)
@@ -4145,6 +4167,7 @@ func newJobUpdateCmd() *cobra.Command {
 		status        string
 		target        string
 		ticketURL     string
+		epic          string
 		instance      string
 		branch        string
 		worktree      string
@@ -4275,6 +4298,10 @@ func newJobUpdateCmd() *cobra.Command {
 				j.TicketURL = strings.TrimSpace(ticketURL)
 				changed["ticket_url"] = j.TicketURL
 			}
+			if cmd.Flags().Changed("epic") {
+				j.Epic = strings.TrimSpace(epic)
+				changed["epic"] = j.Epic
+			}
 			if cmd.Flags().Changed("instance") {
 				j.Instance = strings.TrimSpace(instance)
 				changed["instance"] = j.Instance
@@ -4329,6 +4356,8 @@ func newJobUpdateCmd() *cobra.Command {
 					TargetSet:       cmd.Flags().Changed("target"),
 					TicketURL:       ticketURL,
 					TicketURLSet:    cmd.Flags().Changed("ticket-url"),
+					Epic:            epic,
+					EpicSet:         cmd.Flags().Changed("epic"),
 					Instance:        instance,
 					InstanceSet:     cmd.Flags().Changed("instance"),
 					Branch:          branch,
@@ -4427,6 +4456,7 @@ func newJobUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Set lifecycle status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&target, "target", "", "Set target agent.")
 	cmd.Flags().StringVar(&ticketURL, "ticket-url", "", "Set ticket URL.")
+	cmd.Flags().StringVar(&epic, "epic", "", "Set epic/project attribution tag.")
 	cmd.Flags().StringVar(&instance, "instance", "", "Set owning instance.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Set branch.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Set worktree path.")
@@ -4435,7 +4465,7 @@ func newJobUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kickoff, "kickoff", "", "Set kickoff text for future dispatches.")
 	cmd.Flags().StringVar(&kickoffFile, "kickoff-file", "", "Read kickoff text from a file, or '-' for stdin.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
-	cmd.Flags().StringSliceVar(&clear, "clear", nil, "Clear metadata fields: ticket-url, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.")
+	cmd.Flags().StringSliceVar(&clear, "clear", nil, "Clear metadata fields: ticket-url, epic, instance, branch, worktree, pr, pipeline, or land. Can repeat or comma-separate.")
 	cmd.Flags().BoolVar(&advance, "advance", false, "After updating metadata, dispatch the next ready pipeline step.")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for --advance: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for --advance dispatch (claude, codex, or docker). Overrides env and repo config.")
@@ -5429,6 +5459,7 @@ func newJobReopenCmd() *cobra.Command {
 					}
 					payload["job_id"] = j.ID
 					payload["job"] = j.ID
+					applyJobAttributionToPayload(j, payload)
 					applyJobKindToPayload(j, payload)
 					applyJobDeliverableToPayload(j, payload)
 					applyJobBudgetToPayload(j, payload)
@@ -10689,10 +10720,10 @@ func parseJobUpdateClear(raw []string) (map[string]bool, error) {
 		switch field {
 		case "ticket-url", "ticket_url":
 			fields["ticket_url"] = true
-		case "instance", "branch", "worktree", "pr", "pipeline", "land":
+		case "epic", "instance", "branch", "worktree", "pr", "pipeline", "land":
 			fields[field] = true
 		default:
-			return nil, fmt.Errorf("--clear accepts ticket-url, instance, branch, worktree, pr, pipeline, or land")
+			return nil, fmt.Errorf("--clear accepts ticket-url, epic, instance, branch, worktree, pr, pipeline, or land")
 		}
 	}
 	return fields, nil
@@ -10703,6 +10734,8 @@ func applyJobUpdateClears(j *job.Job, clearSet map[string]bool, changed map[stri
 		switch field {
 		case "ticket_url":
 			j.TicketURL = ""
+		case "epic":
+			j.Epic = ""
 		case "instance":
 			j.Instance = ""
 		case "branch":
@@ -11947,6 +11980,7 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	}
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
+	applyJobAttributionToPayload(j, payload)
 	applyJobKindToPayload(j, payload)
 	applyJobDeliverableToPayload(j, payload)
 	applyJobBudgetToPayload(j, payload)
@@ -13667,6 +13701,7 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	}
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
+	applyJobAttributionToPayload(j, payload)
 	applyJobKindToPayload(j, payload)
 	applyJobDeliverableToPayload(j, payload)
 	applyJobStepBudgetToPayload(j, step, payload)
@@ -15770,6 +15805,8 @@ type jobCreateApplyCommandOptions struct {
 	IDSet                   bool
 	TicketURL               string
 	TicketURLSet            bool
+	Epic                    string
+	EpicSet                 bool
 	BudgetTokens            string
 	BudgetTokensSet         bool
 	BudgetTime              time.Duration
@@ -15968,6 +16005,9 @@ func jobCreateApplyCommandArgs(opts jobCreateApplyCommandOptions) []string {
 	if opts.TicketURLSet && strings.TrimSpace(opts.TicketURL) != "" {
 		args = append(args, "--ticket-url", opts.TicketURL)
 	}
+	if opts.EpicSet && strings.TrimSpace(opts.Epic) != "" {
+		args = append(args, "--epic", opts.Epic)
+	}
 	if opts.BudgetTokensSet && strings.TrimSpace(opts.BudgetTokens) != "" {
 		args = append(args, "--budget-tokens", opts.BudgetTokens)
 	}
@@ -16104,6 +16144,8 @@ type jobUpdateApplyCommandOptions struct {
 	TargetSet       bool
 	TicketURL       string
 	TicketURLSet    bool
+	Epic            string
+	EpicSet         bool
 	Instance        string
 	InstanceSet     bool
 	Branch          string
@@ -16249,6 +16291,9 @@ func jobUpdateApplyCommandArgs(opts jobUpdateApplyCommandOptions) []string {
 	}
 	if opts.TicketURLSet {
 		args = append(args, "--ticket-url", opts.TicketURL)
+	}
+	if opts.EpicSet {
+		args = append(args, "--epic", opts.Epic)
 	}
 	if opts.InstanceSet {
 		args = append(args, "--instance", opts.Instance)
@@ -17422,6 +17467,9 @@ func renderJobDetailWithRuntime(w io.Writer, teamDir string, j *job.Job, queueIt
 	fmt.Fprintf(w, "Ticket:      %s\n", j.Ticket)
 	if j.TicketURL != "" {
 		fmt.Fprintf(w, "Ticket URL:  %s\n", j.TicketURL)
+	}
+	if epic := job.EpicForJob(j); epic != "" {
+		fmt.Fprintf(w, "Epic:        %s\n", epic)
 	}
 	fmt.Fprintf(w, "Target:      %s\n", j.Target)
 	if strings.TrimSpace(j.Kind) != "" {

@@ -29,6 +29,7 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	j.Status = jobstore.StatusDone
 	j.Pipeline = "ticket_to_pr"
 	j.Instance = "worker-squ-135"
+	j.Epic = "resource-governance"
 	j.PR = "https://github.com/acme/repo/pull/135"
 	j.TokenBudget = 200
 	j.TimeBudget = "3h"
@@ -74,6 +75,9 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	}
 	if rec.JobID != "squ-135" || rec.Status != "done" || rec.Team != "delivery" || rec.Agent != "worker" {
 		t.Fatalf("identity = %+v", rec)
+	}
+	if rec.Epic != "resource-governance" {
+		t.Fatalf("epic = %q", rec.Epic)
 	}
 	if rec.ReviewRounds != 3 || rec.BounceCount != 2 {
 		t.Fatalf("review/bounce = rounds %d bounces %d", rec.ReviewRounds, rec.BounceCount)
@@ -360,6 +364,68 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	}
 	if report.Summary.EffectiveConcurrency != 1.33 || report.Summary.DeclaredReplicaCapacity != 2 {
 		t.Fatalf("summary concurrency = %+v", report.Summary)
+	}
+}
+
+func TestBuildReportByEpicAggregatesAllocations(t *testing.T) {
+	teamDir := testOutcomeTeamDir(t)
+	config := `[pm]
+provider = "none"
+
+[outcomes.epic_allocations]
+resource-governance = "200"
+project-2 = 80
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	records := []Record{
+		{
+			JobID:          "squ-1",
+			Status:         "done",
+			Epic:           "resource-governance",
+			Team:           "delivery",
+			Agent:          "worker",
+			FinalizedAt:    now,
+			BounceCount:    1,
+			TokenBudget:    100,
+			TokensConsumed: 70,
+		},
+		{
+			JobID:          "squ-2",
+			Status:         "failed",
+			Epic:           "resource-governance",
+			Team:           "platform",
+			Agent:          "worker",
+			FinalizedAt:    now.Add(time.Hour),
+			TokenBudget:    100,
+			TokensConsumed: 30,
+		},
+		{
+			JobID:          "squ-3",
+			Status:         "done",
+			Epic:           "project-2",
+			Team:           "delivery",
+			Agent:          "manager",
+			FinalizedAt:    now.Add(2 * time.Hour),
+			TokenBudget:    50,
+			TokensConsumed: 40,
+		},
+	}
+	report := BuildReport(records, ReportOptions{ByEpic: true, TeamDir: teamDir, Now: now})
+	if !report.ByEpic || len(report.Rows) != 2 {
+		t.Fatalf("report = %+v", report)
+	}
+	row := report.Rows[1]
+	if row.Epic != "resource-governance" || row.Jobs != 2 || row.Done != 1 || row.Failed != 1 || row.Bounces != 1 || row.AverageBounces != 0.5 {
+		t.Fatalf("resource row = %+v", row)
+	}
+	if row.TokensConsumed != 100 || row.TokenBudget != 200 || row.EpicAllocation != 200 || row.EpicAllocationRatio != 0.5 {
+		t.Fatalf("resource tokens = %+v", row)
+	}
+	if report.Summary.Jobs != 3 || report.Summary.TokensConsumed != 140 || report.Summary.EpicAllocation != 280 || report.Summary.EpicAllocationRatio != 0.5 {
+		t.Fatalf("summary = %+v", report.Summary)
 	}
 }
 

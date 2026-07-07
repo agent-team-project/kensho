@@ -417,6 +417,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		j.TicketURL = ticketURL
 	}
+	j.Epic = jobstore.EpicFromInputs(payloadString(payload, "epic"), j.TicketURL, j.Origin.Project)
 	if kind := payloadJobKind(payload); kind != "" {
 		j.Kind = kind
 	}
@@ -477,7 +478,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -710,6 +711,9 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}
 	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
 		env = append(env, "AGENT_TEAM_TICKET_URL="+ticketURL)
+	}
+	if epic := payloadString(payload, "epic"); epic != "" {
+		env = append(env, "AGENT_TEAM_EPIC="+epic)
 	}
 	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
 		env = append(env, "AGENT_TEAM_PIPELINE="+pipeline)
