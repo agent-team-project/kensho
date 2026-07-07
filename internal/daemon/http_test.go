@@ -130,6 +130,114 @@ func TestHTTP_JobsList(t *testing.T) {
 	}
 }
 
+func TestHTTP_TopologyIncludesTeamsBudgetsAndStepBudgets(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.reviewer]
+agent = "reviewer"
+ephemeral = true
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+auto_advance = true
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+workspace = "worktree"
+timeout = "45m"
+token_budget = "40M"
+time_budget = "45m"
+hard = true
+hard_multiplier = 1.25
+reminder_levels = [50, 80]
+max_attempts = 1
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "reviewer"
+after = ["implement"]
+optional = true
+
+[teams.delivery]
+description = "Delivery team"
+instances = ["worker", "reviewer"]
+pipelines = ["ticket_to_pr"]
+
+[budgets]
+reminder_levels = [25, 75, 100]
+
+[budgets.delivery]
+tokens_per_day = 200_000_000
+jobs_in_flight = 4
+allocation = "reserve"
+`)
+	m := NewInstanceManager(t.TempDir(), nil)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustGet(t, srv.URL+"/v1/topology")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("topology status: got %d body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		Pipelines []struct {
+			Name        string `json:"name"`
+			AutoAdvance bool   `json:"auto_advance"`
+			Steps       []struct {
+				ID             string  `json:"id"`
+				TokenBudget    int64   `json:"token_budget"`
+				TimeBudget     string  `json:"time_budget"`
+				Hard           bool    `json:"hard"`
+				HardMultiplier float64 `json:"hard_multiplier"`
+				ReminderLevels []int   `json:"reminder_levels"`
+				MaxAttempts    int     `json:"max_attempts"`
+			} `json:"steps"`
+		} `json:"pipelines"`
+		Teams []struct {
+			Name      string   `json:"name"`
+			Pipelines []string `json:"pipelines"`
+		} `json:"teams"`
+		Budgets []struct {
+			Team         string `json:"team"`
+			TokensPerDay int64  `json:"tokens_per_day"`
+			JobsInFlight int    `json:"jobs_in_flight"`
+			Allocation   string `json:"allocation"`
+		} `json:"budgets"`
+		BudgetReminderLevels []int `json:"budget_reminder_levels"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode topology: %v", err)
+	}
+	if len(body.Pipelines) != 1 || body.Pipelines[0].Name != "ticket_to_pr" || !body.Pipelines[0].AutoAdvance {
+		t.Fatalf("pipelines = %+v", body.Pipelines)
+	}
+	if len(body.Pipelines[0].Steps) != 2 {
+		t.Fatalf("pipeline steps = %+v", body.Pipelines[0].Steps)
+	}
+	step := body.Pipelines[0].Steps[0]
+	if step.ID != "implement" || step.TokenBudget != 40_000_000 || step.TimeBudget != "45m0s" || !step.Hard || step.HardMultiplier != 1.25 || step.MaxAttempts != 1 {
+		t.Fatalf("implement step = %+v", step)
+	}
+	if len(step.ReminderLevels) != 2 || step.ReminderLevels[0] != 50 || step.ReminderLevels[1] != 80 {
+		t.Fatalf("reminder levels = %+v", step.ReminderLevels)
+	}
+	if len(body.Teams) != 1 || body.Teams[0].Name != "delivery" || len(body.Teams[0].Pipelines) != 1 || body.Teams[0].Pipelines[0] != "ticket_to_pr" {
+		t.Fatalf("teams = %+v", body.Teams)
+	}
+	if len(body.Budgets) != 1 || body.Budgets[0].Team != "delivery" || body.Budgets[0].TokensPerDay != 200_000_000 || body.Budgets[0].JobsInFlight != 4 || body.Budgets[0].Allocation != "reserve" {
+		t.Fatalf("budgets = %+v", body.Budgets)
+	}
+	if len(body.BudgetReminderLevels) != 3 || body.BudgetReminderLevels[0] != 25 || body.BudgetReminderLevels[2] != 100 {
+		t.Fatalf("budget reminder levels = %+v", body.BudgetReminderLevels)
+	}
+}
+
 func TestHTTP_ExtendRuntimeBudget(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
@@ -1011,7 +1119,7 @@ func TestHTTP_UIServedBehindLoopbackTokenAuth(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("authenticated app.js status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "/v1/instances") || !strings.Contains(rr.Body.String(), "/v1/jobs") {
+	if !strings.Contains(rr.Body.String(), "/v1/instances") || !strings.Contains(rr.Body.String(), "/v1/jobs") || !strings.Contains(rr.Body.String(), "/v1/topology") {
 		t.Fatalf("app.js does not call daemon read APIs: %s", rr.Body.String())
 	}
 }

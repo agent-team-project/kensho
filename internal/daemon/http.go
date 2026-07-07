@@ -928,9 +928,10 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, result)
 	})
 
-	// `GET /v1/topology` — declared instances + triggers + per-instance
-	// running/queued counts. Always 200 with `{instances: []}` even when
-	// nothing is declared, so clients can render an empty state.
+	// `GET /v1/topology` — declared instances, pipelines, teams, budgets,
+	// schedules, triggers, and per-ephemeral-instance running/queued counts.
+	// Always 200 with empty arrays when nothing is declared, so clients can
+	// render an empty state.
 	mux.HandleFunc("/v1/topology", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -1297,7 +1298,13 @@ func buildReconcileResponse(before, after []*Metadata) reconcileResponse {
 // so the client can render Docker-ps-style status without a second call.
 func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]any {
 	if topo == nil {
-		return map[string]any{"instances": []any{}, "pipelines": []any{}}
+		return map[string]any{
+			"instances": []any{},
+			"pipelines": []any{},
+			"schedules": []any{},
+			"teams":     []any{},
+			"budgets":   []any{},
+		}
 	}
 	out := make([]map[string]any, 0, len(topo.Instances))
 	for _, inst := range topo.SortedInstances() {
@@ -1324,12 +1331,36 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 			"name":          pipeline.Name,
 			"trigger":       marshalTrigger(pipeline.Trigger),
 			"steps":         marshalPipelineSteps(pipeline.Steps),
+			"auto_advance":  pipeline.AutoAdvance,
 			"reap_worktree": pipeline.ReapWorktree,
+		}
+		if pipeline.RedispatchOnReentry {
+			entry["redispatch_on_reentry"] = true
 		}
 		if merge := marshalPipelineMerge(pipeline.Merge); merge != nil {
 			entry["merge"] = merge
 		}
 		pipelines = append(pipelines, entry)
+	}
+	teams := make([]map[string]any, 0, len(topo.Teams))
+	for _, team := range topo.SortedTeams() {
+		teams = append(teams, map[string]any{
+			"name":        team.Name,
+			"description": team.Description,
+			"instances":   team.Instances,
+			"pipelines":   team.Pipelines,
+			"schedules":   team.Schedules,
+			"channels":    team.Channels,
+		})
+	}
+	budgets := make([]map[string]any, 0, len(topo.Budgets))
+	for _, budget := range topo.SortedBudgets() {
+		budgets = append(budgets, map[string]any{
+			"team":           budget.Team,
+			"tokens_per_day": budget.TokensPerDay,
+			"jobs_in_flight": budget.JobsInFlight,
+			"allocation":     budget.Allocation,
+		})
 	}
 	schedules := make([]map[string]any, 0, len(topo.Schedules))
 	for _, schedule := range topo.SortedSchedules() {
@@ -1340,7 +1371,17 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 			"payload":      schedule.Payload,
 		})
 	}
-	return map[string]any{"instances": out, "pipelines": pipelines, "schedules": schedules}
+	resp := map[string]any{
+		"instances": out,
+		"pipelines": pipelines,
+		"schedules": schedules,
+		"teams":     teams,
+		"budgets":   budgets,
+	}
+	if len(topo.ReminderLevels) > 0 {
+		resp["budget_reminder_levels"] = topo.ReminderLevels
+	}
+	return resp
 }
 
 func marshalPipelineMerge(merge *topology.PipelineMerge) map[string]any {
@@ -1422,6 +1463,21 @@ func marshalPipelineSteps(steps []*topology.PipelineStep) []map[string]any {
 		}
 		if step.Timeout > 0 {
 			row["timeout"] = step.Timeout.String()
+		}
+		if step.TokenBudget > 0 {
+			row["token_budget"] = step.TokenBudget
+		}
+		if step.TimeBudget > 0 {
+			row["time_budget"] = step.TimeBudget.String()
+		}
+		if step.HardBudget {
+			row["hard"] = true
+		}
+		if step.HardMultiplier > 0 {
+			row["hard_multiplier"] = step.HardMultiplier
+		}
+		if len(step.ReminderLevels) > 0 {
+			row["reminder_levels"] = step.ReminderLevels
 		}
 		if step.MaxAttempts > 0 {
 			row["max_attempts"] = step.MaxAttempts

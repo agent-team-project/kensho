@@ -18,6 +18,10 @@
           <span>Bearer token</span>
           <input id="tokenInput" type="password" autocomplete="off" spellcheck="false">
         </label>
+        <label class="auto-refresh">
+          <input id="autoRefresh" type="checkbox">
+          <span id="refreshState">Manual</span>
+        </label>
         <button id="saveToken" type="button">Connect</button>
         <button id="refresh" type="button">Refresh</button>
       </div>
@@ -39,6 +43,14 @@
       <article>
         <span class="metric-label">Active Jobs</span>
         <strong id="activeJobCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Pipelines</span>
+        <strong id="pipelineCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Budget Teams</span>
+        <strong id="budgetTeamCount">0</strong>
       </article>
     </section>
 
@@ -77,10 +89,52 @@
                 <th>ID</th>
                 <th>Ticket</th>
                 <th>Status</th>
+                <th>Pipeline</th>
                 <th>Instance</th>
               </tr>
             </thead>
             <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading">
+          <h2>Pipelines</h2>
+          <span id="pipelineUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table class="wide-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Trigger</th>
+                <th>Steps</th>
+                <th>Active Jobs</th>
+              </tr>
+            </thead>
+            <tbody id="pipelinesBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Budgets</h2>
+          <span id="budgetUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th>Tokens/Day</th>
+                <th>Jobs</th>
+                <th>Active</th>
+                <th>Allocation</th>
+              </tr>
+            </thead>
+            <tbody id="budgetsBody"></tbody>
           </table>
         </div>
       </article>

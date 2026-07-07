@@ -90,6 +90,24 @@ h2 {
   color: var(--text);
 }
 
+.auto-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.auto-refresh input {
+  margin: 0;
+}
+
 button {
   height: 36px;
   border: 0;
@@ -106,9 +124,14 @@ button:hover {
   background: var(--accent-dark);
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -163,6 +186,10 @@ button:hover {
   overflow: hidden;
 }
 
+.panel-wide {
+  grid-column: 1 / -1;
+}
+
 .panel-heading {
   display: flex;
   align-items: center;
@@ -187,6 +214,10 @@ table {
   min-width: 520px;
   border-collapse: collapse;
   font-size: 13px;
+}
+
+.wide-table {
+  min-width: 780px;
 }
 
 th,
@@ -235,6 +266,27 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
+.step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.step-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 @media (max-width: 860px) {
   .topbar {
     align-items: stretch;
@@ -263,6 +315,7 @@ tbody tr:last-child td {
 
   .token-field,
   .token-field input,
+  .auto-refresh,
   button {
     width: 100%;
   }
