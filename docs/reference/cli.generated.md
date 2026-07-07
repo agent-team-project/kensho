@@ -1761,11 +1761,14 @@ Inherited Flags:
 Vendor a starter team template into the current repo (creates .agent_team/).
 
 Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled
-default template is used (a software-engineering team — manager + worker + ticket-manager,
-plus linear / pull-request / assign-worker skills). Refs can be local paths, cached refs,
-or git refs such as github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-
-only init. `--set k=v` supplies template parameters; `--no-input` fails (rather than prompting)
-when required parameters have no value.
+default template is used. Its default `slim` profile is a consumer starter: manager + worker +
+reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /
+prod-watch loops omitted. Pass `--profile full` (or `--set template.profile=full`) to render
+the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and
+scheduled governance loops. Refs can be local paths, cached refs, or git refs such as
+github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-only init. `--set k=v`
+supplies template parameters; `--no-input` fails (rather than prompting) when required parameters
+have no value.
 
 ```text
 agent-team init [<ref>] [flags]

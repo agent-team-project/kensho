@@ -1,5 +1,6 @@
-# Manifest for the bundled "default" template — a software-engineering team
-# (manager + worker + ticket-manager) for ticketless, Linear, or GitHub work.
+# Manifest for the bundled "default" template. Its slim profile is the default
+# external-consumer starter; the full profile preserves this repo's self-dogfood
+# topology.
 #
 # `agent-team init` reads this file to determine which parameters the consumer
 # must supply; values flow into config.toml.tmpl below to produce the repo's
@@ -8,7 +9,7 @@
 [template]
 name        = "default"
 version     = "1.0.0"
-description = "Manager + worker + ticket-manager team for ticketless, Linear, or GitHub-tracked engineering work."
+description = "Slim manager + worker + reviewer starter by default; full profile adds ticket-manager, scheduled loops, and the self-dogfood topology."
 
 [[parameter]]
 key         = "project.id"

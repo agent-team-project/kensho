@@ -53,11 +53,14 @@ func newInitCmd() *cobra.Command {
 		Use:   "init [<ref>]",
 		Short: "Vendor a starter team template into the current repo (creates .agent_team/).",
 		Long: "Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled\n" +
-			"default template is used (a software-engineering team — manager + worker + ticket-manager,\n" +
-			"plus linear / pull-request / assign-worker skills). Refs can be local paths, cached refs,\n" +
-			"or git refs such as github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-\n" +
-			"only init. `--set k=v` supplies template parameters; `--no-input` fails (rather than prompting)\n" +
-			"when required parameters have no value.",
+			"default template is used. Its default `slim` profile is a consumer starter: manager + worker +\n" +
+			"reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /\n" +
+			"prod-watch loops omitted. Pass `--profile full` (or `--set template.profile=full`) to render\n" +
+			"the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and\n" +
+			"scheduled governance loops. Refs can be local paths, cached refs, or git refs such as\n" +
+			"github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-only init. `--set k=v`\n" +
+			"supplies template parameters; `--no-input` fails (rather than prompting) when required parameters\n" +
+			"have no value.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
