@@ -186,29 +186,29 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 				}
 				problems = append(problems, fmt.Sprintf("[%s] has unsupported value %q in %s", providerSource, provider, cfgPath))
 			}
-			missingProviderConfig := false
 			if provider == pmprovider.ProviderLinear {
 				linear, _ := cfg["linear"].(map[string]any)
+				var missing []string
 				for _, k := range []string{"team_id", "ticket_prefix"} {
 					v, _ := linear[k].(string)
 					if v == "" {
 						problems = append(problems, providerRequiredConfigProblem("linear", k, provider, providerSource, cfgPath))
-						missingProviderConfig = true
+						missing = append(missing, k)
 					}
 				}
+				actions = appendDoctorActions(actions, providerRequiredConfigAction("linear", missing, cfgPath))
 			}
 			if provider == pmprovider.ProviderGitHub {
 				github, _ := cfg["github"].(map[string]any)
+				var missing []string
 				for _, k := range []string{"owner", "repo"} {
 					v, _ := github[k].(string)
 					if v == "" {
 						problems = append(problems, providerRequiredConfigProblem("github", k, provider, providerSource, cfgPath))
-						missingProviderConfig = true
+						missing = append(missing, k)
 					}
 				}
-			}
-			if missingProviderConfig {
-				actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "doctor", "--target", abs}), " "))
+				actions = appendDoctorActions(actions, providerRequiredConfigAction("github", missing, cfgPath))
 			}
 		}
 	}
@@ -473,6 +473,30 @@ func providerRequiredConfigProblem(section, key string, provider pmprovider.Prov
 		providerSource = "pm.provider"
 	}
 	return fmt.Sprintf("[%s].%s is required when %s = %q in %s", section, key, dottedConfigLabel(providerSource), provider, cfgPath)
+}
+
+func providerRequiredConfigAction(section string, keys []string, cfgPath string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(keys))
+	for _, key := range keys {
+		labels = append(labels, fmt.Sprintf("[%s].%s", section, key))
+	}
+	return "echo " + shellQuote(fmt.Sprintf("Set %s in %s.", joinConfigLabels(labels), cfgPath))
+}
+
+func joinConfigLabels(labels []string) string {
+	switch len(labels) {
+	case 0:
+		return ""
+	case 1:
+		return labels[0]
+	case 2:
+		return labels[0] + " and " + labels[1]
+	default:
+		return strings.Join(labels[:len(labels)-1], ", ") + ", and " + labels[len(labels)-1]
+	}
 }
 
 func dottedConfigLabel(key string) string {

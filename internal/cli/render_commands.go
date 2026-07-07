@@ -25,10 +25,14 @@ func commandActionsOnly(actions []string) []string {
 	out := make([]string, 0, len(actions))
 	for _, action := range actions {
 		action = strings.TrimSpace(action)
-		if !strings.HasPrefix(action, "agent-team ") {
+		if !isOperatorCommandAction(action) {
 			continue
 		}
 		out = append(out, action)
 	}
 	return out
+}
+
+func isOperatorCommandAction(action string) bool {
+	return strings.HasPrefix(action, "agent-team ") || strings.HasPrefix(action, "echo ")
 }

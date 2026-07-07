@@ -121,6 +121,51 @@ repo = ""
 	}
 }
 
+func TestDoctorCommandsNamesMissingProviderKeys(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(`[pm]
+provider = "github"
+
+[project]
+id = "test-project"
+
+[github]
+owner = ""
+repo = ""
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--target", tmp, "--commands"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected doctor --commands with blank GitHub config to fail")
+	}
+	var ec ExitCode
+	if !errors.As(err, &ec) || int(ec) != 1 {
+		t.Fatalf("expected exit 1, got %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"[github].owner", "[github].repo", ".agent_team/config.toml"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor --commands output = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "agent-team doctor") || strings.Contains(got, " doctor ") {
+		t.Fatalf("doctor --commands should not rerun doctor for provider config: %q", got)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("doctor --commands should not write provider problems to stderr: %s", errOut.String())
+	}
+}
+
 func TestDoctor_PassesWithFilledLinearKeys(t *testing.T) {
 	tmp := t.TempDir()
 	// initInto supplies linear.team_id and linear.ticket_prefix via --set, so
