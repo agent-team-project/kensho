@@ -894,9 +894,12 @@ func daemonQueryURL(base string, dryRun bool, scopedKey string, scopedValues []s
 
 // topologyResponse mirrors the wire shape of /v1/topology.
 type topologyResponse struct {
-	Instances []topologyInstance `json:"instances"`
-	Pipelines []topologyPipeline `json:"pipelines"`
-	Schedules []topologySchedule `json:"schedules"`
+	Instances            []topologyInstance `json:"instances"`
+	Pipelines            []topologyPipeline `json:"pipelines"`
+	Schedules            []topologySchedule `json:"schedules"`
+	Teams                []topologyTeam     `json:"teams"`
+	Budgets              []topologyBudget   `json:"budgets"`
+	BudgetReminderLevels []int              `json:"budget_reminder_levels,omitempty"`
 }
 
 type topologyInstance struct {
@@ -913,10 +916,13 @@ type topologyInstance struct {
 }
 
 type topologyPipeline struct {
-	Name         string                   `json:"name"`
-	Trigger      map[string]interface{}   `json:"trigger"`
-	Steps        []map[string]interface{} `json:"steps"`
-	ReapWorktree string                   `json:"reap_worktree"`
+	Name                string                   `json:"name"`
+	Trigger             map[string]interface{}   `json:"trigger"`
+	Steps               []map[string]interface{} `json:"steps"`
+	AutoAdvance         bool                     `json:"auto_advance"`
+	ReapWorktree        string                   `json:"reap_worktree"`
+	RedispatchOnReentry bool                     `json:"redispatch_on_reentry,omitempty"`
+	Merge               map[string]interface{}   `json:"merge,omitempty"`
 }
 
 type topologySchedule struct {
@@ -924,6 +930,22 @@ type topologySchedule struct {
 	Every      string                 `json:"every"`
 	RunOnStart bool                   `json:"run_on_start"`
 	Payload    map[string]interface{} `json:"payload"`
+}
+
+type topologyTeam struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Instances   []string `json:"instances"`
+	Pipelines   []string `json:"pipelines"`
+	Schedules   []string `json:"schedules"`
+	Channels    []string `json:"channels"`
+}
+
+type topologyBudget struct {
+	Team         string `json:"team"`
+	TokensPerDay int64  `json:"tokens_per_day"`
+	JobsInFlight int    `json:"jobs_in_flight"`
+	Allocation   string `json:"allocation"`
 }
 
 func (c *daemonClient) Topology() (*topologyResponse, error) {

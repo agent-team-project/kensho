@@ -38,6 +38,8 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/skills/github/scripts/github-auth.sh",
     ".agent_team/skills/linear/SKILL.md",
     ".agent_team/skills/linear/scripts/linear-graphql.sh",
+    ".agent_team/skills/product-verify/SKILL.md",
+    ".agent_team/skills/product-verify/scripts/product_verify_diff.py",
     ".agent_team/skills/pull-request/SKILL.md",
     ".agent_team/scripts/skills/python.sh",
     ".agent_team/skills/status/SKILL.md",
@@ -343,11 +345,11 @@ def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str
     # this canary.
     if (
         r.returncode != 0
-        or summary.get("total") != 13
+        or summary.get("total") != 14
         or summary.get("actions", {}).get("start") != 2
-        or summary.get("actions", {}).get("on-demand") != 11
+        or summary.get("actions", {}).get("on-demand") != 12
         or not summary.get("dry_run")
-        or summary.get("statuses", {}).get("unknown") != 13
+        or summary.get("statuses", {}).get("unknown") != 14
     ):
         problems.append(f"bundled topology canary returned unexpected summary: rc={r.returncode}\nbody={body}\nstdout={r.stdout}\nstderr={r.stderr}")
 

@@ -296,6 +296,30 @@ match.name = "sentinel"
 match.kind = "sentinel"
 
 
+# The product-verifier loop: a headless synthetic user checks daemon UI data
+# against CLI ground truth, then files capped feedback for bugs, friction, and
+# ideas. See template/skills/product-verify/SKILL.md.
+[schedules.product-verify]
+every = "24h"
+
+[schedules.product-verify.payload]
+kind = "product_verify"
+task = "Run the product-verify skill: compare daemon UI endpoints with CLI ground truth and file capped feedback findings."
+
+[instances.product-verifier]
+agent        = "manager"
+ephemeral    = true
+token_budget = "10M"
+time_budget  = "30m"
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK", "AGENT_TEAM_ROOT", "AGENT_TEAM_DAEMON_URL", "AGENT_TEAM_BIN", "PYTHONPATH"]
+description  = "Scheduled product verifier: headless UI-vs-CLI correctness plus UX feedback."
+
+[[instances.product-verifier.triggers]]
+event      = "schedule"
+match.name = "product-verify"
+match.kind = "product_verify"
+
+
 # The comms team: the project's public voice. A daily schedule dispatches the
 # comms agent to digest the last 24h of shipped work into Discord (via
 # webhook — sanctioned automation; falls back to a supervisor draft when no
@@ -476,9 +500,9 @@ instances   = ["docs-writer"]
 schedules   = ["docs-freshness"]
 
 [teams.quality]
-description = "Proactive architecture, tech-debt, harness auditing, and production sentinel checks."
-instances   = ["debt-auditor", "harness-reviewer", "sentinel"]
-schedules   = ["debt-sweep", "harness-review", "sentinel"]
+description = "Proactive architecture, tech-debt, harness auditing, production sentinel checks, and product verification."
+instances   = ["debt-auditor", "harness-reviewer", "sentinel", "product-verifier"]
+schedules   = ["debt-sweep", "harness-review", "sentinel", "product-verify"]
 
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."
