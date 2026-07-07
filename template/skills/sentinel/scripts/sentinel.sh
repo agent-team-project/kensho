@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-REPO="${SENTINEL_REPO:-agent-team-project/agent-team}"
+REPO="${SENTINEL_REPO:-agent-team-project/kensho}"
 BRANCH="${SENTINEL_BRANCH:-main}"
 CI_WORKFLOW="${SENTINEL_CI_WORKFLOW:-CI}"
 RTD_PROJECT="${SENTINEL_RTD_PROJECT:-agent-team}"

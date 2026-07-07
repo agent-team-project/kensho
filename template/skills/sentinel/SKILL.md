@@ -39,7 +39,7 @@ waiting for the periodic triage loop.
 The defaults are for this repository's production surface. Override only for a
 deliberate fork or template consumer:
 
-- `SENTINEL_REPO` — GitHub `owner/repo` (default `agent-team-project/agent-team`)
+- `SENTINEL_REPO` — GitHub `owner/repo` (default `agent-team-project/kensho`)
 - `SENTINEL_BRANCH` — protected branch to watch (default `main`)
 - `SENTINEL_CI_WORKFLOW` — workflow name or file for the main CI check
   (default `CI`)
