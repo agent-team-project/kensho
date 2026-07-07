@@ -1,17 +1,63 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --bg: #f7f8fa;
   --panel: #ffffff;
+  --panel-alt: #f8fafc;
+  --input: #ffffff;
   --text: #17202a;
   --muted: #667085;
   --line: #d8dde5;
   --accent: #276749;
-  --accent-dark: #1f513a;
+  --accent-hover: #1f513a;
+  --button-text: #ffffff;
+  --success-bg: #e7f5ed;
+  --success-line: #b7dec8;
+  --success-text: #1f513a;
+  --info-bg: #e8f2ff;
+  --info-line: #b9d7fb;
+  --info-text: #184d7a;
   --warn-bg: #fff7e6;
   --warn-line: #e8bd70;
   --warn-text: #6a4300;
+  --danger-bg: #feecec;
+  --danger-line: #f0b8b8;
+  --danger-text: #8a1f1f;
+  --neutral-bg: #edf2f7;
+  --neutral-line: #d8dde5;
+  --neutral-text: #2d3748;
   --shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111312;
+    --panel: #191c1b;
+    --panel-alt: #141715;
+    --input: #101312;
+    --text: #eef3ef;
+    --muted: #a2ada7;
+    --line: #333a36;
+    --accent: #69d391;
+    --accent-hover: #86e5aa;
+    --button-text: #08110d;
+    --success-bg: #123521;
+    --success-line: #2f6947;
+    --success-text: #9de7b8;
+    --info-bg: #132a3a;
+    --info-line: #2d607f;
+    --info-text: #9bd4f5;
+    --warn-bg: #33270f;
+    --warn-line: #7a5b1c;
+    --warn-text: #f4cf7a;
+    --danger-bg: #3a1717;
+    --danger-line: #7e3535;
+    --danger-text: #f0a6a6;
+    --neutral-bg: #232826;
+    --neutral-line: #3c4540;
+    --neutral-text: #cdd5d1;
+    --shadow: none;
+  }
 }
 
 * {
@@ -73,6 +119,57 @@ h2 {
   justify-content: flex-end;
 }
 
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.connection-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--neutral-text);
+}
+
+.connection.connected {
+  border-color: var(--success-line);
+  color: var(--success-text);
+}
+
+.connection.connected .connection-dot {
+  background: var(--success-text);
+}
+
+.connection.checking,
+.connection.degraded {
+  border-color: var(--warn-line);
+  color: var(--warn-text);
+}
+
+.connection.checking .connection-dot,
+.connection.degraded .connection-dot {
+  background: var(--warn-text);
+}
+
+.connection.disconnected {
+  border-color: var(--danger-line);
+  color: var(--danger-text);
+}
+
+.connection.disconnected .connection-dot {
+  background: var(--danger-text);
+}
+
 .token-field {
   display: grid;
   gap: 4px;
@@ -86,8 +183,15 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 10px;
-  background: #fff;
+  background: var(--input);
   color: var(--text);
+}
+
+.token-field input:focus-visible,
+button:focus-visible,
+.auto-refresh:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .auto-refresh {
@@ -98,7 +202,7 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 10px;
-  background: #fff;
+  background: var(--input);
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
@@ -114,14 +218,14 @@ button {
   border-radius: 6px;
   padding: 0 14px;
   background: var(--accent);
-  color: #fff;
+  color: var(--button-text);
   font: inherit;
   font-weight: 650;
   cursor: pointer;
 }
 
 button:hover {
-  background: var(--accent-dark);
+  background: var(--accent-hover);
 }
 
 button:disabled {
@@ -131,7 +235,7 @@ button:disabled {
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -146,6 +250,7 @@ button:disabled {
 }
 
 .summary article {
+  min-height: 92px;
   padding: 16px;
 }
 
@@ -169,10 +274,22 @@ button:disabled {
   color: var(--muted);
 }
 
-.notice.error {
+.notice.success {
+  border-color: var(--success-line);
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.notice.warning {
   border-color: var(--warn-line);
   background: var(--warn-bg);
   color: var(--warn-text);
+}
+
+.notice.error {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .grid {
@@ -242,28 +359,62 @@ tbody tr:last-child td {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
+  max-width: 100%;
+  border: 1px solid transparent;
   border-radius: 999px;
   padding: 3px 9px;
-  background: #edf2f7;
-  color: #2d3748;
   font-weight: 650;
+  white-space: nowrap;
 }
 
-.pill.running,
-.pill.done {
-  background: #e7f5ed;
-  color: #1f513a;
+.pill.positive {
+  border-color: var(--success-line);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
-.pill.failed,
-.pill.crashed,
-.pill.blocked {
-  background: #feecec;
-  color: #8a1f1f;
+.pill.info {
+  border-color: var(--info-line);
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.pill.warning {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.pill.negative {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.pill.neutral {
+  border-color: var(--neutral-line);
+  background: var(--neutral-bg);
+  color: var(--neutral-text);
 }
 
 .empty {
   color: var(--muted);
+}
+
+.empty-state {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.empty-state strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.empty-state span {
+  max-width: 560px;
+  line-height: 1.4;
 }
 
 .step-list {
@@ -280,8 +431,8 @@ tbody tr:last-child td {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 3px 8px;
-  background: #f8fafc;
-  color: #344054;
+  background: var(--panel-alt);
+  color: var(--neutral-text);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -297,7 +448,6 @@ tbody tr:last-child td {
     justify-content: flex-start;
   }
 
-  .summary,
   .grid {
     grid-template-columns: 1fr;
   }
@@ -315,6 +465,7 @@ tbody tr:last-child td {
 
   .token-field,
   .token-field input,
+  .connection,
   .auto-refresh,
   button {
     width: 100%;

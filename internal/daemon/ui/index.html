@@ -14,6 +14,10 @@
         <h1>Daemon Dashboard</h1>
       </div>
       <div class="actions">
+        <div class="connection checking" id="connectionState" aria-live="polite">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="connectionText">Checking connection</span>
+        </div>
         <label class="token-field">
           <span>Bearer token</span>
           <input id="tokenInput" type="password" autocomplete="off" spellcheck="false">
@@ -51,6 +55,10 @@
       <article>
         <span class="metric-label">Budget Teams</span>
         <strong id="budgetTeamCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Teams</span>
+        <strong id="teamCount">0</strong>
       </article>
     </section>
 
@@ -135,6 +143,27 @@
               </tr>
             </thead>
             <tbody id="budgetsBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Teams</h2>
+          <span id="teamUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th>Instances</th>
+                <th>Pipelines</th>
+                <th>Channels</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="teamsBody"></tbody>
           </table>
         </div>
       </article>
