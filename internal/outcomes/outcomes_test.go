@@ -33,8 +33,8 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	j.TokenBudget = 200
 	j.TimeBudget = "3h"
 	j.Steps = []jobstore.Step{
-		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, Attempts: 1},
-		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, Attempts: 3},
+		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, Attempts: 1, StartedAt: now.Add(-2 * time.Hour), RunningAt: now.Add(-2 * time.Hour), FinishedAt: now.Add(-90 * time.Minute)},
+		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, Attempts: 3, StartedAt: now.Add(-80 * time.Minute), RunningAt: now.Add(-80 * time.Minute), FinishedAt: now.Add(-10 * time.Minute)},
 	}
 	j.Usage, _ = usage.MergeRecord(nil, usage.Record{
 		Instance:        "worker-squ-135",
@@ -93,8 +93,171 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	if len(rec.WatchdogEvents) != 1 || len(rec.BudgetNoticeEvents) != 1 || len(rec.BudgetExceededEvents) != 1 {
 		t.Fatalf("events = watchdog %d notices %d exceeded %d", len(rec.WatchdogEvents), len(rec.BudgetNoticeEvents), len(rec.BudgetExceededEvents))
 	}
+	if len(rec.WorkUnits) != 1 || rec.WorkUnits[0].Target != "worker" || rec.WorkUnits[0].StartedAt != now.Add(-2*time.Hour) || rec.WorkUnits[0].FinishedAt != now.Add(-30*time.Minute) {
+		t.Fatalf("work units = %+v", rec.WorkUnits)
+	}
+	if !rec.WorkUnitsExhaustive {
+		t.Fatalf("work units should be marked exhaustive")
+	}
 	if rec.GateFailures != 1 || rec.GateFailureClasses["signature"] != 1 {
 		t.Fatalf("gate failures = %d %+v", rec.GateFailures, rec.GateFailureClasses)
+	}
+}
+
+func TestWorkUnitsForJobUseRuntimeUsageRecords(t *testing.T) {
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	queuedAt := now.Add(-2 * time.Hour)
+	runningAt := now.Add(-90 * time.Minute)
+	finishedAt := now.Add(-30 * time.Minute)
+
+	queuedOnly := &jobstore.Job{
+		ID:        "squ-161-queued",
+		Status:    jobstore.StatusDone,
+		CreatedAt: queuedAt,
+		Instance:  "worker-squ-161",
+		Steps: []jobstore.Step{{
+			ID:         "implement",
+			Target:     "worker",
+			Status:     jobstore.StatusDone,
+			StartedAt:  queuedAt,
+			FinishedAt: finishedAt,
+		}},
+	}
+	if units := workUnitsForJob(queuedOnly, "worker"); len(units) != 0 {
+		t.Fatalf("queued-only step produced work units: %+v", units)
+	}
+
+	runningWithoutUsage := &jobstore.Job{
+		ID:        "squ-161-running",
+		Status:    jobstore.StatusDone,
+		CreatedAt: queuedAt,
+		Instance:  "worker-squ-161",
+		Steps: []jobstore.Step{{
+			ID:         "implement",
+			Target:     "worker",
+			Status:     jobstore.StatusDone,
+			StartedAt:  queuedAt,
+			RunningAt:  runningAt,
+			FinishedAt: finishedAt,
+		}},
+	}
+	if units := workUnitsForJob(runningWithoutUsage, "worker"); len(units) != 0 {
+		t.Fatalf("running step without usage produced work units: %+v", units)
+	}
+
+	withUsage := *runningWithoutUsage
+	withUsage.Usage, _ = usage.MergeRecord(nil, usage.Record{
+		Instance:  "worker-squ-161",
+		Agent:     "worker",
+		Runtime:   "codex",
+		StartedAt: runningAt,
+		EndedAt:   finishedAt,
+	})
+	units := workUnitsForJob(&withUsage, "worker")
+	if len(units) != 1 {
+		t.Fatalf("running step work units = %+v", units)
+	}
+	if units[0].StartedAt != runningAt || units[0].FinishedAt != finishedAt {
+		t.Fatalf("work interval = %s..%s, want %s..%s", units[0].StartedAt, units[0].FinishedAt, runningAt, finishedAt)
+	}
+}
+
+func TestBuildReportDoesNotFallbackWithoutUsageRecords(t *testing.T) {
+	teamDir := testOutcomeTeamDir(t)
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	queuedAt := now.Add(-2 * time.Hour)
+	finishedAt := now.Add(-30 * time.Minute)
+
+	j, err := jobstore.New("SQU-161", "worker", "Implement SQU-161", queuedAt)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Pipeline = "ticket_to_pr"
+	j.Instance = "worker-squ-161"
+	j.UpdatedAt = finishedAt
+	j.Steps = []jobstore.Step{{
+		ID:         "implement",
+		Target:     "worker",
+		Status:     jobstore.StatusDone,
+		StartedAt:  queuedAt,
+		FinishedAt: finishedAt,
+	}}
+
+	rec, err := BuildRecord(teamDir, j, now)
+	if err != nil {
+		t.Fatalf("BuildRecord: %v", err)
+	}
+	if len(rec.WorkUnits) != 0 || !rec.WorkUnitsExhaustive {
+		t.Fatalf("work units = %+v exhaustive=%v", rec.WorkUnits, rec.WorkUnitsExhaustive)
+	}
+
+	report := BuildReport([]Record{*rec}, ReportOptions{Team: "delivery", Agent: "worker", TeamDir: teamDir, Now: now})
+	if len(report.Rows) != 1 {
+		t.Fatalf("rows = %+v", report.Rows)
+	}
+	row := report.Rows[0]
+	if row.EffectiveConcurrency != 0 || row.PeakConcurrentWorkUnits != 0 {
+		t.Fatalf("row concurrency = %+v", row)
+	}
+	if report.Summary.EffectiveConcurrency != 0 || report.Summary.PeakConcurrentWorkUnits != 0 {
+		t.Fatalf("summary concurrency = %+v", report.Summary)
+	}
+}
+
+func TestBuildRecordUsesRuntimeUsageWindowForNoStepJob(t *testing.T) {
+	teamDir := testOutcomeTeamDir(t)
+	createdAt := time.Date(2026, 7, 5, 15, 46, 7, 0, time.UTC)
+	runningAt := time.Date(2026, 7, 5, 16, 16, 1, 0, time.UTC)
+	finishedAt := runningAt.Add(30 * time.Minute)
+
+	j, err := jobstore.New("SQU-112", "worker", "Implement SQU-112", createdAt)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Instance = "worker-squ-112"
+	j.UpdatedAt = finishedAt
+	j.Usage, _ = usage.MergeRecord(nil, usage.Record{
+		Instance:  "worker-squ-112",
+		Agent:     "worker",
+		Runtime:   "codex",
+		StartedAt: runningAt,
+		EndedAt:   finishedAt,
+	})
+
+	rec, err := BuildRecord(teamDir, j, finishedAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("BuildRecord: %v", err)
+	}
+	if len(rec.WorkUnits) != 1 {
+		t.Fatalf("work units = %+v", rec.WorkUnits)
+	}
+	if rec.WorkUnits[0].StartedAt != runningAt || rec.WorkUnits[0].FinishedAt != finishedAt {
+		t.Fatalf("work interval = %s..%s, want %s..%s", rec.WorkUnits[0].StartedAt, rec.WorkUnits[0].FinishedAt, runningAt, finishedAt)
+	}
+
+	earlier := Record{
+		JobID:       "squ-earlier",
+		Status:      "done",
+		Week:        rec.Week,
+		Team:        "delivery",
+		Agent:       "worker",
+		FinalizedAt: runningAt.Add(-6 * time.Minute),
+		WorkUnits: []WorkUnitRecord{{
+			ID:         "usage-earlier",
+			Target:     "worker",
+			StartedAt:  createdAt.Add(4 * time.Minute),
+			FinishedAt: runningAt.Add(-6 * time.Minute),
+		}},
+	}
+	report := BuildReport([]Record{earlier, *rec}, ReportOptions{Team: "delivery", Agent: "worker", TeamDir: teamDir, Now: finishedAt})
+	if len(report.Rows) != 1 {
+		t.Fatalf("rows = %+v", report.Rows)
+	}
+	row := report.Rows[0]
+	if row.EffectiveConcurrency != 1 || row.PeakConcurrentWorkUnits != 1 {
+		t.Fatalf("row concurrency = %+v", row)
 	}
 }
 
@@ -134,12 +297,18 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	records := []Record{
 		{
-			JobID:            "squ-1",
-			Status:           "done",
-			Week:             "2026-W28",
-			Team:             "delivery",
-			Agent:            "worker",
-			FinalizedAt:      now,
+			JobID:       "squ-1",
+			Status:      "done",
+			Week:        "2026-W28",
+			Team:        "delivery",
+			Agent:       "worker",
+			FinalizedAt: now,
+			WorkUnits: []WorkUnitRecord{{
+				ID:         "implement",
+				Target:     "worker",
+				StartedAt:  now.Add(-2 * time.Hour),
+				FinishedAt: now.Add(-90 * time.Minute),
+			}},
 			ReviewRounds:     2,
 			BounceCount:      1,
 			BounceClasses:    map[string]int{"content": 1},
@@ -149,12 +318,18 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			TimeToTerminalMS: 1200,
 		},
 		{
-			JobID:            "squ-2",
-			Status:           "failed",
-			Week:             "2026-W28",
-			Team:             "delivery",
-			Agent:            "worker",
-			FinalizedAt:      now.Add(time.Hour),
+			JobID:       "squ-2",
+			Status:      "failed",
+			Week:        "2026-W28",
+			Team:        "delivery",
+			Agent:       "worker",
+			FinalizedAt: now.Add(time.Hour),
+			WorkUnits: []WorkUnitRecord{{
+				ID:         "implement",
+				Target:     "worker",
+				StartedAt:  now.Add(-105 * time.Minute),
+				FinishedAt: now.Add(-75 * time.Minute),
+			}},
 			ReviewRounds:     0,
 			BounceCount:      0,
 			TokenBudget:      100,
@@ -163,7 +338,7 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			WatchdogEvents:   []EventRef{{Type: "watchdog"}},
 		},
 	}
-	report := BuildReport(records, ReportOptions{Team: "delivery", Agent: "worker", Now: now})
+	report := BuildReport(records, ReportOptions{Team: "delivery", Agent: "worker", TeamDir: testOutcomeTeamDir(t), Now: now})
 	if len(report.Rows) != 1 {
 		t.Fatalf("rows = %+v", report.Rows)
 	}
@@ -177,8 +352,14 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	if row.AverageTimeToMergeMS != 1000 || row.AverageTimeToTerminalMS != 1000 {
 		t.Fatalf("row durations = %+v", row)
 	}
+	if row.EffectiveConcurrency != 1.33 || row.PeakConcurrentWorkUnits != 2 || row.DeclaredReplicaCapacity != 2 || row.ConcurrencyUtilization != 0.67 {
+		t.Fatalf("row concurrency = %+v", row)
+	}
 	if report.Summary.Jobs != 2 || report.Summary.WatchdogEvents != 1 {
 		t.Fatalf("summary = %+v", report.Summary)
+	}
+	if report.Summary.EffectiveConcurrency != 1.33 || report.Summary.DeclaredReplicaCapacity != 2 {
+		t.Fatalf("summary concurrency = %+v", report.Summary)
 	}
 }
 
@@ -197,6 +378,7 @@ provider = "none"
 	topology := `[instances.worker]
 agent = "worker"
 ephemeral = true
+replicas = 2
 
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
