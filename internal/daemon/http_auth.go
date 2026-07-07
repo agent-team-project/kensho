@@ -63,7 +63,22 @@ func loopbackAuthRequired(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
-	return r.Context().Value(daemonTransportContextKey{}) == daemonTransportTCP
+	if r.Context().Value(daemonTransportContextKey{}) != daemonTransportTCP {
+		return false
+	}
+	// The static UI shell (HTML/CSS/JS, no data) is served unauthenticated so a
+	// browser can load the page and reach its token field; the /v1 data endpoints
+	// the page then calls still require the bearer token.
+	if isStaticUIPath(r.URL.Path) {
+		return false
+	}
+	return true
+}
+
+// isStaticUIPath reports whether p addresses the embedded UI shell (/ui, /ui/…),
+// which carries no data and is safe to serve without a bearer token.
+func isStaticUIPath(p string) bool {
+	return p == "/ui" || p == "/ui/" || strings.HasPrefix(p, "/ui/")
 }
 
 func bearerTokenFromRequest(r *http.Request) (string, bool) {

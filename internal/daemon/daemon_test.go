@@ -68,6 +68,45 @@ func TestDaemonBootsWithLongTeamDir(t *testing.T) {
 	}
 }
 
+func TestDaemonLoopbackHTTPUIShellServedWithoutToken(t *testing.T) {
+	teamDir := shortTempDir(t)
+	d, err := New(Config{
+		TeamDir:         teamDir,
+		LogOut:          io.Discard,
+		HTTPAddr:        "127.0.0.1:0",
+		SpawnerOverride: newFakeSpawner(30 * time.Second).spawn,
+	})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = d.Run(ctx) }()
+	t.Cleanup(func() { _ = d.Shutdown(context.Background()) })
+
+	httpAddr := waitHTTPAddr(t, teamDir)
+
+	// The static UI shell must load without a bearer token so a browser can reach
+	// the token field; the /v1 data endpoints it calls stay gated.
+	resp, err := http.Get(DaemonHTTPURL(httpAddr) + "/ui/")
+	if err != nil {
+		t.Fatalf("GET /ui/ over HTTP: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ui/ without token status = %d, want 200 (shell must be reachable in a browser)", resp.StatusCode)
+	}
+
+	dataResp, err := http.Get(DaemonHTTPURL(httpAddr) + "/v1/instances")
+	if err != nil {
+		t.Fatalf("GET /v1/instances over HTTP: %v", err)
+	}
+	defer dataResp.Body.Close()
+	if dataResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/instances without token status = %d, want 401 (data stays gated)", dataResp.StatusCode)
+	}
+}
+
 func TestDaemonLoopbackHTTPListenerRequiresBearerToken(t *testing.T) {
 	teamDir := shortTempDir(t)
 	d, err := New(Config{
