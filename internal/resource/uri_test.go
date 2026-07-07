@@ -37,6 +37,27 @@ func TestURIEscapesPathSegments(t *testing.T) {
 	}
 }
 
+func TestParseRejectsNonCanonicalURIs(t *testing.T) {
+	tests := []string{
+		"agt://dep/job/squ-1/",
+		"agt://dep//job/squ-1",
+		"agt://dep/job/squ-1?x=y",
+		"agt://dep/job/squ-1?",
+		"agt://dep/job/",
+		"agt://dep/job",
+		"agt://dep//",
+		"agt:dep/job/squ-1",
+		"agt://user@dep/job/squ-1",
+	}
+	for _, raw := range tests {
+		t.Run(raw, func(t *testing.T) {
+			if got, err := Parse(raw); err == nil {
+				t.Fatalf("Parse(%q) = %+v, nil; want error", raw, got)
+			}
+		})
+	}
+}
+
 func TestWorkspaceIDDeterministicBackfill(t *testing.T) {
 	if got := WorkspaceID("/repo/.claude/worktrees/worker-squ-1", "squ-1-abc123", "squ-1", "worker-squ-1"); got != "branch:squ-1-abc123" {
 		t.Fatalf("branch workspace id = %q", got)

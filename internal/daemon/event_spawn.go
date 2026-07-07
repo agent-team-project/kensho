@@ -62,11 +62,6 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 	if err != nil {
 		return nil, err
 	}
-	eventOrigin := r.originForEvent(inst, name, eventType, payload)
-	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
-	prompt := fmt.Sprintf("Topology event for declared instance %q (agent=%s):\n%s",
-		inst.Name, inst.Agent, string(body))
-	prompt = prependProbeKickoffPreamble(prompt, payload)
 	workspace := r.teamDirParent()
 	worktreePath := ""
 	branch := ""
@@ -79,6 +74,11 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		worktreePath = workspace
 	}
 	r.backfillDispatchPayloadResourceURIs(inst, name, payload, branch, workspace)
+	eventOrigin := r.originForEvent(inst, name, eventType, payload)
+	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
+	prompt := fmt.Sprintf("Topology event for declared instance %q (agent=%s):\n%s",
+		inst.Name, inst.Agent, string(body))
+	prompt = prependProbeKickoffPreamble(prompt, payload)
 	prompt, err = r.appendUnreadMailboxToPrompt(name, inst.Agent, prompt, payload, branch)
 	if err != nil {
 		cleanupWorkspace()
@@ -511,10 +511,14 @@ func (r *EventResolver) backfillDispatchPayloadResourceURIs(inst *topology.Insta
 	if inst != nil && strings.TrimSpace(inst.Name) != "" {
 		declared = inst.Name
 	}
-	payloadSetStringIfEmpty(payload, "spec_uri", resource.InstanceURI(deploymentID, declared))
+	specURI := resource.InstanceURI(deploymentID, declared)
 	if jobID := eventJobID(payload); jobID != "" {
 		payloadSetStringIfEmpty(payload, "job_uri", resource.JobURI(deploymentID, jobID))
+		if stepID := payloadString(payload, "pipeline_step"); stepID != "" {
+			specURI = resource.StepURI(deploymentID, jobID, stepID)
+		}
 	}
+	payloadSetStringIfEmpty(payload, "spec_uri", specURI)
 	workspaceURI := resource.WorkspaceURIFor(deploymentID, workspace, branch, eventJobID(payload), instance)
 	if payloadString(payload, "workspace") == "repo" {
 		workspaceURI = resource.WorkspaceURI(deploymentID, "repo")

@@ -176,12 +176,19 @@ func Parse(raw string) (Parsed, error) {
 	if u.Scheme != Scheme {
 		return Parsed{}, fmt.Errorf("resource URI scheme %q must be %q", u.Scheme, Scheme)
 	}
+	if u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery {
+		return Parsed{}, errors.New("resource URI must be canonical agt://<deployment-id>/<kind>/<id>[#fragment]")
+	}
 	deploymentID := strings.TrimSpace(u.Host)
 	if deploymentID == "" {
 		return Parsed{}, errors.New("resource URI deployment id is required")
 	}
-	parts := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
-	if len(parts) != 2 {
+	path := u.EscapedPath()
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return Parsed{}, fmt.Errorf("resource URI path must be /<kind>/<id>")
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return Parsed{}, fmt.Errorf("resource URI path must be /<kind>/<id>")
 	}
 	kind, err := url.PathUnescape(parts[0])

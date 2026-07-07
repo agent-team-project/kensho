@@ -681,6 +681,23 @@ func TestEvent_EphemeralDispatchBackfillsResourceURIs(t *testing.T) {
 			t.Fatalf("env missing %q: %#v", want, env)
 		}
 	}
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	for _, want := range []string{
+		`"deployment_uri":"agt://dep/project/dep"`,
+		`"deployment_parent_uri":"agt://parent/project/parent"`,
+		`"instance_uri":"agt://dep/instance/worker-squ-156"`,
+		`"spec_uri":"agt://dep/instance/worker"`,
+		`"job_uri":"agt://dep/job/squ-156"`,
+		`"workspace_uri":"agt://dep/workspace/repo"`,
+		`"state_uri":"agt://dep/state/worker-squ-156"`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
 	j, err := jobstore.Read(teamDir, "squ-156")
 	if err != nil {
 		t.Fatalf("job read: %v", err)
@@ -3307,9 +3324,23 @@ tokens_per_day = 100
 	if meta.Origin.Project != "project-1" || meta.Origin.Team != "platform" || meta.Origin.Instance != "worker-squ-92" || meta.Origin.Trigger != "pipeline:ticket_to_pr:implement" {
 		t.Fatalf("metadata origin = %+v", meta.Origin)
 	}
+	const stepSpecURI = "agt://project-1/job/squ-92#step=implement"
+	if meta.SpecURI != stepSpecURI || meta.JobURI != "agt://project-1/job/squ-92" {
+		t.Fatalf("metadata URIs = %+v", meta)
+	}
 	env := fake.lastEnv()
 	if !containsString(env, "AGENT_TEAM_BUDGET_TOKENS=30") || !containsString(env, "AGENT_TEAM_BUDGET_TIME=45m0s") {
 		t.Fatalf("env missing clamped budget values: %#v", env)
+	}
+	if !containsString(env, "AGENT_TEAM_SPEC_URI="+stepSpecURI) {
+		t.Fatalf("env missing step spec URI: %#v", env)
+	}
+	prompt, ok := argValue(fake.lastCall(), "-p")
+	if !ok {
+		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+	}
+	if !strings.Contains(prompt, `"spec_uri":"`+stepSpecURI+`"`) {
+		t.Fatalf("prompt missing step spec URI:\n%s", prompt)
 	}
 	events, err := jobstore.ListEvents(teamDir, "squ-92")
 	if err != nil {
