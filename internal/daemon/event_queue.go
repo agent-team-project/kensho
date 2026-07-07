@@ -40,6 +40,7 @@ func (r *EventResolver) onReap(spawned string) {
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
 		r.reconcileEphemeralJobExit(meta)
 	}
+	_, _ = r.markTeamCharterReaped(spawned, map[string]string{"reason": "instance_reaped"})
 	drainQueues := freedLocks > 0
 	if r.budgetsConfigured() {
 		drainQueues = true

@@ -18,19 +18,22 @@ import (
 const Scheme = "agt"
 
 const (
-	KindProject   = "project"
-	KindInstance  = "instance"
-	KindJob       = "job"
-	KindWorkspace = "workspace"
-	KindState     = "state"
-	KindLog       = "log"
-	KindUsage     = "usage"
-	KindMailbox   = "mailbox"
-	KindChannel   = "channel"
-	KindQueue     = "queue"
-	KindOutbox    = "outbox"
-	KindLock      = "lock"
-	KindTopology  = "topology"
+	KindProject    = "project"
+	KindInstance   = "instance"
+	KindJob        = "job"
+	KindWorkspace  = "workspace"
+	KindState      = "state"
+	KindLog        = "log"
+	KindUsage      = "usage"
+	KindMailbox    = "mailbox"
+	KindChannel    = "channel"
+	KindQueue      = "queue"
+	KindOutbox     = "outbox"
+	KindLock       = "lock"
+	KindTopology   = "topology"
+	KindCharter    = "charter"
+	KindCapability = "capability"
+	KindAllocation = "allocation"
 )
 
 // Deployment is the local control-plane deployment identity from
@@ -78,6 +81,34 @@ func ProjectURI(deploymentID string) string {
 // is currently modeled as the project resource for that deployment.
 func DeploymentURI(deploymentID string) string {
 	return ProjectURI(deploymentID)
+}
+
+// ChildDeploymentID returns a stable, URI-host-safe deployment id for a child
+// control plane created under parentDeploymentID for name.
+func ChildDeploymentID(parentDeploymentID, name string) string {
+	parentDeploymentID = strings.TrimSpace(parentDeploymentID)
+	name = strings.TrimSpace(name)
+	if parentDeploymentID == "" || name == "" {
+		return ""
+	}
+	base := safeDeploymentIDSegment(name)
+	if base == "" {
+		base = "child"
+	}
+	sum := sha256.Sum256([]byte(parentDeploymentID + "\x00" + name))
+	return "child-" + base + "-" + hex.EncodeToString(sum[:4])
+}
+
+func CharterURI(deploymentID, charterID string) string {
+	return URI(deploymentID, KindCharter, charterID)
+}
+
+func CapabilityURI(deploymentID, capabilityID string) string {
+	return URI(deploymentID, KindCapability, capabilityID)
+}
+
+func AllocationURI(deploymentID, allocationID string) string {
+	return URI(deploymentID, KindAllocation, allocationID)
 }
 
 func InstanceURI(deploymentID, instance string) string {
@@ -145,6 +176,31 @@ func UsageURI(deploymentID, instance string, startedAt time.Time) string {
 		fragment = "started_at=" + startedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return URIWithFragment(deploymentID, KindUsage, instance, fragment)
+}
+
+func safeDeploymentIDSegment(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if r == '-' || r == '_' || r == '.' || r == ' ' {
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > 48 {
+		out = strings.Trim(out[:48], "-")
+	}
+	return out
 }
 
 // WorkspaceID returns a deterministic resource id for a workspace

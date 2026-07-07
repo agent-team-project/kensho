@@ -478,7 +478,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -663,7 +663,7 @@ func originContextEnv(env origin.Envelope) []string {
 		out = append(out, "AGENT_TEAM_PROJECT="+env.Project)
 	}
 	if env.DeploymentURI != "" {
-		out = append(out, "AGENT_TEAM_DEPLOYMENT_URI="+env.DeploymentURI)
+		out = append(out, "AGENT_TEAM_ORIGIN_DEPLOYMENT_URI="+env.DeploymentURI)
 	}
 	if env.Team != "" {
 		out = append(out, "AGENT_TEAM_TEAM="+env.Team)
@@ -742,6 +742,9 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}{
 		{"deployment_uri", "AGENT_TEAM_DEPLOYMENT_URI"},
 		{"deployment_parent_uri", "AGENT_TEAM_DEPLOYMENT_PARENT_URI"},
+		{"charter_uri", "AGENT_TEAM_CHARTER_URI"},
+		{"child_deployment_uri", "AGENT_TEAM_CHILD_DEPLOYMENT_URI"},
+		{"capability_uri", "AGENT_TEAM_CAPABILITY_URI"},
 		{"instance_uri", "AGENT_TEAM_INSTANCE_URI"},
 		{"spec_uri", "AGENT_TEAM_SPEC_URI"},
 		{"workspace_uri", "AGENT_TEAM_WORKSPACE_URI"},

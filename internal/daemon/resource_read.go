@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agent-team-project/agent-team/internal/budget"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/resource"
 )
@@ -33,16 +34,19 @@ type ResourceRead struct {
 }
 
 type projectResource struct {
-	ID          string    `json:"id"`
-	URI         string    `json:"uri"`
-	ParentURI   string    `json:"parent_uri,omitempty"`
-	Ready       bool      `json:"ready"`
-	PID         int       `json:"pid,omitempty"`
-	StartedAt   time.Time `json:"started_at,omitempty"`
-	PathScope   string    `json:"path_scope,omitempty"`
-	TeamDir     string    `json:"team_dir,omitempty"`
-	DaemonRoot  string    `json:"daemon_root,omitempty"`
-	TopologyURI string    `json:"topology_uri,omitempty"`
+	ID           string    `json:"id"`
+	URI          string    `json:"uri"`
+	ParentURI    string    `json:"parent_uri,omitempty"`
+	Ready        bool      `json:"ready"`
+	PID          int       `json:"pid,omitempty"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	PathScope    string    `json:"path_scope,omitempty"`
+	TeamDir      string    `json:"team_dir,omitempty"`
+	DaemonRoot   string    `json:"daemon_root,omitempty"`
+	TopologyURI  string    `json:"topology_uri,omitempty"`
+	Relationship string    `json:"relationship,omitempty"`
+	State        string    `json:"state,omitempty"`
+	CharterURI   string    `json:"charter_uri,omitempty"`
 }
 
 type workspaceResource struct {
@@ -105,6 +109,14 @@ type lockResource struct {
 	Leases    []*LockLease   `json:"leases,omitempty"`
 }
 
+type capabilityResource struct {
+	ID                 string               `json:"id"`
+	URI                string               `json:"uri"`
+	CharterURI         string               `json:"charter_uri"`
+	ChildDeploymentURI string               `json:"child_deployment_uri"`
+	Authority          TeamCharterAuthority `json:"authority"`
+}
+
 // ResolveResourceRead resolves a canonical agt:// URI against the daemon's
 // current stores. It is intentionally read-only: callers get structured data
 // without receiving storage paths they must dereference themselves.
@@ -124,10 +136,22 @@ func ResolveResourceRead(teamDir string, m *InstanceManager, channels *ChannelSt
 	if deploymentID == "" {
 		return nil, ErrResourceDeploymentUnavailable
 	}
+	canonical := resource.URIWithFragment(parsed.DeploymentID, parsed.Kind, parsed.ID, parsed.Fragment)
 	if parsed.DeploymentID != deploymentID {
+		if data, ok, err := resolveChildDeploymentRead(m.daemonRoot, canonical, parsed); ok || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			return &ResourceRead{
+				URI:      canonical,
+				Kind:     parsed.Kind,
+				ID:       parsed.ID,
+				Fragment: parsed.Fragment,
+				Data:     data,
+			}, nil
+		}
 		return nil, fmt.Errorf("%w: %s", ErrResourceWrongDeployment, parsed.DeploymentID)
 	}
-	canonical := resource.URIWithFragment(parsed.DeploymentID, parsed.Kind, parsed.ID, parsed.Fragment)
 	out := &ResourceRead{
 		URI:      canonical,
 		Kind:     parsed.Kind,
@@ -220,6 +244,18 @@ func ResolveResourceRead(teamDir string, m *InstanceManager, channels *ChannelSt
 		}
 		topo := events.Topology()
 		out.Data = marshalTopology(topo, events)
+	case resource.KindCharter:
+		data, err := ReadTeamCharter(m.daemonRoot, parsed.ID)
+		if err != nil {
+			return nil, resourceReadNotFound(err)
+		}
+		out.Data = data
+	case resource.KindAllocation:
+		data, err := resolveAllocationResource(teamDir, parsed.ID)
+		if err != nil {
+			return nil, err
+		}
+		out.Data = data
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrResourceUnsupported, parsed.Kind)
 	}
@@ -246,6 +282,65 @@ func resolveProjectResource(teamDir, daemonRoot string, deployment resource.Depl
 		DaemonRoot:  slashPath(daemonRoot),
 		TopologyURI: resource.TopologyURI(deployment.ID),
 	}, nil
+}
+
+func resolveChildDeploymentRead(daemonRoot, canonical string, parsed resource.Parsed) (any, bool, error) {
+	charters, err := ListTeamCharters(daemonRoot)
+	if err != nil {
+		return nil, true, err
+	}
+	var charter *TeamCharter
+	for _, item := range charters {
+		if item != nil && item.ChildDeploymentID == parsed.DeploymentID {
+			charter = item
+			break
+		}
+	}
+	if charter == nil {
+		return nil, false, nil
+	}
+	switch parsed.Kind {
+	case resource.KindProject:
+		if parsed.ID != parsed.DeploymentID {
+			return nil, true, ErrResourceNotFound
+		}
+		return &projectResource{
+			ID:           charter.ChildDeploymentID,
+			URI:          charter.ChildDeploymentURI,
+			ParentURI:    charter.ParentDeploymentURI,
+			Ready:        charter.State == TeamCharterStateRunning,
+			TopologyURI:  resource.TopologyURI(charter.ChildDeploymentID),
+			Relationship: charter.Relationship,
+			State:        charter.State,
+			CharterURI:   charter.URI,
+		}, true, nil
+	case resource.KindCapability:
+		if charter.Authority.CapabilityURI != canonical {
+			return nil, true, ErrResourceNotFound
+		}
+		return &capabilityResource{
+			ID:                 parsed.ID,
+			URI:                canonical,
+			CharterURI:         charter.URI,
+			ChildDeploymentURI: charter.ChildDeploymentURI,
+			Authority:          charter.Authority,
+		}, true, nil
+	default:
+		return nil, true, fmt.Errorf("%w: %s", ErrResourceUnsupported, parsed.Kind)
+	}
+}
+
+func resolveAllocationResource(teamDir, id string) (*budget.AllocationRecord, error) {
+	allocations, err := budget.ListAllocations(teamDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range allocations {
+		if rec != nil && rec.ID == id {
+			return rec, nil
+		}
+	}
+	return nil, ErrResourceNotFound
 }
 
 func resolveInstanceResource(m *InstanceManager, id string) (*Metadata, error) {
