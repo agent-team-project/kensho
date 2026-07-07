@@ -12,7 +12,7 @@
 [instances.manager]
 agent       = "manager"
 ephemeral   = false
-description = "User-facing entry point. Coordinates ticket-managers and workers."
+description = "User-facing entry point. Coordinates workers, reviewers, and follow-up decisions."
 
 [[instances.manager.triggers]]
 event = "user_invocation"
@@ -21,6 +21,7 @@ event = "user_invocation"
 event        = "agent.dispatch"
 match.target = "manager"
 
+{{ if eq .template.profile `full` -}}
 [instances.ticket-manager]
 agent       = "ticket-manager"
 ephemeral   = false
@@ -28,6 +29,7 @@ description = "Reads, files, and triages Linear tickets in scope of this repo."
 
 [[instances.ticket-manager.triggers]]
 event = "user_invocation"
+{{ end }}
 
 [instances.worker]
 agent         = "worker"
@@ -125,6 +127,7 @@ ticket, and mark the job done. If REVIEW: BOUNCE, run `agent-team job bounce
 kickoff — do not amend the branch yourself.
 """
 
+{{ if eq .template.profile `full` }}
 
 # The feedback-triage loop: agents submit one-line observations mid-job
 # (`agent-team feedback submit` — see the triage-feedback skill); this weekly
@@ -518,10 +521,18 @@ description = "Proactive architecture, tech-debt, harness auditing, production s
 instances   = ["debt-auditor", "harness-reviewer", "sentinel", "product-verifier"]
 schedules   = ["debt-sweep", "harness-review", "sentinel", "product-verify"]
 
+{{ end }}
+
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."
+{{ if eq .template.profile `full` -}}
 instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-triage"]
 pipelines   = ["ticket_to_pr"]
+schedules   = ["feedback-triage"]
+{{ else -}}
+instances   = ["manager", "worker", "reviewer"]
+pipelines   = ["ticket_to_pr"]
+{{ end }}
 
 # Optional per-team admission budgets. When omitted, dispatch behavior is
 # unchanged. Token spend is computed from finalized usage records over the last
@@ -530,7 +541,6 @@ pipelines   = ["ticket_to_pr"]
 # tokens_per_day = 200_000_000
 # jobs_in_flight = 6
 # allocation = "oversubscribe" # default; "reserve" debits outstanding grants
-schedules   = ["feedback-triage"]
 
 # Optional resource scoping. Omitted scope defaults to "machine", preserving
 # today's flat namespace. Use "team" when each owning team needs an isolated
@@ -559,6 +569,7 @@ allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "j
 [authority.agents.manager]
 allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
 
+{{ if eq .template.profile `full` }}
 [authority.agents.ticket-manager]
 allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
 
@@ -567,6 +578,7 @@ allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "sta
 
 [authority.agents.comms]
 allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.show", "status.*"]
+{{ end }}
 
 # Optional fixed-interval schedule. Uncomment and adapt to publish a `schedule`
 # event with name = "nightly" every 24 hours.

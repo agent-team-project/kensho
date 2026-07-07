@@ -27,6 +27,7 @@ func TestTemplateShow_Bundled(t *testing.T) {
 	body := out.String()
 	for _, want := range []string{
 		"Template: default v",
+		"template.profile",
 		"linear.team_id",
 		"linear.ticket_prefix",
 		"required",

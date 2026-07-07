@@ -6,7 +6,7 @@ description: |
 
 # Release pipeline runbook
 
-This skill turns the manual release flow from `CLAUDE.md` into repeatable
+This skill turns the repo's documented manual release flow into repeatable
 pipeline steps. The release pipeline is manual-only: an operator starts it with
 `agent-team pipeline run release <version> --id release-<version> --dispatch`.
 Do not publish, tag, or announce outside the step you own.

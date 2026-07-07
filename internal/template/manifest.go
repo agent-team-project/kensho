@@ -53,10 +53,18 @@ type Header struct {
 	Description string `toml:"description"`
 }
 
+// Profile is an optional named rendering profile. Profiles let one template
+// tree ship several curated shapes without duplicating files.
+type Profile struct {
+	Description string   `toml:"description"`
+	Exclude     []string `toml:"exclude"`
+}
+
 // Manifest is the parsed `template.toml`.
 type Manifest struct {
-	Template   Header      `toml:"template"`
-	Parameters []Parameter `toml:"parameter"`
+	Template   Header             `toml:"template"`
+	Parameters []Parameter        `toml:"parameter"`
+	Profiles   map[string]Profile `toml:"profiles"`
 }
 
 // LoadManifest reads `<dir>/template.toml`. Returns nil with no error if the
@@ -120,6 +128,16 @@ func (m *Manifest) Validate() error {
 			}
 			if p.Type != TypeString {
 				return fmt.Errorf("parameter[%s]: pattern only valid on string type", p.Key)
+			}
+		}
+	}
+	for name, profile := range m.Profiles {
+		if name == "" {
+			return fmt.Errorf("profile name is required")
+		}
+		for i, path := range profile.Exclude {
+			if path == "" {
+				return fmt.Errorf("profile[%s].exclude[%d]: path is required", name, i)
 			}
 		}
 	}

@@ -45,7 +45,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 ## Startup Sequence
 
 1. **Confirm your instance name.** Re-read the spawn prompt. Compute your state dir: `.agent_team/state/<your-instance-name>/`. Create it if missing (`mkdir -p`).
-2. **Read the consumer repo's `CLAUDE.md`** for project-wide conventions.
+2. **Read the consumer repo's orientation docs** for project-wide conventions. Start with every applicable `AGENTS.md` (repo root, then any relevant subdirectories). If none exist, use the repo's README, contributor guide, or equivalent local instructions.
 3. **Read `.agent_team/config.toml`** for `[pm].provider`, falling back to legacy `[team].pm_tool` when `[pm].provider` is absent. Branch from that value:
    - `linear`: use the `linear` skill for ticket reads/writes and read `linear.team_id`, `linear.ticket_prefix`, and `linear.projects` for routing.
    - `github`: use the `github` skill for issue reads/writes and read `github.owner`, `github.repo`, project settings, labels, and state/column conventions for routing.

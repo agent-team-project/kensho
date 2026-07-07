@@ -26,20 +26,20 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/.template.lock",
     ".agent_team/config.toml",
     ".agent_team/instances.toml",
-    ".agent_team/agents/ticket-manager/agent.md",
-    ".agent_team/agents/ticket-manager/config.toml",
     ".agent_team/agents/manager/agent.md",
     ".agent_team/agents/manager/config.toml",
     ".agent_team/agents/manager/skills/assign-worker/SKILL.md",
+    ".agent_team/agents/reviewer/agent.md",
+    ".agent_team/agents/reviewer/config.toml",
     ".agent_team/agents/worker/agent.md",
     ".agent_team/agents/worker/config.toml",
     ".agent_team/skills/github/SKILL.md",
     ".agent_team/skills/github/scripts/github-api.sh",
     ".agent_team/skills/github/scripts/github-auth.sh",
+    ".agent_team/skills/channel/SKILL.md",
+    ".agent_team/skills/inbox/SKILL.md",
     ".agent_team/skills/linear/SKILL.md",
     ".agent_team/skills/linear/scripts/linear-graphql.sh",
-    ".agent_team/skills/product-verify/SKILL.md",
-    ".agent_team/skills/product-verify/scripts/product_verify_diff.py",
     ".agent_team/skills/pull-request/SKILL.md",
     ".agent_team/scripts/skills/python.sh",
     ".agent_team/skills/status/SKILL.md",
@@ -120,6 +120,10 @@ def main(argv: list[str]) -> int:
             problems.append(f"ticketless init did not default pm_tool to none: {ticketless_cfg_text}")
         if 'team_id = ""' not in ticketless_cfg_text or 'ticket_prefix = ""' not in ticketless_cfg_text:
             problems.append(f"ticketless init missing empty Linear placeholders: {ticketless_cfg_text}")
+        if 'profile = "slim"' not in ticketless_cfg_text:
+            problems.append(f"ticketless init did not render slim profile by default: {ticketless_cfg_text}")
+        if (ticketless_target / ".agent_team" / "agents" / "ticket-manager").exists():
+            problems.append("ticketless slim init unexpectedly rendered ticket-manager agent")
         try:
             tomllib.loads(ticketless_cfg_text)
         except Exception as e:  # noqa: BLE001
@@ -172,6 +176,8 @@ def main(argv: list[str]) -> int:
             problems.append(f"--set linear.team_id missing from config.toml: {cfg_text}")
         if 'ticket_prefix = "SMK"' not in cfg_text:
             problems.append(f"--set linear.ticket_prefix missing from config.toml: {cfg_text}")
+        if 'profile = "slim"' not in cfg_text:
+            problems.append(f"linear init did not render slim profile by default: {cfg_text}")
         try:
             tomllib.loads(cfg_text)
         except Exception as e:  # noqa: BLE001
@@ -274,7 +280,7 @@ def main(argv: list[str]) -> int:
         )
         if r.returncode != 0:
             problems.append(f"template show failed: {r.stderr}")
-        for needle in ("Template: default v", "Content hash: sha256:", "linear.team_id", "linear.ticket_prefix"):
+        for needle in ("Template: default v", "Content hash: sha256:", "template.profile", "linear.team_id", "linear.ticket_prefix"):
             if needle not in r.stdout:
                 problems.append(f"template show missing {needle!r} in stdout: {r.stdout!r}")
 
@@ -345,11 +351,11 @@ def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str
     # this canary.
     if (
         r.returncode != 0
-        or summary.get("total") != 14
-        or summary.get("actions", {}).get("start") != 2
-        or summary.get("actions", {}).get("on-demand") != 12
+        or summary.get("total") != 3
+        or summary.get("actions", {}).get("start") != 1
+        or summary.get("actions", {}).get("on-demand") != 2
         or not summary.get("dry_run")
-        or summary.get("statuses", {}).get("unknown") != 14
+        or summary.get("statuses", {}).get("unknown") != 3
     ):
         problems.append(f"bundled topology canary returned unexpected summary: rc={r.returncode}\nbody={body}\nstdout={r.stdout}\nstderr={r.stderr}")
 
@@ -557,6 +563,7 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
         # init the smoke target under /tmp so the unix-socket path is short.
         run([
             str(binary), "init", "--target", str(socket_dir),
+            "--profile", "full",
             "--set", "linear.team_id=smoke-team-uuid",
             "--set", "linear.ticket_prefix=SMK",
         ])

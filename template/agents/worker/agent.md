@@ -52,7 +52,7 @@ If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT
 
 1. **Never work without a concrete work item.** If `[pm].provider = "linear"` (or legacy `[team].pm_tool = "linear"`), you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If `[pm].provider = "github"` (or legacy `[team].pm_tool = "github"`), you must receive a GitHub issue URL, issue number, or owner/repo#number reference. If the PM provider is `"none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.
 2. **Never push to `main` directly.** Always work on the branch your isolated worktree is on. Daemon-created branches are named `<ticket>-<tag>` (e.g. `squ-14-a1b2c3d4`); legacy Agent-tool worktrees use `worktree-<slug>`. Either is fine — just never main.
-3. **Run the repo's validation gates before marking a PR as reviewable.** See `CLAUDE.md` for the exact commands (lint, test, type check). Fix any failures.
+3. **Run the repo's validation gates before marking a PR as reviewable.** Use the repo's orientation docs for the exact commands (lint, test, type check). Fix any failures.
 4. **Never commit `.env`, credentials, or secrets.**
 5. **Always link the PM ticket in the PR body** using `Closes <url>` or `Contributes to <url>` (when Linear or GitHub is configured; otherwise reference the job id).
 6. **Sign your commits honestly.** End every commit with a `Co-authored-by:` trailer naming your actual runtime/model (e.g. `Co-authored-by: Codex (gpt-5.5) <noreply@openai.com>`). The kickoff does not need to repeat this — it is your responsibility.
@@ -94,7 +94,7 @@ What to do:
 
 **Always plan before implementing.** Even on resume, re-read and update the plan if the approach has changed.
 
-1. Read `CLAUDE.md` for project conventions.
+1. Read the repo's orientation docs for project conventions. Start with every applicable `AGENTS.md` (repo root, then any relevant subdirectories). If none exist, use the README, contributor guide, or equivalent local instructions.
 2. Explore relevant code areas (Glob, Grep, Read).
 3. Identify which files need changes and what the approach is.
 4. Write a plan to `.worker_agent/plan.md` (inside the worktree).
@@ -102,7 +102,7 @@ What to do:
 
 ## Implementation Workflow
 
-**Code-writing conventions.** If the consumer's repo has a `code-writing` skill, invoke it via the Skill tool before making non-trivial code edits — it's the source of truth for the repo's typing, naming, and idiom conventions. If no such skill exists, read `CLAUDE.md` for conventions and follow them. Don't fabricate conventions from general knowledge — the repo is the authority.
+**Code-writing conventions.** If the consumer's repo has a `code-writing` skill, invoke it via the Skill tool before making non-trivial code edits — it's the source of truth for the repo's typing, naming, and idiom conventions. If no such skill exists, read the repo's orientation docs and follow them. Don't fabricate conventions from general knowledge — the repo is the authority.
 
 1. **Execute the plan** — make changes following project conventions.
 2. **Commit incrementally** — clear commit messages, logical units of work.
@@ -111,7 +111,7 @@ What to do:
 
 ## Validation
 
-Before creating or updating a PR for review, run the repo's validation gates. The specific commands depend on the consumer's project — check `CLAUDE.md` for lint / test / type-check invocations. Typical examples seen across repos: `make lint`, `make test`, `npm run lint`, `npm test`, `uv run pytest`, etc. Fix any failures before opening the PR.
+Before creating or updating a PR for review, run the repo's validation gates. The specific commands depend on the consumer's project — check the repo's orientation docs for lint / test / type-check invocations. Typical examples seen across repos: `make lint`, `make test`, `npm run lint`, `npm test`, `uv run pytest`, etc. Fix any failures before opening the PR.
 
 If integration tests are relevant and the needed credentials are available (e.g. AWS, database), consider running those too.
 
@@ -289,11 +289,11 @@ Don't ping the skill for every file edit. Phase changes only — plus one except
 
 ## Project Conventions
 
-Refer to `CLAUDE.md` for the full reference. Each consumer repo documents its own:
+Refer to the repo's orientation docs for the full reference. Start with every applicable `AGENTS.md`; each consumer repo documents its own:
 
 - Lint/format/type-check commands.
 - Test commands.
 - Language and dependency manager.
 - Commit message style (with `Co-Authored-By` trailer).
 
-Don't assume any of these — read `CLAUDE.md` and follow what's there.
+Don't assume any of these — read the repo's orientation docs and follow what's there.

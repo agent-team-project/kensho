@@ -15,14 +15,18 @@ import (
 )
 
 // initArgsWithRequired is the canonical "init the bundled template into tmp,
-// configured for Linear" arg list. Most tests in this file use this; zero-flag
-// ticketless init has its own dedicated tests.
+// configured for Linear" arg list. It renders the default slim profile; tests
+// that need the full self-dogfood topology add --profile full explicitly.
 func initArgsWithRequired(target string) []string {
 	return []string{
 		"init", "--target", target,
 		"--set", "linear.team_id=test-team-uuid",
 		"--set", "linear.ticket_prefix=TST",
 	}
+}
+
+func initArgsWithRequiredFull(target string) []string {
+	return append(initArgsWithRequired(target), "--profile", "full")
 }
 
 func setTeamSkillsForTest(t *testing.T, teamDir string, skills ...string) {
@@ -62,14 +66,15 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	expected := []string{
 		".agent_team/config.toml",
 		".agent_team/.template.lock",
-		".agent_team/agents/ticket-manager/agent.md",
-		".agent_team/agents/ticket-manager/config.toml",
 		".agent_team/agents/manager/agent.md",
 		".agent_team/agents/manager/config.toml",
 		".agent_team/agents/manager/skills/assign-worker/SKILL.md",
+		".agent_team/agents/reviewer/agent.md",
+		".agent_team/agents/reviewer/config.toml",
 		".agent_team/agents/worker/agent.md",
 		".agent_team/agents/worker/config.toml",
 		".agent_team/agents/worker/scripts/git-push-verify.sh",
+		".agent_team/skills/github/SKILL.md",
 		".agent_team/skills/linear/SKILL.md",
 		".agent_team/skills/linear/scripts/linear-graphql.sh",
 		".agent_team/skills/pull-request/SKILL.md",
@@ -99,15 +104,61 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	if !strings.Contains(body, `team = []`) {
 		t.Errorf("config.toml missing empty team skills list: %s", body)
 	}
+	if !strings.Contains(body, `profile = "slim"`) {
+		t.Errorf("config.toml missing selected slim profile: %s", body)
+	}
 	workerConfig, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "agents", "worker", "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := string(workerConfig); !strings.Contains(got, ".agent_team/config.toml") || !strings.Contains(got, `team = ["linear", "status"]`) {
 		t.Errorf("worker config missing team-skill guidance: %s", got)
+	} else if strings.Contains(got, "docs-freshness") || strings.Contains(got, "release") {
+		t.Errorf("slim worker config included full-profile skills: %s", got)
 	}
 	if !strings.Contains(body, `provider = "linear"`) {
 		t.Errorf("config.toml should set pm.provider when linear.* is set: %s", body)
+	}
+	for _, rel := range []string{
+		".agent_team/agents/ticket-manager",
+		".agent_team/agents/auditor",
+		".agent_team/agents/comms",
+		".agent_team/skills/release",
+		".agent_team/skills/sentinel",
+		".agent_team/skills/docs-freshness",
+	} {
+		if _, err := os.Stat(filepath.Join(tmp, rel)); !os.IsNotExist(err) {
+			t.Errorf("slim init should not render %s (stat err=%v)", rel, err)
+		}
+	}
+	instances, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "instances.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instancesBody := string(instances)
+	for _, want := range []string{
+		"[instances.manager]",
+		"[instances.worker]",
+		"[instances.reviewer]",
+		"[pipelines.ticket_to_pr]",
+		`instances   = ["manager", "worker", "reviewer"]`,
+	} {
+		if !strings.Contains(instancesBody, want) {
+			t.Errorf("slim instances.toml missing %q:\n%s", want, instancesBody)
+		}
+	}
+	for _, unwanted := range []string{
+		"ticket-manager",
+		"platform_ticket_to_pr",
+		"release-worker",
+		"sentinel",
+	} {
+		if strings.Contains(instancesBody, unwanted) {
+			t.Errorf("slim instances.toml included %q:\n%s", unwanted, instancesBody)
+		}
+	}
+	if strings.Contains(instancesBody, "\n[schedules.") {
+		t.Errorf("slim instances.toml included an active schedule table:\n%s", instancesBody)
 	}
 	lock, err := os.ReadFile(filepath.Join(tmp, ".agent_team", ".template.lock"))
 	if err != nil {
@@ -143,6 +194,57 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	}
 }
 
+func TestInit_FullProfilePreservesSelfDogfoodTemplate(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(initArgsWithRequiredFull(tmp))
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init full profile: %v\nstderr: %s", err, errOut.String())
+	}
+
+	for _, rel := range []string{
+		".agent_team/agents/ticket-manager/agent.md",
+		".agent_team/agents/auditor/agent.md",
+		".agent_team/agents/comms/agent.md",
+		".agent_team/skills/release/SKILL.md",
+		".agent_team/skills/sentinel/SKILL.md",
+		".agent_team/skills/docs-freshness/SKILL.md",
+	} {
+		if _, err := os.Stat(filepath.Join(tmp, rel)); err != nil {
+			t.Errorf("full profile missing %s: %v", rel, err)
+		}
+	}
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), `profile = "full"`) {
+		t.Fatalf("full profile config missing template.profile:\n%s", string(cfg))
+	}
+	instances, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "instances.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(instances)
+	for _, want := range []string{
+		"[instances.ticket-manager]",
+		"[schedules.sentinel]",
+		"run_on_start = true",
+		"[pipelines.platform_ticket_to_pr]",
+		"[pipelines.release]",
+		`instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-triage"]`,
+		`schedules   = ["feedback-triage"]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("full profile instances.toml missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
@@ -165,6 +267,7 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 		`team_id = ""`,
 		`ticket_prefix = ""`,
 		`team = []`,
+		`profile = "slim"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ticketless config missing %q:\n%s", want, body)
@@ -517,7 +620,7 @@ func TestInitJSONDefaultTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	teamDir := filepath.ToSlash(filepath.Join(resolvedTarget, ".agent_team"))
-	if result.Target != filepath.ToSlash(resolvedTarget) || result.TeamDir != teamDir || result.Kind != "default" || result.Ref != "bundled" || result.TemplateName != "default" || result.TemplateVersion != "1.0.0" || !strings.HasPrefix(result.ContentHash, "sha256:") || result.Empty || result.Force {
+	if result.Target != filepath.ToSlash(resolvedTarget) || result.TeamDir != teamDir || result.Kind != "default" || result.Ref != "bundled" || result.TemplateName != "default" || result.TemplateVersion != "1.0.0" || result.Profile != "slim" || !strings.HasPrefix(result.ContentHash, "sha256:") || result.Empty || result.Force {
 		t.Fatalf("unexpected init json result: %+v", result)
 	}
 	if result.DryRun || result.Action != "initialized" {
@@ -619,7 +722,7 @@ func TestInit_LoaderReadsBundledTemplate(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs(initArgsWithRequired(tmp))
+	cmd.SetArgs(initArgsWithRequiredFull(tmp))
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
@@ -861,6 +964,16 @@ func TestInitOutputFlagValidation(t *testing.T) {
 			args: []string{"init", "--dry-run", "--target", t.TempDir(), "--set", "team.pm_tool=linear"},
 			want: "--dry-run requested but required parameters are missing",
 		},
+		{
+			name: "bad profile",
+			args: []string{"init", "--target", t.TempDir(), "--profile", "bogus", "--no-input"},
+			want: `parameter template.profile value "bogus" does not match pattern`,
+		},
+		{
+			name: "conflicting profile set",
+			args: []string{"init", "--target", t.TempDir(), "--profile", "slim", "--set", "template.profile=full", "--no-input"},
+			want: `--profile "slim" conflicts with --set template.profile="full"`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1022,7 +1135,7 @@ func initBundledTemplateForTest(t *testing.T) string {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs(initArgsWithRequired(tmp))
+	cmd.SetArgs(initArgsWithRequiredFull(tmp))
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init bundled template: %v", err)
 	}

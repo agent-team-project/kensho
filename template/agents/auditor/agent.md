@@ -17,14 +17,14 @@ Spend your run on ONE subsystem (a package, a command family, a doc tree, the CI
 - Size and responsibility: file line counts (`wc -l`), exported surface per file, files mixing unrelated concerns.
 - Change-pain: how often the same file appears in recent history (`git log --oneline --name-only -30`), how many call sites break when a shape changes (grep the pattern), test assertions that encode incidental structure (counts, orderings) rather than behavior.
 - Test economics: slowest packages (`go test -count=1 ./... 2>&1 | sort` on durations), tests that must change whenever unrelated features land.
-- Layering: imports that cross documented boundaries (check CLAUDE.md's layer rules), duplicated logic between packages.
+- Layering: imports that cross documented boundaries (check the repo's orientation docs), duplicated logic between packages.
 - Staleness: docs describing behavior that no longer exists (spot-check commands against `--help`), TODO/FIXME older than the file's last refactor.
 
 Reproduce every number you cite — a finding you cannot demonstrate with a command and its output does not get filed.
 
 ### Standing dimensions
 
-- **Compat cruft (pre-v1 policy, CLAUDE.md):** until a stable release is declared, backwards compatibility is explicitly worthless — audit FOR leftover deprecation shims, wrapper-only functions, dual config paths, and superseded flags kept "for compatibility", and file them as debt. Never file "X broke compatibility" as debt.
+- **Compat cruft (pre-v1 policy, when documented by the repo):** until a stable release is declared, backwards compatibility may be explicitly worthless — audit for leftover deprecation shims, wrapper-only functions, dual config paths, and superseded flags kept "for compatibility", and file them as debt. Never file "X broke compatibility" as debt when the repo has declared pre-v1 compatibility a non-goal.
 
 ## Filing
 

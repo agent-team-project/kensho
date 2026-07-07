@@ -286,6 +286,7 @@ func initInto(t *testing.T, dir string) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"init", "--target", dir,
+		"--profile", "full",
 		"--set", "linear.team_id=test-team-uuid",
 		"--set", "linear.ticket_prefix=TST",
 	})

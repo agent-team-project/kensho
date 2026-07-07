@@ -40,6 +40,7 @@ func newInitCmd() *cobra.Command {
 		targetFlag   string
 		forceFlag    bool
 		templateFlag string
+		profileFlag  string
 		setFlags     []string
 		noInputFlag  bool
 		jsonOut      bool
@@ -52,11 +53,14 @@ func newInitCmd() *cobra.Command {
 		Use:   "init [<ref>]",
 		Short: "Vendor a starter team template into the current repo (creates .agent_team/).",
 		Long: "Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled\n" +
-			"default template is used (a software-engineering team — manager + worker + ticket-manager,\n" +
-			"plus linear / pull-request / assign-worker skills). Refs can be local paths, cached refs,\n" +
-			"or git refs such as github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-\n" +
-			"only init. `--set k=v` supplies template parameters; `--no-input` fails (rather than prompting)\n" +
-			"when required parameters have no value.",
+			"default template is used. Its default `slim` profile is a consumer starter: manager + worker +\n" +
+			"reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /\n" +
+			"prod-watch loops omitted. Pass `--profile full` (or `--set template.profile=full`) to render\n" +
+			"the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and\n" +
+			"scheduled governance loops. Refs can be local paths, cached refs, or git refs such as\n" +
+			"github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-only init. `--set k=v`\n" +
+			"supplies template parameters; `--no-input` fails (rather than prompting) when required parameters\n" +
+			"have no value.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
@@ -88,6 +92,7 @@ func newInitCmd() *cobra.Command {
 				target:     targetFlag,
 				force:      forceFlag,
 				kind:       templateFlag,
+				profile:    profileFlag,
 				ref:        ref,
 				setStrings: setFlags,
 				noInput:    noInputFlag,
@@ -103,6 +108,7 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&targetFlag, "target", cwd, "Target repo root.")
 	cmd.Flags().BoolVar(&forceFlag, "force", false, "Overwrite existing .agent_team/ files (config.toml is never overwritten).")
 	cmd.Flags().StringVar(&templateFlag, "template", "default", "`default` (uses the supplied/bundled template ref) or `empty` (scaffold only, no manifest).")
+	cmd.Flags().StringVar(&profileFlag, "profile", "", "Template profile to render, e.g. `slim` or `full` for the bundled template.")
 	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.")
 	cmd.Flags().BoolVar(&noInputFlag, "no-input", false, "Fail with a clear error if required parameters are missing instead of prompting.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview init without writing .agent_team/.")
@@ -117,6 +123,7 @@ type initConfig struct {
 	target     string
 	force      bool
 	kind       string // "default" or "empty"
+	profile    string // convenience alias for --set template.profile=<value>
 	ref        string // template ref ("" = bundled when kind=default)
 	setStrings []string
 	noInput    bool
@@ -133,6 +140,7 @@ type initResult struct {
 	Ref             string `json:"ref,omitempty"`
 	TemplateName    string `json:"template_name,omitempty"`
 	TemplateVersion string `json:"template_version,omitempty"`
+	Profile         string `json:"profile,omitempty"`
 	ContentHash     string `json:"content_hash,omitempty"`
 	ConfigPath      string `json:"config_path"`
 	LockPath        string `json:"lock_path,omitempty"`
@@ -211,7 +219,12 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 	}
 	result.ContentHash = hash
 
-	sets, err := template.ParseSetSpecs(cfg.setStrings)
+	setStrings, err := initSetStringsWithProfile(cfg.setStrings, cfg.profile)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+		return exitErr(2)
+	}
+	sets, err := template.ParseSetSpecs(setStrings)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
@@ -222,6 +235,7 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 	if err != nil {
 		return err
 	}
+	result.Profile = selectedTemplateProfile(resolved)
 
 	if cfg.dryRun {
 		return renderInitResult(cmd.OutOrStdout(), result, cfg)
@@ -295,6 +309,9 @@ func initApplyCommandArgs(cfg initConfig, result initResult) []string {
 	if cfg.kind != "default" {
 		args = append(args, "--template", cfg.kind)
 	}
+	if cfg.profile != "" {
+		args = append(args, "--profile", cfg.profile)
+	}
 	if cfg.force {
 		args = append(args, "--force")
 	}
@@ -305,6 +322,26 @@ func initApplyCommandArgs(cfg initConfig, result initResult) []string {
 		args = append(args, "--set", set)
 	}
 	return args
+}
+
+func initSetStringsWithProfile(raw []string, profile string) ([]string, error) {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return raw, nil
+	}
+	const key = "template.profile"
+	out := append([]string{}, raw...)
+	for _, s := range raw {
+		if !strings.HasPrefix(s, key+"=") {
+			continue
+		}
+		value := strings.TrimPrefix(s, key+"=")
+		if value != profile {
+			return nil, fmt.Errorf("--profile %q conflicts with --set %s=%q", profile, key, value)
+		}
+		return out, nil
+	}
+	return append(out, key+"="+profile), nil
 }
 
 func resolveAbsTarget(target string) (string, error) {
@@ -527,7 +564,11 @@ func copyTemplate(out fmtWriter, rt *template.ResolvedTemplate, teamDir string, 
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		return err
 	}
-	results, err := renderInto(rt, teamDir, resolved, force)
+	excludes, err := selectedTemplateProfileExcludes(rt.Manifest, resolved)
+	if err != nil {
+		return err
+	}
+	results, err := renderInto(rt, teamDir, resolved, force, excludes)
 	if err != nil {
 		return err
 	}
@@ -552,12 +593,32 @@ type initRenderResult struct {
 	Skipped bool
 }
 
+func selectedTemplateProfile(resolved template.Tree) string {
+	value, ok := resolved.GetDotted("template.profile")
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func selectedTemplateProfileExcludes(m *template.Manifest, resolved template.Tree) ([]string, error) {
+	profile := selectedTemplateProfile(resolved)
+	if profile == "" || m == nil || len(m.Profiles) == 0 {
+		return nil, nil
+	}
+	decl, ok := m.Profiles[profile]
+	if !ok {
+		return nil, fmt.Errorf("template profile %q is not declared", profile)
+	}
+	return decl.Exclude, nil
+}
+
 // renderInto walks the template root and writes each entry into teamDir.
 // Existing top-level entries are preserved unless `force` is true (matches
 // SQU-21's behaviour). Non-top-level paths inside an entry are always
 // overwritten — they're considered part of the entry that was already
 // accepted-or-skipped at the top level.
-func renderInto(rt *template.ResolvedTemplate, teamDir string, resolved template.Tree, force bool) ([]initRenderResult, error) {
+func renderInto(rt *template.ResolvedTemplate, teamDir string, resolved template.Tree, force bool, excludes []string) ([]initRenderResult, error) {
 	entries, err := fs.ReadDir(rt.FS, rt.Root)
 	if err != nil {
 		return nil, fmt.Errorf("read template root: %w", err)
@@ -583,13 +644,13 @@ func renderInto(rt *template.ResolvedTemplate, teamDir string, resolved template
 			if force {
 				_ = os.RemoveAll(dstPath)
 			}
-			rendered, err := renderEntry(rt, name, teamDir, resolved)
+			rendered, err := renderEntry(rt, name, teamDir, resolved, excludes)
 			if err != nil {
 				return nil, err
 			}
 			results = append(results, rendered...)
 		} else {
-			rendered, err := renderEntry(rt, name, teamDir, resolved)
+			rendered, err := renderEntry(rt, name, teamDir, resolved, excludes)
 			if err != nil {
 				return nil, err
 			}
@@ -601,7 +662,7 @@ func renderInto(rt *template.ResolvedTemplate, teamDir string, resolved template
 
 // renderEntry routes a single top-level entry (file or directory) into the
 // renderer, preserving the original SQU-21 file-by-file output.
-func renderEntry(rt *template.ResolvedTemplate, entry, teamDir string, resolved template.Tree) ([]initRenderResult, error) {
+func renderEntry(rt *template.ResolvedTemplate, entry, teamDir string, resolved template.Tree, excludes []string) ([]initRenderResult, error) {
 	src := joinFS(rt.Root, entry)
 	dstName := strings.TrimSuffix(entry, template.TmplSuffix)
 
@@ -640,7 +701,7 @@ func renderEntry(rt *template.ResolvedTemplate, entry, teamDir string, resolved 
 
 	// Directory: render its full subtree.
 	dstRoot := filepath.Join(teamDir, dstName)
-	subResults, err := template.RenderTreeFromFS(rt.FS, src, dstRoot, resolved, nil)
+	subResults, err := template.RenderTreeFromFSWithExcludes(rt.FS, src, dstRoot, resolved, nil, excludesForEntry(entry, excludes))
 	if err != nil {
 		return nil, err
 	}
@@ -658,6 +719,25 @@ func renderEntry(rt *template.ResolvedTemplate, entry, teamDir string, resolved 
 		})
 	}
 	return out, nil
+}
+
+func excludesForEntry(entry string, excludes []string) []string {
+	if len(excludes) == 0 {
+		return nil
+	}
+	prefix := filepath.ToSlash(entry) + "/"
+	out := make([]string, 0, len(excludes))
+	for _, exclude := range excludes {
+		exclude = strings.TrimPrefix(filepath.ToSlash(exclude), "./")
+		if exclude == entry {
+			out = append(out, ".")
+			continue
+		}
+		if strings.HasPrefix(exclude, prefix) {
+			out = append(out, strings.TrimPrefix(exclude, prefix))
+		}
+	}
+	return out
 }
 
 // writeResolvedConfig writes the merged config tree to <teamDir>/config.toml.

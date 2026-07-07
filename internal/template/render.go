@@ -34,16 +34,24 @@ type RenderResult struct {
 // Files at the template root that the caller doesn't want copied (e.g.
 // `template.toml` itself) should be filtered via skipNames.
 func RenderTreeFromOS(srcRoot, dstRoot string, data Tree, skipNames map[string]bool) ([]RenderResult, error) {
-	return renderTree(osFS(srcRoot), dstRoot, ".", data, skipNames)
+	return renderTree(osFS(srcRoot), dstRoot, ".", data, skipNames, nil)
 }
 
 // RenderTreeFromFS is the embed.FS variant. The `srcRoot` should already be a
 // path inside the FS (e.g. "template").
 func RenderTreeFromFS(srcFS fs.FS, srcRoot, dstRoot string, data Tree, skipNames map[string]bool) ([]RenderResult, error) {
-	return renderTree(srcFS, dstRoot, srcRoot, data, skipNames)
+	return renderTree(srcFS, dstRoot, srcRoot, data, skipNames, nil)
 }
 
-func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[string]bool) ([]RenderResult, error) {
+// RenderTreeFromFSWithExcludes is RenderTreeFromFS plus subtree pruning for
+// profile-specific template shapes. Excludes are slash-separated paths relative
+// to srcRoot. A directory exclude skips the whole subtree; a file exclude also
+// matches a source file with the `.tmpl` suffix.
+func RenderTreeFromFSWithExcludes(srcFS fs.FS, srcRoot, dstRoot string, data Tree, skipNames map[string]bool, excludes []string) ([]RenderResult, error) {
+	return renderTree(srcFS, dstRoot, srcRoot, data, skipNames, normaliseExcludePaths(excludes))
+}
+
+func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[string]bool, excludes []string) ([]RenderResult, error) {
 	var results []RenderResult
 	err := fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -57,6 +65,12 @@ func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[s
 			return err
 		}
 		if skipGeneratedArtifact(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if excludedByProfile(rel, excludes) {
 			if d.IsDir() {
 				return fs.SkipDir
 			}
@@ -113,6 +127,40 @@ func renderTree(srcFS fs.FS, dstRoot, srcRoot string, data Tree, skipNames map[s
 		return nil, err
 	}
 	return results, nil
+}
+
+func normaliseExcludePaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = strings.TrimSpace(filepath.ToSlash(p))
+		if p == "" {
+			continue
+		}
+		p = filepath.ToSlash(filepath.Clean(p))
+		p = strings.TrimPrefix(p, "./")
+		if p == "." {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func excludedByProfile(rel string, excludes []string) bool {
+	if len(excludes) == 0 {
+		return false
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	destRel := strings.TrimSuffix(rel, TmplSuffix)
+	for _, exclude := range excludes {
+		if rel == exclude || strings.HasPrefix(rel, exclude+"/") {
+			return true
+		}
+		if destRel == exclude || strings.HasPrefix(destRel, exclude+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func skipGeneratedArtifact(rel string) bool {

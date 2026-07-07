@@ -108,6 +108,10 @@ agent-team init \
 
 Move a Linear card or GitHub Project item into the configured agent column
 (`Ready for Agent` by default) to dispatch the default ticket-to-PR pipeline.
+The bundled template defaults to the slim consumer profile: manager, worker,
+reviewer, and the ticket-to-PR pipeline. Use `agent-team init --profile full`
+when you explicitly want the full self-dogfood topology with release, docs,
+comms, quality, sentinel, and product-verifier loops.
 
 For a no-LLM local orchestration walkthrough, run the fake-runtime demo from the
 source checkout:
@@ -118,12 +122,17 @@ python3 scripts/demo/local_orchestration.py bin/agent-team
 
 ## The Bundled Experiment
 
-The default template ships the team that this repo uses on itself. It is meant
-to be edited, replaced, or used as a starting point.
+The bundled template has two profiles. Fresh consumer `agent-team init` uses the
+slim starter described above. This repo self-dogfoods the full profile
+(`agent-team init --profile full`, equivalent to `--set template.profile=full`),
+which includes the framework's own governance and comms loops. Both profiles are
+meant to be edited, replaced, or used as a starting point.
+
+The full self-dogfood profile currently includes:
 
 | Team | What It Runs |
 | --- | --- |
-| `delivery` | Manager, ticket-manager, workers, reviewers, and the default ticket-to-PR pipeline. |
+| `delivery` | Manager, ticket-manager, workers, reviewers, and the full ticket-to-PR pipeline. |
 | `platform` | Separate worker/reviewer pool for framework infrastructure work. |
 | `quality` | Architecture debt audits and harness-review work. |
 | `pr` | Public digest, release-announcement, and community-feedback agents. |

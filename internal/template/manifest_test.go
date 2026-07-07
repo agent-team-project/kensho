@@ -53,6 +53,45 @@ default = ["agent-work"]
 	}
 }
 
+func TestLoadManifest_Profiles(t *testing.T) {
+	dir := t.TempDir()
+	body := `
+[template]
+name = "demo"
+version = "1.0.0"
+
+[[parameter]]
+key = "template.profile"
+type = "string"
+default = "slim"
+pattern = "^(slim|full)$"
+
+[profiles.slim]
+description = "minimal starter"
+exclude = ["agents/auditor", "skills/release"]
+
+[profiles.full]
+description = "full tree"
+exclude = []
+`
+	if err := os.WriteFile(filepath.Join(dir, "template.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if got := m.Profiles["slim"].Description; got != "minimal starter" {
+		t.Fatalf("slim profile description = %q", got)
+	}
+	if got := strings.Join(m.Profiles["slim"].Exclude, ","); got != "agents/auditor,skills/release" {
+		t.Fatalf("slim profile excludes = %q", got)
+	}
+	if len(m.Profiles["full"].Exclude) != 0 {
+		t.Fatalf("full profile excludes = %v", m.Profiles["full"].Exclude)
+	}
+}
+
 func TestLoadManifest_Missing(t *testing.T) {
 	dir := t.TempDir()
 	m, err := LoadManifest(dir)

@@ -36,4 +36,4 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 - One pass, decisive. If you cannot verify a checklist item, say so explicitly in the comment — an unverifiable claim is a finding, not an approval.
 - Small findings are findings. Do not pad; do not soften.
 - If the PR is correct, approve plainly. Bouncing correct work costs a full re-dispatch cycle.
-- Pre-v1, backwards compatibility is a NON-goal (CLAUDE.md policy): breaking a command shape, config key, or Go API is not a finding. The opposite is: flag compat shims, deprecated dual paths, and wrapper-only functions as findings — the clean surface is the requirement.
+- If the repo's orientation docs declare pre-v1 backwards compatibility a non-goal, breaking a command shape, config key, or Go API is not a finding. The opposite is: flag compat shims, deprecated dual paths, and wrapper-only functions as findings when the clean surface is the requirement.

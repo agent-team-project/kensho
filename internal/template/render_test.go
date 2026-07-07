@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestRenderTreeFromOS_VerbatimAndTmpl(t *testing.T) {
@@ -125,5 +126,64 @@ func TestRenderBytes_MissingKeyZero(t *testing.T) {
 func TestRenderBytes_BadTemplate(t *testing.T) {
 	if _, err := RenderBytes("x", []byte("{{ unclosed"), Tree{}); err == nil {
 		t.Error("expected parse error")
+	}
+}
+
+func TestRenderTreeFromFSWithExcludes(t *testing.T) {
+	dst := t.TempDir()
+	src := fstest.MapFS{
+		"root/agents/manager/agent.md":     &fstest.MapFile{Data: []byte("manager")},
+		"root/agents/auditor/agent.md":     &fstest.MapFile{Data: []byte("auditor")},
+		"root/skills/status/SKILL.md":      &fstest.MapFile{Data: []byte("status")},
+		"root/skills/release/SKILL.md":     &fstest.MapFile{Data: []byte("release")},
+		"root/config.toml.tmpl":            &fstest.MapFile{Data: []byte("profile={{ .template.profile }}")},
+		"root/keep/config.toml.tmpl":       &fstest.MapFile{Data: []byte("kept")},
+		"root/drop/config.toml.tmpl":       &fstest.MapFile{Data: []byte("dropped")},
+		"root/drop/nested/also-dropped.md": &fstest.MapFile{Data: []byte("dropped")},
+	}
+	data := Tree{}
+	data.SetDotted("template.profile", "slim")
+
+	results, err := RenderTreeFromFSWithExcludes(src, "root", dst, data, nil, []string{
+		"agents/auditor",
+		"skills/release",
+		"drop/config.toml",
+		"drop/nested",
+	})
+	if err != nil {
+		t.Fatalf("render with excludes: %v", err)
+	}
+
+	for _, rel := range []string{
+		"agents/manager/agent.md",
+		"skills/status/SKILL.md",
+		"config.toml",
+		"keep/config.toml",
+	} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
+			t.Fatalf("expected rendered %s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		"agents/auditor",
+		"skills/release",
+		"drop/config.toml",
+		"drop/nested",
+	} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
+			t.Fatalf("expected %s excluded, stat err=%v", rel, err)
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "profile=slim" {
+		t.Fatalf("rendered config = %q", got)
+	}
+	for _, r := range results {
+		if strings.Contains(r.DestRel, "auditor") || strings.Contains(r.DestRel, "release") || strings.Contains(r.DestRel, "drop/") {
+			t.Fatalf("excluded path appeared in render results: %+v", results)
+		}
 	}
 }

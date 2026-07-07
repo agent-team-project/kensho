@@ -1,5 +1,6 @@
-# Manifest for the bundled "default" template — a software-engineering team
-# (manager + worker + ticket-manager) for ticketless, Linear, or GitHub work.
+# Manifest for the bundled "default" template. Its slim profile is the default
+# external-consumer starter; the full profile preserves this repo's self-dogfood
+# topology.
 #
 # `agent-team init` reads this file to determine which parameters the consumer
 # must supply; values flow into config.toml.tmpl below to produce the repo's
@@ -8,7 +9,7 @@
 [template]
 name        = "default"
 version     = "1.0.0"
-description = "Manager + worker + ticket-manager team for ticketless, Linear, or GitHub-tracked engineering work."
+description = "Slim manager + worker + reviewer starter by default; full profile adds ticket-manager, scheduled loops, and the self-dogfood topology."
 
 [[parameter]]
 key         = "project.id"
@@ -21,6 +22,13 @@ key         = "project.parent_uri"
 type        = "string"
 default     = ""
 description = "Optional parent deployment URI for nested or dynamically created teams."
+
+[[parameter]]
+key         = "template.profile"
+type        = "string"
+default     = "slim"
+pattern     = "^(slim|full)$"
+description = "Bundled template profile: slim is the external-consumer starter; full is the self-dogfood topology with scheduled governance loops."
 
 [[parameter]]
 key         = "linear.team_id"
@@ -230,3 +238,22 @@ key         = "notifications.idle_renotify"
 type        = "string"
 default     = "0"
 description = "How often to repeat an idle notification while an instance remains idle. Set to 0 to disable repeats."
+
+[profiles.slim]
+description = "External-consumer starter: manager, worker, reviewer, core provider skills, and the ticket_to_pr pipeline only."
+exclude = [
+  "agents/auditor",
+  "agents/comms",
+  "agents/ticket-manager",
+  "skills/comms",
+  "skills/docs-freshness",
+  "skills/product-verify",
+  "skills/release",
+  "skills/review-harness",
+  "skills/sentinel",
+  "skills/triage-feedback",
+]
+
+[profiles.full]
+description = "Full self-dogfood topology with platform, quality, release, docs, comms, and sentinel loops."
+exclude = []

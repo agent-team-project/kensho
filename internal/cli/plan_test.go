@@ -80,7 +80,7 @@ func TestPlanJSONShowsTopologyAndDaemonMetadata(t *testing.T) {
 	}
 }
 
-func TestPlanBundledDefaultTopologyCanary(t *testing.T) {
+func TestPlanBundledFullProfileTopologyCanary(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
@@ -97,7 +97,7 @@ func TestPlanBundledDefaultTopologyCanary(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode bundled plan summary json: %v\nbody=%s", err, out.String())
 	}
-	// This is the one Go canary for the bundled template's current topology.
+	// This is the one Go canary for the bundled template's full topology.
 	// Other exact plan-shape tests overwrite instances.toml with a local
 	// fixture so adding a bundled instance only updates this test.
 	if body.Summary.Total != 14 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 12 || !body.Summary.DryRun {

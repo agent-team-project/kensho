@@ -30,6 +30,9 @@ PY_ENV_RE = re.compile(
     rf"os\.environ\[\s*['\"]({ENV_NAME})['\"]\s*\]"
 )
 PY_GETENV_RE = re.compile(rf"os\.getenv\(\s*['\"]({ENV_NAME})['\"]")
+PROFILE_DIRECTIVE_RE = re.compile(
+    r"^\s*\{\{\s*(if\s+eq\s+\.template\.profile\s+`([^`]+)`|else|end)\s*-?\}\}\s*$"
+)
 
 CORE_AGENT_TEAM_VARS = {
     "AGENT_TEAM_BRANCH",
@@ -91,11 +94,47 @@ def allowed_by(patterns: list[str], name: str) -> bool:
 
 
 def read_toml(path: Path) -> dict:
+    if path.name == "instances.toml.tmpl":
+        data = tomllib.loads(render_profile_template(path.read_text(), "full"))
+        if not isinstance(data, dict):
+            return {}
+        return data
     with path.open("rb") as f:
         data = tomllib.load(f)
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def render_profile_template(body: str, profile: str) -> str:
+    """Render the tiny subset of Go template syntax used by instances.toml.tmpl."""
+    active = True
+    stack: list[tuple[bool, bool]] = []
+    out: list[str] = []
+    for line in body.splitlines():
+        match = PROFILE_DIRECTIVE_RE.match(line)
+        if match:
+            action = match.group(1)
+            if action.startswith("if "):
+                condition = profile == match.group(2)
+                stack.append((active, condition))
+                active = active and condition
+            elif action == "else":
+                if not stack:
+                    raise ValueError("template else without if")
+                parent_active, condition = stack[-1]
+                active = parent_active and not condition
+            elif action == "end":
+                if not stack:
+                    raise ValueError("template end without if")
+                parent_active, _ = stack.pop()
+                active = parent_active
+            continue
+        if active:
+            out.append(line)
+    if stack:
+        raise ValueError("template if without end")
+    return "\n".join(out) + "\n"
 
 
 def agent_dir_for(team_dir: Path, agent: str) -> Path:
