@@ -348,9 +348,8 @@ func TestInboxCheckDefaultsToSelfAndSuggestsFirstUnreadAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inbox check tail commands: %v\nstderr=%s", err, stderr)
 	}
-	wantTailCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "inbox", "ack", "worker", "msg-2", "--repo", tmp}), " ")
-	if got := strings.TrimSpace(stdout); got != wantTailCommand {
-		t.Fatalf("inbox check tail commands = %q, want first displayed unread %q", got, wantTailCommand)
+	if got := strings.TrimSpace(stdout); got != "" {
+		t.Fatalf("inbox check tail commands = %q, want no command because --tail hides the next ackable unread message", got)
 	}
 }
 

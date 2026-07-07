@@ -1611,7 +1611,7 @@ agent-team inbox check [instance] [flags]
 Flags:
 
 ```text
-      --commands        Print an inbox ack command for the first displayed unread message. agent-team follow-ups preserve the selected repo scope.
+      --commands        Print an inbox ack command for the first displayed unread message when ordered ack can apply it. agent-team follow-ups preserve the selected repo scope.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --self            Read the inbox for AGENT_TEAM_INSTANCE.
