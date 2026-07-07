@@ -15,6 +15,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/budget"
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/resource"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 func TestDynamicTeamSpawnCharterLifecycle(t *testing.T) {
@@ -56,10 +57,10 @@ match.target = "worker"
 		enforcement = "enforce"
 
 		[authority.agents.manager]
-		allow = ["team.spawn", "job.show", "inbox.*"]
+		allow = ["team.spawn", "job.show", "inbox.check", "channel.publish"]
 
 		[authority.teams.delivery]
-		allow = ["job.*", "inbox.*"]
+		allow = ["job.*", "inbox.*", "channel.*"]
 	`)
 	fake := newFakeSpawner(time.Second)
 	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
@@ -81,8 +82,18 @@ match.target = "worker"
 			Time:   "30m",
 		},
 		Authority: TeamSpawnAuthority{
-			Verbs:     []string{"job.show", "inbox.send", "job.merge", "instance.remove"},
-			Resources: []string{"agt://parent-dep/job/gh155-dynteam"},
+			Verbs: []string{
+				"job.show",
+				"inbox.check",
+				"channel.publish",
+				"job.merge",
+				"inbox.send",
+				"channel.delete",
+			},
+			Resources: []string{
+				resource.JobURI("parent-dep", "gh155-dynteam"),
+				resource.ChannelURI("parent-dep", "team-platform-supervisor"),
+			},
 		},
 		Lifecycle: TeamSpawnLifecycle{TTL: "2h", Reap: "on_goal_complete"},
 		Payload: map[string]any{
@@ -142,11 +153,12 @@ match.target = "worker"
 	if childBudget == nil || childBudget.TokensAllocated != 0 || childBudget.TokensRemaining != 100 {
 		t.Fatalf("child budget = %+v in rows %+v", childBudget, rows)
 	}
-	if !reflect.DeepEqual(charter.Authority.GrantedVerbs, []string{"inbox.send", "job.show"}) {
+	if !reflect.DeepEqual(charter.Authority.GrantedVerbs, []string{"channel.publish", "inbox.check", "job.show"}) {
 		t.Fatalf("granted verbs = %#v", charter.Authority.GrantedVerbs)
 	}
 	if !deniedGrantContains(charter.Authority.Denied, "job.merge", "not present in parent capability") ||
-		!deniedGrantContains(charter.Authority.Denied, "instance.remove", "not present in parent capability") {
+		!deniedGrantContains(charter.Authority.Denied, "inbox.send", "not present in parent capability") ||
+		!deniedGrantContains(charter.Authority.Denied, "channel.delete", "not present in parent capability") {
 		t.Fatalf("denied grants = %+v", charter.Authority.Denied)
 	}
 
@@ -207,7 +219,27 @@ match.target = "worker"
 	if !ok || capability.CharterURI != charter.URI || !reflect.DeepEqual(capability.Authority.GrantedVerbs, charter.Authority.GrantedVerbs) {
 		t.Fatalf("capability resource = %#v", read.Data)
 	}
+	if !reflect.DeepEqual(capability.Authority.GrantedResources, charter.Authority.GrantedResources) {
+		t.Fatalf("capability resources = %#v, charter resources = %#v", capability.Authority.GrantedResources, charter.Authority.GrantedResources)
+	}
+	childActor := origin.Envelope{
+		Project:  "parent-dep",
+		Team:     "delivery",
+		Instance: charter.Instance,
+		Agent:    "worker",
+		Job:      "gh155-dynteam",
+	}
+	assertCharteredAuditAllows(t, teamDir, top, childActor, "job.show", "job:gh155-dynteam")
+	assertCharteredAuditDenies(t, teamDir, top, childActor, "job.show", "job:other")
+	assertCharteredAuditAllows(t, teamDir, top, childActor, "channel.publish", "channel:team-platform-supervisor")
+	assertCharteredAuditDenies(t, teamDir, top, childActor, "channel.publish", "channel:other")
+	assertCharteredAuditDenies(t, teamDir, top, childActor, "inbox.send", "inbox:manager")
+	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "job.show")
+	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "inbox.check")
+	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "channel.publish")
 	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "job.merge")
+	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "inbox.send")
+	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "channel.delete")
 
 	if err := m.WaitForReaper(charter.Instance, 5*time.Second); err != nil {
 		t.Fatalf("wait reaper: %v", err)
@@ -411,7 +443,10 @@ func installFakeAgentTeamCLI(t *testing.T) {
 		"  case \"$1 $2\" in\n" +
 		"    'job merge') echo job.merge; exit 0 ;;\n" +
 		"    'job show') echo job.show; exit 0 ;;\n" +
+		"    'inbox check') echo inbox.check; exit 0 ;;\n" +
 		"    'inbox send') echo inbox.send; exit 0 ;;\n" +
+		"    'channel publish') echo channel.publish; exit 0 ;;\n" +
+		"    'channel delete') echo channel.delete; exit 0 ;;\n" +
 		"    *) exit 1 ;;\n" +
 		"  esac\n" +
 		"fi\n" +
@@ -420,6 +455,56 @@ func installFakeAgentTeamCLI(t *testing.T) {
 		t.Fatalf("write fake agent-team: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func assertCharteredAuditAllows(t *testing.T, teamDir string, top *topology.Topology, actor origin.Envelope, verb, auditResource string) {
+	t.Helper()
+	if err := AuditAuthority(AuthorityAuditOptions{
+		TeamDir:    teamDir,
+		DaemonRoot: DaemonRoot(teamDir),
+		Topology:   top,
+		Actor:      actor,
+		Verb:       verb,
+		Resource:   auditResource,
+		JobID:      "gh155-dynteam",
+		TargetJob:  "gh155-dynteam",
+		EventActor: "test",
+	}); err != nil {
+		t.Fatalf("AuditAuthority(%s, %s) denied unexpectedly: %v", verb, auditResource, err)
+	}
+}
+
+func assertCharteredAuditDenies(t *testing.T, teamDir string, top *topology.Topology, actor origin.Envelope, verb, auditResource string) {
+	t.Helper()
+	err := AuditAuthority(AuthorityAuditOptions{
+		TeamDir:    teamDir,
+		DaemonRoot: DaemonRoot(teamDir),
+		Topology:   top,
+		Actor:      actor,
+		Verb:       verb,
+		Resource:   auditResource,
+		JobID:      "gh155-dynteam",
+		TargetJob:  "gh155-dynteam",
+		EventActor: "test",
+	})
+	if err == nil {
+		t.Fatalf("AuditAuthority(%s, %s) allowed unexpectedly", verb, auditResource)
+	}
+	if !strings.Contains(err.Error(), "authority violation") {
+		t.Fatalf("AuditAuthority(%s, %s) error = %v, want authority violation", verb, auditResource, err)
+	}
+}
+
+func assertCharteredChildShimAllows(t *testing.T, teamDir, instance, verb string) {
+	t.Helper()
+	parts := strings.Split(verb, ".")
+	args := append([]string{}, parts...)
+	args = append(args, "gh155-dynteam")
+	shim := filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
+	out, err := exec.Command(shim, args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("shim denied %s unexpectedly: %v; output=%s", verb, err, out)
+	}
 }
 
 func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string) {

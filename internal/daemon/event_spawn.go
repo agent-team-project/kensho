@@ -767,19 +767,19 @@ type ephemeralRuntime struct {
 // authorityForInstance resolves the closed-world verb allowlist baked into the
 // generated shim. enforce is true only when topology explicitly opts into
 // authority enforcement; audit mode keeps the shim pass-through.
-func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool) {
+func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool, strict bool) {
 	r.mu.Lock()
 	topo := r.topo
 	r.mu.Unlock()
 	if topo == nil || topo.Authority == nil || !topo.Authority.Enforced() {
-		return nil, false
+		return nil, false, false
 	}
-	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true
+	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true, false
 }
 
-func (r *EventResolver) runtimeAuthorityForInstance(agentName, instance string, payload map[string]any) (allow []string, enforce bool) {
+func (r *EventResolver) runtimeAuthorityForInstance(agentName, instance string, payload map[string]any) (allow []string, enforce bool, strict bool) {
 	if allow, ok := r.charterAuthorityForPayload(instance, payload); ok {
-		return allow, true
+		return allow, true, true
 	}
 	return r.authorityForInstance(agentName, instance)
 }
@@ -974,10 +974,11 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
-	authorityAllow, authorityEnforce := r.runtimeAuthorityForInstance(agentName, instance, payload)
+	authorityAllow, authorityEnforce, authorityStrict := r.runtimeAuthorityForInstance(agentName, instance, payload)
 	shimBinDir, err := runtimeshim.InstallWithOptions(runtimeDir, skillPaths, runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
+		StrictAuthority:    authorityStrict,
 	})
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)

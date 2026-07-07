@@ -33,6 +33,10 @@ type Options struct {
 	// AuthorityAllowlist is the resolved verb allowlist baked into the shim
 	// when EnforceAuthority is true.
 	AuthorityAllowlist []string
+	// StrictAuthority disables the shim's default always-allowed verbs. Use it
+	// for chartered child deployments, where the attenuated grant is the only
+	// authority source and default helper verbs must not widen it.
+	StrictAuthority bool
 }
 
 var DefaultSpecs = []Spec{
@@ -241,11 +245,18 @@ func agentTeamShimBody(real string, opts Options) string {
 		"  echo \"agent-team shim: denied unknown verb\" >&2\n" +
 		"  exit 3\n" +
 		"fi\n" +
-		"if always_allowed \"$verb\" || authority_allowed \"$verb\"; then\n" +
+		"if " + shimAllowCondition(opts.StrictAuthority) + "; then\n" +
 		"  exec \"$REAL_AGENT_TEAM\" \"$@\"\n" +
 		"fi\n" +
 		"echo \"agent-team shim: denied verb $verb\" >&2\n" +
 		"exit 3\n"
+}
+
+func shimAllowCondition(strict bool) string {
+	if strict {
+		return "authority_allowed \"$verb\""
+	}
+	return "always_allowed \"$verb\" || authority_allowed \"$verb\""
 }
 
 func envHasKey(env []string, key string) bool {
