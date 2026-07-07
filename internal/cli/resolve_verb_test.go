@@ -24,8 +24,11 @@ func TestResolveVerbPath(t *testing.T) {
 		{"unknown top-level", []string{"future-dangerous-verb"}, "", false},
 		{"unknown with positional", []string{"future-dangerous-verb", "worker"}, "", false},
 		{"unknown subverb under group is denied", []string{"job", "future-dangerous-verb"}, "", false},
-		{"unknown token under inbox group denied", []string{"inbox", "check"}, "", false},
+		{"inbox check resolves", []string{"inbox", "check", "--self"}, "inbox.check", true},
+		{"inbox ack self resolves", []string{"inbox", "ack", "msg-1"}, "inbox.ack", true},
+		{"inbox send resolves", []string{"inbox", "send", "manager", "hello"}, "inbox.send", true},
 		{"real inbox subcommand resolves", []string{"inbox", "ls"}, "inbox.ls", true},
+		{"unknown token under inbox group denied", []string{"inbox", "future-dangerous-verb"}, "", false},
 		{"empty", nil, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

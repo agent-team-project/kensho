@@ -26,10 +26,85 @@ func newInboxCmd() *cobra.Command {
 		Long: "Inspect daemon mailbox messages stored under .agent_team/daemon. " +
 			"The inbox commands read local files directly, so they work even when agent-teamd is not running.",
 	}
+	cmd.AddCommand(newInboxCheckCmd())
 	cmd.AddCommand(newInboxLsCmd())
 	cmd.AddCommand(newInboxShowCmd())
 	cmd.AddCommand(newInboxAckCmd())
+	cmd.AddCommand(newInboxSendCmd())
 	cmd.AddCommand(newInboxPruneCmd())
+	return cmd
+}
+
+func newInboxCheckCmd() *cobra.Command {
+	var (
+		target   string
+		self     bool
+		tail     int
+		commands bool
+		jsonOut  bool
+		format   string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "check [instance]",
+		Short: "Show unread messages for the current instance inbox.",
+		Long: "Show unread messages for one inbox. With no instance argument, the target defaults to AGENT_TEAM_INSTANCE; " +
+			"use --self to make that selection explicit.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox check: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox check: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox check: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if tail < 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox check: --tail must be >= 0.")
+				return exitErr(2)
+			}
+			if self && len(args) > 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox check: --self cannot be combined with an instance argument.")
+				return exitErr(2)
+			}
+			instance, err := resolveInboxCheckInstance(args, self)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox check: %v\n", err)
+				return exitErr(2)
+			}
+			tmpl, err := parseInboxFormat(format, "inbox-check-format")
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox check: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			return runInboxShow(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, instance, inboxShowOptions{
+				UnreadOnly:     true,
+				Tail:           tail,
+				Commands:       commands,
+				RepoFlag:       inboxRepoFlag(cmd),
+				Repo:           inboxRepo(cmd, target),
+				RepoSet:        inboxRepoSet(cmd),
+				JSON:           jsonOut,
+				Format:         tmpl,
+				EmptyUnreadMsg: "(no new messages)",
+			})
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().BoolVar(&self, "self", false, "Read the inbox for AGENT_TEAM_INSTANCE.")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent unread messages (0 = all).")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the first displayed unread message. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
 }
 
@@ -98,7 +173,7 @@ func newInboxLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
 	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort inboxes by instance, unread, latest, or total.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit inbox summaries after filtering and sorting; 0 means no limit.")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox show commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print inbox check commands for inboxes with unread messages. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each inbox summary with a Go template, e.g. '{{.Instance}} {{.Unread}}'.")
 	return cmd
@@ -159,7 +234,7 @@ func newInboxShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only messages after the inbox cursor.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent matching messages (0 = all).")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the latest displayed unread message. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the first displayed unread message. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
@@ -168,6 +243,7 @@ func newInboxShowCmd() *cobra.Command {
 func newInboxAckCmd() *cobra.Command {
 	var (
 		target   string
+		self     bool
 		all      bool
 		dryRun   bool
 		commands bool
@@ -176,9 +252,12 @@ func newInboxAckCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:   "ack <instance> <message-id>|--all",
-		Short: "Advance an instance inbox cursor.",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:   "ack [instance] <message-id>|--all",
+		Short: "Acknowledge unread inbox messages in order.",
+		Long: "Acknowledge unread inbox messages by advancing the inbox cursor. Ack-by-id only accepts the next unread message, " +
+			"so it cannot accidentally skip earlier unread messages. With no instance argument, the target defaults to AGENT_TEAM_INSTANCE. " +
+			"Use --all to acknowledge every current message.",
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ack: --commands requires --dry-run.")
@@ -196,12 +275,9 @@ func newInboxAckCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ack: --format cannot be combined with --json.")
 				return exitErr(2)
 			}
-			if all && len(args) != 1 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ack: --all cannot be combined with a message id.")
-				return exitErr(2)
-			}
-			if !all && len(args) != 2 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox ack: message id is required unless --all is set.")
+			instance, id, err := resolveInboxAckTarget(args, all, self)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox ack: %v\n", err)
 				return exitErr(2)
 			}
 			tmpl, err := parseInboxFormat(format, "inbox-ack-format")
@@ -213,11 +289,7 @@ func newInboxAckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id := ""
-			if !all {
-				id = args[1]
-			}
-			return runInboxAck(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, args[0], inboxAckOptions{
+			return runInboxAck(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, instance, inboxAckOptions{
 				All:      all,
 				ID:       id,
 				DryRun:   dryRun,
@@ -231,11 +303,118 @@ func newInboxAckCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().BoolVar(&self, "self", false, "Acknowledge the inbox for AGENT_TEAM_INSTANCE.")
 	cmd.Flags().BoolVar(&all, "all", false, "Acknowledge every current message in the inbox.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the cursor update without writing it.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox ack apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the ack result with a Go template, e.g. '{{.Instance}} {{.Acked}}'.")
+	return cmd
+}
+
+func newInboxSendCmd() *cobra.Command {
+	var (
+		target      string
+		from        string
+		message     string
+		messageFile string
+		dryRun      bool
+		commands    bool
+		jsonOut     bool
+		format      string
+	)
+	cwd, _ := os.Getwd()
+	cmd := &cobra.Command{
+		Use:   "send <to> [message...]",
+		Short: "Send a mailbox message to a daemon-managed instance.",
+		Long:  "Send a direct message through the daemon mailbox. This is the inbox-scoped alias for `agent-team send <to> <message...>`.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox send: --format cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && !dryRun {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox send: --commands requires --dry-run.")
+				return exitErr(2)
+			}
+			if commands && jsonOut {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox send: --commands cannot be combined with --json.")
+				return exitErr(2)
+			}
+			if commands && format != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox send: --commands cannot be combined with --format.")
+				return exitErr(2)
+			}
+			if len(args) < 1 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team inbox send: recipient and message body are required.")
+				return exitErr(2)
+			}
+			to := args[0]
+			body, err := sendMessageBody(message, messageFile, args[1:])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox send: %v\n", err)
+				return exitErr(2)
+			}
+			formatTemplate, err := parseSendFormat(format)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox send: %v\n", err)
+				return exitErr(2)
+			}
+			teamDir, err := resolveTeamDir(cmd, target)
+			if err != nil {
+				return err
+			}
+			topo, err := topology.LoadFromTeamDir(teamDir)
+			if err != nil {
+				return fmt.Errorf("load topology: %w", err)
+			}
+			client, err := sendClientForTeamDir(teamDir)
+			if err != nil {
+				return err
+			}
+			opts := sendOptions{
+				From:     from,
+				DryRun:   dryRun,
+				JSON:     jsonOut,
+				Format:   formatTemplate,
+				Topology: topo,
+			}
+			if commands {
+				resolved, err := resolveSendTarget(client, to, opts.Topology)
+				if err != nil {
+					return err
+				}
+				if !resolved.Valid() {
+					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox send: %s\n", daemon.MailboxUnknownTargetMessage(to, resolved.Suggestions))
+					return exitErr(2)
+				}
+				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				return renderScopedSendApplyCommand(cmd.OutOrStdout(), true, scopedSendApplyCommandOptions{
+					BaseArgs:       []string{"agent-team", "inbox", "send", to},
+					RepoFlag:       "repo",
+					Repo:           scope.Repo,
+					RepoSet:        scope.Set,
+					From:           from,
+					FromSet:        cmd.Flags().Changed("from"),
+					Message:        message,
+					MessageSet:     cmd.Flags().Changed("message"),
+					MessageFile:    messageFile,
+					MessageFileSet: cmd.Flags().Changed("message-file"),
+					Positional:     args[1:],
+				})
+			}
+			return runSendWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, to, body, opts)
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
+	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
+	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
+	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the target without appending a mailbox message.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching inbox send apply command when the preview has an actionable recipient. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
+	cmd.Flags().StringVar(&format, "format", "", "Render each send result with a Go template, e.g. '{{.To}} {{.ID}}'.")
 	return cmd
 }
 
@@ -363,14 +542,15 @@ type inboxListOptions struct {
 }
 
 type inboxShowOptions struct {
-	UnreadOnly bool
-	Tail       int
-	Commands   bool
-	RepoFlag   string
-	Repo       string
-	RepoSet    bool
-	JSON       bool
-	Format     *template.Template
+	UnreadOnly     bool
+	Tail           int
+	Commands       bool
+	RepoFlag       string
+	Repo           string
+	RepoSet        bool
+	JSON           bool
+	Format         *template.Template
+	EmptyUnreadMsg string
 }
 
 type inboxAckOptions struct {
@@ -505,6 +685,82 @@ func runInboxLs(stdout, stderr io.Writer, teamDir string, opts inboxListOptions)
 	return tw.Flush()
 }
 
+func resolveInboxCheckInstance(args []string, self bool) (string, error) {
+	if len(args) > 0 {
+		instance := strings.TrimSpace(args[0])
+		if instance == "" {
+			return "", fmt.Errorf("instance is required")
+		}
+		return instance, nil
+	}
+	instance := strings.TrimSpace(os.Getenv("AGENT_TEAM_INSTANCE"))
+	if instance == "" {
+		if self {
+			return "", fmt.Errorf("--self requires AGENT_TEAM_INSTANCE to be set")
+		}
+		return "", fmt.Errorf("instance is required when AGENT_TEAM_INSTANCE is not set")
+	}
+	return instance, nil
+}
+
+func resolveInboxAckTarget(args []string, all, self bool) (string, string, error) {
+	if self && len(args) > 1 {
+		return "", "", fmt.Errorf("--self cannot be combined with an instance argument")
+	}
+	if all {
+		if len(args) > 1 {
+			return "", "", fmt.Errorf("--all cannot be combined with a message id")
+		}
+		if self && len(args) > 0 {
+			return "", "", fmt.Errorf("--self cannot be combined with an instance argument")
+		}
+		instance, err := resolveInboxSelfOrInstance(args)
+		return instance, "", err
+	}
+	switch len(args) {
+	case 2:
+		if self {
+			return "", "", fmt.Errorf("--self cannot be combined with an instance argument")
+		}
+		instance := strings.TrimSpace(args[0])
+		id := strings.TrimSpace(args[1])
+		if instance == "" {
+			return "", "", fmt.Errorf("instance is required")
+		}
+		if id == "" {
+			return "", "", fmt.Errorf("message id is required unless --all is set")
+		}
+		return instance, id, nil
+	case 1:
+		instance, err := resolveInboxSelfOrInstance(nil)
+		if err != nil {
+			return "", "", err
+		}
+		id := strings.TrimSpace(args[0])
+		if id == "" {
+			return "", "", fmt.Errorf("message id is required unless --all is set")
+		}
+		return instance, id, nil
+	default:
+		return "", "", fmt.Errorf("message id is required unless --all is set")
+	}
+}
+
+func resolveInboxSelfOrInstance(args []string) (string, error) {
+	if len(args) > 0 {
+		instance := strings.TrimSpace(args[0])
+		if instance == "" {
+			return "", fmt.Errorf("instance is required")
+		}
+		return instance, nil
+	}
+	instance := strings.TrimSpace(os.Getenv("AGENT_TEAM_INSTANCE"))
+	if instance == "" {
+		return "", fmt.Errorf("instance is required when AGENT_TEAM_INSTANCE is not set")
+	}
+	return instance, nil
+}
+
 const (
 	inboxListSortInstance = "instance"
 	inboxListSortUnread   = "unread"
@@ -628,14 +884,14 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 		return err
 	}
 	rows := inboxMessageRows(instance, messages, cursor, opts.UnreadOnly)
+	firstUnreadID := firstDisplayedUnreadInboxMessageID(rows)
 	if opts.Tail > 0 && len(rows) > opts.Tail {
 		rows = rows[len(rows)-opts.Tail:]
 	}
 	if opts.Commands {
-		id := latestDisplayedUnreadInboxMessageID(rows)
-		return renderInboxAckApplyCommand(stdout, id != "", inboxAckApplyCommandOptions{
+		return renderInboxAckApplyCommand(stdout, firstUnreadID != "", inboxAckApplyCommandOptions{
 			Instance: instance,
-			ID:       id,
+			ID:       firstUnreadID,
 			RepoFlag: opts.RepoFlag,
 			Repo:     opts.Repo,
 			RepoSet:  opts.RepoSet,
@@ -649,7 +905,11 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 	}
 	if len(rows) == 0 {
 		if opts.UnreadOnly {
-			fmt.Fprintln(stdout, "(no unread messages)")
+			msg := opts.EmptyUnreadMsg
+			if msg == "" {
+				msg = "(no unread messages)"
+			}
+			fmt.Fprintln(stdout, msg)
 		} else {
 			fmt.Fprintln(stdout, "(no messages)")
 		}
@@ -912,7 +1172,7 @@ func renderInboxListCommands(w io.Writer, rows []inboxSummaryRow, opts inboxList
 		if row.Unread <= 0 {
 			continue
 		}
-		args := []string{"agent-team", "inbox", "show", row.Instance, "--unread"}
+		args := []string{"agent-team", "inbox", "check", row.Instance}
 		args = appendInboxRepoArgs(args, opts.RepoFlag, opts.Repo, opts.RepoSet)
 		if _, err := fmt.Fprintln(w, strings.Join(shellQuoteArgs(args), " ")); err != nil {
 			return err
@@ -921,10 +1181,10 @@ func renderInboxListCommands(w io.Writer, rows []inboxSummaryRow, opts inboxList
 	return nil
 }
 
-func latestDisplayedUnreadInboxMessageID(rows []inboxMessageRow) string {
-	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].Unread {
-			return rows[i].ID
+func firstDisplayedUnreadInboxMessageID(rows []inboxMessageRow) string {
+	for _, row := range rows {
+		if row.Unread {
+			return row.ID
 		}
 	}
 	return ""
@@ -1174,6 +1434,20 @@ func planInboxAck(messages []*daemon.Message, cursorBefore string, opts inboxAck
 	cursorIndex := inboxCursorIndex(messages, cursorBefore)
 	if cursorIndex >= targetIndex && cursorIndex >= 0 {
 		return cursorBefore, 0, nil
+	}
+	nextUnreadIndex := cursorIndex + 1
+	if cursorIndex < 0 {
+		nextUnreadIndex = 0
+	}
+	if !opts.All && targetIndex > nextUnreadIndex {
+		nextID := ""
+		if nextUnreadIndex >= 0 && nextUnreadIndex < len(messages) && messages[nextUnreadIndex] != nil {
+			nextID = messages[nextUnreadIndex].ID
+		}
+		if nextID != "" {
+			return "", 0, fmt.Errorf("message id %q is not the next unread message; handle %q first or use --all to acknowledge every current message", opts.ID, nextID)
+		}
+		return "", 0, fmt.Errorf("message id %q is not the next unread message; use --all to acknowledge every current message", opts.ID)
 	}
 	cursorAfter := messages[targetIndex].ID
 	acked := targetIndex - cursorIndex

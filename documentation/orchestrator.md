@@ -329,7 +329,7 @@ Decide at implementation time; either keeps the public surface identical.
 | `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |
 | `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the runtime subprocess for this instance. Codex `--json` dispatches also write their JSONL stream here for session capture. Streamed by `/v1/logs/{id}` (SQU-29). |
 | `.agent_team/daemon/<instance>/mailbox.jsonl` | daemon (gitignored) | Append-only JSONL message inbox. One `{id, from, to, body, ts}` per line. Written by `POST /v1/message` (SQU-29); read by the bundled `inbox` skill. |
-| `.agent_team/daemon/<instance>/mailbox-cursor.txt` | daemon (gitignored) | Highest-acked message ID. Updated by `inbox ack <id>`; consulted by `inbox check` to decide what is unread. |
+| `.agent_team/daemon/<instance>/mailbox-cursor.txt` | daemon (gitignored) | Highest-acked message ID. Updated by `inbox ack <id>` for the next unread message or `inbox ack --all`; consulted by `inbox check` to decide what is unread. |
 | `.agent_team/state/<instance>/daemon.token` | daemon/runtime (gitignored) | 0600 bearer token file for that instance's loopback HTTP calls. The runtime receives only this path via `AGENT_TEAM_DAEMON_TOKEN_FILE`, never the token value. |
 
 ### SQU-28/SQU-29 spawn surface

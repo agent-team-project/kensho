@@ -233,7 +233,7 @@ description = "complete"
 	}
 	for _, want := range []string{
 		"agent-team inspect worker-squ-160",
-		"agent-team inbox show worker-squ-160 --unread",
+		"agent-team inbox check worker-squ-160",
 		"agent-team job logs squ-160 --tail 100",
 		"agent-team job logs squ-160 --last-message",
 		"agent-team job queue squ-160 --summary",
@@ -425,7 +425,7 @@ func TestJobSnapshotIncludesPipelineStepInbox(t *testing.T) {
 	if len(snapshot.Inbox) != 1 || snapshot.Inbox[0].Instance != "worker-squ-162-implement" || snapshot.Inbox[0].LatestBody != snapshotRedactedValue {
 		t.Fatalf("inbox rows = %+v", snapshot.Inbox)
 	}
-	if !containsString(snapshot.Actions, "agent-team inbox show worker-squ-162-implement --unread") {
+	if !containsString(snapshot.Actions, "agent-team inbox check worker-squ-162-implement") {
 		t.Fatalf("actions missing step inbox hint: %+v", snapshot.Actions)
 	}
 
