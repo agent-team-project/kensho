@@ -1376,7 +1376,7 @@ allow = ["inbox.send"]
 	}
 }
 
-func TestHTTP_UIServedBehindLoopbackTokenAuth(t *testing.T) {
+func TestHTTP_UIShellServedWithoutTokenDataGated(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	instance := "worker-ui"
@@ -1391,12 +1391,25 @@ func TestHTTP_UIServedBehindLoopbackTokenAuth(t *testing.T) {
 	m := NewInstanceManager(root, nil)
 	handler := loopbackAuthHandler(Handler(m, nil, nil, teamDir), teamDir, m, buildinfo.Current("test"))
 
+	// The static UI shell loads WITHOUT a bearer token so a browser can reach the
+	// token field; a token-gated shell is unreachable in a plain navigation.
 	req := httptest.NewRequest(http.MethodGet, "http://daemon/ui/", nil)
 	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unauthenticated ui status = %d body=%s (shell must load without a token)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "agent-team-ui") {
+		t.Fatalf("unauthenticated ui body missing root marker: %s", rr.Body.String())
+	}
+	// Data endpoints stay gated even though the shell is open.
+	req = httptest.NewRequest(http.MethodGet, "http://daemon/v1/instances", nil)
+	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated ui status = %d body=%s", rr.Code, rr.Body.String())
+		t.Fatalf("unauthenticated /v1/instances status = %d, want 401 (data stays gated)", rr.Code)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "http://daemon/ui/", nil)
