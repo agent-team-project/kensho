@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -259,6 +260,123 @@ payload.workspace = "repo"
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("topology output missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestTopologyShowJSONMirrorsDaemonTopology(t *testing.T) {
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "")
+	t.Setenv(daemon.DaemonTokenFileEnv, "")
+
+	root := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(root); err == nil {
+		root = eval
+	}
+	teamDir := filepath.Join(root, ".agent_team")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.reviewer]
+agent = "reviewer"
+ephemeral = true
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.status_changed"
+auto_advance = true
+redispatch_on_reentry = true
+reap_worktree = "on_merge"
+
+[pipelines.ticket_to_pr.merge]
+strategy = "script"
+script = "scripts/merge.sh"
+land = "squash"
+owned_paths = ["internal/cli/**"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+workspace = "worktree"
+timeout = "45m"
+token_budget = "40M"
+time_budget = "45m"
+hard = true
+hard_multiplier = 1.25
+reminder_levels = [50, 80]
+max_attempts = 1
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "reviewer"
+after = ["implement"]
+optional = true
+
+[schedules.nightly]
+every = "24h"
+run_on_start = true
+payload.kind = "verify"
+
+[channels.delivery]
+scope = "team"
+
+[teams.delivery]
+description = "Delivery team"
+instances = ["worker", "reviewer"]
+pipelines = ["ticket_to_pr"]
+schedules = ["nightly"]
+channels = ["delivery"]
+
+[budgets]
+reminder_levels = [25, 75, 100]
+
+[budgets.delivery]
+tokens_per_day = 200_000_000
+jobs_in_flight = 4
+allocation = "reserve"
+`
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	dc, err := newDaemonClient(teamDir)
+	if err != nil {
+		t.Fatalf("daemon client: %v", err)
+	}
+	resp, err := dc.hc.Get(dc.baseURL + "/v1/topology")
+	if err != nil {
+		t.Fatalf("raw topology: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("raw topology status: %s", readErrorBody(resp))
+	}
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		t.Fatalf("decode raw topology: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"topology", "show", "--target", root, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("topology show --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var shown map[string]any
+	if err := json.Unmarshal(out.Bytes(), &shown); err != nil {
+		t.Fatalf("decode topology show json: %v\nbody=%s", err, out.String())
+	}
+	if !reflect.DeepEqual(shown, raw) {
+		want, _ := json.MarshalIndent(raw, "", "  ")
+		got, _ := json.MarshalIndent(shown, "", "  ")
+		t.Fatalf("topology show --json lost daemon fields\nwant=%s\ngot=%s", want, got)
 	}
 }
 

@@ -628,13 +628,20 @@ func toResponseLike(top *topology.Topology) map[string]any {
 	}
 	pipelines := make([]map[string]any, 0, len(top.Pipelines))
 	for _, pipeline := range top.SortedPipelines() {
-		pipelines = append(pipelines, map[string]any{
-			"name":                  pipeline.Name,
-			"trigger":               triggerAsMap(pipeline.Trigger),
-			"steps":                 pipelineStepsAsMaps(pipeline.Steps),
-			"reap_worktree":         pipeline.ReapWorktree,
-			"redispatch_on_reentry": pipeline.RedispatchOnReentry,
-		})
+		entry := map[string]any{
+			"name":          pipeline.Name,
+			"trigger":       triggerAsMap(pipeline.Trigger),
+			"steps":         pipelineStepsAsMaps(pipeline.Steps),
+			"auto_advance":  pipeline.AutoAdvance,
+			"reap_worktree": pipeline.ReapWorktree,
+		}
+		if pipeline.RedispatchOnReentry {
+			entry["redispatch_on_reentry"] = true
+		}
+		if merge := pipelineMergeAsMap(pipeline.Merge); merge != nil {
+			entry["merge"] = merge
+		}
+		pipelines = append(pipelines, entry)
 	}
 	schedules := make([]map[string]any, 0, len(top.Schedules))
 	for _, schedule := range top.SortedSchedules() {
@@ -645,7 +652,31 @@ func toResponseLike(top *topology.Topology) map[string]any {
 			"payload":      schedule.Payload,
 		})
 	}
-	return map[string]any{"instances": out, "pipelines": pipelines, "schedules": schedules}
+	teams := make([]map[string]any, 0, len(top.Teams))
+	for _, team := range top.SortedTeams() {
+		teams = append(teams, map[string]any{
+			"name":        team.Name,
+			"description": team.Description,
+			"instances":   team.Instances,
+			"pipelines":   team.Pipelines,
+			"schedules":   team.Schedules,
+			"channels":    team.Channels,
+		})
+	}
+	budgets := make([]map[string]any, 0, len(top.Budgets))
+	for _, budget := range top.SortedBudgets() {
+		budgets = append(budgets, map[string]any{
+			"team":           budget.Team,
+			"tokens_per_day": budget.TokensPerDay,
+			"jobs_in_flight": budget.JobsInFlight,
+			"allocation":     budget.Allocation,
+		})
+	}
+	resp := map[string]any{"instances": out, "pipelines": pipelines, "schedules": schedules, "teams": teams, "budgets": budgets}
+	if len(top.ReminderLevels) > 0 {
+		resp["budget_reminder_levels"] = top.ReminderLevels
+	}
+	return resp
 }
 
 func triggersAsMaps(triggers []*topology.Trigger) []map[string]any {
@@ -695,11 +726,29 @@ func pipelineStepsAsMaps(steps []*topology.PipelineStep) []map[string]any {
 		if step.Gate != "" {
 			row["gate"] = step.Gate
 		}
+		if step.ApprovalRequired {
+			row["approval_required"] = true
+		}
 		if step.Optional {
 			row["optional"] = true
 		}
 		if step.Timeout > 0 {
 			row["timeout"] = step.Timeout.String()
+		}
+		if step.TokenBudget > 0 {
+			row["token_budget"] = step.TokenBudget
+		}
+		if step.TimeBudget > 0 {
+			row["time_budget"] = step.TimeBudget.String()
+		}
+		if step.HardBudget {
+			row["hard"] = true
+		}
+		if step.HardMultiplier > 0 {
+			row["hard_multiplier"] = step.HardMultiplier
+		}
+		if len(step.ReminderLevels) > 0 {
+			row["reminder_levels"] = step.ReminderLevels
 		}
 		if step.MaxAttempts > 0 {
 			row["max_attempts"] = step.MaxAttempts
@@ -708,6 +757,23 @@ func pipelineStepsAsMaps(steps []*topology.PipelineStep) []map[string]any {
 			row["retry_on_crash"] = true
 		}
 		out = append(out, row)
+	}
+	return out
+}
+
+func pipelineMergeAsMap(merge *topology.PipelineMerge) map[string]any {
+	if merge == nil {
+		return nil
+	}
+	out := map[string]any{"strategy": merge.Strategy}
+	if merge.Script != "" {
+		out["script"] = merge.Script
+	}
+	if merge.Land != "" {
+		out["land"] = merge.Land
+	}
+	if len(merge.OwnedPaths) > 0 {
+		out["owned_paths"] = merge.OwnedPaths
 	}
 	return out
 }
