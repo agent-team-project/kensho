@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agent-team daemon</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <main class="shell" id="agent-team-ui">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">agent-teamd</p>
+        <h1>Daemon Dashboard</h1>
+      </div>
+      <div class="actions">
+        <label class="token-field">
+          <span>Bearer token</span>
+          <input id="tokenInput" type="password" autocomplete="off" spellcheck="false">
+        </label>
+        <button id="saveToken" type="button">Connect</button>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <section class="summary" aria-label="Summary">
+      <article>
+        <span class="metric-label">Instances</span>
+        <strong id="instanceCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Running</span>
+        <strong id="runningCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Jobs</span>
+        <strong id="jobCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Active Jobs</span>
+        <strong id="activeJobCount">0</strong>
+      </article>
+    </section>
+
+    <p class="notice" id="notice" role="status">Loading daemon data...</p>
+
+    <section class="grid">
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Instances</h2>
+          <span id="instanceUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Agent</th>
+                <th>Status</th>
+                <th>Job</th>
+              </tr>
+            </thead>
+            <tbody id="instancesBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Jobs</h2>
+          <span id="jobUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Ticket</th>
+                <th>Status</th>
+                <th>Instance</th>
+              </tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>
