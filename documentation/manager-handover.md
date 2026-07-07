@@ -25,7 +25,7 @@ Never act on stale assumptions. Establish ground truth:
 bin/agent-team doctor                 # is the daemon even alive? (see Gotcha #1)
 bin/agent-team ps | grep running      # what's actually running
 gh pr list --repo agent-team-project/kensho --state open   # what's awaiting a verdict
-bin/agent-team inbox show manager --unread                 # what the loops/humans are telling you
+bin/agent-team inbox check manager                         # what the loops/humans are telling you
 bin/agent-team budget status          # team capacity + headroom (jobs/job_cap)
 ```
 
@@ -181,7 +181,7 @@ the single-manager serialization that caps throughput.
 
 ```sh
 # state
-bin/agent-team doctor / ps / budget status / inbox show manager --unread
+bin/agent-team doctor / ps / budget status / inbox check manager
 # dispatch (pipeline!) / fix / merge
 bin/agent-team job create SQU-N --pipeline ticket_to_pr --dispatch --workspace worktree --kickoff "..."
 bin/agent-team job bounce SQU-N --step implement --findings-file f --advance

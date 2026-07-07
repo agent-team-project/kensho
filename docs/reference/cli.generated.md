@@ -1611,7 +1611,7 @@ agent-team inbox check [instance] [flags]
 Flags:
 
 ```text
-      --commands        Print an inbox ack command for the first displayed unread message when ordered ack can apply it. agent-team follow-ups preserve the selected repo scope.
+      --commands        Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --self            Read the inbox for AGENT_TEAM_INSTANCE.
@@ -1722,7 +1722,7 @@ agent-team inbox show <instance> [flags]
 Flags:
 
 ```text
-      --commands        Print an inbox ack command for the first displayed unread message. agent-team follow-ups preserve the selected repo scope.
+      --commands        Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.
       --format string   Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.
       --json            Emit machine-readable JSON.
       --tail int        Show only the N most recent matching messages (0 = all).

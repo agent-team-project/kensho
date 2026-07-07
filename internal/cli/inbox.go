@@ -103,7 +103,7 @@ func newInboxCheckCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&self, "self", false, "Read the inbox for AGENT_TEAM_INSTANCE.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent unread messages (0 = all).")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the first displayed unread message when ordered ack can apply it. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
@@ -236,7 +236,7 @@ func newInboxShowCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only messages after the inbox cursor.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent matching messages (0 = all).")
-	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the first displayed unread message. agent-team follow-ups preserve the selected repo scope.")
+	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each message with a Go template, e.g. '{{.ID}} {{.Unread}} {{.Body}}'.")
 	return cmd
@@ -891,11 +891,10 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 		return err
 	}
 	rows := inboxMessageRows(instance, messages, cursor, opts.UnreadOnly)
-	nextUnreadID := firstDisplayedUnreadInboxMessageID(rows)
+	firstUnreadID := firstUnreadInboxMessageID(rows)
 	if opts.Tail > 0 && len(rows) > opts.Tail {
 		rows = rows[len(rows)-opts.Tail:]
 	}
-	firstUnreadID := firstAckableDisplayedUnreadInboxMessageID(rows, nextUnreadID)
 	if opts.Commands {
 		return renderInboxAckApplyCommand(stdout, firstUnreadID != "", inboxAckApplyCommandOptions{
 			Instance: instance,
@@ -1189,24 +1188,13 @@ func renderInboxListCommands(w io.Writer, rows []inboxSummaryRow, opts inboxList
 	return nil
 }
 
-func firstDisplayedUnreadInboxMessageID(rows []inboxMessageRow) string {
+func firstUnreadInboxMessageID(rows []inboxMessageRow) string {
 	for _, row := range rows {
 		if row.Unread {
 			return row.ID
 		}
 	}
 	return ""
-}
-
-func firstAckableDisplayedUnreadInboxMessageID(rows []inboxMessageRow, nextUnreadID string) string {
-	if nextUnreadID == "" {
-		return ""
-	}
-	displayedID := firstDisplayedUnreadInboxMessageID(rows)
-	if displayedID != nextUnreadID {
-		return ""
-	}
-	return displayedID
 }
 
 type inboxAckApplyCommandOptions struct {

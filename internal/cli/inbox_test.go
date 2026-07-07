@@ -308,7 +308,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	}
 }
 
-func TestInboxCheckDefaultsToSelfAndSuggestsFirstUnreadAck(t *testing.T) {
+func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
@@ -344,12 +344,42 @@ func TestInboxCheckDefaultsToSelfAndSuggestsFirstUnreadAck(t *testing.T) {
 		t.Fatalf("inbox check commands = %q, want %q", got, wantCommand)
 	}
 
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--json")
+	if err != nil {
+		t.Fatalf("inbox show tail json: %v\nstderr=%s", err, stderr)
+	}
+	messages = nil
+	if err := json.Unmarshal([]byte(stdout), &messages); err != nil {
+		t.Fatalf("decode tailed show messages: %v\nbody=%s", err, stdout)
+	}
+	if len(messages) != 1 || messages[0].ID != "msg-2" || !messages[0].Unread {
+		t.Fatalf("tailed show messages = %+v, want only msg-2 displayed", messages)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--commands")
+	if err != nil {
+		t.Fatalf("inbox show tail commands: %v\nstderr=%s", err, stderr)
+	}
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox show tail commands = %q, want %q", got, wantCommand)
+	}
+
 	stdout, stderr, err = executeInboxCommand("inbox", "check", "worker", "--target", tmp, "--tail", "1", "--commands")
 	if err != nil {
 		t.Fatalf("inbox check tail commands: %v\nstderr=%s", err, stderr)
 	}
-	if got := strings.TrimSpace(stdout); got != "" {
-		t.Fatalf("inbox check tail commands = %q, want no command because --tail hides the next ackable unread message", got)
+	if got := strings.TrimSpace(stdout); got != wantCommand {
+		t.Fatalf("inbox check tail commands = %q, want %q", got, wantCommand)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-1", "--target", tmp)
+	if err != nil {
+		t.Fatalf("inbox ack oldest command target: %v\nstderr=%s", err, stderr)
+	}
+	if cursor, err := daemon.ReadCursor(root, "worker"); err != nil {
+		t.Fatalf("read cursor after ack: %v", err)
+	} else if cursor != "msg-1" {
+		t.Fatalf("cursor after ack = %q, want msg-1", cursor)
 	}
 }
 
