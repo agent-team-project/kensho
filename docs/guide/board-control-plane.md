@@ -109,6 +109,19 @@ no token or matching provider config exists, the local durable job still records
 the work state and the write-back result is skipped or failed in the audit
 trail.
 
+Operators and scripts can also act on the configured provider directly:
+
+```sh
+agent-team ticket create --title "Investigate webhook replay gap" --body-file body.md
+agent-team ticket comment APP-42 --body "Queued for agent review."
+agent-team ticket update APP-42 --state "Ready for Agent"
+agent-team ticket close APP-42 --state Done
+```
+
+`agent-team ticket` uses `[pm].provider` and supports Linear and GitHub. It is a
+provider bridge, not a dispatch command; board-column dispatch still comes from
+normalized intake events matching topology triggers.
+
 ## Loop Protection
 
 Agent-authored status changes must not dispatch another worker. Provider intake

@@ -7,6 +7,13 @@
 Resolved template parameters.
 
 ```toml
+[project]
+id = "00000000-0000-0000-0000-000000000000"
+# parent_uri = "agt://parent-project-id/project/parent-project-id"
+
+[pm]
+provider = "none"
+
 [team]
 pm_tool = "none"
 
@@ -28,8 +35,15 @@ team = []
 
 Read by skills and the CLI.
 
-`[team].pm_tool` defaults to `"none"` in the bundled template. When it is
-`"linear"`, `[linear].team_id` and `[linear].ticket_prefix` must be non-empty.
+`[project].id` is the stable deployment id used in canonical `agt://` resource
+URIs. `[project].parent_uri` is optional and appears as the `parent` deployment
+entry when set.
+
+`[pm].provider` is the current provider selector: `"none"`, `"linear"`, or
+`"github"`. Legacy configs may still carry `[team].pm_tool`; new templates keep
+it aligned for compatibility. When the provider is `"linear"`,
+`[linear].team_id` and `[linear].ticket_prefix` must be non-empty. When the
+provider is `"github"`, `[github].owner` and `[github].repo` are required.
 
 `[health]` is optional. `status_stale_after` controls when non-idle/non-done
 instance `status.toml` files are marked stale in `ps`, `health`, `monitor`, and
@@ -71,17 +85,17 @@ version = "0.1.0"
 description = "..."
 
 [[parameter]]
-key = "team.pm_tool"
+key = "pm.provider"
 type = "string"
 default = "none"
-pattern = "^(none|linear)$"
-description = "Which PM tool the team talks to."
+pattern = "^(none|linear|github)$"
+description = "Which PM provider the team talks to."
 
 [[parameter]]
 key = "linear.team_id"
 type = "string"
 default = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
 description = "Linear team UUID."
 ```
@@ -90,6 +104,11 @@ Parameter `type` supports `string`, `int`, `bool`, and `list<string>`.
 Use `required = true` for unconditional values. Use `required_when_key` and
 `required_when_value` together when a value is required only under a selected
 config mode.
+
+The bundled template also supports profiles. A fresh `agent-team init` renders
+the default `slim` consumer profile: manager, worker, reviewer, provider
+skills, and the ticket-to-PR pipeline. `agent-team init --profile full` renders
+the self-dogfood topology with extra teams and scheduled governance loops.
 
 ## `agent.md`
 
@@ -234,7 +253,11 @@ topology team for storage; actor team is authority-audit input only.
 `authority_violation` events and show up in job triage without blocking.
 `enforcement = "enforce"` denies disallowed audited mutations after recording
 the same event. Job verbs can use `:own`, such as `job.gate.*:own`, to match
-only when the target job id equals the caller's origin job.
+only when the target job id equals the caller's origin job. Under enforcement,
+runtime launch installs a closed-world `agent-team` shim that resolves commands
+through the real Cobra tree and denies unknown or ungranted verbs before they
+reach the CLI. Grant `read` explicitly when an enforced agent should use
+`agent-team read <agt-uri>`.
 
 ## Job TOML
 

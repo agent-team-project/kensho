@@ -136,6 +136,29 @@ Preview first:
 agent-team job create SQU-42 --target worker --kickoff "..." --dispatch --dry-run --json
 ```
 
+## Report Jobs
+
+Use `--kind report` when the expected output is a written report artifact
+instead of a branch or PR:
+
+```sh
+agent-team job create "Audit the queue state and write a report" \
+  --id queue-audit \
+  --kind report \
+  --deliverable report:.agent_team/reports/queue-audit.md \
+  --target worker \
+  --dispatch
+```
+
+Report jobs must declare `--deliverable report:<path>`. The daemon exports that
+contract to the runtime as `AGENT_TEAM_DELIVERABLE` and the report path as
+`AGENT_TEAM_REPORT_PATH`. When the owner exits cleanly, the daemon verifies the
+path is non-empty before accepting the job as done; otherwise it records
+`deliverable_missing`, fails the job, and notifies the manager mailbox.
+
+`--profile probe` and `--kind probe` are separate: probe jobs are read-only
+measurement jobs and are not accepted as a shorthand for report artifacts.
+
 ## Showing Jobs
 
 ```sh

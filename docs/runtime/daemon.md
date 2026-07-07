@@ -17,6 +17,8 @@ The daemon handles:
 - mailbox delivery
 - lifecycle events
 - child logs
+- an embedded operator dashboard under `/ui`
+- read-only resource envelopes under `/v1/resources`
 
 The user-facing CLI starts and talks to the daemon.
 
@@ -48,6 +50,10 @@ agent-team daemon stop
 
 `daemon start` detaches by default. Use `--detach=false` for foreground debugging.
 Use `daemon start --quiet`, `daemon stop --quiet`, or `daemon restart --quiet` when scripts only need the exit code.
+Detached starts expose a loopback-only HTTP listener by default; pass
+`--http-addr 127.0.0.1:9000` to choose a port. The selected address is written
+to `.agent_team/daemon/http.addr` and appears in `agent-team daemon status --json`
+as `http_url`.
 
 Most high-level commands start or contact the daemon as needed:
 
@@ -110,6 +116,9 @@ Representative endpoints:
 | --- | --- |
 | `GET /v1/health` | API readiness |
 | `GET /v1/instances` | Runtime metadata snapshot |
+| `GET /v1/jobs` | Durable job snapshot |
+| `GET /v1/topology` | Loaded topology snapshot |
+| `GET /v1/resources?uri=...` | Read one canonical `agt://` resource envelope |
 | `POST /v1/dispatch` | Spawn or resume an instance |
 | `POST /v1/start` | Resume stopped instance |
 | `POST /v1/stop` | Stop instance |
@@ -126,7 +135,13 @@ Representative endpoints:
 | `POST /v1/queue/{id}/drop` | Drop one queue entry |
 | `POST /v1/schedules/fire` | Fire due schedules |
 
-The public CLI is the supported integration surface. The API exists to keep the CLI and daemon separated and to make future integrations possible.
+The embedded dashboard is served at `/ui/` on the same loopback listener. The
+static shell loads without a token, then uses bearer-authenticated JSON calls to
+show instances, jobs, pipelines, budgets, and teams. The operator token lives at
+`.agent_team/daemon/operator.token`; launched runtimes use their private
+per-instance token file. The public CLI remains the supported integration
+surface for scripts; the API keeps the CLI and daemon separated and makes future
+integrations possible.
 
 ## Runtime Metadata
 

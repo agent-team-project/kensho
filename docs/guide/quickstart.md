@@ -14,6 +14,7 @@ git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands
 agent-team daemon start --json
+agent-team deployments ls
 agent-team job create "Probe this repo layout and report the available agents" \
   --id gs-probe \
   --profile probe \
@@ -34,6 +35,11 @@ both `[pm].provider` and legacy `[team].pm_tool` in ticketless mode. In that
 mode, the durable job kickoff is the work item. Commit `.agent_team/` before
 dispatching worktree-backed jobs; Git needs an initial `HEAD` to create worker
 worktrees.
+
+`agent-team daemon start --json` includes the loopback `http_url` for the local
+daemon API and embedded dashboard. Open `<http_url>/ui/` from the same machine
+when you want a browser view of instances, jobs, pipelines, budgets, and teams;
+the dashboard data calls use the bearer token in `.agent_team/daemon/operator.token`.
 
 ## Linear Opt-In
 
