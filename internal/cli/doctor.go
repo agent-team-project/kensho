@@ -154,7 +154,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 
 	cfgPath := filepath.Join(teamDir, "config.toml")
 	if st, err := os.Stat(cfgPath); err != nil || st.IsDir() {
-		problems = append(problems, fmt.Sprintf("%s missing — copy config.toml.example and fill it in.", cfgPath))
+		problems = append(problems, fmt.Sprintf("%s missing — run `agent-team init` to render a repo config.", cfgPath))
 	} else {
 		var cfg map[string]any
 		if _, err := toml.DecodeFile(cfgPath, &cfg); err != nil {

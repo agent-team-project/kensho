@@ -28,8 +28,7 @@ This page maps the source tree to the product areas.
 | Path | Purpose |
 | --- | --- |
 | `template/template.toml` | Bundled template manifest |
-| `template/config.toml.example` | Example resolved config |
-| `template/instances.toml` | Bundled topology defaults |
+| `template/instances.toml.tmpl` | Bundled topology defaults |
 | `template/agents/` | Bundled agent definitions |
 | `template/skills/` | Bundled shared skills |
 

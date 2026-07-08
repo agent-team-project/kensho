@@ -9,8 +9,7 @@ They answer: "What agents, skills, topology defaults, and parameter declarations
 ```text
 template/
 ├── template.toml
-├── config.toml.example
-├── instances.toml
+├── instances.toml.tmpl
 ├── agents/
 │   ├── manager/
 │   │   ├── agent.md
@@ -45,17 +44,17 @@ version = "0.1.0"
 description = "Manager, ticket manager, and worker agents for software delivery."
 
 [[parameter]]
-key = "team.pm_tool"
+key = "pm.provider"
 type = "string"
 default = "none"
 pattern = "^(none|linear)$"
-description = "Which PM tool the team talks to."
+description = "Which PM provider the team talks to."
 
 [[parameter]]
 key = "linear.team_id"
 type = "string"
 default = ""
-required_when_key = "team.pm_tool"
+required_when_key = "pm.provider"
 required_when_value = "linear"
 description = "Linear team UUID."
 ```
@@ -67,11 +66,12 @@ Supported parameter types are intentionally small:
 - `bool`
 - `list<string>`
 
-The renderer writes resolved values to `.agent_team/config.toml`.
+The renderer writes resolved values to `.agent_team/config.toml` from manifest
+defaults plus user-supplied `--set` values.
 
 Use `required = true` for values every repo must provide. Use
 `required_when_key` plus `required_when_value` for conditional requirements,
-such as Linear fields that are required only when `team.pm_tool = "linear"`.
+such as Linear fields that are required only when `pm.provider = "linear"`.
 
 ## Rendering
 
@@ -99,8 +99,8 @@ agent-team init [<ref>]
 
 `--no-input` makes missing required parameters fail fast, which is useful in CI.
 The bundled template has no unconditional required parameters, so zero-flag
-init succeeds with `[team].pm_tool = "none"`. To enable Linear, pass
-`--set team.pm_tool=linear --set linear.team_id=... --set linear.ticket_prefix=SQU`.
+init succeeds with `[pm].provider = "none"`. To enable Linear, pass
+`--set pm.provider=linear --set linear.team_id=... --set linear.ticket_prefix=SQU`.
 
 ## Template Refs
 
@@ -150,14 +150,14 @@ When authoring a template:
 2. Keep hardcoded IDs out of prompts and scripts.
 3. Use `.tmpl` only where values must be rendered.
 4. Keep agents reusable; put repo-specific behavior in config.
-5. Include a starter `instances.toml` when daemon workflows should work after init.
+5. Include a starter `instances.toml.tmpl` when daemon workflows should work after init.
 6. Tag published releases, for example `v1.2.3`, so consumers can pin refs.
 7. Run:
 
 ```sh
 go build -o bin/agent-team ./cmd/agent-team
 bin/agent-team template smoke ./template \
-  --set team.pm_tool=linear \
+  --set pm.provider=linear \
   --set linear.team_id=00000000-0000-0000-0000-000000000000 \
   --set linear.ticket_prefix=SMK
 ```
