@@ -27,13 +27,24 @@ runtime = "codex"
 after = ["triage"]
 
 [[pipelines.ticket_to_pr.steps]]
+id = "verify"
+label = "Verify"
+description = "Run deterministic gates and write machine-readable evidence."
+target = "verifier"
+workspace = "repo"
+runtime = "codex"
+after = ["implement"]
+timeout = "20m"
+max_attempts = 1
+
+[[pipelines.ticket_to_pr.steps]]
 id = "review"
 label = "Review"
-description = "Check implementation quality and prepare PR follow-up."
+description = "Review implementation quality using the diff and verifier evidence."
 target = "manager"
 workspace = "repo"
 runtime = "claude"
-after = ["implement"]
+after = ["verify"]
 timeout = "2h"
 max_attempts = 2
 ```

@@ -2483,14 +2483,13 @@ func TestJobCreateDryRunDoesNotWrite(t *testing.T) {
 	if err := json.Unmarshal(probeOut.Bytes(), &probePreview); err != nil {
 		t.Fatalf("decode probe pipeline dispatch dry-run json: %v\nbody=%s", err, probeOut.String())
 	}
-	if probePreview.Job == nil || probePreview.Job.Kind != job.KindProbe || len(probePreview.Job.Steps) != 3 {
+	if probePreview.Job == nil || probePreview.Job.Kind != job.KindProbe || len(probePreview.Job.Steps) != 4 {
 		t.Fatalf("probe preview job = %+v", probePreview.Job)
 	}
-	if probePreview.Job.Steps[1].Status != job.StatusDone || !probePreview.Job.Steps[1].Skipped || probePreview.Job.Steps[1].SkipReason != job.ProbeSkipReason {
-		t.Fatalf("probe review step = %+v", probePreview.Job.Steps[1])
-	}
-	if probePreview.Job.Steps[2].Status != job.StatusDone || !probePreview.Job.Steps[2].Skipped || probePreview.Job.Steps[2].SkipReason != job.ProbeSkipReason {
-		t.Fatalf("probe approve step = %+v", probePreview.Job.Steps[2])
+	for _, step := range probePreview.Job.Steps[1:] {
+		if step.Status != job.StatusDone || !step.Skipped || step.SkipReason != job.ProbeSkipReason {
+			t.Fatalf("probe skipped step = %+v", step)
+		}
 	}
 	probePayload := probePreview.Dispatch.Preview.Payload
 	if probePayload["kind"] != job.KindProbe || probePayload["workspace"] != "repo" {
@@ -5510,17 +5509,20 @@ func TestJobCreateFromPipeline(t *testing.T) {
 	if err := json.Unmarshal(createOut.Bytes(), &created); err != nil {
 		t.Fatalf("decode pipeline job json: %v\nbody=%s", err, createOut.String())
 	}
-	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 3 {
+	if created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 4 {
 		t.Fatalf("created pipeline job = %+v", created)
 	}
 	if created.Steps[0].ID != "implement" || created.Steps[0].Status != job.StatusQueued {
 		t.Fatalf("first step = %+v", created.Steps[0])
 	}
-	if created.Steps[1].ID != "review" || created.Steps[1].Status != job.StatusBlocked || strings.Join(created.Steps[1].After, ",") != "implement" {
+	if created.Steps[1].ID != "verify" || created.Steps[1].Status != job.StatusBlocked || strings.Join(created.Steps[1].After, ",") != "implement" {
 		t.Fatalf("second step = %+v", created.Steps[1])
 	}
-	if created.Steps[2].ID != "approve" || created.Steps[2].Status != job.StatusBlocked || created.Steps[2].Gate != "manual" || strings.Join(created.Steps[2].After, ",") != "review" {
+	if created.Steps[2].ID != "review" || created.Steps[2].Status != job.StatusBlocked || strings.Join(created.Steps[2].After, ",") != "verify" {
 		t.Fatalf("third step = %+v", created.Steps[2])
+	}
+	if created.Steps[3].ID != "approve" || created.Steps[3].Status != job.StatusBlocked || created.Steps[3].Gate != "manual" || strings.Join(created.Steps[3].After, ",") != "review" {
+		t.Fatalf("fourth step = %+v", created.Steps[3])
 	}
 	events, err := job.ListEvents(teamDir, "squ-214")
 	if err != nil {
@@ -5554,17 +5556,20 @@ func TestJobCreateFromPipeline(t *testing.T) {
 	if err := json.Unmarshal(explainOut.Bytes(), &explained); err != nil {
 		t.Fatalf("decode explain json: %v\nbody=%s", err, explainOut.String())
 	}
-	if explained.State != "queued" || len(explained.Steps) != 3 {
+	if explained.State != "queued" || len(explained.Steps) != 4 {
 		t.Fatalf("explained pipeline = %+v", explained)
 	}
 	if explained.Steps[0].ID != "implement" || explained.Steps[0].State != "ready" || !explained.Steps[0].Ready {
 		t.Fatalf("explain first step = %+v", explained.Steps[0])
 	}
-	if explained.Steps[1].ID != "review" || explained.Steps[1].State != "waiting" || strings.Join(explained.Steps[1].WaitingFor, ",") != "implement" {
+	if explained.Steps[1].ID != "verify" || explained.Steps[1].State != "waiting" || strings.Join(explained.Steps[1].WaitingFor, ",") != "implement" {
 		t.Fatalf("explain second step = %+v", explained.Steps[1])
 	}
-	if explained.Steps[2].ID != "approve" || explained.Steps[2].State != "waiting" || strings.Join(explained.Steps[2].WaitingFor, ",") != "review" {
+	if explained.Steps[2].ID != "review" || explained.Steps[2].State != "waiting" || strings.Join(explained.Steps[2].WaitingFor, ",") != "verify" {
 		t.Fatalf("explain third step = %+v", explained.Steps[2])
+	}
+	if explained.Steps[3].ID != "approve" || explained.Steps[3].State != "waiting" || strings.Join(explained.Steps[3].WaitingFor, ",") != "review" {
+		t.Fatalf("explain fourth step = %+v", explained.Steps[3])
 	}
 	if !containsString(explained.Actions, "agent-team job advance squ-214") {
 		t.Fatalf("explain actions = %+v", explained.Actions)
@@ -14860,6 +14865,110 @@ func TestJobStepDoneAdvanceDispatchesNextStep(t *testing.T) {
 	}
 	if stepUpdated.Status != job.StatusBlocked || stepUpdated.Steps[0].Status != job.StatusBlocked {
 		t.Fatalf("step-only updated = %+v", stepUpdated)
+	}
+}
+
+func TestJobStepAdvanceAllowedUnderEnforcedAuthority(t *testing.T) {
+	cases := []struct {
+		name         string
+		actor        string
+		jobID        string
+		completeStep string
+		steps        []job.Step
+	}{
+		{
+			name:         "worker implement advances",
+			actor:        "worker",
+			jobID:        "squ-209-worker",
+			completeStep: "implement",
+			steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-209-worker-implement"},
+				{ID: "review", Target: "reviewer", Status: job.StatusBlocked, After: []string{"implement"}},
+			},
+		},
+		{
+			name:         "verifier verify advances",
+			actor:        "verifier",
+			jobID:        "squ-209-verifier",
+			completeStep: "verify",
+			steps: []job.Step{
+				{ID: "implement", Target: "worker", Status: job.StatusDone, Instance: "worker-squ-209-verifier-implement"},
+				{ID: "verify", Target: "verifier", Status: job.StatusRunning, Instance: "verifier-squ-209-verifier-verify", After: []string{"implement"}},
+				{ID: "review", Target: "reviewer", Status: job.StatusBlocked, After: []string{"verify"}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if eval, err := filepath.EvalSymlinks(root); err == nil {
+				root = eval
+			}
+			initInto(t, root)
+			teamDir := filepath.Join(root, ".agent_team")
+			topologyPath := filepath.Join(teamDir, "instances.toml")
+			topologyText, err := os.ReadFile(topologyPath)
+			if err != nil {
+				t.Fatalf("read topology: %v", err)
+			}
+			topologyText = []byte(strings.Replace(string(topologyText), `enforcement = "audit"`, `enforcement = "enforce"`, 1))
+			if err := os.WriteFile(topologyPath, topologyText, 0o644); err != nil {
+				t.Fatalf("write topology: %v", err)
+			}
+			mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+			cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
+			defer cleanupDaemon()
+
+			now := time.Now().UTC()
+			steps := append([]job.Step(nil), tc.steps...)
+			for i := range steps {
+				if steps[i].StartedAt.IsZero() && steps[i].Status != job.StatusBlocked {
+					steps[i].StartedAt = now.Add(-30 * time.Minute)
+				}
+				if steps[i].FinishedAt.IsZero() && steps[i].Status == job.StatusDone {
+					steps[i].FinishedAt = now.Add(-15 * time.Minute)
+				}
+			}
+			j := &job.Job{
+				ID:        tc.jobID,
+				Ticket:    strings.ToUpper(tc.jobID),
+				Target:    "worker",
+				Kickoff:   "authorized step advance",
+				Pipeline:  "ticket_to_pr",
+				Status:    job.StatusRunning,
+				CreatedAt: now,
+				UpdatedAt: now,
+				Steps:     steps,
+			}
+			if err := job.Write(teamDir, j); err != nil {
+				t.Fatalf("write job: %v", err)
+			}
+			setJobAuthorityOriginEnv(t, tc.actor, j.ID)
+
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs([]string{"job", "step", j.ID, tc.completeStep, "--status", "done", "--advance", "--workspace", "repo", "--repo", root, "--json"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("%s job step --advance: %v\nstderr=%s", tc.actor, err, stderr.String())
+			}
+			var result jobAdvanceResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("decode advance json: %v\nbody=%s", err, out.String())
+			}
+			wantReviewInstance := "reviewer-" + tc.jobID + "-review"
+			if result.Job == nil || result.Job.Status != job.StatusRunning || result.Job.LastEvent != "advance_dispatched" {
+				t.Fatalf("advance job = %+v", result.Job)
+			}
+			if result.Step == nil || result.Step.ID != "review" || result.Step.Status != job.StatusRunning || result.Step.Instance != wantReviewInstance {
+				t.Fatalf("advance step = %+v", result.Step)
+			}
+			if violations := jobAuthorityViolationEvents(t, teamDir, j.ID); len(violations) != 0 {
+				t.Fatalf("unexpected authority violations = %+v", violations)
+			}
+			stopAndWaitForTest(t, mgr, wantReviewInstance)
+		})
 	}
 }
 

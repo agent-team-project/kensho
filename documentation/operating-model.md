@@ -37,8 +37,11 @@ auto_advance = true
 [[pipelines.<name>.steps]]
 id = "implement"      # ephemeral worker, worktree isolation, watchdog timeout
 [[pipelines.<name>.steps]]
-id = "review"         # adversarial reviewer, checklist instructions
+id = "verify"         # deterministic gates, progress output, evidence JSON
 after = ["implement"]
+[[pipelines.<name>.steps]]
+id = "review"         # adversarial reviewer, checklist instructions
+after = ["verify"]
 [[pipelines.<name>.steps]]
 id = "approve"        # gate = "manual" — the only place execution waits on judgment
 after = ["review"]
@@ -46,11 +49,11 @@ gate = "manual"
 ```
 
 - **The board is the dispatch control plane.** In Linear-backed or GitHub Projects-backed repos, moving a card/item into the configured agent column (`linear.agent_column` or `github.agent_column`, default `Ready for Agent`) is the intentional dispatch gesture. Creation-triggered dispatch remains useful for zero-config demos, but production queues should be column-gated.
-- `auto_advance` chains headless steps on process exit; the manual gate stops exactly where merge judgment is needed.
+- `auto_advance` chains headless steps on process exit; deterministic verifier gates run before the adversarial reviewer, and the manual gate stops exactly where merge judgment is needed.
 - **Re-entry is idempotent by default.** Dragging the same ticket out and back in no-ops while a job is queued/running/blocked, and terminal jobs no-op unless the pipeline sets `redispatch_on_reentry = true`.
 - **Loop protection is actor based.** Set `linear.agent_user_id`, `github.agent_login`, or `github.agent_id`, or cache the provider viewer response so agent-authored status changes do not dispatch the same ticket again.
-- **Watchdog timeouts on every headless step** (45–60m implement, 30m review). Runtimes can wedge mid-stream with no client-side timeout; force-kill + crash-finalize + freed slot is the correct recovery.
-- **`max_attempts = 1` for implementation.** A hang can strike *after* the PR opens; an auto-retry then opens a duplicate. Let the manager re-dispatch — it knows whether the artifact already exists. Read-only/idempotent review steps can opt into `retry_on_crash = true`, which retries once only after a crash/nonzero exit with no recorded gate/verdict.
+- **Watchdog timeouts on every headless step** (45–60m implement, about 20m verify, 30m review). Runtimes can wedge mid-stream with no client-side timeout; force-kill + crash-finalize + freed slot is the correct recovery.
+- **`max_attempts = 1` for implementation.** A hang can strike *after* the PR opens; an auto-retry then opens a duplicate. Let the manager re-dispatch — it knows whether the artifact already exists. Read-only/idempotent verify and review steps can opt into `retry_on_crash = true`, which retries once only after a crash/nonzero exit with no recorded result.
 - Run parallel pipelines distinguished by trigger event; distinct events mean zero cross-dispatch.
 
 ## Reviewer instructions are checklists

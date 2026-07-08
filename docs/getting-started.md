@@ -218,8 +218,9 @@ missing recovery commands, flaky dispatch behavior, or docs gaps.
 
 ## Preview The Ticket-To-PR Pipeline
 
-The default template includes `ticket_to_pr`: implement, review, then a manual
-approval gate. Preview the pipeline before letting it start a full worker.
+The default template includes `ticket_to_pr`: implement, deterministic verify,
+review, then a manual approval gate. Preview the pipeline before letting it
+start a full worker.
 
 ```sh
 agent-team pipeline run ticket_to_pr DEMO-1 "Implement the first demo ticket" --dry-run --dispatch --commands

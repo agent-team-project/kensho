@@ -11361,7 +11361,7 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 		t.Fatalf("decode pipeline run json: %v\nbody=%s", err, out.String())
 	}
-	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 3 {
+	if created.ID != "squ-304" || created.Pipeline != "ticket_to_pr" || created.Target != "worker" || len(created.Steps) != 4 {
 		t.Fatalf("created job = %+v", created)
 	}
 	if created.Kickoff != "https://linear.app/squirtlesquad/issue/SQU-304/run-pipeline: run pipeline from file" {
@@ -11373,11 +11373,14 @@ func TestPipelineRunCreatesDurableJob(t *testing.T) {
 	if created.Steps[0].ID != "implement" || created.Steps[0].Status != job.StatusQueued {
 		t.Fatalf("first step = %+v", created.Steps[0])
 	}
-	if created.Steps[1].ID != "review" || created.Steps[1].Status != job.StatusBlocked {
+	if created.Steps[1].ID != "verify" || created.Steps[1].Status != job.StatusBlocked {
 		t.Fatalf("second step = %+v", created.Steps[1])
 	}
-	if created.Steps[2].ID != "approve" || created.Steps[2].Status != job.StatusBlocked || created.Steps[2].Gate != "manual" {
+	if created.Steps[2].ID != "review" || created.Steps[2].Status != job.StatusBlocked {
 		t.Fatalf("third step = %+v", created.Steps[2])
+	}
+	if created.Steps[3].ID != "approve" || created.Steps[3].Status != job.StatusBlocked || created.Steps[3].Gate != "manual" {
+		t.Fatalf("fourth step = %+v", created.Steps[3])
 	}
 	events, err := job.ListEvents(teamDir, "squ-304")
 	if err != nil {
@@ -11489,10 +11492,10 @@ func TestPipelineRunDryRunDoesNotWrite(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatalf("decode pipeline run dry-run json: %v\nbody=%s", err, out.String())
 	}
-	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-306" || preview.Job.Pipeline != "ticket_to_pr" || len(preview.Job.Steps) != 3 {
+	if !preview.DryRun || preview.Job == nil || preview.Job.ID != "squ-306" || preview.Job.Pipeline != "ticket_to_pr" || len(preview.Job.Steps) != 4 {
 		t.Fatalf("preview = %+v", preview)
 	}
-	if preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[0].Status != job.StatusQueued || preview.Job.Steps[1].Status != job.StatusBlocked || preview.Job.Steps[2].Status != job.StatusBlocked {
+	if preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[0].Status != job.StatusQueued || preview.Job.Steps[1].ID != "verify" || preview.Job.Steps[1].Status != job.StatusBlocked || preview.Job.Steps[2].ID != "review" || preview.Job.Steps[2].Status != job.StatusBlocked || preview.Job.Steps[3].ID != "approve" || preview.Job.Steps[3].Status != job.StatusBlocked {
 		t.Fatalf("preview steps = %+v", preview.Job.Steps)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".agent_team", "jobs", "squ-306.toml")); !os.IsNotExist(err) {

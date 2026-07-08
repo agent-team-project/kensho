@@ -9,7 +9,7 @@
 [template]
 name        = "default"
 version     = "1.0.0"
-description = "Slim manager + worker + reviewer starter by default; full profile adds ticket-manager, scheduled loops, and the self-dogfood topology."
+description = "Slim manager + worker + verifier + reviewer starter by default; full profile adds ticket-manager, scheduled loops, and the self-dogfood topology."
 
 [[parameter]]
 key         = "project.id"
@@ -240,7 +240,7 @@ default     = "0"
 description = "How often to repeat an idle notification while an instance remains idle. Set to 0 to disable repeats."
 
 [profiles.slim]
-description = "External-consumer starter: manager, worker, reviewer, core provider skills, and the ticket_to_pr pipeline only."
+description = "External-consumer starter: manager, worker, verifier, reviewer, core provider skills, and the ticket_to_pr pipeline only."
 exclude = [
   "agents/auditor",
   "agents/comms",

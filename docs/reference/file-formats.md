@@ -106,9 +106,10 @@ Use `required = true` for unconditional values. Use `required_when_key` and
 config mode.
 
 The bundled template also supports profiles. A fresh `agent-team init` renders
-the default `slim` consumer profile: manager, worker, reviewer, provider
-skills, and the ticket-to-PR pipeline. `agent-team init --profile full` renders
-the self-dogfood topology with extra teams and scheduled governance loops.
+the default `slim` consumer profile: manager, worker, verifier, reviewer,
+provider skills, and the ticket-to-PR pipeline. `agent-team init --profile
+full` renders the self-dogfood topology with extra teams and scheduled
+governance loops.
 
 Generated `.agent_team/config.toml` files start with a short checklist derived
 from the resolved template parameters. It identifies the active profile and PM
@@ -176,6 +177,15 @@ reminder_levels = [50, 80, 100]
 event = "agent.dispatch"
 match.target = "worker"
 
+[instances.verifier]
+agent = "verifier"
+ephemeral = true
+replicas = 2
+
+[[instances.verifier.triggers]]
+event = "agent.dispatch"
+match.target = "verifier"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -195,16 +205,24 @@ reminder_levels = [50, 80, 100]
 locks = ["build"]
 
 [[pipelines.ticket_to_pr.steps]]
+id = "verify"
+target = "verifier"
+workspace = "repo"
+runtime = "codex"
+after = ["implement"]
+optional = false
+
+[[pipelines.ticket_to_pr.steps]]
 id = "review"
 target = "manager"
 workspace = "repo"
 runtime = "claude"
-after = ["implement"]
+after = ["verify"]
 gate = "pr"
 optional = true
 
 [teams.delivery]
-instances = ["manager", "worker"]
+instances = ["manager", "worker", "verifier"]
 pipelines = ["ticket_to_pr"]
 channels = ["supervisor"]
 
@@ -216,6 +234,9 @@ allow = ["*"]
 
 [authority.agents.worker]
 allow = ["inbox.send", "channel.*", "job.gate.*:own"]
+
+[authority.agents.verifier]
+allow = ["inbox.send", "channel.*", "job.gate.*:own", "job.step:own"]
 ```
 
 Normalized intake events use names like `ticket.created`, `ticket.updated`,

@@ -655,6 +655,7 @@ def verify_approval_required_gate(binary: Path, repo: Path) -> str:
     )
     job_id = str(field(created, "id", "ID"))
     run(binary, "job", "step", job_id, "implement", "--skip", "--message", "demo skips implementation", "--repo", repo, "--json", parse_json=True)
+    run(binary, "job", "step", job_id, "verify", "--skip", "--message", "demo skips verification", "--repo", repo, "--json", parse_json=True)
     run(binary, "job", "step", job_id, "review", "--skip", "--message", "demo skips review", "--repo", repo, "--json", parse_json=True)
     blocked = run(binary, "job", "advance", job_id, "--repo", repo, "--json", parse_json=True)
     step = find_step(blocked.get("job") or blocked.get("Job") or {}, "approve")
@@ -1061,6 +1062,44 @@ def write_fake_runtime(path: Path) -> None:
                     print(json.dumps({"startup_command_failures": failed}, indent=2), flush=True)
                     raise SystemExit(86)
 
+            def record_worker_artifact() -> None:
+                job_id = os.environ.get("AGENT_TEAM_JOB_ID", "")
+                if not job_id:
+                    return
+                root = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                if root.returncode != 0:
+                    return
+                repo = Path(root.stdout.strip())
+                branch = os.environ.get("AGENT_TEAM_BRANCH") or f"worker-{job_id}"
+                subprocess.run(["git", "checkout", "-B", branch], cwd=repo, check=True)
+                artifact = repo / "demo-deliverables" / f"{job_id}.txt"
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_text(f"fake worker artifact for {job_id}\\n", encoding="utf-8")
+                subprocess.run(["git", "add", str(artifact.relative_to(repo))], cwd=repo, check=True)
+                status = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo)
+                if status.returncode != 0:
+                    subprocess.run(["git", "commit", "-m", f"demo artifact for {job_id}"], cwd=repo, check=True)
+                subprocess.run(
+                    [
+                        "agent-team",
+                        "job",
+                        "update",
+                        job_id,
+                        "--repo",
+                        str(repo),
+                        "--branch",
+                        branch,
+                        "--worktree",
+                        str(repo),
+                    ],
+                    check=True,
+                )
+
             runtime = Path(sys.argv[0]).name
             print(f"fake {runtime} instance={instance} args={' '.join(sys.argv[1:])}", flush=True)
             if instance.startswith("worker-") or "-worker-" in instance:
@@ -1070,8 +1109,16 @@ def write_fake_runtime(path: Path) -> None:
                     time.sleep(1.0)
                 else:
                     time.sleep(0.2)
+                record_worker_artifact()
                 write_status("done", "fake worker completed")
                 print(f"fake worker complete: {instance}", flush=True)
+                raise SystemExit(0)
+
+            if instance.startswith("verifier-") or "-verifier-" in instance:
+                write_status("implementing", "fake verifier running")
+                time.sleep(0.2)
+                write_status("done", "fake verifier completed")
+                print(f"fake verifier complete: {instance}", flush=True)
                 raise SystemExit(0)
 
             if instance.startswith("reviewer-") or "-reviewer-" in instance:

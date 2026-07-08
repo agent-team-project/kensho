@@ -21,6 +21,9 @@ bin/
 # Worker-agent internal state — per-spawn scratch, not for main
 .worker_agent/
 
+# Verifier gate evidence — local runtime artifacts, not source
+target/agent-evidence/
+
 # agent-teamd runtime: pidfile, unix socket, daemon log, per-instance metadata.
 # Definitions live in `.agent_team/agents/` (committed); runtime state is local-only.
 .agent_team/daemon.pid

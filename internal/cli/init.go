@@ -54,7 +54,7 @@ func newInitCmd() *cobra.Command {
 		Short: "Vendor a starter team template into the current repo (creates .agent_team/).",
 		Long: "Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled\n" +
 			"default template is used. Its default `slim` profile is a consumer starter: manager + worker +\n" +
-			"reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /\n" +
+			"verifier + reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /\n" +
 			"prod-watch loops omitted. Pass `--minimal` to choose that starter explicitly. Pass\n" +
 			"`--profile full` (or `--set template.profile=full`) to render\n" +
 			"the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and\n" +

@@ -48,6 +48,18 @@ description   = "Code-writing agent. Spawned on `agent.dispatch` (see assign-wor
 event        = "agent.dispatch"
 match.target = "worker"
 
+[instances.verifier]
+agent        = "verifier"
+ephemeral    = true
+replicas     = 2
+token_budget = "5M"
+time_budget  = "20m"
+description  = "Deterministic verifier. Runs declared gates against worker commits and writes machine-readable evidence before review."
+
+[[instances.verifier.triggers]]
+event        = "agent.dispatch"
+match.target = "verifier"
+
 [instances.reviewer]
 agent       = "reviewer"
 ephemeral   = true
@@ -68,12 +80,12 @@ match.target = "reviewer"
 #   trigger.event = "ticket.created"
 #   # remove trigger.match.status
 #
-# Headless implement -> adversarial review chain on process exit; the manual
-# gate stops exactly where merge judgment is needed. Watchdog timeouts rescue
-# wedged runtimes; implement keeps max_attempts = 1 because a hang can strike
-# after the PR opens and a retry would open a duplicate. Review is read-only, so
-# retry_on_crash allows one automatic retry only when the reviewer crashes before
-# recording a gate/verdict.
+# Headless implement -> deterministic verify -> adversarial review chain on
+# process exit; the manual gate stops exactly where merge judgment is needed.
+# Watchdog timeouts rescue wedged runtimes; implement keeps max_attempts = 1
+# because a hang can strike after the PR opens and a retry would open a
+# duplicate. Verify and review are read-only, so retry_on_crash allows one
+# automatic retry only after a crash with no recorded result.
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
 trigger.match.status = "{{ if eq .pm.provider `github` }}{{ .github.agent_column }}{{ else }}{{ .linear.agent_column }}{{ end }}"
@@ -93,22 +105,45 @@ time_budget  = "45m"
 max_attempts = 1
 
 [[pipelines.ticket_to_pr.steps]]
+id           = "verify"
+target       = "verifier"
+after        = ["implement"]
+workspace    = "repo"
+timeout      = "20m"
+token_budget = "5M"
+time_budget  = "20m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Run the verify skill against the worker commit before LLM review. Stream
+progress, write `target/agent-evidence/<job>.json`, record each gate with
+`agent-team job gate set`, and advance only if every declared gate passes.
+
+```agent-team-verify-gates
+gofmt-check :: test -z "$(gofmt -l .)"
+go-vet :: go vet ./...
+go-test :: go test ./...
+```
+"""
+
+[[pipelines.ticket_to_pr.steps]]
 id           = "review"
 target       = "reviewer"
-after        = ["implement"]
+after        = ["verify"]
 timeout      = "30m"
 token_budget = "10M"
 time_budget  = "30m"
 max_attempts = 1
 retry_on_crash = true
 instructions = """
-Hand-verify, in order: (1) the ticket's acceptance criteria are actually met —
-check the specific behaviors, not the PR description; (2) tests cover the
-changed behavior and would fail without the change; (3) no unrelated files or
-drive-by edits; (4) no dead code or commented-out blocks. Judge CONTENT only:
+Read `target/agent-evidence/<job>.json` first, then hand-verify: (1) the
+ticket's acceptance criteria are actually met — check the specific behaviors,
+not the PR description; (2) tests cover the changed behavior and would fail
+without the change; (3) no unrelated files or drive-by edits; (4) no dead code
+or commented-out blocks. Judge CONTENT outside the scripted verifier gates:
 infra failures are gate results, not bounces, and base drift is not a bounce.
-Report via `agent-team job gate set` and a PR comment starting `REVIEW: APPROVE` or
-`REVIEW: BOUNCE`.
+Report via `agent-team job gate set` and a PR comment starting
+`REVIEW: APPROVE` or `REVIEW: BOUNCE`.
 """
 
 # The manual gate: nothing merges without human (or manager) judgment. To make
@@ -178,8 +213,8 @@ match.target = "debt-auditor"
 
 
 # The platform team: framework-infrastructure arcs (provider seams, provenance,
-# scoping) run through their own worker/reviewer pool so product delivery and
-# platform work scale independently.
+# scoping) run through their own worker/verifier/reviewer pool so product
+# delivery and platform work scale independently.
 [instances.platform-worker]
 agent         = "worker"
 ephemeral     = true
@@ -195,6 +230,18 @@ description   = "Platform-team code writer for framework-infrastructure jobs."
 [[instances.platform-worker.triggers]]
 event        = "agent.dispatch"
 match.target = "platform-worker"
+
+[instances.platform-verifier]
+agent        = "verifier"
+ephemeral    = true
+replicas     = 2
+token_budget = "5M"
+time_budget  = "20m"
+description  = "Platform-team deterministic verifier."
+
+[[instances.platform-verifier.triggers]]
+event        = "agent.dispatch"
+match.target = "platform-verifier"
 
 [instances.platform-reviewer]
 agent       = "reviewer"
@@ -231,20 +278,42 @@ time_budget  = "45m"
 max_attempts = 1
 
 [[pipelines.platform_ticket_to_pr.steps]]
+id           = "verify"
+target       = "platform-verifier"
+after        = ["implement"]
+workspace    = "repo"
+timeout      = "20m"
+token_budget = "5M"
+time_budget  = "20m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Run the verify skill against the platform worker commit before LLM review.
+Stream progress, write `target/agent-evidence/<job>.json`, record each gate
+with `agent-team job gate set`, and advance only if every declared gate passes.
+
+```agent-team-verify-gates
+gofmt-check :: test -z "$(gofmt -l .)"
+go-vet :: go vet ./...
+go-test :: go test ./...
+```
+"""
+
+[[pipelines.platform_ticket_to_pr.steps]]
 id           = "review"
 target       = "platform-reviewer"
-after        = ["implement"]
+after        = ["verify"]
 timeout      = "30m"
 token_budget = "10M"
 time_budget  = "30m"
 retry_on_crash = true
 instructions = """
-Adversarial content review of the platform job PR. Same checklist as the
-delivery pipeline: verify acceptance criteria against the ticket, run the
-full test suite and both demo variants, hand-verify the changed behavior,
-judge content only (infra state and base drift are not content bounces).
-Report gates with `agent-team job gate set`, then post `REVIEW: APPROVE`
-or `REVIEW: BOUNCE` with findings as a PR comment.
+Adversarial content review of the platform job PR. Read the verifier evidence
+first, then apply the delivery checklist beyond those scripted gates: verify
+acceptance criteria against the ticket, hand-verify the changed behavior, and
+judge content only (infra state and base drift are not content bounces). Report
+gates with `agent-team job gate set`, then post `REVIEW: APPROVE` or
+`REVIEW: BOUNCE` with findings as a PR comment.
 """
 
 [[pipelines.platform_ticket_to_pr.steps]]
@@ -261,7 +330,7 @@ the job done. BOUNCE: `agent-team job bounce <job-id> --findings-file <path>
 
 [teams.platform]
 description = "Framework infrastructure: provider seams, provenance, scoping, resource constraints."
-instances   = ["platform-worker", "platform-reviewer", "manager"]
+instances   = ["platform-worker", "platform-verifier", "platform-reviewer", "manager"]
 pipelines   = ["platform_ticket_to_pr"]
 
 
@@ -552,11 +621,11 @@ schedules   = ["debt-sweep", "harness-review", "org-review", "sentinel", "produc
 [teams.delivery]
 description = "Default software-delivery team for ticket intake, implementation, review, and merge."
 {{ if eq .template.profile `full` -}}
-instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-triage"]
+instances   = ["manager", "ticket-manager", "worker", "verifier", "reviewer", "feedback-triage"]
 pipelines   = ["ticket_to_pr"]
 schedules   = ["feedback-triage"]
 {{ else -}}
-instances   = ["manager", "worker", "reviewer"]
+instances   = ["manager", "worker", "verifier", "reviewer"]
 pipelines   = ["ticket_to_pr"]
 {{ end }}
 
@@ -587,7 +656,10 @@ enforcement = "audit"
 allow = ["*"]
 
 [authority.agents.worker]
-allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
+allow = ["budget.status", "channel.*", "event.publish", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
+
+[authority.agents.verifier]
+allow = ["budget.status", "channel.*", "event.publish", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
 
 [authority.agents.reviewer]
 allow = ["budget.status", "channel.*", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "status.*"]

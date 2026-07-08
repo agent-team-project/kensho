@@ -49,8 +49,8 @@ The repo currently declares five teams.
 
 | Team | What it owns | Running pieces |
 | --- | --- | --- |
-| `delivery` | Normal ticket-to-PR delivery. | `manager`, `ticket-manager`, 4 `worker` replicas, 3 `reviewer` replicas, the `ticket_to_pr` pipeline, and the 12h `feedback-triage` schedule. |
-| `platform` | Framework infrastructure work such as provider seams, provenance, scoping, and resource constraints. | 3 `platform-worker` replicas, 3 `platform-reviewer` replicas, and a separate `platform_ticket_to_pr` pipeline triggered by `platform.ticket`. |
+| `delivery` | Normal ticket-to-PR delivery. | `manager`, `ticket-manager`, 4 `worker` replicas, 2 `verifier` replicas, 3 `reviewer` replicas, the `ticket_to_pr` pipeline, and the 12h `feedback-triage` schedule. |
+| `platform` | Framework infrastructure work such as provider seams, provenance, scoping, and resource constraints. | 3 `platform-worker` replicas, 2 `platform-verifier` replicas, 3 `platform-reviewer` replicas, and a separate `platform_ticket_to_pr` pipeline triggered by `platform.ticket`. |
 | `quality` | Proactive architecture, tech-debt, harness auditing, org review, sentinel checks, and product verification. | Scheduled `debt-auditor`, `harness-reviewer`, `org-review`, `sentinel`, and `product-verifier` loops. |
 | `pr` | Public voice and outward communication. | Daily `comms` digest schedule for shipped-work digests, release announcements, and community intake. |
 | `docs` | Documentation authoring and freshness. | `docs-writer`, a worker instance for narrative docs, plus the 24h `docs-freshness` schedule. |
@@ -74,7 +74,7 @@ product-verifier, and docs-freshness loops:
 
 | Loop | Trigger or cadence | What it is allowed to do |
 | --- | --- | --- |
-| Board-driven delivery | A Linear ticket enters the configured `Ready for Agent` column. | Run implement -> review -> manual approve. Workers open PRs; reviewers report verdicts; the manual gate decides merge. |
+| Board-driven delivery | A Linear ticket enters the configured `Ready for Agent` column. | Run implement -> verify -> review -> manual approve. Workers open PRs; verifiers run deterministic gates and write evidence; reviewers report verdicts; the manual gate decides merge. |
 | Feedback triage | Every 12 hours. | Cluster local `agent-team feedback submit` reports plus system pain signals; file, fold, or dismiss tickets. Filed tickets land in Backlog. |
 | Debt sweep | Every 24 hours. | Audit one subsystem and file at most three evidence-backed tech-debt tickets. Filed tickets land in Backlog. |
 | Harness review | Every 12 hours. | Inspect bounce classes, feedback trends, and failure patterns; propose prompt, skill, or pipeline-instruction tickets. Filed tickets land in Backlog. |
@@ -106,9 +106,16 @@ token_budget = "40M"
 max_attempts = 1
 
 [[pipelines.ticket_to_pr.steps]]
+id = "verify"
+target = "verifier"
+after = ["implement"]
+workspace = "repo"
+timeout = "20m"
+
+[[pipelines.ticket_to_pr.steps]]
 id = "review"
 target = "reviewer"
-after = ["implement"]
+after = ["verify"]
 timeout = "30m"
 
 [[pipelines.ticket_to_pr.steps]]
@@ -119,8 +126,9 @@ gate = "manual"
 ```
 
 The board is the dispatch control plane. Moving a Linear card into `Ready for
-Agent` is the intentional handoff. The worker gets a fresh worktree, opens a
-PR, and records gates. The reviewer is instructed to judge content only:
+Agent` is the intentional handoff. The worker gets a fresh worktree and opens a
+PR; the verifier runs deterministic gates and writes evidence; the reviewer is
+instructed to judge content only:
 acceptance criteria, tests, unrelated edits, and dead code. The approve step is
 manual because merge judgment is the place where discretion belongs.
 

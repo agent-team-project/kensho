@@ -6151,7 +6151,7 @@ func TestTeamRunCreatesPipelineJob(t *testing.T) {
 	if preview.Job.Kickoff != "SQU-811: ship it from stdin" {
 		t.Fatalf("preview kickoff = %q", preview.Job.Kickoff)
 	}
-	if len(preview.Job.Steps) != 3 || preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[1].ID != "review" || preview.Job.Steps[2].ID != "approve" {
+	if len(preview.Job.Steps) != 4 || preview.Job.Steps[0].ID != "implement" || preview.Job.Steps[1].ID != "verify" || preview.Job.Steps[2].ID != "review" || preview.Job.Steps[3].ID != "approve" {
 		t.Fatalf("preview steps = %+v", preview.Job.Steps)
 	}
 	if _, err := os.Stat(filepath.Join(teamDir, "jobs", "squ-811.toml")); !os.IsNotExist(err) {

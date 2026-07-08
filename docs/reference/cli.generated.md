@@ -1762,7 +1762,7 @@ Vendor a starter team template into the current repo (creates .agent_team/).
 
 Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled
 default template is used. Its default `slim` profile is a consumer starter: manager + worker +
-reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /
+verifier + reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /
 prod-watch loops omitted. Pass `--minimal` to choose that starter explicitly. Pass
 `--profile full` (or `--set template.profile=full`) to render
 the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and

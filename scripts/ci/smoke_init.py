@@ -33,6 +33,8 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/agents/manager/skills/assign-worker/SKILL.md",
     ".agent_team/agents/reviewer/agent.md",
     ".agent_team/agents/reviewer/config.toml",
+    ".agent_team/agents/verifier/agent.md",
+    ".agent_team/agents/verifier/config.toml",
     ".agent_team/agents/worker/agent.md",
     ".agent_team/agents/worker/config.toml",
     ".agent_team/skills/github/SKILL.md",
@@ -47,6 +49,9 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/skills/status/SKILL.md",
     ".agent_team/skills/status/scripts/status.sh",
     ".agent_team/skills/status/scripts/_status_write.py",
+    ".agent_team/skills/verify/SKILL.md",
+    ".agent_team/skills/verify/scripts/verify.sh",
+    ".agent_team/skills/verify/scripts/verify.py",
 ]
 
 FORBIDDEN_ARTIFACT_DIRS = {
@@ -354,11 +359,11 @@ def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str
     # this canary.
     if (
         r.returncode != 0
-        or summary.get("total") != 3
+        or summary.get("total") != 4
         or summary.get("actions", {}).get("start") != 1
-        or summary.get("actions", {}).get("on-demand") != 2
+        or summary.get("actions", {}).get("on-demand") != 3
         or not summary.get("dry_run")
-        or summary.get("statuses", {}).get("unknown") != 3
+        or summary.get("statuses", {}).get("unknown") != 4
     ):
         problems.append(f"bundled topology canary returned unexpected summary: rc={r.returncode}\nbody={body}\nstdout={r.stdout}\nstderr={r.stderr}")
 

@@ -38,7 +38,7 @@ last few merges (`git log --oneline`) for where things left off. The task list a
 1. **Pick disjoint work.** From the board, choose tickets whose file surfaces don't overlap with
    what's in flight (see Parallelism). Independent *epics* beat deep chains.
 2. **Dispatch as a pipeline** (not a plain job — see Gotcha #2). The pipeline auto-advances
-   implement → review → approve; the reviewer spawns itself.
+   implement -> verify -> review -> approve; verifier and reviewer steps spawn themselves.
 3. **Wait on verdicts, not on every step.** A `Monitor` over open PRs surfaces `REVIEW: APPROVE/BOUNCE`.
    You act only at the verdict.
 4. **On APPROVE:** verify the verdict is *fresh* (Gotcha #4) + CI green, then merge, mark the

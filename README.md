@@ -117,12 +117,12 @@ agent-team init \
 Move a Linear card or GitHub Project item into the configured agent column
 (`Ready for Agent` by default) to dispatch the default ticket-to-PR pipeline.
 The bundled template defaults to the slim consumer profile: manager, worker,
-reviewer, and the ticket-to-PR pipeline. `agent-team init --minimal` selects
-that path explicitly, and `agent-team init --minimal --dry-run ...` previews the
-template, profile, and PM provider before writing `.agent_team/`. Use
-`agent-team init --profile full` when you explicitly want the full self-dogfood
-topology with release, docs, comms, quality, sentinel, and product-verifier
-loops.
+verifier, reviewer, and the ticket-to-PR pipeline. `agent-team init --minimal`
+selects that path explicitly, and `agent-team init --minimal --dry-run ...`
+previews the template, profile, and PM provider before writing `.agent_team/`.
+Use `agent-team init --profile full` when you explicitly want the full
+self-dogfood topology with release, docs, comms, quality, sentinel, and
+product-verifier loops.
 
 For a no-LLM local orchestration walkthrough, run the fake-runtime demo from the
 source checkout:
@@ -143,8 +143,8 @@ The full self-dogfood profile currently includes:
 
 | Team | What It Runs |
 | --- | --- |
-| `delivery` | Manager, ticket-manager, workers, reviewers, and the full ticket-to-PR pipeline. |
-| `platform` | Separate worker/reviewer pool for framework infrastructure work. |
+| `delivery` | Manager, ticket-manager, workers, verifiers, reviewers, and the full ticket-to-PR pipeline. |
+| `platform` | Separate worker/verifier/reviewer pool for framework infrastructure work. |
 | `quality` | Architecture debt audits, harness review, org review, sentinels, and product verification. |
 | `pr` | Public digest, release-announcement, and community-feedback agents. |
 | `docs` | Docs-writing agents and the docs-freshness sweep. |
@@ -154,6 +154,7 @@ The core delivery loop is event-driven:
 ```text
 ticket enters Ready for Agent
   -> implement worker in a worktree
+  -> deterministic verifier gates + evidence
   -> adversarial reviewer
   -> manual approval gate
   -> merge / bounce / follow-up

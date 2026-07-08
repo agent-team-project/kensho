@@ -71,6 +71,8 @@ func TestInit_DefaultTemplate(t *testing.T) {
 		".agent_team/agents/manager/skills/assign-worker/SKILL.md",
 		".agent_team/agents/reviewer/agent.md",
 		".agent_team/agents/reviewer/config.toml",
+		".agent_team/agents/verifier/agent.md",
+		".agent_team/agents/verifier/config.toml",
 		".agent_team/agents/worker/agent.md",
 		".agent_team/agents/worker/config.toml",
 		".agent_team/agents/worker/scripts/git-push-verify.sh",
@@ -78,6 +80,8 @@ func TestInit_DefaultTemplate(t *testing.T) {
 		".agent_team/skills/linear/SKILL.md",
 		".agent_team/skills/linear/scripts/linear-graphql.sh",
 		".agent_team/skills/pull-request/SKILL.md",
+		".agent_team/skills/verify/SKILL.md",
+		".agent_team/skills/verify/scripts/verify.sh",
 	}
 	for _, rel := range expected {
 		p := filepath.Join(tmp, rel)
@@ -151,9 +155,10 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	for _, want := range []string{
 		"[instances.manager]",
 		"[instances.worker]",
+		"[instances.verifier]",
 		"[instances.reviewer]",
 		"[pipelines.ticket_to_pr]",
-		`instances   = ["manager", "worker", "reviewer"]`,
+		`instances   = ["manager", "worker", "verifier", "reviewer"]`,
 	} {
 		if !strings.Contains(instancesBody, want) {
 			t.Errorf("slim instances.toml missing %q:\n%s", want, instancesBody)
@@ -222,9 +227,11 @@ func TestInit_FullProfilePreservesSelfDogfoodTemplate(t *testing.T) {
 		".agent_team/agents/ticket-manager/agent.md",
 		".agent_team/agents/auditor/agent.md",
 		".agent_team/agents/comms/agent.md",
+		".agent_team/agents/verifier/agent.md",
 		".agent_team/skills/release/SKILL.md",
 		".agent_team/skills/sentinel/SKILL.md",
 		".agent_team/skills/docs-freshness/SKILL.md",
+		".agent_team/skills/verify/SKILL.md",
 	} {
 		if _, err := os.Stat(filepath.Join(tmp, rel)); err != nil {
 			t.Errorf("full profile missing %s: %v", rel, err)
@@ -244,11 +251,12 @@ func TestInit_FullProfilePreservesSelfDogfoodTemplate(t *testing.T) {
 	body := string(instances)
 	for _, want := range []string{
 		"[instances.ticket-manager]",
+		"[instances.verifier]",
 		"[schedules.sentinel]",
 		"run_on_start = true",
 		"[pipelines.platform_ticket_to_pr]",
 		"[pipelines.release]",
-		`instances   = ["manager", "ticket-manager", "worker", "reviewer", "feedback-triage"]`,
+		`instances   = ["manager", "ticket-manager", "worker", "verifier", "reviewer", "feedback-triage"]`,
 		`schedules   = ["feedback-triage"]`,
 	} {
 		if !strings.Contains(body, want) {
@@ -892,8 +900,8 @@ func TestInit_LoaderReadsBundledTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAllAgents on bundled template: %v", err)
 	}
-	if len(agents) != 6 {
-		t.Errorf("expected 6 bundled agents, got %d", len(agents))
+	if len(agents) != 7 {
+		t.Errorf("expected 7 bundled agents, got %d", len(agents))
 	}
 	if _, err := loader.UnionSkills(agents); err != nil {
 		t.Errorf("UnionSkills: %v", err)
