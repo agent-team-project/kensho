@@ -41,6 +41,18 @@ Each non-empty line is either `name :: command` or a bare command. Bare commands
 
 If no gate block is found and the source repo contains `go.mod`, the runner falls back to `gofmt-check`, `go-vet`, and `go-test`.
 
+These default verifier gates are the **smoke** tier declared in
+`.agent_team/gates.toml`. Passing them means local smoke passed; it does not
+prove acceptance or release readiness. Acceptance and release claims must be
+checked against the tier config with explicit evidence, for example:
+
+```sh
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim release \
+  --evidence target/agent-evidence/<job>.release.json
+```
+
+A release claim with only smoke evidence must fail.
+
 ## Evidence
 
 The runner writes:

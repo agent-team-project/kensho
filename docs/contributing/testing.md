@@ -18,6 +18,8 @@
 go test -count=1 -p 1 ./...
 go vet ./...
 git diff --check
+python3 scripts/ci/validate_gate_tiers.py --self-test
+python3 scripts/ci/validate_gate_tiers.py
 go build -o bin/agent-team ./cmd/agent-team
 go build -o bin/agent-teamd ./cmd/agent-teamd
 python3 scripts/ci/smoke_init.py bin/agent-team

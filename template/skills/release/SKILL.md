@@ -69,6 +69,8 @@ goreleaser release --snapshot --clean --skip=publish
 python3 scripts/ci/validate_toml.py
 python3 scripts/ci/validate_frontmatter.py
 python3 scripts/ci/validate_template_tree.py
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --self-test
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py"
 go vet ./...
 go test ./...
 go build -o bin/agent-team ./cmd/agent-team
@@ -91,6 +93,18 @@ shellcheck template/skills/linear/scripts/*.sh
 
 If Docker or shellcheck is unavailable locally, record the skip and rely on CI
 for that gate. Do not approve the release while a content failure is open.
+
+Before making any release-readiness claim, validate the release evidence bundle
+against the tiered gate config:
+
+```sh
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim release \
+  --evidence target/agent-evidence/<job>.release.json
+```
+
+If the evidence file is absent or contains only smoke results, the release claim
+fails. Record that as a failed release gate and stop for follow-up evidence; do
+not downgrade it to a smoke pass.
 
 ## Approve
 

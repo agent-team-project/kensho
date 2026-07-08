@@ -50,6 +50,7 @@ EXPECTED_AFTER_INIT = [
     ".agent_team/skills/status/scripts/status.sh",
     ".agent_team/skills/status/scripts/_status_write.py",
     ".agent_team/skills/verify/SKILL.md",
+    ".agent_team/skills/verify/scripts/validate_gate_tiers.py",
     ".agent_team/skills/verify/scripts/verify.sh",
     ".agent_team/skills/verify/scripts/verify.py",
 ]

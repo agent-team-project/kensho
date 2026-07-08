@@ -252,6 +252,33 @@ Use `agent-team team retry <team>` for the same recovery flow scoped to one team
 Use `agent-team pipeline repair <pipeline> --retry-pipelines` when the broader repair loop should stay inside one workflow, including pipeline-owned dead-letter queue retry and a final scoped advance. Add `--wait --wait-status running` when that scoped repair should block until retried and newly advanced jobs have live owners, or `--wait --wait-next-state running --wait-step implement` when repair should wait on a specific retried or advanced stage. Use `agent-team repair --retry-pipelines` or `agent-team team repair <team> --retry-pipelines` when failed-step retry should happen inside a broader global or team repair loop after daemon reconciliation and dead-letter queue retry; both accept the same stage-aware wait filters for the retry and final tick advance rows they dispatch. Add `--dry-run --preview-routes` first to inspect the dispatch routes, `--retry-pipeline <name>` to target one workflow in global repair, `--retry-step <id>` to target one failed stage, `--retry-message` to record the operator reason, and `--retry-force` only when intentionally overriding step `max_attempts`.
 Pipeline status, health, overview, and next-action hints recommend tick previews for ready work, retry and scoped repair dry-runs when failed or stale steps are present, and `pipeline explain ... --state failed` or `team explain ... --state failed` when the operator needs the detailed step diagnostics first.
 
+## Gate Tiers
+
+Pipeline step gates decide whether the workflow can advance. Gate tiers in
+`.agent_team/gates.toml` decide what claim the evidence supports.
+
+The bundled template declares three tiers:
+
+- `smoke`: fast local checks. A smoke pass is useful before review, but it is
+  not an acceptance or release claim.
+- `acceptance`: full conformance evidence. Acceptance claims require smoke plus
+  acceptance-tier evidence.
+- `release`: release-readiness evidence. Release claims require smoke,
+  acceptance, and release-tier evidence.
+
+Use the validator to keep claims honest:
+
+```sh
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim smoke \
+  --evidence target/agent-evidence/<job>.json
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim release \
+  --evidence target/agent-evidence/<job>.release.json
+```
+
+The second command must fail when only smoke evidence exists or when release
+evidence is missing. That failure is the intended release gate result, not a
+smoke pass.
+
 Supported gates:
 
 - `gate = "manual"`: wait for operator approval with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; reject gates with `agent-team pipeline reject <pipeline>`, `agent-team team reject <team>`, or `agent-team job reject <job-id> --step <step-id>`.

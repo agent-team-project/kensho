@@ -60,6 +60,76 @@ repeat idle notifications.
 names a shared skill under `.agent_team/skills/` that should be registered for
 every launched agent.
 
+## `.agent_team/gates.toml`
+
+Machine-readable gate tiers and claim rules.
+
+```toml
+schema_version = 1
+
+[tiers.smoke]
+description = "Fast local gates that should run before PR handoff."
+evidence_required = false
+
+[tiers.acceptance]
+description = "Full conformance gates that prove the project contract."
+evidence_required = true
+
+[tiers.release]
+description = "Release-readiness gates that prove release evidence is present."
+evidence_required = true
+
+[claims.smoke]
+description = "Local smoke confidence only."
+required_tiers = ["smoke"]
+
+[claims.acceptance]
+description = "Full conformance claim."
+required_tiers = ["smoke", "acceptance"]
+
+[claims.release]
+description = "Release-readiness claim."
+required_tiers = ["smoke", "acceptance", "release"]
+missing_evidence = "fail"
+
+[[gates]]
+id = "go-test"
+tier = "smoke"
+description = "Go tests complete successfully."
+command = "go test ./..."
+required_for = ["smoke", "acceptance", "release"]
+
+[[gates]]
+id = "release-artifact-evidence"
+tier = "release"
+description = "Release build, publish, and asset verification evidence exists."
+evidence_required = true
+required_for = ["release"]
+```
+
+The bundled template uses three claim tiers:
+
+- `smoke`: fast local checks, suitable before PR handoff.
+- `acceptance`: full conformance evidence, such as integration or product
+  acceptance artifacts.
+- `release`: all evidence needed to honestly claim release readiness.
+
+Passing smoke gates is only a smoke claim. Release claims require every gate
+listed for `release`, including acceptance and release-tier evidence. The
+validator enforces that absence as a failure:
+
+```sh
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim release \
+  --evidence target/agent-evidence/<job>.release.json
+```
+
+If the evidence file is missing release evidence or contains only smoke results,
+the command exits non-zero. Schema-only validation is:
+
+```sh
+python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py"
+```
+
 ## `.agent_team/.template.lock`
 
 Template provenance.

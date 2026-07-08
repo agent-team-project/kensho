@@ -118,6 +118,8 @@ instructions = """
 Run the verify skill against the worker commit before LLM review. Stream
 progress, write `target/agent-evidence/<job>.json`, record each gate with
 `agent-team job gate set`, and advance only if every declared gate passes.
+These declared gates are the smoke tier from `.agent_team/gates.toml`; do not
+claim acceptance or release readiness unless the required tier evidence exists.
 
 ```agent-team-verify-gates
 gofmt-check :: test -z "$(gofmt -l .)"
@@ -291,6 +293,8 @@ instructions = """
 Run the verify skill against the platform worker commit before LLM review.
 Stream progress, write `target/agent-evidence/<job>.json`, record each gate
 with `agent-team job gate set`, and advance only if every declared gate passes.
+These declared gates are the smoke tier from `.agent_team/gates.toml`; do not
+claim acceptance or release readiness unless the required tier evidence exists.
 
 ```agent-team-verify-gates
 gofmt-check :: test -z "$(gofmt -l .)"

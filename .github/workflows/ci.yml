@@ -58,6 +58,11 @@ jobs:
       - name: Validate bundled template tree
         run: python3 scripts/ci/validate_template_tree.py
 
+      - name: Validate gate-tier schema
+        run: |
+          python3 scripts/ci/validate_gate_tiers.py --self-test
+          python3 scripts/ci/validate_gate_tiers.py
+
       - name: Validate env_allow required vars
         run: |
           python3 scripts/ci/validate_env_allow.py --self-test
