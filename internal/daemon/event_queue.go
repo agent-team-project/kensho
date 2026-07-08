@@ -193,7 +193,145 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	// `agent-team pipeline tick`. Safe to call here — onReap has already released
 	// r.mu, and this reuses the normal dispatch path (which does its own locking).
 	r.tryAutoAdvancePipeline(j, meta, status)
+	r.publishManagerCompletionEvents(j, completedStep, meta, status)
 	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
+}
+
+func (r *EventResolver) publishManagerCompletionEvents(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) {
+	if !managerCompletionShouldWake(j, completedStep, status) {
+		return
+	}
+	payload := managerCompletionPayload(j, completedStep, meta, status)
+	if completedStep != nil {
+		r.publishCompletionEventIfMatched(topology.EventJobStepCompleted, payload)
+		if completionDeliverableReady(j, completedStep, status) {
+			r.publishCompletionEventIfMatched(topology.EventDeliverableReady, payload)
+		}
+	}
+	if jobStatusTerminal(j.Status) {
+		r.publishCompletionEventIfMatched(topology.EventJobCompleted, payload)
+	}
+}
+
+func (r *EventResolver) publishCompletionEventIfMatched(eventType string, payload map[string]any) {
+	r.mu.Lock()
+	t := r.topo
+	r.mu.Unlock()
+	if traceForTopology(t, eventType, payload).MatchedRules == 0 {
+		return
+	}
+	_, _ = r.EventWithResult(eventType, payload)
+}
+
+func managerCompletionShouldWake(j *jobstore.Job, completedStep *jobstore.Step, status jobstore.Status) bool {
+	if j == nil {
+		return false
+	}
+	if status == jobstore.StatusFailed || jobStatusTerminal(j.Status) {
+		return true
+	}
+	if completionDeliverableReady(j, completedStep, status) {
+		return true
+	}
+	return managerGateReady(j)
+}
+
+func managerCompletionPayload(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) map[string]any {
+	payload := map[string]any{
+		"source":     "daemon:completion",
+		"target":     "manager",
+		"job_id":     j.ID,
+		"job":        j.ID,
+		"ticket":     j.Ticket,
+		"status":     string(status),
+		"job_status": string(j.Status),
+	}
+	if j.TicketURL != "" {
+		payload["ticket_url"] = j.TicketURL
+	}
+	if j.Epic != "" {
+		payload["epic"] = j.Epic
+	}
+	if j.Pipeline != "" {
+		payload["pipeline"] = j.Pipeline
+	}
+	if j.Branch != "" {
+		payload["branch"] = j.Branch
+	}
+	if j.Worktree != "" {
+		payload["worktree"] = j.Worktree
+	}
+	if j.PR != "" {
+		payload["pr"] = j.PR
+	}
+	if completedStep != nil {
+		payload["pipeline_step"] = completedStep.ID
+		payload["completed_step"] = completedStep.ID
+		payload["completed_target"] = completedStep.Target
+		payload["step_status"] = string(completedStep.Status)
+		if completedStep.Instance != "" {
+			payload["step_instance"] = completedStep.Instance
+		}
+	}
+	if meta != nil {
+		payload["instance"] = meta.Instance
+		payload["agent"] = meta.Agent
+		if meta.ExitCode != nil {
+			payload["exit_code"] = *meta.ExitCode
+		}
+	}
+	if completionDeliverableReady(j, completedStep, status) {
+		payload["deliverable_ready"] = true
+	}
+	if managerGateReady(j) {
+		payload["manager_gate_ready"] = true
+	}
+	return payload
+}
+
+func completionDeliverableReady(j *jobstore.Job, completedStep *jobstore.Step, status jobstore.Status) bool {
+	if j == nil || completedStep == nil || status != jobstore.StatusDone || strings.TrimSpace(j.PR) == "" {
+		return false
+	}
+	implementationTarget := strings.TrimSpace(j.ImplementationAgent)
+	if implementationTarget == "" {
+		implementationTarget = strings.TrimSpace(j.Target)
+	}
+	return implementationTarget == "" || strings.TrimSpace(completedStep.Target) == implementationTarget
+}
+
+func managerGateReady(j *jobstore.Job) bool {
+	if j == nil {
+		return false
+	}
+	done := map[string]bool{}
+	for i := range j.Steps {
+		if jobstore.StepSatisfiesDependency(&j.Steps[i]) {
+			done[j.Steps[i].ID] = true
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if strings.TrimSpace(step.Target) != "manager" || !jobstore.StepGatePending(j, step) {
+			continue
+		}
+		if stepDependenciesMet(step, done) {
+			return true
+		}
+	}
+	return false
+}
+
+func stepDependenciesMet(step *jobstore.Step, done map[string]bool) bool {
+	if step == nil {
+		return false
+	}
+	for _, dep := range step.After {
+		if !done[dep] {
+			return false
+		}
+	}
+	return true
 }
 
 func stalePipelineInstanceExit(j *jobstore.Job, instance string) bool {

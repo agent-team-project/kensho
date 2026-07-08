@@ -220,7 +220,7 @@ type InterruptResult struct {
 const (
 	stopForceDefaultTimeout        = 10 * time.Second
 	stopKillWaitTimeout            = 5 * time.Second
-	codexSessionCaptureInitialWait = 50 * time.Millisecond
+	codexSessionCaptureInitialWait = 500 * time.Millisecond
 	codexSessionCaptureTimeout     = 30 * time.Second
 	codexSessionCapturePoll        = 25 * time.Millisecond
 )

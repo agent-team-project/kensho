@@ -168,6 +168,8 @@ gate = "manual"
 
 Pipeline state is stored in jobs, not in a separate scheduler database. A step with `gate = "manual"` stays blocked after its dependencies finish until an operator approves it with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; after that, normal `job advance`, `pipeline advance`, `team advance`, or `tick` dispatch can run it. Use `agent-team job reject <job-id> --step <step-id>` when the manual gate should fail instead.
 
+When daemon-managed jobs reach manager-relevant completion points, the daemon publishes `job.step_completed`, `job.completed`, and `deliverable.ready` events with `target = "manager"`. A persistent manager can subscribe to those events to wake after workers, verifiers, or reviewers finish, inspect blocked manual gates, and continue the unattended review/merge loop.
+
 Use `gate = "pr"` when a later step should wait for PR metadata. The step remains blocked with `waiting_for = ["pr"]` until the job has `pr` set, for example through `agent-team job update <job-id> --pr <url> --advance --dry-run` followed by the non-dry-run update, GitHub intake reconciliation with `agent-team intake github --payload-file github-webhook.json --reconcile-job --advance --dry-run` plus optional `--commands`, or status-file reconciliation.
 
 Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionally bypassed. The job stores that step as `status = "done"` plus `skipped = true`, allowing dependent steps to continue while preserving the operator decision.

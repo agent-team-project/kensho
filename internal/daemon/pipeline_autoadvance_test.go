@@ -165,6 +165,103 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 	}
 }
 
+func TestEvent_PipelineManualGateCompletionWakesStoppedManager(t *testing.T) {
+	teamDir := autoAdvanceTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	root := DaemonRoot(teamDir)
+	sessionID := seedStoppedCodexManager(t, root, teamDir, "manager")
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[instances.reviewer]
+agent = "reviewer"
+ephemeral = true
+[[instances.reviewer.triggers]]
+event = "agent.dispatch"
+match.target = "reviewer"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+auto_advance = true
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "review"
+target = "reviewer"
+after = ["implement"]
+
+[[pipelines.ticket_to_pr.steps]]
+id = "approve"
+target = "manager"
+after = ["review"]
+gate = "manual"
+`)
+	fake := newSequencedFakeSpawner(time.Second, time.Second, 30*time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+	t.Cleanup(func() {
+		_, _ = m.Stop("manager")
+		_ = m.WaitForReaper("manager", 5*time.Second)
+	})
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"ticket.created","payload":{"ticket":"SQU-94","kickoff":"implement SQU-94","workspace":"repo"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	if err := m.WaitForReaper("worker-squ-94", 5*time.Second); err != nil {
+		t.Fatalf("wait worker reaper: %v", err)
+	}
+	if err := m.WaitForReaper("reviewer-squ-94", 5*time.Second); err != nil {
+		t.Fatalf("wait reviewer reaper: %v", err)
+	}
+	if fake.callCount() != 3 {
+		t.Fatalf("spawn calls=%d, want worker, reviewer, manager resume", fake.callCount())
+	}
+	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+		t.Fatalf("manager resume args = %v, want %v", got, want)
+	}
+	meta, err := ReadMetadata(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager metadata: %v", err)
+	}
+	if meta.Status != StatusRunning || meta.ResumeCount != 1 {
+		t.Fatalf("manager metadata = %+v, want auto-resumed manager", meta)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager mailbox: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"event":"job.step_completed"`) || !strings.Contains(messages[0].Body, `"manager_gate_ready":true`) {
+		t.Fatalf("manager messages = %+v, want completion event with manual gate context", messages)
+	}
+	j, err := jobstore.Read(teamDir, "squ-94")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if len(j.Steps) != 3 || j.Steps[1].Status != jobstore.StatusDone || j.Steps[2].Status != jobstore.StatusBlocked || j.Steps[2].Gate != jobstore.StepGateManual {
+		t.Fatalf("job steps = %+v, want reviewer done and manager gate blocked", j.Steps)
+	}
+}
+
 func TestEvent_ProbePipelineSkipsReviewAndCompletesOnImplementExit(t *testing.T) {
 	root := t.TempDir()
 	teamDir := autoAdvanceTeamDir(t)

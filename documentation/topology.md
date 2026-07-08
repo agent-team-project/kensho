@@ -126,6 +126,7 @@ New topology declarations and docs should use normalized event names:
 | `agent.dispatch` | One agent or operator dispatches another agent through the daemon. |
 | `ticket.created`, `ticket.updated`, `ticket.commented`, `ticket.status_changed` | PM intake. |
 | `pr.opened`, `pr.review_requested`, `pr.commented`, `pr.merged` | GitHub intake. |
+| `job.step_completed`, `job.completed`, `deliverable.ready` | Daemon job and pipeline completion hooks. |
 | `schedule` | Daemon scheduler. |
 | `channel.message` | Channel publish events. |
 

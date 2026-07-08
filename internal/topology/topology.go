@@ -64,10 +64,13 @@ const (
 // event names such as `ticket.created` and `pr.merged`; topology triggers match
 // those names exactly.
 const (
-	EventUserInvocation = "user_invocation"
-	EventAgentDispatch  = "agent.dispatch"
-	EventSchedule       = "schedule"
-	EventChannelMessage = "channel.message"
+	EventUserInvocation   = "user_invocation"
+	EventAgentDispatch    = "agent.dispatch"
+	EventSchedule         = "schedule"
+	EventChannelMessage   = "channel.message"
+	EventJobCompleted     = "job.completed"
+	EventJobStepCompleted = "job.step_completed"
+	EventDeliverableReady = "deliverable.ready"
 )
 
 // Topology is the parsed + merged set of declared instances for a repo.

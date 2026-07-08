@@ -430,6 +430,64 @@ match.target = "manager"
 	}
 }
 
+func TestEvent_PersistentAgentDispatchWakesStoppedManager(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	root := DaemonRoot(teamDir)
+	sessionID := seedStoppedCodexManager(t, root, teamDir, "manager")
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.manager.triggers]]
+event = "agent.dispatch"
+match.target = "manager"
+`)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+	t.Cleanup(func() {
+		_, _ = m.Stop("manager")
+		_ = m.WaitForReaper("manager", 5*time.Second)
+	})
+
+	resp := mustPost(t, srv.URL+"/v1/event", `{"type":"agent.dispatch","payload":{"target":"manager","ticket":"SQU-301"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var got struct {
+		Dispatched []map[string]any `json:"dispatched"`
+		Queued     []string         `json:"queued"`
+		Messaged   []string         `json:"messaged"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Dispatched) != 1 || got.Dispatched[0]["instance_id"] != "manager" || len(got.Queued) != 0 || len(got.Messaged) != 0 {
+		t.Fatalf("outcome = %+v, want dispatched manager", got)
+	}
+	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+		t.Fatalf("resume args = %v, want %v", got, want)
+	}
+	meta, err := ReadMetadata(root, "manager")
+	if err != nil {
+		t.Fatalf("read manager metadata: %v", err)
+	}
+	if meta.Status != StatusRunning || meta.ResumeCount != 1 {
+		t.Fatalf("manager metadata = %+v, want running resume", meta)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"target":"manager"`) {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
 func TestEvent_AgentDispatchPipelinePersistentTargetActuatesOnce(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
@@ -524,6 +582,40 @@ match.target = "manager"
 	if len(got.Messaged) != 1 || got.Messaged[0] != "manager" || len(got.Queued) != 0 {
 		t.Fatalf("outcome = %+v, want messaged manager", got)
 	}
+}
+
+func seedStoppedCodexManager(t *testing.T, root, teamDir, instance string) string {
+	t.Helper()
+	sessionID := "11111111-1111-4111-8111-111111111111"
+	codexHome := t.TempDir()
+	writeCodexRollout(t, codexHome, sessionID)
+	workspace := filepath.Dir(teamDir)
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      instance,
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindCodex),
+		RuntimeBinary: "codex",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatalf("write manager metadata: %v", err)
+	}
+	if err := WriteInstanceLaunchEnv(root, instance, &LaunchEnv{
+		Bin:        "codex",
+		Args:       []string{"codex", "exec", "-"},
+		Dir:        workspace,
+		Env:        []string{"CODEX_HOME=" + codexHome, "MARKER=dispatch"},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("write manager launch env: %v", err)
+	}
+	return sessionID
 }
 
 func TestEvent_EphemeralDispatchUnderCapacity(t *testing.T) {
@@ -4356,9 +4448,9 @@ payload.team = "platform"
 }
 
 func TestIntakeLinearRouteNormalizesAndDispatches(t *testing.T) {
-	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
+	root := t.TempDir()
 	top, err := topology.Parse([]byte(`
 [instances.manager]
 agent = "manager"

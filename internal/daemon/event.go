@@ -379,10 +379,56 @@ func (r *EventResolver) actuatePersistent(inst *topology.Instance, eventType str
 	if err := AppendMessage(r.mgr.daemonRoot, inst.Name, msg); err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
-	if eventType == topology.EventAgentDispatch && !r.mgr.isRunning(inst.Name) {
-		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: inst.Name}
+	if r.mgr.isRunning(inst.Name) || !persistentEventShouldWake(eventType) {
+		return EventOutcome{Instance: inst.Name, Action: "messaged", InstanceID: inst.Name}
 	}
-	return EventOutcome{Instance: inst.Name, Action: "messaged", InstanceID: inst.Name}
+	meta, err := r.wakePersistent(inst, eventType, payload)
+	if err != nil {
+		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: inst.Name, Reason: err.Error()}
+	}
+	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: meta.Instance}
+}
+
+func persistentEventShouldWake(eventType string) bool {
+	switch eventType {
+	case topology.EventAgentDispatch, topology.EventJobCompleted, topology.EventJobStepCompleted, topology.EventDeliverableReady:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *EventResolver) wakePersistent(inst *topology.Instance, eventType string, payload map[string]any) (*Metadata, error) {
+	prompt := persistentWakePrompt(eventType, payload)
+	meta, err := r.mgr.StartWithOptions(inst.Name, StartOptions{
+		AllowFreshWithoutSession: true,
+		ResumePrompt:             prompt,
+	})
+	if err == nil {
+		return meta, nil
+	}
+	if eventType == topology.EventAgentDispatch {
+		return nil, err
+	}
+	r.mu.Lock()
+	t := r.topo
+	r.mu.Unlock()
+	if t == nil || strings.TrimSpace(r.teamDir) == "" {
+		return nil, err
+	}
+	meta, launched, fallbackErr := launchDeclaredFreshWithPrompt(r.teamDir, r.mgr, t, inst, nil, prompt)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("%w; fresh launch fallback failed: %v", err, fallbackErr)
+	}
+	if !launched || meta == nil {
+		return nil, fmt.Errorf("%w; fresh launch fallback did not start %q", err, inst.Name)
+	}
+	return meta, nil
+}
+
+func persistentWakePrompt(eventType string, payload map[string]any) string {
+	body, _ := json.Marshal(map[string]any{"event": eventType, "payload": payload})
+	return "Re-invoked by agent-teamd after a topology event matched this persistent instance. Run `inbox check`, acknowledge handled messages, then continue autonomous management.\n\nMatched event:\n" + string(body)
 }
 
 func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {

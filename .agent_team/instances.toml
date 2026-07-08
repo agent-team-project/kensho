@@ -21,6 +21,18 @@ event = "user_invocation"
 event        = "agent.dispatch"
 match.target = "manager"
 
+[[instances.manager.triggers]]
+event        = "job.step_completed"
+match.target = "manager"
+
+[[instances.manager.triggers]]
+event        = "job.completed"
+match.target = "manager"
+
+[[instances.manager.triggers]]
+event        = "deliverable.ready"
+match.target = "manager"
+
 [instances.ticket-manager]
 agent       = "ticket-manager"
 ephemeral   = false
