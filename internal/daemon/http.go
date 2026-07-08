@@ -1122,14 +1122,24 @@ func daemonStartedAt(teamDir string) time.Time {
 
 type jobListEntry struct {
 	ID                  string          `json:"id"`
+	URI                 string          `json:"uri,omitempty"`
+	DeploymentURI       string          `json:"deployment_uri,omitempty"`
+	DeploymentParentURI string          `json:"deployment_parent_uri,omitempty"`
 	Ticket              string          `json:"ticket"`
 	TicketURL           string          `json:"ticket_url,omitempty"`
+	Epic                string          `json:"epic,omitempty"`
 	Target              string          `json:"target"`
 	ImplementationAgent string          `json:"implementation_agent,omitempty"`
 	Instance            string          `json:"instance,omitempty"`
+	InstanceURI         string          `json:"instance_uri,omitempty"`
+	WorkspaceURI        string          `json:"workspace_uri,omitempty"`
 	Pipeline            string          `json:"pipeline,omitempty"`
 	Status              jobstore.Status `json:"status"`
 	Held                bool            `json:"held,omitempty"`
+	TokenBudget         int64           `json:"token_budget,omitempty"`
+	TimeBudget          string          `json:"time_budget,omitempty"`
+	Hard                bool            `json:"hard,omitempty"`
+	HardMultiplier      float64         `json:"hard_multiplier,omitempty"`
 	Branch              string          `json:"branch,omitempty"`
 	PR                  string          `json:"pr,omitempty"`
 	LastEvent           string          `json:"last_event,omitempty"`
@@ -1146,14 +1156,24 @@ func marshalJobs(jobs []*jobstore.Job) []jobListEntry {
 		}
 		out = append(out, jobListEntry{
 			ID:                  j.ID,
+			URI:                 j.URI,
+			DeploymentURI:       j.DeploymentURI,
+			DeploymentParentURI: j.DeploymentParentURI,
 			Ticket:              j.Ticket,
 			TicketURL:           j.TicketURL,
+			Epic:                j.Epic,
 			Target:              j.Target,
 			ImplementationAgent: j.ImplementationAgent,
 			Instance:            j.Instance,
+			InstanceURI:         j.InstanceURI,
+			WorkspaceURI:        j.WorkspaceURI,
 			Pipeline:            j.Pipeline,
 			Status:              j.Status,
 			Held:                j.Held,
+			TokenBudget:         j.TokenBudget,
+			TimeBudget:          j.TimeBudget,
+			Hard:                j.HardBudget,
+			HardMultiplier:      j.HardMultiplier,
 			Branch:              j.Branch,
 			PR:                  j.PR,
 			LastEvent:           j.LastEvent,
@@ -1525,14 +1545,32 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 			"allocation":     budget.Allocation,
 		})
 	}
+	scheduleStates := scheduleStateMap(events)
 	schedules := make([]map[string]any, 0, len(topo.Schedules))
 	for _, schedule := range topo.SortedSchedules() {
-		schedules = append(schedules, map[string]any{
+		stateName := schedule.Name
+		if events != nil {
+			stateName = events.scheduleStateName(schedule)
+		}
+		entry := map[string]any{
 			"name":         schedule.Name,
+			"state_name":   stateName,
 			"every":        schedule.Every.String(),
 			"run_on_start": schedule.RunOnStart,
 			"payload":      schedule.Payload,
-		})
+		}
+		if team := topo.TeamForSchedule(schedule.Name); team != "" {
+			entry["team"] = team
+		}
+		if state := scheduleStates[stateName]; state != nil {
+			if !state.LastSeenAt.IsZero() {
+				entry["last_seen_at"] = state.LastSeenAt.UTC()
+			}
+			if !state.LastFiredAt.IsZero() {
+				entry["last_fired_at"] = state.LastFiredAt.UTC()
+			}
+		}
+		schedules = append(schedules, entry)
 	}
 	resp := map[string]any{
 		"instances": out,
@@ -1545,6 +1583,17 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 		resp["budget_reminder_levels"] = topo.ReminderLevels
 	}
 	return resp
+}
+
+func scheduleStateMap(events *EventResolver) map[string]*ScheduleState {
+	if events == nil {
+		return nil
+	}
+	states := events.loadScheduleStates()
+	if len(states) == 0 {
+		return nil
+	}
+	return states
 }
 
 func marshalPipelineMerge(merge *topology.PipelineMerge) map[string]any {

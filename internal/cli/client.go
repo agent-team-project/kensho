@@ -926,10 +926,14 @@ type topologyPipeline struct {
 }
 
 type topologySchedule struct {
-	Name       string                 `json:"name"`
-	Every      string                 `json:"every"`
-	RunOnStart bool                   `json:"run_on_start"`
-	Payload    map[string]interface{} `json:"payload"`
+	Name        string                 `json:"name"`
+	StateName   string                 `json:"state_name,omitempty"`
+	Every       string                 `json:"every"`
+	RunOnStart  bool                   `json:"run_on_start"`
+	Payload     map[string]interface{} `json:"payload"`
+	Team        string                 `json:"team,omitempty"`
+	LastSeenAt  *time.Time             `json:"last_seen_at,omitempty"`
+	LastFiredAt *time.Time             `json:"last_fired_at,omitempty"`
 }
 
 type topologyTeam struct {

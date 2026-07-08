@@ -13,16 +13,25 @@ const els = {
   pipelineCount: document.getElementById("pipelineCount"),
   budgetTeamCount: document.getElementById("budgetTeamCount"),
   teamCount: document.getElementById("teamCount"),
+  scheduleCount: document.getElementById("scheduleCount"),
+  deploymentCount: document.getElementById("deploymentCount"),
+  deadlineCount: document.getElementById("deadlineCount"),
   instancesBody: document.getElementById("instancesBody"),
   jobsBody: document.getElementById("jobsBody"),
   pipelinesBody: document.getElementById("pipelinesBody"),
   budgetsBody: document.getElementById("budgetsBody"),
   teamsBody: document.getElementById("teamsBody"),
+  resourcesBody: document.getElementById("resourcesBody"),
+  schedulesBody: document.getElementById("schedulesBody"),
+  deadlinesBody: document.getElementById("deadlinesBody"),
   instanceUpdated: document.getElementById("instanceUpdated"),
   jobUpdated: document.getElementById("jobUpdated"),
   pipelineUpdated: document.getElementById("pipelineUpdated"),
   budgetUpdated: document.getElementById("budgetUpdated"),
   teamUpdated: document.getElementById("teamUpdated"),
+  resourceUpdated: document.getElementById("resourceUpdated"),
+  scheduleUpdated: document.getElementById("scheduleUpdated"),
+  deadlineUpdated: document.getElementById("deadlineUpdated"),
   refreshState: document.getElementById("refreshState"),
 };
 
@@ -73,6 +82,68 @@ async function loadEndpoint(key) {
   } catch (error) {
     return { key, ok: false, error };
   }
+}
+
+function isResourceURI(value) {
+  return typeof value === "string" && value.startsWith("agt://");
+}
+
+function addResourceURI(out, value) {
+  if (isResourceURI(value)) {
+    out.add(value);
+  }
+}
+
+function collectResourceURIs(instances, jobs) {
+  const out = new Set();
+  const keys = [
+    "uri",
+    "URI",
+    "deployment_uri",
+    "DeploymentURI",
+    "job_uri",
+    "JobURI",
+    "instance_uri",
+    "InstanceURI",
+    "workspace_uri",
+    "WorkspaceURI",
+    "state_uri",
+    "StateURI",
+    "log_uri",
+    "LogURI",
+  ];
+  for (const row of [...instances, ...jobs]) {
+    for (const key of keys) {
+      addResourceURI(out, row && row[key]);
+    }
+  }
+  return [...out].sort();
+}
+
+async function loadResource(uri) {
+  try {
+    return { uri, ok: true, data: await getJSON(`/v1/resources?uri=${encodeURIComponent(uri)}`) };
+  } catch (error) {
+    return { uri, ok: false, error };
+  }
+}
+
+async function loadResources(instances, jobs) {
+  const uris = collectResourceURIs(instances, jobs);
+  if (!uris.length) {
+    return { ok: true, data: new Map(), failures: [], requested: 0 };
+  }
+  const loaded = await Promise.all(uris.map(loadResource));
+  const data = new Map();
+  const failures = [];
+  for (const result of loaded) {
+    if (result.ok) {
+      data.set(result.uri, result.data);
+    } else {
+      failures.push(result);
+    }
+  }
+  return { ok: failures.length === 0, data, failures, requested: uris.length };
 }
 
 function field(row, ...names) {
@@ -130,6 +201,56 @@ function compactNumber(value) {
     notation: Math.abs(number) >= 100000 ? "compact" : "standard",
     maximumFractionDigits: 1,
   }).format(number);
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return text(value);
+  }
+  return date.toLocaleString();
+}
+
+function shortURI(value) {
+  const raw = text(value, "");
+  if (!raw) {
+    return "-";
+  }
+  const match = raw.match(/^agt:\/\/([^/]+)\/([^/]+)\/([^#]+)(#.+)?$/);
+  if (!match) {
+    return raw;
+  }
+  const id = decodeURIComponent(match[3]);
+  return match[4] ? `${match[2]}/${id}${match[4]}` : `${match[2]}/${id}`;
+}
+
+function resourceEnvelope(resources, uri) {
+  if (!resources || !resources.data || !isResourceURI(uri)) {
+    return null;
+  }
+  return resources.data.get(uri) || null;
+}
+
+function resourceData(resources, uri) {
+  const envelope = resourceEnvelope(resources, uri);
+  return envelope && envelope.data && typeof envelope.data === "object" ? envelope.data : {};
+}
+
+function payloadSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return text(value);
+  }
+  const entries = Object.entries(value);
+  if (!entries.length) {
+    return "-";
+  }
+  return entries
+    .slice(0, 3)
+    .map(([key, entry]) => `${key}=${Array.isArray(entry) ? entry.join("|") : text(entry)}`)
+    .join(" ");
 }
 
 function readableErrorBody(body) {
@@ -303,6 +424,137 @@ function renderJobs(result, jobs) {
   }
 }
 
+function deploymentID(uri) {
+  const raw = text(uri, "");
+  const match = raw.match(/^agt:\/\/([^/]+)\//);
+  return match ? match[1] : raw;
+}
+
+function ensureDeployment(rows, uri) {
+  const key = text(uri, "");
+  if (!key) {
+    return null;
+  }
+  if (!rows.has(key)) {
+    rows.set(key, {
+      uri: key,
+      id: deploymentID(key),
+      parent: "",
+      instances: new Set(),
+      jobs: new Set(),
+      statuses: new Set(),
+      charterURI: "",
+      charterStatus: "",
+      relationship: "",
+      ready: false,
+    });
+  }
+  return rows.get(key);
+}
+
+function absorbCharter(row, source) {
+  if (!row || !source || typeof source !== "object") {
+    return;
+  }
+  row.charterURI ||= field(source, "charter_uri", "CharterURI");
+  row.charterStatus ||= field(source, "state", "State", "charter_status", "CharterStatus", "charter_state", "CharterState");
+  row.relationship ||= field(source, "relationship", "Relationship");
+}
+
+function deploymentRows(instances, jobs, resources) {
+  const rows = new Map();
+  for (const instance of instances) {
+    const uri = field(instance, "deployment_uri", "DeploymentURI");
+    const row = ensureDeployment(rows, uri);
+    if (!row) {
+      continue;
+    }
+    row.parent ||= field(instance, "deployment_parent_uri", "DeploymentParentURI");
+    row.instances.add(field(instance, "instance", "Instance"));
+    row.statuses.add(field(instance, "status", "Status"));
+    absorbCharter(row, instance);
+    absorbCharter(row, resourceData(resources, field(instance, "uri", "URI")));
+  }
+  for (const job of jobs) {
+    const uri = field(job, "deployment_uri", "DeploymentURI");
+    const row = ensureDeployment(rows, uri);
+    if (!row) {
+      continue;
+    }
+    row.parent ||= field(job, "deployment_parent_uri", "DeploymentParentURI");
+    row.jobs.add(field(job, "id", "ID"));
+    row.statuses.add(field(job, "status", "Status"));
+    absorbCharter(row, job);
+    absorbCharter(row, resourceData(resources, field(job, "uri", "URI", "job_uri", "JobURI")));
+  }
+  if (resources && resources.data) {
+    for (const envelope of resources.data.values()) {
+      if (!envelope || envelope.kind !== "project") {
+        continue;
+      }
+      const data = envelope.data || {};
+      const row = ensureDeployment(rows, field(data, "uri", "URI", "deployment_uri", "DeploymentURI", "parent_uri", "ParentURI") || envelope.uri);
+      if (!row) {
+        continue;
+      }
+      row.id = field(data, "id", "ID") || row.id;
+      row.parent ||= field(data, "parent_uri", "ParentURI");
+      row.ready = Boolean(field(data, "ready", "Ready"));
+      absorbCharter(row, data);
+    }
+  }
+  return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function countParts(row) {
+  const parts = [];
+  if (row.instances.size) {
+    parts.push(`${row.instances.size} ${row.instances.size === 1 ? "instance" : "instances"}`);
+  }
+  if (row.jobs.size) {
+    parts.push(`${row.jobs.size} ${row.jobs.size === 1 ? "job" : "jobs"}`);
+  }
+  return parts.join(" / ") || "-";
+}
+
+function deploymentStatus(row) {
+  if (row.charterStatus) {
+    return row.charterStatus;
+  }
+  if ([...row.statuses].some((status) => text(status).toLowerCase() === "running")) {
+    return "running";
+  }
+  if (row.ready) {
+    return "ready";
+  }
+  return row.statuses.size ? [...row.statuses].filter(Boolean).join(", ") : "observed";
+}
+
+function renderResources(result, instances, jobs) {
+  els.resourcesBody.replaceChildren();
+  const rows = deploymentRows(instances, jobs, result);
+  if (!rows.length && result && !result.ok) {
+    els.resourcesBody.appendChild(errorRow(5, "Resources unavailable", result.failures.map((failure) => humanError(failure.error)).join(" | ")));
+    return;
+  }
+  if (!rows.length) {
+    els.resourcesBody.appendChild(emptyRow(5, "No deployment resources reported", "Resource URIs appear here once instances or jobs include deployment metadata."));
+    return;
+  }
+  for (const row of rows) {
+    const charter = row.charterURI ? `${shortURI(row.charterURI)}${row.charterStatus ? ` (${row.charterStatus})` : ""}` : "not reported";
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(shortURI(row.uri)),
+      cell(row.parent ? shortURI(row.parent) : "root"),
+      cell(countParts(row)),
+      cell(charter),
+      cell(statusPill(deploymentStatus(row)))
+    );
+    els.resourcesBody.appendChild(tr);
+  }
+}
+
 function pipelineActiveCount(pipeline, jobs) {
   const name = field(pipeline, "name", "Name");
   return jobs.filter((job) => field(job, "pipeline", "Pipeline") === name && activeJob(job)).length;
@@ -349,26 +601,55 @@ function renderPipelines(result, pipelines, jobs) {
 function renderBudgets(result, budgets, jobs, teams) {
   els.budgetsBody.replaceChildren();
   if (!result.ok) {
-    els.budgetsBody.appendChild(errorRow(5, "Budgets unavailable", result.error));
+    els.budgetsBody.appendChild(errorRow(6, "Budgets unavailable", result.error));
     return;
   }
   if (!budgets.length) {
-    els.budgetsBody.appendChild(emptyRow(5, "No budgets configured", "Declare team budgets to track tokens, job caps, and allocation mode."));
+    els.budgetsBody.appendChild(emptyRow(6, "No budgets configured", "Declare team budgets to track tokens, job caps, and allocation mode."));
     return;
   }
   const byPipeline = pipelineTeamMap(teams);
   for (const budget of budgets) {
     const team = field(budget, "team", "Team");
     const active = jobs.filter((job) => activeJob(job) && byPipeline.get(field(job, "pipeline", "Pipeline")) === team).length;
+    const capRaw = field(budget, "jobs_in_flight", "JobsInFlight");
+    const cap = Number(capRaw);
+    const available = Number.isFinite(cap) && cap > 0 ? Math.max(cap - active, 0) : "";
     const tr = document.createElement("tr");
     tr.append(
       cell(team),
       cell(compactNumber(field(budget, "tokens_per_day", "TokensPerDay"))),
-      cell(field(budget, "jobs_in_flight", "JobsInFlight")),
+      cell(capRaw || "unbounded"),
       cell(pill(active ? `${active} active` : "idle", active ? "positive" : "neutral")),
+      cell(available === "" ? "-" : pill(`${available} open`, available > 0 ? "positive" : "warning")),
       cell(pill(field(budget, "allocation", "Allocation") || "unconfigured", "info"))
     );
     els.budgetsBody.appendChild(tr);
+  }
+}
+
+function renderSchedules(result, schedules) {
+  els.schedulesBody.replaceChildren();
+  if (!result.ok) {
+    els.schedulesBody.appendChild(errorRow(5, "Schedules unavailable", result.error));
+    return;
+  }
+  if (!schedules.length) {
+    els.schedulesBody.appendChild(emptyRow(5, "No schedules declared", "Topology schedules appear here once a loop is configured."));
+    return;
+  }
+  for (const schedule of schedules) {
+    const lastFired = field(schedule, "last_fired_at", "LastFiredAt");
+    const cadence = field(schedule, "every", "Every");
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(field(schedule, "name", "Name")),
+      cell(cadence),
+      cell(lastFired ? formatDateTime(lastFired) : pill(field(schedule, "run_on_start", "RunOnStart") ? "on start" : "pending", "neutral")),
+      cell(field(schedule, "team", "Team") || "-"),
+      cell(payloadSummary(field(schedule, "payload", "Payload")))
+    );
+    els.schedulesBody.appendChild(tr);
   }
 }
 
@@ -401,10 +682,134 @@ function renderTeams(result, teams, jobs) {
   }
 }
 
-function updateSummary(instances, jobs, topology) {
+function deadlineValue(source) {
+  if (!source || typeof source !== "object") {
+    return "";
+  }
+  const durable = field(source, "deadline", "Deadline");
+  const runtime = field(source, "runtime_deadline", "RuntimeDeadline");
+  return durable || runtime;
+}
+
+function deadlineIdentity(kind, source, fallbackURI, fallbackID) {
+  const uri = field(source, "uri", "URI", "job_uri", "JobURI", "instance_uri", "InstanceURI") || fallbackURI;
+  if (uri) {
+    return uri;
+  }
+  const id = field(source, "id", "ID", "instance", "Instance", "name", "Name") || fallbackID;
+  return id ? `${kind}:${id}` : "";
+}
+
+function rememberDeadlineResource(seen, envelope, fallbackURI) {
+  if (fallbackURI) {
+    seen.add(fallbackURI);
+  }
+  if (!envelope) {
+    return;
+  }
+  if (envelope.uri) {
+    seen.add(envelope.uri);
+  }
+  const data = envelope.data && typeof envelope.data === "object" ? envelope.data : {};
+  const dataURI = field(data, "uri", "URI", "job_uri", "JobURI", "instance_uri", "InstanceURI");
+  if (dataURI) {
+    seen.add(dataURI);
+  }
+}
+
+function deadlineResourceSeen(seen, envelope) {
+  if (!envelope) {
+    return false;
+  }
+  if (envelope.uri && seen.has(envelope.uri)) {
+    return true;
+  }
+  const data = envelope.data && typeof envelope.data === "object" ? envelope.data : {};
+  const dataURI = field(data, "uri", "URI", "job_uri", "JobURI", "instance_uri", "InstanceURI");
+  return Boolean(dataURI && seen.has(dataURI));
+}
+
+function addDeadlineRow(rows, seen, identity, label, source, sourceLabel) {
+  const value = deadlineValue(source);
+  if (!value) {
+    return;
+  }
+  const key = text(identity, "") || `${sourceLabel}:${text(label, "")}`;
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  const runtime = field(source, "runtime_deadline", "RuntimeDeadline");
+  rows.push({
+    label,
+    deadline: value,
+    state: field(source, "deadline_state", "DeadlineState") || (runtime ? "runtime" : "set"),
+    source: field(source, "deadline_source", "DeadlineSource") || sourceLabel,
+  });
+}
+
+function deadlineRows(instances, jobs, resources) {
+  const rows = [];
+  const seen = new Set();
+  const representedResources = new Set();
+  for (const job of jobs) {
+    const label = field(job, "id", "ID");
+    const uri = field(job, "uri", "URI", "job_uri", "JobURI");
+    const envelope = resourceEnvelope(resources, uri);
+    const data = envelope && envelope.data && typeof envelope.data === "object" ? envelope.data : {};
+    rememberDeadlineResource(representedResources, envelope, uri);
+    const source = deadlineValue(data) ? data : job;
+    const sourceLabel = source === data ? "job resource" : "job";
+    addDeadlineRow(rows, seen, deadlineIdentity("job", source, uri, label), label, source, sourceLabel);
+  }
+  for (const instance of instances) {
+    const label = field(instance, "instance", "Instance");
+    const uri = field(instance, "uri", "URI");
+    const envelope = resourceEnvelope(resources, uri);
+    const data = envelope && envelope.data && typeof envelope.data === "object" ? envelope.data : {};
+    rememberDeadlineResource(representedResources, envelope, uri);
+    const source = deadlineValue(data) ? data : instance;
+    const sourceLabel = source === data ? "instance resource" : "runtime watchdog";
+    addDeadlineRow(rows, seen, deadlineIdentity("instance", source, uri, label), label, source, sourceLabel);
+  }
+  if (resources && resources.data) {
+    for (const envelope of resources.data.values()) {
+      if (deadlineResourceSeen(representedResources, envelope)) {
+        continue;
+      }
+      const data = envelope && envelope.data;
+      const label = shortURI(envelope && envelope.uri);
+      const kind = envelope && envelope.kind ? envelope.kind : "resource";
+      addDeadlineRow(rows, seen, deadlineIdentity(kind, data, envelope && envelope.uri, envelope && envelope.id), label, data, `${kind} resource`);
+    }
+  }
+  return rows.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function renderDeadlines(resources, instances, jobs) {
+  els.deadlinesBody.replaceChildren();
+  const rows = deadlineRows(instances, jobs, resources);
+  if (!rows.length) {
+    els.deadlinesBody.appendChild(emptyRow(4, "No durable deadlines reported", "Runtime watchdog deadlines and future delivery deadlines will appear here when present."));
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(row.label),
+      cell(formatDateTime(row.deadline)),
+      cell(statusPill(row.state)),
+      cell(row.source)
+    );
+    els.deadlinesBody.appendChild(tr);
+  }
+}
+
+function updateSummary(instances, jobs, topology, resources) {
   const pipelines = Array.isArray(topology.pipelines) ? topology.pipelines : [];
   const budgets = Array.isArray(topology.budgets) ? topology.budgets : [];
   const teams = Array.isArray(topology.teams) ? topology.teams : [];
+  const schedules = Array.isArray(topology.schedules) ? topology.schedules : [];
   els.instanceCount.textContent = instances.length;
   els.runningCount.textContent = instances.filter((row) => text(field(row, "status", "Status")).toLowerCase() === "running").length;
   els.jobCount.textContent = jobs.length;
@@ -412,6 +817,9 @@ function updateSummary(instances, jobs, topology) {
   els.pipelineCount.textContent = pipelines.length;
   els.budgetTeamCount.textContent = budgets.length;
   els.teamCount.textContent = teams.length;
+  els.scheduleCount.textContent = schedules.length;
+  els.deploymentCount.textContent = deploymentRows(instances, jobs, resources).length;
+  els.deadlineCount.textContent = deadlineRows(instances, jobs, resources).length;
 }
 
 function setNotice(message, tone = "info") {
@@ -451,12 +859,22 @@ function failureSummary(failures) {
   return failures.map((failure) => `${endpoints[failure.key].label}: ${humanError(failure.error)}`).join(" | ");
 }
 
-function updatePanelTimes(results, stamp) {
+function resourceFailureSummary(resources) {
+  if (!resources || !resources.failures || !resources.failures.length) {
+    return "";
+  }
+  return resources.failures.map((failure) => `${shortURI(failure.uri)}: ${humanError(failure.error)}`).join(" | ");
+}
+
+function updatePanelTimes(results, resources, stamp) {
   els.instanceUpdated.textContent = results.instances.ok ? stamp : "unavailable";
   els.jobUpdated.textContent = results.jobs.ok ? stamp : "unavailable";
   els.pipelineUpdated.textContent = results.topology.ok ? stamp : "unavailable";
   els.budgetUpdated.textContent = results.topology.ok ? stamp : "unavailable";
   els.teamUpdated.textContent = results.topology.ok ? stamp : "unavailable";
+  els.resourceUpdated.textContent = resources && (resources.ok || resources.requested > 0) ? stamp : "unavailable";
+  els.scheduleUpdated.textContent = results.topology.ok ? stamp : "unavailable";
+  els.deadlineUpdated.textContent = resources && (resources.ok || resources.requested > 0) ? stamp : "unavailable";
 }
 
 async function refresh() {
@@ -476,24 +894,31 @@ async function refresh() {
     const safePipelines = topologyArray(results.topology, "pipelines");
     const safeBudgets = topologyArray(results.topology, "budgets");
     const safeTeams = topologyArray(results.topology, "teams");
+    const safeSchedules = topologyArray(results.topology, "schedules");
+    const resources = await loadResources(safeInstances, safeJobs);
 
     renderInstances(results.instances, safeInstances);
     renderJobs(results.jobs, safeJobs);
+    renderResources(resources, safeInstances, safeJobs);
     renderPipelines(results.topology, safePipelines, safeJobs);
     renderBudgets(results.topology, safeBudgets, safeJobs, safeTeams);
+    renderSchedules(results.topology, safeSchedules);
+    renderDeadlines(resources, safeInstances, safeJobs);
     renderTeams(results.topology, safeTeams, safeJobs);
-    updateSummary(safeInstances, safeJobs, safeTopology);
+    updateSummary(safeInstances, safeJobs, safeTopology, resources);
 
     const stamp = new Date().toLocaleTimeString();
     const failures = loaded.filter((result) => !result.ok);
     const successes = loaded.length - failures.length;
-    updatePanelTimes(results, stamp);
-    if (!failures.length) {
+    const resourceFailures = resourceFailureSummary(resources);
+    updatePanelTimes(results, resources, stamp);
+    if (!failures.length && !resourceFailures) {
       setConnection("connected", "Connected");
       setNotice(`Daemon data loaded at ${stamp}.`, "success");
-    } else if (successes > 0) {
+    } else if (successes > 0 || (resources && resources.requested > resources.failures.length)) {
       setConnection("degraded", "Partial connection");
-      setNotice(`Partial daemon data loaded at ${stamp}. ${failureSummary(failures)}`, "warning");
+      const parts = [failureSummary(failures), resourceFailures && `resources: ${resourceFailures}`].filter(Boolean);
+      setNotice(`Partial daemon data loaded at ${stamp}. ${parts.join(" | ")}`, "warning");
     } else {
       setConnection("disconnected", "Disconnected");
       setNotice(`Unable to load daemon data. ${failureSummary(failures)}`, "error");

@@ -60,6 +60,18 @@
         <span class="metric-label">Teams</span>
         <strong id="teamCount">0</strong>
       </article>
+      <article>
+        <span class="metric-label">Schedules</span>
+        <strong id="scheduleCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Deployments</span>
+        <strong id="deploymentCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Deadlines</span>
+        <strong id="deadlineCount">0</strong>
+      </article>
     </section>
 
     <p class="notice" id="notice" role="status">Loading daemon data...</p>
@@ -108,6 +120,27 @@
 
       <article class="panel panel-wide">
         <div class="panel-heading">
+          <h2>Deployments / Charters</h2>
+          <span id="resourceUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table class="wide-table">
+            <thead>
+              <tr>
+                <th>Deployment</th>
+                <th>Parent</th>
+                <th>Children</th>
+                <th>Charter</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="resourcesBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading">
           <h2>Pipelines</h2>
           <span id="pipelineUpdated">-</span>
         </div>
@@ -137,12 +170,54 @@
               <tr>
                 <th>Team</th>
                 <th>Tokens/Day</th>
-                <th>Jobs</th>
+                <th>Job Cap</th>
                 <th>Active</th>
+                <th>Available</th>
                 <th>Allocation</th>
               </tr>
             </thead>
             <tbody id="budgetsBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Schedules</h2>
+          <span id="scheduleUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Cadence</th>
+                <th>Last Fired</th>
+                <th>Team</th>
+                <th>Payload</th>
+              </tr>
+            </thead>
+            <tbody id="schedulesBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading">
+          <h2>Deadlines</h2>
+          <span id="deadlineUpdated">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Resource</th>
+                <th>Deadline</th>
+                <th>State</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="deadlinesBody"></tbody>
           </table>
         </div>
       </article>

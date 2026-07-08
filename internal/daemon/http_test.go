@@ -96,6 +96,7 @@ func TestHTTP_Dispatch_StopList(t *testing.T) {
 func TestHTTP_JobsList(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
+	writeProjectConfig(t, teamDir, "dep")
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	j, err := jobstore.New("SQU-144", "worker", "kickoff", now)
 	if err != nil {
@@ -103,6 +104,12 @@ func TestHTTP_JobsList(t *testing.T) {
 	}
 	j.Status = jobstore.StatusRunning
 	j.Instance = "worker-squ-144"
+	j.Epic = "agent-team-project/kensho#153"
+	j.Pipeline = "ticket_to_pr"
+	j.TokenBudget = 40_000_000
+	j.TimeBudget = "45m0s"
+	j.HardBudget = true
+	j.HardMultiplier = 1.25
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
@@ -115,16 +122,33 @@ func TestHTTP_JobsList(t *testing.T) {
 		t.Fatalf("jobs status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
 	}
 	var jobs []struct {
-		ID       string          `json:"id"`
-		Instance string          `json:"instance"`
-		Status   jobstore.Status `json:"status"`
-		Kickoff  string          `json:"kickoff"`
+		ID                  string          `json:"id"`
+		URI                 string          `json:"uri"`
+		DeploymentURI       string          `json:"deployment_uri"`
+		DeploymentParentURI string          `json:"deployment_parent_uri"`
+		Epic                string          `json:"epic"`
+		Instance            string          `json:"instance"`
+		InstanceURI         string          `json:"instance_uri"`
+		WorkspaceURI        string          `json:"workspace_uri"`
+		Pipeline            string          `json:"pipeline"`
+		Status              jobstore.Status `json:"status"`
+		TokenBudget         int64           `json:"token_budget"`
+		TimeBudget          string          `json:"time_budget"`
+		Hard                bool            `json:"hard"`
+		HardMultiplier      float64         `json:"hard_multiplier"`
+		Kickoff             string          `json:"kickoff"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
 		t.Fatalf("decode jobs: %v", err)
 	}
 	if len(jobs) != 1 || jobs[0].ID != "squ-144" || jobs[0].Instance != "worker-squ-144" || jobs[0].Status != jobstore.StatusRunning {
 		t.Fatalf("jobs = %+v", jobs)
+	}
+	if jobs[0].URI != resource.JobURI("dep", "squ-144") || jobs[0].DeploymentURI != resource.DeploymentURI("dep") || jobs[0].InstanceURI != resource.InstanceURI("dep", "worker-squ-144") || jobs[0].WorkspaceURI == "" {
+		t.Fatalf("job resource fields = %+v", jobs[0])
+	}
+	if jobs[0].Epic != "agent-team-project/kensho#153" || jobs[0].Pipeline != "ticket_to_pr" || jobs[0].TokenBudget != 40_000_000 || jobs[0].TimeBudget != "45m0s" || !jobs[0].Hard || jobs[0].HardMultiplier != 1.25 {
+		t.Fatalf("job budget fields = %+v", jobs[0])
 	}
 	if jobs[0].Kickoff != "" {
 		t.Fatalf("jobs response leaked kickoff text: %+v", jobs[0])
@@ -278,10 +302,19 @@ target = "reviewer"
 after = ["implement"]
 optional = true
 
+[schedules.nightly]
+every = "1h"
+run_on_start = true
+scope = "team"
+
+[schedules.nightly.payload]
+kind = "self_exam"
+
 [teams.delivery]
 description = "Delivery team"
 instances = ["worker", "reviewer"]
 pipelines = ["ticket_to_pr"]
+schedules = ["nightly"]
 
 [budgets]
 reminder_levels = [25, 75, 100]
@@ -293,6 +326,11 @@ allocation = "reserve"
 `)
 	m := NewInstanceManager(t.TempDir(), nil)
 	resolver := NewEventResolver(m, teamDir, top)
+	lastSeen := time.Date(2026, 7, 7, 13, 0, 0, 0, time.UTC)
+	lastFired := time.Date(2026, 7, 7, 12, 30, 0, 0, time.UTC)
+	if err := WriteScheduleState(m.daemonRoot, &ScheduleState{Name: "team.delivery.nightly", LastSeenAt: lastSeen, LastFiredAt: lastFired}); err != nil {
+		t.Fatalf("write schedule state: %v", err)
+	}
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
 	defer srv.Close()
 
@@ -317,6 +355,7 @@ allocation = "reserve"
 		Teams []struct {
 			Name      string   `json:"name"`
 			Pipelines []string `json:"pipelines"`
+			Schedules []string `json:"schedules"`
 		} `json:"teams"`
 		Budgets []struct {
 			Team         string `json:"team"`
@@ -324,6 +363,15 @@ allocation = "reserve"
 			JobsInFlight int    `json:"jobs_in_flight"`
 			Allocation   string `json:"allocation"`
 		} `json:"budgets"`
+		Schedules []struct {
+			Name        string    `json:"name"`
+			StateName   string    `json:"state_name"`
+			Every       string    `json:"every"`
+			RunOnStart  bool      `json:"run_on_start"`
+			Team        string    `json:"team"`
+			LastSeenAt  time.Time `json:"last_seen_at"`
+			LastFiredAt time.Time `json:"last_fired_at"`
+		} `json:"schedules"`
 		BudgetReminderLevels []int `json:"budget_reminder_levels"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -342,11 +390,17 @@ allocation = "reserve"
 	if len(step.ReminderLevels) != 2 || step.ReminderLevels[0] != 50 || step.ReminderLevels[1] != 80 {
 		t.Fatalf("reminder levels = %+v", step.ReminderLevels)
 	}
-	if len(body.Teams) != 1 || body.Teams[0].Name != "delivery" || len(body.Teams[0].Pipelines) != 1 || body.Teams[0].Pipelines[0] != "ticket_to_pr" {
+	if len(body.Teams) != 1 || body.Teams[0].Name != "delivery" || len(body.Teams[0].Pipelines) != 1 || body.Teams[0].Pipelines[0] != "ticket_to_pr" || len(body.Teams[0].Schedules) != 1 || body.Teams[0].Schedules[0] != "nightly" {
 		t.Fatalf("teams = %+v", body.Teams)
 	}
 	if len(body.Budgets) != 1 || body.Budgets[0].Team != "delivery" || body.Budgets[0].TokensPerDay != 200_000_000 || body.Budgets[0].JobsInFlight != 4 || body.Budgets[0].Allocation != "reserve" {
 		t.Fatalf("budgets = %+v", body.Budgets)
+	}
+	if len(body.Schedules) != 1 || body.Schedules[0].Name != "nightly" || body.Schedules[0].StateName != "team.delivery.nightly" || body.Schedules[0].Every != "1h0m0s" || !body.Schedules[0].RunOnStart || body.Schedules[0].Team != "delivery" {
+		t.Fatalf("schedules = %+v", body.Schedules)
+	}
+	if !body.Schedules[0].LastSeenAt.Equal(lastSeen) || !body.Schedules[0].LastFiredAt.Equal(lastFired) {
+		t.Fatalf("schedule clock = %+v, want seen=%s fired=%s", body.Schedules[0], lastSeen, lastFired)
 	}
 	if len(body.BudgetReminderLevels) != 3 || body.BudgetReminderLevels[0] != 25 || body.BudgetReminderLevels[2] != 100 {
 		t.Fatalf("budget reminder levels = %+v", body.BudgetReminderLevels)

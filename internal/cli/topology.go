@@ -645,12 +645,18 @@ func toResponseLike(top *topology.Topology) map[string]any {
 	}
 	schedules := make([]map[string]any, 0, len(top.Schedules))
 	for _, schedule := range top.SortedSchedules() {
-		schedules = append(schedules, map[string]any{
+		team := top.TeamForSchedule(schedule.Name)
+		entry := map[string]any{
 			"name":         schedule.Name,
+			"state_name":   topology.ScopedResourceName(schedule.Name, schedule.Scope, team, ""),
 			"every":        schedule.Every.String(),
 			"run_on_start": schedule.RunOnStart,
 			"payload":      schedule.Payload,
-		})
+		}
+		if team != "" {
+			entry["team"] = team
+		}
+		schedules = append(schedules, entry)
 	}
 	teams := make([]map[string]any, 0, len(top.Teams))
 	for _, team := range top.SortedTeams() {
