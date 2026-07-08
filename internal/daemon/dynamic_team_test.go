@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +19,8 @@ import (
 )
 
 func TestDynamicTeamSpawnCharterLifecycle(t *testing.T) {
+	enableDynamicTeamSpawnForTest(t)
+
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
 	installFakeAgentTeamCLI(t)
@@ -378,6 +380,8 @@ match.target = "worker"
 }
 
 func TestDynamicTeamCharteredMarkerFailsClosedWithoutActiveCharter(t *testing.T) {
+	enableDynamicTeamSpawnForTest(t)
+
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
 	installFakeAgentTeamCLI(t)
@@ -495,6 +499,8 @@ func TestDynamicTeamCharteredMarkerFailsClosedWithoutActiveCharter(t *testing.T)
 }
 
 func TestDynamicTeamAuthorityGrantPreservesOwnScope(t *testing.T) {
+	enableDynamicTeamSpawnForTest(t)
+
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
 	installFakeAgentTeamCLI(t)
@@ -601,6 +607,8 @@ func TestDynamicTeamAuthorityGrantPreservesOwnScope(t *testing.T) {
 }
 
 func TestHTTPDynamicTeamCharteredChildSpawnRejectedPendingResourceReconciliation(t *testing.T) {
+	enableDynamicTeamSpawnForTest(t)
+
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
 	installFakeAgentTeamCLI(t)
@@ -724,6 +732,8 @@ func TestHTTPDynamicTeamCharteredChildSpawnRejectedPendingResourceReconciliation
 }
 
 func TestDynamicTeamSpawnOverParentBudgetQueuesWithoutChargingChildTeam(t *testing.T) {
+	enableDynamicTeamSpawnForTest(t)
+
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \"parent-dep\"\n"), 0o644); err != nil {
@@ -843,7 +853,80 @@ func TestDynamicTeamSpawnOverParentBudgetQueuesWithoutChargingChildTeam(t *testi
 	}
 }
 
-func TestHTTPTeamSpawnCreatesReadableCharter(t *testing.T) {
+func TestDynamicTeamSpawnDisabledByDefault(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \"parent-dep\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[teams.platform]
+instances = ["manager"]
+
+[teams.delivery]
+instances = ["worker"]
+
+[budgets.platform]
+tokens_per_day = 100
+allocation = "reserve"
+
+[budgets.delivery]
+tokens_per_day = 100
+allocation = "reserve"
+
+[authority]
+enforcement = "enforce"
+
+[authority.agents.manager]
+allow = ["*"]
+`)
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	_, err := resolver.SpawnTeam(TeamSpawnRequest{
+		Name:   "Direct Child",
+		Target: "worker",
+		Budget: TeamSpawnBudget{Tokens: 10},
+		Payload: map[string]any{
+			"job_id": "gh155-direct-disabled",
+			"ticket": "GH155",
+		},
+		Origin: origin.Envelope{
+			Project:  "parent-dep",
+			Team:     "platform",
+			Instance: "manager",
+			Agent:    "manager",
+			Job:      "gh155-direct-disabled",
+		},
+	})
+	if !errors.Is(err, ErrDynamicTeamSpawnDisabled) {
+		t.Fatalf("SpawnTeam err = %v, want %v", err, ErrDynamicTeamSpawnDisabled)
+	}
+	if fake.callCount() != 0 {
+		t.Fatalf("spawn calls = %d, want none", fake.callCount())
+	}
+	charters, err := ListTeamCharters(m.daemonRoot)
+	if err != nil {
+		t.Fatalf("list charters: %v", err)
+	}
+	if len(charters) != 0 {
+		t.Fatalf("charters = %+v, want none", charters)
+	}
+}
+
+func TestHTTPTeamSpawnDisabledByDefault(t *testing.T) {
 	teamDir := fixtureTeamDir(t)
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \"parent-dep\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -899,48 +982,22 @@ allow = ["*"]
 		Agent:    "manager",
 		Job:      "gh155-http-child",
 	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("team spawn: %d %s", resp.StatusCode, readBody(t, resp))
+	body := readBody(t, resp)
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("team spawn status = %d body=%s", resp.StatusCode, body)
 	}
-	var result TeamSpawnResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode spawn result: %v", err)
+	if !strings.Contains(body, dynamicTeamSpawnDisabledMessage) {
+		t.Fatalf("team spawn body = %s, want disabled message", body)
 	}
-	if !result.Accepted || result.CharterURI == "" || result.ChildDeploymentURI == "" {
-		t.Fatalf("result = %+v", result)
+	if fake.callCount() != 0 {
+		t.Fatalf("spawn calls = %d, want none", fake.callCount())
 	}
-	if result.Charter == nil || result.Charter.State != TeamCharterStateRunning || result.Charter.Creator.Team != "platform" {
-		t.Fatalf("charter result = %+v", result.Charter)
-	}
-	if fake.callCount() != 1 {
-		t.Fatalf("spawn calls = %d, want one HTTP-authorized child", fake.callCount())
-	}
-	t.Cleanup(func() {
-		if result.Charter != nil {
-			_, _ = m.Stop(result.Charter.Instance)
-			_ = m.WaitForReaper(result.Charter.Instance, 5*time.Second)
-		}
-	})
-
-	resp = mustGet(t, srv.URL+"/v1/team/charters/"+result.Charter.ID)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("charter get: %d %s", resp.StatusCode, readBody(t, resp))
-	}
-	var charter TeamCharter
-	if err := json.NewDecoder(resp.Body).Decode(&charter); err != nil {
-		t.Fatalf("decode charter: %v", err)
-	}
-	if charter.URI != result.CharterURI || charter.ChildDeploymentURI != result.ChildDeploymentURI {
-		t.Fatalf("charter = %+v, result = %+v", charter, result)
-	}
-	events, err := ListLifecycleEvents(m.daemonRoot)
+	charters, err := ListTeamCharters(m.daemonRoot)
 	if err != nil {
-		t.Fatalf("list lifecycle events: %v", err)
+		t.Fatalf("list charters: %v", err)
 	}
-	for _, ev := range events {
-		if ev.Action == authorityViolationAction {
-			t.Fatalf("unexpected authority violation: %+v", ev)
-		}
+	if len(charters) != 0 {
+		t.Fatalf("charters = %+v, want none", charters)
 	}
 }
 
@@ -972,6 +1029,11 @@ func postJSONWithOrigin(t *testing.T, url, body string, actor origin.Envelope) *
 		t.Fatalf("POST %s: %v", url, err)
 	}
 	return resp
+}
+
+func enableDynamicTeamSpawnForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv(dynamicTeamSpawnFeatureEnv, "1")
 }
 
 func budgetStatusByTeam(rows []budget.TeamStatus, team string) *budget.TeamStatus {

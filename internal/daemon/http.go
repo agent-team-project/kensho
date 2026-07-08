@@ -443,6 +443,10 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		if !dynamicTeamSpawnEnabled() {
+			writeError(w, http.StatusNotImplemented, dynamicTeamSpawnDisabledMessage)
+			return
+		}
 		if events == nil {
 			writeError(w, http.StatusServiceUnavailable, "topology not configured")
 			return
@@ -461,6 +465,10 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		body.Origin = actor
 		result, err := events.SpawnTeam(body)
 		if err != nil {
+			if errors.Is(err, ErrDynamicTeamSpawnDisabled) {
+				writeError(w, http.StatusNotImplemented, dynamicTeamSpawnDisabledMessage)
+				return
+			}
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}

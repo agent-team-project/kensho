@@ -73,6 +73,27 @@ represented by the same resource graph and enforced by the same daemon verbs.
 - Solve multi-host trust beyond the tokenized deployment transport already
   described in `distributed-resources.md` and `security-model.md`.
 
+## V1 Foundation Status
+
+V1 ships the foundation: resource identity, parent deployment edges, charter
+records, budget-tree allocation, daemon-level attenuation computation,
+provenance, and reap lifecycle.
+
+Live spawn is feature-flagged off in v1. `POST /v1/team/spawn` and direct
+agent-facing spawn dispatch return:
+
+```text
+dynamic-team spawn is not enabled in v1 (foundation only; secure-spawn tracked separately)
+```
+
+The dormant implementation remains behind the flag so the resource model can be
+tested without exposing an incomplete security boundary. Secure-spawn hardening
+must complete deny-by-default, resource-scoped attenuation across every daemon
+and CLI surface before the flag can turn on. That includes every scoped CLI read
+verb: the runtime shim admits by verb and assumes the CLI audits the resource,
+but paths such as job, inbox, channel, feedback, budget, and status reads are
+not yet uniformly resource-audited.
+
 ## Terms
 
 **Deployment**: one agent-team control plane. In the current resource package,
@@ -302,10 +323,12 @@ Template policy answers the prompt-authoring question from the issue:
 - Deferred version: managers can author free-form prompts only under a separate
   untrusted-authoring policy with human or privileged-agent review.
 
-## Agent-Facing Verb
+## Future Agent-Facing Verb
 
-The first agent-facing primitive is `team.spawn`. It is a daemon verb, exposed
-through CLI/MCP/mailbox shims the same way other consequential actions are.
+The future agent-facing primitive is `team.spawn`. It is a daemon verb, exposed
+through CLI/MCP/mailbox shims the same way other consequential actions are. In
+v1 this surface is disabled by default as foundation-only; the following is the
+target shape for the secure-spawn follow-up.
 
 Sketch:
 
@@ -769,12 +792,14 @@ resources a concrete lifecycle.
 
 ## Phasing
 
-1. **Resource projection phase.** Add readable deployment/team/charter/report
-   projections and parent edges. Keep mutations out.
+1. **V1 foundation phase.** Add readable deployment/team/charter/report
+   projections, parent edges, budget-tree records, attenuation computation, and
+   reap lifecycle. Keep live spawn gated off.
 2. **Template phase.** Define curated team templates and validation. Support
    local same-host child manifests only.
-3. **Spawn phase.** Add `team.spawn` in audit mode with budget grant,
-   attenuation, provenance, and reconcile-backed startup.
+3. **Secure spawn phase.** Enable `team.spawn` only after deny-by-default,
+   resource-scoped attenuation covers every daemon and CLI surface, including
+   scoped read verbs.
 4. **Reap phase.** Add TTL/completion reap, token revocation, budget release,
    tombstones, and parent report rollup.
 5. **Native-manager phase.** Let persistent managers spawn sub-managers through

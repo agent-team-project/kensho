@@ -27,7 +27,12 @@ const (
 	TeamCharterStateReaped    = "reaped"
 
 	childDeploymentRelationshipEphemeralTeam = "ephemeral_team"
+
+	dynamicTeamSpawnFeatureEnv      = "AGENT_TEAM_DYNAMIC_TEAM_SPAWN_ENABLED"
+	dynamicTeamSpawnDisabledMessage = "dynamic-team spawn is not enabled in v1 (foundation only; secure-spawn tracked separately)"
 )
+
+var ErrDynamicTeamSpawnDisabled = errors.New(dynamicTeamSpawnDisabledMessage)
 
 // TeamSpawnRequest is the narrow first dynamic-team primitive: one parent
 // deployment charters one ephemeral child deployment backed by one declared
@@ -152,12 +157,24 @@ func readCharteredInstanceMarker(daemonRoot, instance string) (charteredInstance
 	}, nil
 }
 
+func dynamicTeamSpawnEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(dynamicTeamSpawnFeatureEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *EventResolver) SpawnTeam(req TeamSpawnRequest) (*TeamSpawnResult, error) {
 	if r == nil || r.mgr == nil {
 		return nil, errors.New("team spawn: event resolver is required")
 	}
 	if strings.TrimSpace(r.teamDir) == "" {
 		return nil, errors.New("team spawn: team dir is required")
+	}
+	if !dynamicTeamSpawnEnabled() {
+		return nil, ErrDynamicTeamSpawnDisabled
 	}
 	r.mu.Lock()
 	top := r.topo

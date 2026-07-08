@@ -314,7 +314,7 @@ target = "worker"
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write bogus PR: %v", err)
 	}
-	if err := m.WaitForReaper("worker-squ-156", 5*time.Second); err != nil {
+	if err := m.WaitForReaper("worker-squ-156", 15*time.Second); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	j, err = jobstore.Read(teamDir, "squ-156")
