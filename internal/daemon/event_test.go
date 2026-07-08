@@ -999,6 +999,7 @@ match.target = "worker"
 	env := fake.lastEnv()
 	for _, want := range []string{
 		"SAFE_FOR_EVENT_ALLOW=from-parent",
+		"MAIN_REPO=" + filepath.Dir(teamDir),
 		"AGENT_TEAM_ROOT=" + teamDir,
 		"AGENT_TEAM_INSTANCE=worker-env-allow",
 		"AGENT_TEAM_JOB_ID=squ-121",
@@ -1018,6 +1019,9 @@ match.target = "worker"
 	}
 	if containsEnvPrefix(snapshot.Env, "LINEAR_API_KEY=") || containsEnvPrefix(snapshot.Env, "GITHUB_TOKEN=") {
 		t.Fatalf("snapshot leaked filtered secrets: %#v", snapshot.Env)
+	}
+	if !containsString(snapshot.Env, "MAIN_REPO="+filepath.Dir(teamDir)) {
+		t.Fatalf("snapshot missing MAIN_REPO: %#v", snapshot.Env)
 	}
 }
 
@@ -1914,8 +1918,28 @@ func TestEvent_TicketWorktreeDispatchNamesBranchFromTicket(t *testing.T) {
 	if j.Branch != meta.Branch || j.Worktree != meta.Workspace {
 		t.Fatalf("job ownership = branch %q worktree %q, want %q %q", j.Branch, j.Worktree, meta.Branch, meta.Workspace)
 	}
-	if !containsString(fake.lastEnv(), "AGENT_TEAM_BRANCH="+meta.Branch) {
-		t.Fatalf("env missing AGENT_TEAM_BRANCH=%s in %v", meta.Branch, fake.lastEnv())
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"MAIN_REPO=" + repoRoot,
+		"AGENT_TEAM_BRANCH=" + meta.Branch,
+		"AGENT_TEAM_WORKTREE=" + meta.Workspace,
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q in %v", want, env)
+		}
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "worker-squ-42")
+	if err != nil {
+		t.Fatalf("read launch env: %v", err)
+	}
+	for _, want := range []string{
+		"MAIN_REPO=" + repoRoot,
+		"AGENT_TEAM_BRANCH=" + meta.Branch,
+		"AGENT_TEAM_WORKTREE=" + meta.Workspace,
+	} {
+		if !containsString(snapshot.Env, want) {
+			t.Fatalf("launch env missing %q in %v", want, snapshot.Env)
+		}
 	}
 	_, _ = m.Stop("worker-squ-42")
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)

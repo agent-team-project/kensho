@@ -44,6 +44,7 @@ var DefaultStrippedEnvKeys = []string{
 }
 
 const requiredLaunchEnvPrefix = "AGENT_TEAM_"
+const requiredLaunchEnvMainRepo = "MAIN_REPO"
 
 // LaunchEnvPath returns the active launch-env snapshot path for teamDir.
 func LaunchEnvPath(teamDir string) string {
@@ -110,7 +111,7 @@ func filterEnvAllow(env []string, allow []string) ([]string, error) {
 	out := make([]string, 0, len(env))
 	for _, item := range env {
 		key := envEntryKey(item)
-		if strings.HasPrefix(key, requiredLaunchEnvPrefix) || envKeyAllowed(key, patterns) {
+		if key == requiredLaunchEnvMainRepo || strings.HasPrefix(key, requiredLaunchEnvPrefix) || envKeyAllowed(key, patterns) {
 			out = append(out, item)
 		}
 	}

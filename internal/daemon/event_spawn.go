@@ -85,7 +85,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		return nil, err
 	}
 	env := append([]string(nil), runtime.env...)
-	env = append(env, dispatchContextEnv(payload, branch, worktreePath)...)
+	env = append(env, dispatchContextEnv(r.teamDirParent(), payload, branch, worktreePath)...)
 	env = append(env, originContextEnv(eventOrigin)...)
 	otelCtx := runtimeotel.Context{
 		Agent:        inst.Agent,
@@ -713,8 +713,11 @@ func originContextEnv(env origin.Envelope) []string {
 	return out
 }
 
-func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []string {
+func dispatchContextEnv(repoRoot string, payload map[string]any, branch, worktreePath string) []string {
 	env := []string{}
+	if repoRoot = strings.TrimSpace(repoRoot); repoRoot != "" {
+		env = append(env, "MAIN_REPO="+repoRoot)
+	}
 	if id := eventJobID(payload); id != "" {
 		env = append(env, "AGENT_TEAM_JOB_ID="+id)
 	}
@@ -753,6 +756,12 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}
 	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
 		env = append(env, "AGENT_TEAM_PR="+pr)
+	}
+	if branch == "" {
+		branch = payloadString(payload, "branch")
+	}
+	if worktreePath == "" {
+		worktreePath = payloadString(payload, "worktree")
 	}
 	if branch != "" {
 		env = append(env, "AGENT_TEAM_BRANCH="+branch)

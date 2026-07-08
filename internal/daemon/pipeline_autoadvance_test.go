@@ -82,6 +82,17 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 	if err := os.WriteFile(sidecar, []byte("Opened PR #999 with new scenarios."), 0o644); err != nil {
 		t.Fatalf("seed sidecar: %v", err)
 	}
+	reviewBranch := "squ-92-artifact"
+	reviewWorktree := filepath.Dir(teamDir)
+	j, err := jobstore.Read(teamDir, "squ-92")
+	if err != nil {
+		t.Fatalf("read job before auto-advance: %v", err)
+	}
+	j.Branch = reviewBranch
+	j.Worktree = reviewWorktree
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("write job branch context: %v", err)
+	}
 
 	if err := m.WaitForReaper("worker-squ-92", 5*time.Second); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
@@ -97,7 +108,33 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 		t.Fatalf("reviewer metadata = %+v, want 2m budget with deadline", reviewerMeta)
 	}
 
-	j, err := jobstore.Read(teamDir, "squ-92")
+	env := fake.lastEnv()
+	for _, want := range []string{
+		"MAIN_REPO=" + filepath.Dir(teamDir),
+		"AGENT_TEAM_PIPELINE_STEP=review",
+		"AGENT_TEAM_BRANCH=" + reviewBranch,
+		"AGENT_TEAM_WORKTREE=" + reviewWorktree,
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("reviewer env missing %q: %#v", want, env)
+		}
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, "reviewer-squ-92")
+	if err != nil {
+		t.Fatalf("read reviewer launch env: %v", err)
+	}
+	for _, want := range []string{
+		"MAIN_REPO=" + filepath.Dir(teamDir),
+		"AGENT_TEAM_PIPELINE_STEP=review",
+		"AGENT_TEAM_BRANCH=" + reviewBranch,
+		"AGENT_TEAM_WORKTREE=" + reviewWorktree,
+	} {
+		if !containsString(snapshot.Env, want) {
+			t.Fatalf("reviewer launch env missing %q: %#v", want, snapshot.Env)
+		}
+	}
+
+	j, err = jobstore.Read(teamDir, "squ-92")
 	if err != nil {
 		t.Fatalf("read job: %v", err)
 	}

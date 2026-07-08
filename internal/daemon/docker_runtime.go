@@ -136,7 +136,7 @@ func dockerForwardedEnv(env []string) []string {
 	out := []string{}
 	for _, entry := range env {
 		key, _, ok := strings.Cut(entry, "=")
-		if !ok || !strings.HasPrefix(key, "AGENT_TEAM_") {
+		if !ok || (key != requiredLaunchEnvMainRepo && !strings.HasPrefix(key, "AGENT_TEAM_")) {
 			continue
 		}
 		switch key {

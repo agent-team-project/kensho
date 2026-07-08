@@ -293,6 +293,10 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	dispatchPayload["pipeline"] = pipeline.Name
 	dispatchPayload["pipeline_step"] = step.ID
 	dispatchPayload["ticket"] = j.Ticket
+	if !jobIsProbe(j) {
+		payloadSetStringIfEmpty(dispatchPayload, "branch", strings.TrimSpace(j.Branch))
+		payloadSetStringIfEmpty(dispatchPayload, "worktree", strings.TrimSpace(j.Worktree))
+	}
 	if kind := strings.TrimSpace(j.Kind); kind != "" {
 		dispatchPayload["kind"] = kind
 	}

@@ -51,6 +51,7 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := []string{
+		"MAIN_REPO=" + repoRoot,
 		"AGENT_TEAM_ROOT=" + filepath.Join(repoRoot, ".agent_team"),
 		"AGENT_TEAM_INSTANCE=" + instance,
 		"AGENT_TEAM_STATE_DIR=" + stateDir,
@@ -112,6 +113,7 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 	for _, want := range []string{
 		"AGENT_TEAM_DAEMON_URL=http://host.docker.internal:54321",
 		DaemonTokenFileEnv + "=" + filepath.Join(containerStateDir, "daemon.token"),
+		"MAIN_REPO=" + repoRoot,
 		"AGENT_TEAM_JOB_ID=squ-131",
 		"AGENT_TEAM_TICKET=SQU-131",
 	} {
