@@ -33,10 +33,9 @@ func newTopologyCmd() *cobra.Command {
 
 func newTopologyShowCmd() *cobra.Command {
 	var (
-		target string
 		asJSON bool
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "show",
 		Short: "Print the resolved topology (declared instances + triggers).",
@@ -48,21 +47,19 @@ func newTopologyShowCmd() *cobra.Command {
 			return runTopologyShow(cmd, teamDir, asJSON)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&asJSON, "json", false, "Emit raw JSON.")
 	return c
 }
 
 func newTopologyGraphCmd() *cobra.Command {
 	var (
-		target        string
 		graphFormat   string
 		includeRoutes bool
 		jsonOut       bool
 		jobID         string
 		commands      bool
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "graph",
 		Short: "Render a full topology graph.",
@@ -101,7 +98,6 @@ func newTopologyGraphCmd() *cobra.Command {
 			return renderTopologyGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&graphFormat, "format", "text", "Graph output format: text, mermaid, or dot.")
 	c.Flags().BoolVar(&includeRoutes, "routes", false, "Annotate pipeline steps with matching agent.dispatch routes.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit graph nodes and edges as JSON.")
@@ -112,10 +108,9 @@ func newTopologyGraphCmd() *cobra.Command {
 
 func newTopologySummaryCmd() *cobra.Command {
 	var (
-		target string
 		asJSON bool
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "summary",
 		Short: "Summarize declared topology and workflow health.",
@@ -132,18 +127,16 @@ func newTopologySummaryCmd() *cobra.Command {
 			return renderTopologySummary(cmd.OutOrStdout(), summary, asJSON)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&asJSON, "json", false, "Emit topology summary as JSON.")
 	return c
 }
 
 func newTopologyReloadCmd() *cobra.Command {
 	var (
-		target  string
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "reload",
 		Short: "Re-read instances.toml from disk (daemon must be running).",
@@ -185,7 +178,6 @@ func newTopologyReloadCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit reloaded topology as JSON.")
 	c.Flags().StringVar(&format, "format", "", "Render reload result with a Go template, e.g. '{{len .Instances}}'.")
 	return c

@@ -135,7 +135,7 @@ agent = "manager"
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"topology", "reload", "--target", root, "--json"})
+	jsonCmd.SetArgs([]string{"topology", "reload", "--repo", root, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("topology reload --json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -151,7 +151,7 @@ agent = "manager"
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatCmd.SetOut(formatOut)
 	formatCmd.SetErr(formatErr)
-	formatCmd.SetArgs([]string{"topology", "reload", "--target", root, "--format", "{{len .Instances}} {{(index .Instances 0).Name}}"})
+	formatCmd.SetArgs([]string{"topology", "reload", "--repo", root, "--format", "{{len .Instances}} {{(index .Instances 0).Name}}"})
 	if err := formatCmd.Execute(); err != nil {
 		t.Fatalf("topology reload --format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -163,7 +163,7 @@ agent = "manager"
 	badOut, badErr := &bytes.Buffer{}, &bytes.Buffer{}
 	badCmd.SetOut(badOut)
 	badCmd.SetErr(badErr)
-	badCmd.SetArgs([]string{"topology", "reload", "--target", root, "--json", "--format", "{{len .Instances}}"})
+	badCmd.SetArgs([]string{"topology", "reload", "--repo", root, "--json", "--format", "{{len .Instances}}"})
 	err := badCmd.Execute()
 	if err == nil {
 		t.Fatalf("topology reload accepted --json with --format; stdout=%s", badOut.String())
@@ -174,6 +174,57 @@ agent = "manager"
 	}
 	if !strings.Contains(badErr.String(), "--format cannot be combined with --json") {
 		t.Fatalf("stderr = %q", badErr.String())
+	}
+}
+
+func TestTopologyEventCommandsUseRepoSelectorOnly(t *testing.T) {
+	helpCases := [][]string{
+		{"topology", "show", "--help"},
+		{"topology", "graph", "--help"},
+		{"topology", "summary", "--help"},
+		{"topology", "reload", "--help"},
+		{"event", "publish", "--help"},
+		{"event", "trace", "--help"},
+	}
+	for _, args := range helpCases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%s: %v\nstderr=%s", strings.Join(args, " "), err, stderr.String())
+		}
+		help := out.String()
+		if !strings.Contains(help, "--repo string") {
+			t.Fatalf("%s help missing inherited --repo:\n%s", strings.Join(args, " "), help)
+		}
+		if strings.Contains(help, "--target string") {
+			t.Fatalf("%s help still exposes legacy --target:\n%s", strings.Join(args, " "), help)
+		}
+	}
+
+	rejectCases := [][]string{
+		{"topology", "show", "--target", t.TempDir()},
+		{"topology", "graph", "--target", t.TempDir()},
+		{"topology", "summary", "--target", t.TempDir()},
+		{"topology", "reload", "--target", t.TempDir()},
+		{"event", "publish", "user_invocation", "--target", t.TempDir()},
+		{"event", "trace", "user_invocation", "--target", t.TempDir()},
+	}
+	for _, args := range rejectCases {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatalf("%s accepted legacy --target; stdout=%s", strings.Join(args, " "), out.String())
+		}
+		if !strings.Contains(err.Error(), "unknown flag: --target") {
+			t.Fatalf("%s err = %v, want unknown flag; stderr=%s", strings.Join(args, " "), err, stderr.String())
+		}
 	}
 }
 
@@ -223,7 +274,7 @@ target = "worker"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "show", "--target", root})
+	cmd.SetArgs([]string{"topology", "show", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology show: %v\nstderr=%s", err, stderr.String())
 	}
@@ -252,7 +303,7 @@ payload.workspace = "repo"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "show", "--target", root})
+	cmd.SetArgs([]string{"topology", "show", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology show: %v\nstderr=%s", err, stderr.String())
 	}
@@ -365,7 +416,7 @@ allocation = "reserve"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "show", "--target", root, "--json"})
+	cmd.SetArgs([]string{"topology", "show", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology show --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -410,7 +461,7 @@ schedules = ["nightly"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "summary", "--target", root, "--json"})
+	cmd.SetArgs([]string{"topology", "summary", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology summary json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -426,7 +477,7 @@ schedules = ["nightly"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"topology", "summary", "--target", root})
+	text.SetArgs([]string{"topology", "summary", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("topology summary text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -481,7 +532,7 @@ schedules = ["nightly"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "graph", "--target", root, "--routes", "--json"})
+	cmd.SetArgs([]string{"topology", "graph", "--repo", root, "--routes", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology graph json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -510,7 +561,7 @@ schedules = ["nightly"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"topology", "graph", "--target", root, "--routes"})
+	text.SetArgs([]string{"topology", "graph", "--repo", root, "--routes"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("topology graph text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -531,7 +582,7 @@ schedules = ["nightly"]
 	mermaidOut, mermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	mermaid.SetOut(mermaidOut)
 	mermaid.SetErr(mermaidErr)
-	mermaid.SetArgs([]string{"topology", "graph", "--target", root, "--format", "mermaid"})
+	mermaid.SetArgs([]string{"topology", "graph", "--repo", root, "--format", "mermaid"})
 	if err := mermaid.Execute(); err != nil {
 		t.Fatalf("topology graph mermaid: %v\nstderr=%s", err, mermaidErr.String())
 	}
@@ -543,7 +594,7 @@ schedules = ["nightly"]
 	dotOut, dotErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dot.SetOut(dotOut)
 	dot.SetErr(dotErr)
-	dot.SetArgs([]string{"topology", "graph", "--target", root, "--format", "dot"})
+	dot.SetArgs([]string{"topology", "graph", "--repo", root, "--format", "dot"})
 	if err := dot.Execute(); err != nil {
 		t.Fatalf("topology graph dot: %v\nstderr=%s", err, dotErr.String())
 	}
@@ -573,7 +624,7 @@ schedules = ["nightly"]
 	jobJSONOut, jobJSONErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jobJSON.SetOut(jobJSONOut)
 	jobJSON.SetErr(jobJSONErr)
-	jobJSON.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--json"})
+	jobJSON.SetArgs([]string{"topology", "graph", "--repo", root, "--job", "squ-971", "--json"})
 	if err := jobJSON.Execute(); err != nil {
 		t.Fatalf("topology graph job json: %v\nstderr=%s", err, jobJSONErr.String())
 	}
@@ -596,7 +647,7 @@ schedules = ["nightly"]
 	jobTextOut, jobTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jobText.SetOut(jobTextOut)
 	jobText.SetErr(jobTextErr)
-	jobText.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971"})
+	jobText.SetArgs([]string{"topology", "graph", "--repo", root, "--job", "squ-971"})
 	if err := jobText.Execute(); err != nil {
 		t.Fatalf("topology graph job text: %v\nstderr=%s", err, jobTextErr.String())
 	}
@@ -613,7 +664,7 @@ schedules = ["nightly"]
 	jobMermaidOut, jobMermaidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jobMermaid.SetOut(jobMermaidOut)
 	jobMermaid.SetErr(jobMermaidErr)
-	jobMermaid.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--format", "mermaid"})
+	jobMermaid.SetArgs([]string{"topology", "graph", "--repo", root, "--job", "squ-971", "--format", "mermaid"})
 	if err := jobMermaid.Execute(); err != nil {
 		t.Fatalf("topology graph job mermaid: %v\nstderr=%s", err, jobMermaidErr.String())
 	}
@@ -625,7 +676,7 @@ schedules = ["nightly"]
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-971", "--commands"})
+	commands.SetArgs([]string{"topology", "graph", "--repo", root, "--job", "squ-971", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("topology graph commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -650,7 +701,7 @@ schedules = ["nightly"]
 	mismatchOut, mismatchErr := &bytes.Buffer{}, &bytes.Buffer{}
 	mismatch.SetOut(mismatchOut)
 	mismatch.SetErr(mismatchErr)
-	mismatch.SetArgs([]string{"topology", "graph", "--target", root, "--job", "squ-972"})
+	mismatch.SetArgs([]string{"topology", "graph", "--repo", root, "--job", "squ-972"})
 	err := mismatch.Execute()
 	if err == nil {
 		t.Fatal("topology graph accepted a job from an undeclared pipeline")
@@ -742,7 +793,7 @@ pipelines = ["ticket_to_pr"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"topology", "summary", "--target", root, "--json"})
+	cmd.SetArgs([]string{"topology", "summary", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("topology summary attention: %v\nstderr=%s", err, stderr.String())
 	}
@@ -758,7 +809,7 @@ pipelines = ["ticket_to_pr"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"topology", "summary", "--target", root})
+	text.SetArgs([]string{"topology", "summary", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("topology summary attention text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -790,7 +841,7 @@ func TestEventPublishJSON(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--json", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--json", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -827,7 +878,7 @@ func TestEventPublishPayloadFileDash(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload-file", "-", "--json", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload-file", "-", "--json", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish stdin --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -877,7 +928,7 @@ func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--dry-run", "--json", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--dry-run", "--json", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -893,7 +944,7 @@ func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
-	commandsCmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--dry-run", "--commands", "--target", target})
+	commandsCmd.SetArgs([]string{"event", "publish", "user_invocation", "--payload", `{"name":"manager"}`, "--dry-run", "--commands", "--repo", target})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("event publish dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -915,7 +966,7 @@ func TestEventPublishDryRunUsesLocalTopology(t *testing.T) {
 	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noRouteCmd.SetOut(noRouteOut)
 	noRouteCmd.SetErr(noRouteErr)
-	noRouteCmd.SetArgs([]string{"event", "publish", "unknown.event", "--payload", `{"name":"worker"}`, "--dry-run", "--commands", "--target", target})
+	noRouteCmd.SetArgs([]string{"event", "publish", "unknown.event", "--payload", `{"name":"worker"}`, "--dry-run", "--commands", "--repo", target})
 	if err := noRouteCmd.Execute(); err != nil {
 		t.Fatalf("event publish dry-run --commands no route: %v\nstderr=%s", err, noRouteErr.String())
 	}
@@ -945,7 +996,7 @@ func TestEventPublishPayloadShorthand(t *testing.T) {
 		"--payload", `{"name":"json","enabled":true}`,
 		"--dry-run",
 		"--json",
-		"--target", target,
+		"--repo", target,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish shorthand: %v\nstderr=%s", err, stderr.String())
@@ -962,7 +1013,7 @@ func TestEventPublishPayloadShorthand(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
-	commandsCmd.SetArgs([]string{"event", "publish", "agent.dispatch", "target=worker", "reason=nightly", "--dry-run", "--commands", "--target", target})
+	commandsCmd.SetArgs([]string{"event", "publish", "agent.dispatch", "target=worker", "reason=nightly", "--dry-run", "--commands", "--repo", target})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("event publish shorthand commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -984,7 +1035,7 @@ func TestEventPublishPayloadShorthand(t *testing.T) {
 	invalidErr := &bytes.Buffer{}
 	invalidCmd.SetOut(&bytes.Buffer{})
 	invalidCmd.SetErr(invalidErr)
-	invalidCmd.SetArgs([]string{"event", "publish", "user_invocation", "not-a-pair", "--dry-run", "--target", target})
+	invalidCmd.SetArgs([]string{"event", "publish", "user_invocation", "not-a-pair", "--dry-run", "--repo", target})
 	var code ExitCode
 	if err := invalidCmd.Execute(); err == nil {
 		t.Fatalf("event publish invalid shorthand succeeded")
@@ -1018,7 +1069,7 @@ target = "worker"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Implement it"}`, "--dry-run", "--json", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Implement it"}`, "--dry-run", "--json", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish dry-run pipeline: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1052,7 +1103,7 @@ target = "worker"
 	updateOut, updateErr := &bytes.Buffer{}, &bytes.Buffer{}
 	updateCmd.SetOut(updateOut)
 	updateCmd.SetErr(updateErr)
-	updateCmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Updated kickoff"}`, "--dry-run", "--json", "--target", target})
+	updateCmd.SetArgs([]string{"event", "publish", "ticket.created", "--payload", `{"ticket":"SQU-130","kickoff":"Updated kickoff"}`, "--dry-run", "--json", "--repo", target})
 	if err := updateCmd.Execute(); err != nil {
 		t.Fatalf("event publish dry-run existing pipeline: %v\nstderr=%s", err, updateErr.String())
 	}
@@ -1103,7 +1154,7 @@ target = "worker"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--target", target})
+	cmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event trace: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1123,7 +1174,7 @@ target = "worker"
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--json", "--target", target})
+	jsonCmd.SetArgs([]string{"event", "trace", "ticket.created", "--payload", "project=cypher", "--json", "--repo", target})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("event trace --json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -1161,7 +1212,7 @@ func TestEventPublishTraceUsesDaemonTrace(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "agent.dispatch", "--payload", `{"target":"manager"}`, "--trace", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "agent.dispatch", "--payload", `{"target":"manager"}`, "--trace", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish --trace: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1200,7 +1251,7 @@ func TestEventPublishFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--format", "{{len .Matched}}:{{len .Messaged}}:{{len .Dispatched}}", "--target", target})
+	cmd.SetArgs([]string{"event", "publish", "user_invocation", "--format", "{{len .Matched}}:{{len .Messaged}}:{{len .Dispatched}}", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("event publish --format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1251,7 +1302,7 @@ func TestTopologyShow_LocalFallback(t *testing.T) {
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	cmd.SetArgs([]string{"topology", "show", "--target", target})
+	cmd.SetArgs([]string{"topology", "show", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -1273,7 +1324,7 @@ func TestTopologyShow_NoFile(t *testing.T) {
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	cmd.SetArgs([]string{"topology", "show", "--target", target})
+	cmd.SetArgs([]string{"topology", "show", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}

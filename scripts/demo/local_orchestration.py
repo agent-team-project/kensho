@@ -116,8 +116,8 @@ def main(argv: list[str]) -> int:
 
         step("validate topology and runtime")
         run(binary, "runtime", "--repo", repo, "--json", env=env, parse_json=True)
-        run(binary, "topology", "summary", "--target", repo, "--json", parse_json=True)
-        run(binary, "topology", "graph", "--target", repo, "--routes", "--json", parse_json=True)
+        run(binary, "topology", "summary", "--repo", repo, "--json", parse_json=True)
+        run(binary, "topology", "graph", "--repo", repo, "--routes", "--json", parse_json=True)
         run(binary, "pipeline", "doctor", "--all", "--repo", repo, "--json", parse_json=True)
         run(binary, "team", "graph", "delivery", "--repo", repo, "--routes", "--json", parse_json=True)
         run(binary, "team", "doctor", "--all", "--repo", repo, "--json", parse_json=True)
@@ -510,9 +510,9 @@ def prepare_merge_drift_branch(repo: Path) -> None:
 
 
 def verify_event_trace(binary: Path, repo: Path) -> None:
-    match_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=worker", "--target", repo)
+    match_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=worker", "--repo", repo)
     require_substrings(match_trace, "MATCH", "instances.worker", "MISS", "instances.manager")
-    miss_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=missing", "--target", repo)
+    miss_trace = run(binary, "event", "trace", "agent.dispatch", "--payload", "target=missing", "--repo", repo)
     require_substrings(miss_trace, "MISS", "WARNING: matched 0 rules")
     print("event trace verified: MATCH/MISS and zero-match warning")
 
@@ -798,10 +798,10 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     )
     first_payload = json.dumps({"target": "worker", "name": "worker-lock-a", "ticket": "DEMO-LOCK-1"})
     second_payload = json.dumps({"target": "worker", "name": "worker-lock-b", "ticket": "DEMO-LOCK-2"})
-    first = run(binary, "event", "publish", "agent.dispatch", "--payload", first_payload, "--target", repo, "--json", parse_json=True)
+    first = run(binary, "event", "publish", "agent.dispatch", "--payload", first_payload, "--repo", repo, "--json", parse_json=True)
     if "worker" not in (first.get("matched") or []):
         raise DemoError(f"first lock dispatch did not match worker: {json.dumps(first, indent=2)}")
-    second = run(binary, "event", "publish", "agent.dispatch", "--payload", second_payload, "--target", repo, "--json", parse_json=True)
+    second = run(binary, "event", "publish", "agent.dispatch", "--payload", second_payload, "--repo", repo, "--json", parse_json=True)
     outcomes = second.get("outcomes") or []
     if not any(row.get("action") == "queued" and row.get("reason") == "lock_held" for row in outcomes):
         raise DemoError(f"second lock dispatch was not queued for lock_held: {json.dumps(second, indent=2)}")

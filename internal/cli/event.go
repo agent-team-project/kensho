@@ -29,7 +29,6 @@ func newEventCmd() *cobra.Command {
 
 func newEventPublishCmd() *cobra.Command {
 	var (
-		target      string
 		payload     string
 		payloadFile string
 		dryRun      bool
@@ -38,7 +37,7 @@ func newEventPublishCmd() *cobra.Command {
 		trace       bool
 		format      string
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "publish <type> [key=value...]",
 		Short: "Publish an event of the given type. The daemon resolves it against declared triggers.",
@@ -177,7 +176,6 @@ func newEventPublishCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&payload, "payload", "", "JSON object passed as the event payload; keys override matching key=value args (e.g. '{\"target\":\"worker\"}').")
 	c.Flags().StringVar(&payloadFile, "payload-file", "", "Read event payload JSON from a file, or '-' for stdin.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching triggers without publishing to the daemon.")
@@ -190,11 +188,10 @@ func newEventPublishCmd() *cobra.Command {
 
 func newEventTraceCmd() *cobra.Command {
 	var (
-		target       string
 		payloadPairs []string
 		jsonOut      bool
 	)
-	cwd, _ := os.Getwd()
+	target, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "trace <type>",
 		Short: "Dry-run an event against local topology and explain trigger decisions.",
@@ -222,7 +219,6 @@ func newEventTraceCmd() *cobra.Command {
 			return renderEventTrace(cmd.OutOrStdout(), &trace, jsonOut)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringArrayVar(&payloadPairs, "payload", nil, "Payload predicate value as key=value; may be repeated.")
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit the event trace as JSON.")
 	return c

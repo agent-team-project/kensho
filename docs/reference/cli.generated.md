@@ -1268,7 +1268,6 @@ Flags:
       --json                  Emit the daemon event outcome as JSON.
       --payload string        JSON object passed as the event payload; keys override matching key=value args (e.g. '{"target":"worker"}').
       --payload-file string   Read event payload JSON from a file, or '-' for stdin.
-      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
       --trace                 Include per-trigger match and rejection trace output.
 ```
 
@@ -1291,7 +1290,6 @@ Flags:
 ```text
       --json                  Emit the event trace as JSON.
       --payload stringArray   Payload predicate value as key=value; may be repeated.
-      --target string         Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
@@ -11010,7 +11008,6 @@ Flags:
       --job string      Overlay durable job step state on its declared pipeline graph.
       --json            Emit graph nodes and edges as JSON.
       --routes          Annotate pipeline steps with matching agent.dispatch routes.
-      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
@@ -11032,7 +11029,6 @@ Flags:
 ```text
       --format string   Render reload result with a Go template, e.g. '{{len .Instances}}'.
       --json            Emit reloaded topology as JSON.
-      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
 ```
 
 Inherited Flags:
@@ -11052,8 +11048,7 @@ agent-team topology show [flags]
 Flags:
 
 ```text
-      --json            Emit raw JSON.
-      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --json   Emit raw JSON.
 ```
 
 Inherited Flags:
@@ -11073,8 +11068,7 @@ agent-team topology summary [flags]
 Flags:
 
 ```text
-      --json            Emit topology summary as JSON.
-      --target string   Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
+      --json   Emit topology summary as JSON.
 ```
 
 Inherited Flags:
