@@ -122,7 +122,7 @@ kickoff — do not amend the branch yourself.
 # tickets, folds evidence into existing ones, or dismisses with a reason.
 # Filed tickets land in Backlog — never the agent-dispatch column.
 [schedules.feedback-triage]
-every = "6h"
+every = "2h"
 
 [schedules.feedback-triage.payload]
 kind = "feedback_triage"
@@ -143,7 +143,7 @@ match.kind = "feedback_triage"
 # files evidence-backed tech-debt tickets (at most three, Backlog only). The
 # counterweight to delivery velocity — see template/agents/auditor/agent.md.
 [schedules.debt-sweep]
-every = "24h" # weekly
+every = "4h" # weekly
 
 [schedules.debt-sweep.payload]
 kind = "debt_sweep"
@@ -253,7 +253,7 @@ pipelines   = ["platform_ticket_to_pr"]
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "8h" # daily while the fleet + prompts evolve fast; revisit at stability
+every = "3h" # daily while the fleet + prompts evolve fast; revisit at stability
 
 [schedules.harness-review.payload]
 kind = "harness_review"
@@ -277,7 +277,7 @@ match.kind = "harness_review"
 # strategic complement to harness-review and never edits the system directly.
 # See the org-review skill and documentation/metrics-methodology.md.
 [schedules.org-review]
-every = "72h" # 3d; schedule durations use Go duration syntax
+every = "12h" # 3d; schedule durations use Go duration syntax
 
 [schedules.org-review.payload]
 kind = "org_review"
@@ -302,7 +302,7 @@ match.kind = "org_review"
 # rendered pages, release assets, and repo metadata. Failures are submitted as
 # incident feedback immediately. See the sentinel skill.
 [schedules.sentinel]
-every = "6h"
+every = "3h"
 run_on_start = true
 
 [schedules.sentinel.payload]
@@ -326,7 +326,7 @@ match.kind = "sentinel"
 # against CLI ground truth, then files capped feedback for bugs, friction, and
 # ideas. See template/skills/product-verify/SKILL.md.
 [schedules.product-verify]
-every = "24h"
+every = "4h"
 
 [schedules.product-verify.payload]
 kind = "product_verify"
@@ -352,7 +352,7 @@ match.kind = "product_verify"
 # webhook is configured). Community signal flows back in through the
 # feedback store. See template/agents/comms/agent.md for the voice rules.
 [schedules.discord-digest]
-every = "24h"
+every = "8h"
 
 [schedules.discord-digest.payload]
 kind = "discord_digest"
@@ -505,7 +505,7 @@ match.kind = "docs_freshness"
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
 [schedules.docs-freshness]
-every = "24h"
+every = "6h"
 
 [schedules.docs-freshness.payload]
 kind = "docs_freshness"
