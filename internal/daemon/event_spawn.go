@@ -322,6 +322,15 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 		if uri := payloadString(payload, "state_uri"); uri != "" {
 			dst.StateURI = uri
 		}
+		if payloadReferencesTeamCharter(payload) {
+			dst.Chartered = true
+			if uri := payloadString(payload, "charter_uri"); uri != "" {
+				dst.CharterURI = uri
+			}
+			if uri := payloadString(payload, "capability_uri"); uri != "" {
+				dst.CapabilityURI = uri
+			}
+		}
 	}
 	current := *meta
 	if latest, err := ReadMetadata(r.mgr.daemonRoot, meta.Instance); err == nil && latest.PID == meta.PID {
@@ -814,7 +823,14 @@ func (r *EventResolver) charterAuthorityForPayload(instance string, payload map[
 	if err != nil || charter == nil {
 		return nil, false
 	}
+	if teamCharterTerminal(charter.State) {
+		return nil, false
+	}
 	if strings.TrimSpace(charter.Instance) != strings.TrimSpace(instance) {
+		return nil, false
+	}
+	active, err := ReadTeamCharterByInstance(r.mgr.daemonRoot, instance)
+	if err != nil || active == nil || active.ID != charter.ID {
 		return nil, false
 	}
 	if capabilityURI := payloadString(payload, "capability_uri"); capabilityURI != "" && capabilityURI != charter.Authority.CapabilityURI {
@@ -832,6 +848,11 @@ func (r *EventResolver) payloadRequiresCharterAuthority(instance string, payload
 	}
 	if r == nil || r.mgr == nil || strings.TrimSpace(instance) == "" {
 		return false
+	}
+	if marker, err := readCharteredInstanceMarker(r.mgr.daemonRoot, instance); err == nil && marker.Chartered {
+		return true
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return true
 	}
 	if _, err := ReadTeamCharterByInstance(r.mgr.daemonRoot, instance); err == nil {
 		return true

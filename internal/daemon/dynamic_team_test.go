@@ -189,6 +189,9 @@ match.target = "worker"
 	if meta.DeploymentURI != charter.ChildDeploymentURI || meta.DeploymentParentURI != charter.ParentDeploymentURI || meta.Job != "gh155-dynteam" {
 		t.Fatalf("metadata deployment/provenance = %+v", meta)
 	}
+	if !meta.Chartered || meta.CharterURI != charter.URI || meta.CapabilityURI != charter.Authority.CapabilityURI {
+		t.Fatalf("metadata charter marker = %+v, charter = %+v", meta, charter)
+	}
 	childURIs := map[string]string{
 		"metadata uri":       meta.URI,
 		"metadata spec_uri":  meta.SpecURI,
@@ -372,6 +375,123 @@ match.target = "worker"
 	if !ok || capability.CharterURI != second.Charter.URI {
 		t.Fatalf("second capability resource = %#v, want fresh charter %s", read.Data, second.Charter.URI)
 	}
+}
+
+func TestDynamicTeamCharteredMarkerFailsClosedWithoutActiveCharter(t *testing.T) {
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	installFakeAgentTeamCLI(t)
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[project]\nid = \"parent-dep\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+	[instances.manager]
+	agent = "manager"
+	ephemeral = false
+
+	[instances.worker]
+	agent = "worker"
+	ephemeral = true
+	replicas = 1
+
+	[[instances.worker.triggers]]
+	event = "agent.dispatch"
+	match.target = "worker"
+
+	[teams.platform]
+	instances = ["manager"]
+
+	[teams.delivery]
+	instances = ["worker"]
+
+	[budgets.platform]
+	tokens_per_day = 100
+	allocation = "reserve"
+
+	[authority]
+	enforcement = "enforce"
+
+	[authority.agents.manager]
+	allow = ["team.spawn", "job.show"]
+
+	[authority.teams.delivery]
+	allow = ["job.*"]
+	`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.SpawnTeam(TeamSpawnRequest{
+		Name:   "Fail Closed GH155",
+		Target: "worker",
+		Budget: TeamSpawnBudget{Tokens: 10},
+		Authority: TeamSpawnAuthority{
+			Verbs:     []string{"job.show"},
+			Resources: []string{resource.JobURI("parent-dep", "gh155-fail-closed")},
+		},
+		Payload: map[string]any{
+			"job_id":  "gh155-fail-closed",
+			"ticket":  "GH155-dynteams-impl",
+			"kickoff": "run the fail-closed child",
+		},
+		Origin: origin.Envelope{
+			Project:  "parent-dep",
+			Team:     "platform",
+			Instance: "manager",
+			Agent:    "manager",
+			Job:      "gh155-fail-closed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SpawnTeam: %v", err)
+	}
+	charter := result.Charter
+	if charter == nil || charter.State != TeamCharterStateRunning {
+		t.Fatalf("charter = %+v", charter)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop(charter.Instance)
+		_ = m.WaitForReaper(charter.Instance, 5*time.Second)
+	})
+	meta, err := ReadMetadata(m.daemonRoot, charter.Instance)
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if !meta.Chartered || meta.CharterURI != charter.URI || meta.CapabilityURI != charter.Authority.CapabilityURI {
+		t.Fatalf("metadata charter marker = %+v, charter = %+v", meta, charter)
+	}
+	childActor := origin.Envelope{
+		Project:  "parent-dep",
+		Team:     "delivery",
+		Instance: charter.Instance,
+		Agent:    "worker",
+		Job:      "gh155-fail-closed",
+	}
+	assertCharteredAuditAllowsTarget(t, teamDir, top, childActor, "job.show", "job:gh155-fail-closed", "gh155-fail-closed")
+
+	terminal := *charter
+	terminal.State = TeamCharterStateReaped
+	terminal.ReapedAt = time.Now().UTC()
+	terminal.UpdatedAt = terminal.ReapedAt
+	if err := WriteTeamCharter(m.daemonRoot, &terminal); err != nil {
+		t.Fatalf("write terminal charter: %v", err)
+	}
+	if allow, enforce, strict := resolver.runtimeAuthorityForInstance("worker", charter.Instance, map[string]any{
+		"charter_uri":    charter.URI,
+		"capability_uri": charter.Authority.CapabilityURI,
+		"deployment_uri": charter.ChildDeploymentURI,
+	}); !enforce || !strict || len(allow) != 0 {
+		t.Fatalf("terminal charter authority = allow=%#v enforce=%v strict=%v, want strict empty", allow, enforce, strict)
+	}
+	assertCharteredAuditDeniesTarget(t, teamDir, top, childActor, "job.show", "job:gh155-fail-closed", "gh155-fail-closed")
+
+	if err := os.Remove(teamCharterPath(m.daemonRoot, charter.ID)); err != nil {
+		t.Fatalf("remove active charter: %v", err)
+	}
+	if allow, enforce, strict := resolver.runtimeAuthorityForInstance("worker", charter.Instance, map[string]any{}); !enforce || !strict || len(allow) != 0 {
+		t.Fatalf("missing charter authority = allow=%#v enforce=%v strict=%v, want strict empty", allow, enforce, strict)
+	}
+	assertCharteredAuditDeniesTarget(t, teamDir, top, childActor, "job.show", "job:gh155-fail-closed", "gh155-fail-closed")
 }
 
 func TestDynamicTeamAuthorityGrantPreservesOwnScope(t *testing.T) {

@@ -124,15 +124,36 @@ func charterAuthorityEvaluation(opts AuthorityAuditOptions, actor origin.Envelop
 	if opts.Operator || strings.TrimSpace(opts.DaemonRoot) == "" || strings.TrimSpace(actor.Instance) == "" {
 		return false, topology.AuthorityEvaluation{}, nil
 	}
+	marker, markerErr := readCharteredInstanceMarker(opts.DaemonRoot, actor.Instance)
+	if markerErr != nil && !errors.Is(markerErr, fs.ErrNotExist) {
+		return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.metadata"), fmt.Errorf("authority violation: charter marker lookup for instance %s: %w", actor.Instance, markerErr)
+	}
 	charter, err := ReadTeamCharterByInstance(opts.DaemonRoot, actor.Instance)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
+			if marker.Chartered {
+				return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.missing"), nil
+			}
 			return false, topology.AuthorityEvaluation{}, nil
 		}
 		return true, topology.AuthorityEvaluation{}, fmt.Errorf("authority violation: charter lookup for instance %s: %w", actor.Instance, err)
 	}
 	if charter == nil {
+		if marker.Chartered {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.missing"), nil
+		}
 		return false, topology.AuthorityEvaluation{}, nil
+	}
+	if teamCharterTerminal(charter.State) {
+		return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter."+charter.ID+".terminal"), nil
+	}
+	if marker.Chartered {
+		if marker.CharterURI != "" && marker.CharterURI != charter.URI {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.marker"), nil
+		}
+		if marker.CapabilityURI != "" && marker.CapabilityURI != charter.Authority.CapabilityURI {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.marker"), nil
+		}
 	}
 	eval := topology.AuthorityEvaluation{
 		Allowed: true,
@@ -154,6 +175,21 @@ func charterAuthorityEvaluation(opts AuthorityAuditOptions, actor origin.Envelop
 		return true, eval, nil
 	}
 	return true, eval, nil
+}
+
+func deniedCharterAuthorityEvaluation(actor origin.Envelope, verb, targetJob, source string) topology.AuthorityEvaluation {
+	return topology.AuthorityEvaluation{
+		Allowed: false,
+		Decision: topology.AuthorityDecision{
+			Instance:  actor.Instance,
+			Agent:     actor.Agent,
+			Team:      actor.Team,
+			Verb:      verb,
+			ActorJob:  actor.Job,
+			TargetJob: targetJob,
+		},
+		Sources: []string{source},
+	}
 }
 
 func charterGrantAllows(charter *TeamCharter, decision topology.AuthorityDecision, auditResource string) (bool, string) {

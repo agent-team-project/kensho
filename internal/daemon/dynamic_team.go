@@ -134,6 +134,24 @@ type TeamCharterDeniedGrant struct {
 	Reason   string `json:"reason"`
 }
 
+type charteredInstanceMarker struct {
+	Chartered     bool
+	CharterURI    string
+	CapabilityURI string
+}
+
+func readCharteredInstanceMarker(daemonRoot, instance string) (charteredInstanceMarker, error) {
+	meta, err := ReadMetadata(daemonRoot, instance)
+	if err != nil {
+		return charteredInstanceMarker{}, err
+	}
+	return charteredInstanceMarker{
+		Chartered:     meta.Chartered || meta.CharterURI != "" || meta.CapabilityURI != "",
+		CharterURI:    strings.TrimSpace(meta.CharterURI),
+		CapabilityURI: strings.TrimSpace(meta.CapabilityURI),
+	}, nil
+}
+
 func (r *EventResolver) SpawnTeam(req TeamSpawnRequest) (*TeamSpawnResult, error) {
 	if r == nil || r.mgr == nil {
 		return nil, errors.New("team spawn: event resolver is required")
