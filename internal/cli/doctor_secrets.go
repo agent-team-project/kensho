@@ -25,6 +25,8 @@ var configSecretValuePatterns = []struct {
 	{name: "bearer token literal", re: regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]{24,}`)},
 }
 
+var configSecretEnvVarNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func configSecretFindings(cfg map[string]any) []configSecretFinding {
 	var findings []configSecretFinding
 	collectConfigSecretFindings(nil, cfg, &findings)
@@ -74,13 +76,6 @@ func collectConfigSecretStringFinding(path []string, value string, findings *[]c
 	if trimmed == "" {
 		return
 	}
-	if configSecretPath(path) && !configSecretEnvReference(trimmed) && !configSecretPlaceholder(trimmed) {
-		*findings = append(*findings, configSecretFinding{
-			Path:   configPathLabel(path),
-			Reason: "secret-like config key",
-		})
-		return
-	}
 	if configSecretEnvReference(trimmed) || configSecretPlaceholder(trimmed) {
 		return
 	}
@@ -92,6 +87,13 @@ func collectConfigSecretStringFinding(path []string, value string, findings *[]c
 			})
 			return
 		}
+	}
+	if configSecretPath(path) {
+		*findings = append(*findings, configSecretFinding{
+			Path:   configPathLabel(path),
+			Reason: "secret-like config key",
+		})
+		return
 	}
 }
 
@@ -189,16 +191,25 @@ func configPathLabel(path []string) string {
 }
 
 func configSecretEnvReference(value string) bool {
+	name := ""
 	if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
-		return true
+		name = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	} else if strings.HasPrefix(value, "$") {
+		name = strings.TrimPrefix(value, "$")
+	} else if strings.HasPrefix(value, "env:") {
+		name = strings.TrimPrefix(value, "env:")
+	} else {
+		return false
 	}
-	if strings.HasPrefix(value, "$") && len(value) > 1 && strings.Trim(value[1:], "_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") == "" {
-		return true
+	if !configSecretEnvVarNamePattern.MatchString(name) {
+		return false
 	}
-	if strings.HasPrefix(value, "env:") && strings.TrimSpace(strings.TrimPrefix(value, "env:")) != "" {
-		return true
+	for _, pattern := range configSecretValuePatterns {
+		if pattern.re.MatchString(name) {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 func configSecretPlaceholder(value string) bool {

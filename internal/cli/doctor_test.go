@@ -207,6 +207,115 @@ endpoint = "https://discord.com/api/webhooks/1234567890/abcdefghijklmnopqrstuvwx
 	}
 }
 
+func TestDoctorSecretEnvReferencesRequireNonSecretEnvNames(t *testing.T) {
+	token := "ghp_1234567890abcdef1234567890abcdef12345678"
+	tests := []struct {
+		name      string
+		config    string
+		wantOK    bool
+		wantParts []string
+	}{
+		{
+			name: "valid env reference",
+			config: `[pm]
+provider = "github"
+
+[project]
+id = "test-project"
+
+[github]
+owner = "acme"
+repo = "widgets"
+api_key = "env:GITHUB_TOKEN"
+`,
+			wantOK: true,
+		},
+		{
+			name: "token-shaped env suffix",
+			config: fmt.Sprintf(`[pm]
+provider = "github"
+
+[project]
+id = "test-project"
+
+[github]
+owner = "acme"
+repo = "widgets"
+api_key = "env:%s"
+`, token),
+			wantParts: []string{"[github].api_key", "GitHub token literal"},
+		},
+		{
+			name: "bare token literal",
+			config: fmt.Sprintf(`[pm]
+provider = "github"
+
+[project]
+id = "test-project"
+
+[github]
+owner = "acme"
+repo = "widgets"
+
+[notifications]
+endpoint = "%s"
+`, token),
+			wantParts: []string{"[notifications].endpoint", "GitHub token literal"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			initInto(t, tmp)
+
+			cfgPath := filepath.Join(tmp, ".agent_team", "config.toml")
+			if err := os.WriteFile(cfgPath, []byte(tt.config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := NewRootCmd()
+			out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+			cmd.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+			err := cmd.Execute()
+			if tt.wantOK {
+				if err != nil {
+					t.Fatalf("doctor should allow valid env reference: %v\nstdout=%s\nstderr=%s", err, out.String(), errOut.String())
+				}
+			} else {
+				if err == nil {
+					t.Fatal("expected config secret check to fail")
+				}
+				var ec ExitCode
+				if !errors.As(err, &ec) || int(ec) != 1 {
+					t.Fatalf("expected exit 1, got %v", err)
+				}
+			}
+
+			var result doctorResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("decode doctor json: %v\nbody=%s\nstderr=%s", err, out.String(), errOut.String())
+			}
+			if tt.wantOK {
+				if !result.OK || containsDoctorMessage(result.Problems, "likely secret") {
+					t.Fatalf("doctor result = %+v, want no secret config problem", result)
+				}
+				return
+			}
+			for _, part := range tt.wantParts {
+				if !containsDoctorMessage(result.Problems, part) {
+					t.Fatalf("doctor result = %+v, want problem containing %q", result, part)
+				}
+			}
+			if strings.Contains(out.String(), token) || strings.Contains(errOut.String(), token) {
+				t.Fatalf("doctor output leaked the secret value\nstdout=%s\nstderr=%s", out.String(), errOut.String())
+			}
+		})
+	}
+}
+
 func TestDoctorAllowsNonSecretTokenConfigTerms(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
