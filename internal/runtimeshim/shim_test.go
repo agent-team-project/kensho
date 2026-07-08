@@ -115,6 +115,28 @@ func TestAgentTeamShimAllowsDeclaredAuthorityVerb(t *testing.T) {
 	}
 }
 
+func TestAgentTeamShimStrictAuthorityDeniesDefaultAllowlistOutsideGrant(t *testing.T) {
+	shim, _, calls := installShim(t, Options{
+		EnforceAuthority:   true,
+		AuthorityAllowlist: []string{"job.show"},
+		StrictAuthority:    true,
+	})
+
+	runShim(t, shim, "job", "show", "squ-1")
+	stderr, code := runShimExpectExit(t, shim, "inbox", "check")
+	if code != 3 {
+		t.Fatalf("exit code = %d, want 3; stderr=%s", code, stderr)
+	}
+	if got := strings.TrimSpace(stderr); got != "agent-team shim: denied verb inbox.check" {
+		t.Fatalf("stderr = %q", got)
+	}
+
+	got := strings.TrimSpace(readFile(t, calls))
+	if got != "job show squ-1" {
+		t.Fatalf("real agent-team args = %q", got)
+	}
+}
+
 func TestReviewerPromptMatchesRuntimeCommandSurface(t *testing.T) {
 	root := filepath.Join("..", "..")
 	prompt := readFile(t, filepath.Join(root, "template", "agents", "reviewer", "agent.md"))

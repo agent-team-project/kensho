@@ -100,7 +100,7 @@ func payloadBudgetHardMultiplier(payload map[string]any) float64 {
 	return 0
 }
 
-func (r *EventResolver) grantPayloadBudgetLocked(payload map[string]any, eventOrigin origin.Envelope, now time.Time) (budget.GrantResult, error) {
+func (r *EventResolver) grantPayloadBudgetLocked(payload map[string]any, eventOrigin origin.Envelope, instance string, now time.Time) (budget.GrantResult, error) {
 	result := budget.GrantResult{Allowed: true, Noop: true, Team: strings.TrimSpace(eventOrigin.Team), GrantedTokens: payloadBudgetTokens(payload)}
 	if payload == nil || strings.TrimSpace(eventOrigin.Team) == "" {
 		return result, nil
@@ -109,11 +109,15 @@ func (r *EventResolver) grantPayloadBudgetLocked(payload map[string]any, eventOr
 	if requested <= 0 {
 		return result, nil
 	}
+	instance = strings.TrimSpace(instance)
+	if instance == "" {
+		instance = eventOrigin.Instance
+	}
 	grant, err := budget.GrantTokens(r.teamDir, r.topo, budget.GrantRequest{
 		Team:               eventOrigin.Team,
 		JobID:              eventJobID(payload),
 		StepID:             payloadString(payload, "pipeline_step"),
-		Instance:           eventOrigin.Instance,
+		Instance:           instance,
 		Tokens:             requested,
 		ClampOversubscribe: true,
 		GateOversubscribe:  true,

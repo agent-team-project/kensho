@@ -29,6 +29,32 @@ func TestDeploymentURIUsesProjectSelfResource(t *testing.T) {
 	}
 }
 
+func TestChildDeploymentIDStableAndSafe(t *testing.T) {
+	first := ChildDeploymentID("parent-dep", "Adapter Port GH155")
+	second := ChildDeploymentID("parent-dep", "Adapter Port GH155")
+	if first == "" || first != second {
+		t.Fatalf("ChildDeploymentID = %q, %q; want stable non-empty", first, second)
+	}
+	if got, wantPrefix := first, "child-adapter-port-gh155-"; len(got) <= len(wantPrefix) || got[:len(wantPrefix)] != wantPrefix {
+		t.Fatalf("ChildDeploymentID = %q, want prefix %q", got, wantPrefix)
+	}
+	if parsed, err := Parse(DeploymentURI(first)); err != nil || parsed.DeploymentID != first || parsed.Kind != KindProject {
+		t.Fatalf("child deployment URI parse = %+v, %v", parsed, err)
+	}
+}
+
+func TestCharterAndCapabilityURIs(t *testing.T) {
+	if got, want := CharterURI("dep", "charter-1"), "agt://dep/charter/charter-1"; got != want {
+		t.Fatalf("CharterURI = %q, want %q", got, want)
+	}
+	if got, want := CapabilityURI("child", "cap-1"), "agt://child/capability/cap-1"; got != want {
+		t.Fatalf("CapabilityURI = %q, want %q", got, want)
+	}
+	if got, want := AllocationURI("dep", "alloc-1"), "agt://dep/allocation/alloc-1"; got != want {
+		t.Fatalf("AllocationURI = %q, want %q", got, want)
+	}
+}
+
 func TestURIEscapesPathSegments(t *testing.T) {
 	const dep = "dep"
 	got := URI(dep, KindWorkspace, "channel/#blocked")

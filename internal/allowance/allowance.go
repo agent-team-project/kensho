@@ -69,6 +69,11 @@ func ParseTokenValue(raw any, field string) (int64, error) {
 			return 0, fmt.Errorf("%s must be >= 0", field)
 		}
 		return v, nil
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || math.Trunc(v) != v || v > math.MaxInt64 {
+			return 0, fmt.Errorf("%s must be a non-negative integer", field)
+		}
+		return int64(v), nil
 	case string:
 		n, err := ParseTokens(v)
 		if err != nil {

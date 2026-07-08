@@ -40,6 +40,7 @@ func (r *EventResolver) onReap(spawned string) {
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
 		r.reconcileEphemeralJobExit(meta)
 	}
+	_, _ = r.markTeamCharterReaped(spawned, map[string]string{"reason": "instance_reaped"})
 	drainQueues := freedLocks > 0
 	if r.budgetsConfigured() {
 		drainQueues = true
@@ -63,9 +64,11 @@ func (r *EventResolver) onReap(spawned string) {
 		r.mu.Unlock()
 		return
 	}
+	outcome := EventOutcome{Instance: declared.Name, Action: "dispatched", InstanceID: next.uniqueName}
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, next.uniqueName); err == nil {
 		r.updateLockLeasePID(meta.Instance, meta.PID)
 	}
+	_, _ = r.markTeamCharterSpawned(next.uniqueName, outcome)
 	_ = RemoveQueueItem(r.mgr.daemonRoot, next.id)
 }
 
@@ -347,7 +350,7 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 			_ = WriteQueueItem(r.mgr.daemonRoot, queueItemFromEvent(inst.Name, ev, QueueStatePending))
 			continue
 		}
-		grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, now)
+		grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, ev.uniqueName, now)
 		if err != nil {
 			ev.lastError = err.Error()
 			ev.reason = "budget_error"
@@ -537,9 +540,11 @@ func (r *EventResolver) drainQueuesWithResult(ids map[string]bool) (*QueueDrainR
 			continue
 		}
 		r.updateLockLeasePID(meta.Instance, meta.PID)
+		outcome := EventOutcome{Instance: declared.Name, Action: "dispatched", InstanceID: ev.uniqueName}
+		_, _ = r.markTeamCharterSpawned(ev.uniqueName, outcome)
 		_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
 		result.Dispatched++
-		result.Outcomes = append(result.Outcomes, EventOutcome{Instance: declared.Name, Action: "dispatched", InstanceID: ev.uniqueName})
+		result.Outcomes = append(result.Outcomes, outcome)
 	}
 	items, err := ListQueueItems(r.mgr.daemonRoot)
 	if err != nil {
@@ -759,7 +764,7 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		r.mu.Unlock()
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: ev.uniqueName, Reason: QueueReasonLockHeld}, nil
 	}
-	grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, time.Now().UTC())
+	grant, err := r.grantPayloadBudgetLocked(ev.payload, ev.origin, ev.uniqueName, time.Now().UTC())
 	if err != nil {
 		r.releaseLocksForInstanceLocked(ev.uniqueName)
 		r.mu.Unlock()
@@ -789,8 +794,10 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: ev.uniqueName, Reason: err.Error()}, nil
 	}
 	r.updateLockLeasePID(meta.Instance, meta.PID)
+	outcome := EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: ev.uniqueName}
+	_, _ = r.markTeamCharterSpawned(ev.uniqueName, outcome)
 	_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
-	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: ev.uniqueName}, nil
+	return outcome, nil
 }
 
 func removeQueuedEventByID(queue []*queuedEvent, id string) []*queuedEvent {

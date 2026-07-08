@@ -305,6 +305,10 @@ func (r *EventResolver) actuatePersistent(inst *topology.Instance, eventType str
 }
 
 func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType string, payload map[string]any) EventOutcome {
+	return r.actuateEphemeralWithBudgetOrigin(inst, eventType, payload, origin.Envelope{})
+}
+
+func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance, eventType string, payload map[string]any, budgetOrigin origin.Envelope) EventOutcome {
 	payload = copyPayload(payloadWithInstanceReapPolicy(inst, payload))
 	applyInstanceBudgetDefaultsToPayload(inst, payload)
 	r.mu.Lock()
@@ -316,6 +320,9 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
 	eventOrigin := r.originForEvent(inst, childName, eventType, payload)
+	if !budgetOrigin.Empty() {
+		eventOrigin = origin.Merge(budgetOrigin, eventOrigin)
+	}
 	now := time.Now().UTC()
 	if requested && r.mgr.isRunning(childName) {
 		reason := fmt.Sprintf("instance %q already running", childName)
@@ -434,7 +441,7 @@ func (r *EventResolver) actuateEphemeral(inst *topology.Instance, eventType stri
 		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonLockHeld, QueueReasonLockHeld, "", "")
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonLockHeld}
 	}
-	grant, err := r.grantPayloadBudgetLocked(payload, eventOrigin, now)
+	grant, err := r.grantPayloadBudgetLocked(payload, eventOrigin, childName, now)
 	if err != nil {
 		r.releaseLocksForInstanceLocked(childName)
 		r.mu.Unlock()

@@ -1,13 +1,16 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	resuri "github.com/agent-team-project/agent-team/internal/resource"
 	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
@@ -57,8 +60,14 @@ func AuditAuthority(opts AuthorityAuditOptions) error {
 	if targetJob == "" {
 		targetJob = strings.TrimSpace(opts.JobID)
 	}
-	decision := authorityDecisionForActor(topo, actor, operator, verb, targetJob)
-	eval := topo.Authority.Evaluate(decision)
+	handled, eval, err := charterAuthorityEvaluation(opts, actor, verb, resource, targetJob)
+	if err != nil {
+		return err
+	}
+	if !handled {
+		decision := authorityDecisionForActor(topo, actor, operator, verb, targetJob)
+		eval = topo.Authority.Evaluate(decision)
+	}
 	if eval.Allowed {
 		return nil
 	}
@@ -109,6 +118,170 @@ func AuditAuthority(opts AuthorityAuditOptions) error {
 		return fmt.Errorf("%s", message)
 	}
 	return nil
+}
+
+func charterAuthorityEvaluation(opts AuthorityAuditOptions, actor origin.Envelope, verb, auditResource, targetJob string) (bool, topology.AuthorityEvaluation, error) {
+	if opts.Operator || strings.TrimSpace(opts.DaemonRoot) == "" || strings.TrimSpace(actor.Instance) == "" {
+		return false, topology.AuthorityEvaluation{}, nil
+	}
+	marker, markerErr := readCharteredInstanceMarker(opts.DaemonRoot, actor.Instance)
+	if markerErr != nil && !errors.Is(markerErr, fs.ErrNotExist) {
+		return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.metadata"), fmt.Errorf("authority violation: charter marker lookup for instance %s: %w", actor.Instance, markerErr)
+	}
+	charter, err := ReadTeamCharterByInstance(opts.DaemonRoot, actor.Instance)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			if marker.Chartered {
+				return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.missing"), nil
+			}
+			return false, topology.AuthorityEvaluation{}, nil
+		}
+		return true, topology.AuthorityEvaluation{}, fmt.Errorf("authority violation: charter lookup for instance %s: %w", actor.Instance, err)
+	}
+	if charter == nil {
+		if marker.Chartered {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.missing"), nil
+		}
+		return false, topology.AuthorityEvaluation{}, nil
+	}
+	if teamCharterTerminal(charter.State) {
+		return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter."+charter.ID+".terminal"), nil
+	}
+	if marker.Chartered {
+		if marker.CharterURI != "" && marker.CharterURI != charter.URI {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.marker"), nil
+		}
+		if marker.CapabilityURI != "" && marker.CapabilityURI != charter.Authority.CapabilityURI {
+			return true, deniedCharterAuthorityEvaluation(actor, verb, targetJob, "charter.marker"), nil
+		}
+	}
+	eval := topology.AuthorityEvaluation{
+		Allowed: true,
+		Decision: topology.AuthorityDecision{
+			Instance:  actor.Instance,
+			Agent:     actor.Agent,
+			Team:      actor.Team,
+			Verb:      verb,
+			ActorJob:  actor.Job,
+			TargetJob: targetJob,
+		},
+		Sources: []string{"charter." + charter.ID},
+	}
+	if allowed, source := charterGrantAllows(charter, eval.Decision, auditResource); !allowed {
+		eval.Allowed = false
+		if source != "" {
+			eval.Sources = []string{source}
+		}
+		return true, eval, nil
+	}
+	return true, eval, nil
+}
+
+func deniedCharterAuthorityEvaluation(actor origin.Envelope, verb, targetJob, source string) topology.AuthorityEvaluation {
+	return topology.AuthorityEvaluation{
+		Allowed: false,
+		Decision: topology.AuthorityDecision{
+			Instance:  actor.Instance,
+			Agent:     actor.Agent,
+			Team:      actor.Team,
+			Verb:      verb,
+			ActorJob:  actor.Job,
+			TargetJob: targetJob,
+		},
+		Sources: []string{source},
+	}
+}
+
+func charterGrantAllows(charter *TeamCharter, decision topology.AuthorityDecision, auditResource string) (bool, string) {
+	if charter == nil {
+		return false, "charter"
+	}
+	verbMatched := false
+	for _, grant := range effectiveTeamCharterGrants(charter.Authority) {
+		if !authorityAllowedByPatterns([]string{grant.Verb}, decision, true) {
+			continue
+		}
+		verbMatched = true
+		if strings.TrimSpace(auditResource) == "" || charteredResourceAllowedByGrant(grant, auditResource) {
+			return true, ""
+		}
+	}
+	if verbMatched {
+		return false, "charter." + charter.ID + ".resources"
+	}
+	return false, "charter." + charter.ID
+}
+
+func effectiveTeamCharterGrants(authority TeamCharterAuthority) []TeamCharterGrant {
+	if len(authority.Grants) > 0 {
+		return cleanTeamCharterGrants(authority.Grants)
+	}
+	resources := cleanStringSet(authority.GrantedResources)
+	var grants []TeamCharterGrant
+	for _, verb := range cleanStringSet(authority.GrantedVerbs) {
+		grants = append(grants, TeamCharterGrant{Verb: verb, Resources: resources})
+	}
+	return grants
+}
+
+func charteredResourceAllowedByGrant(grant TeamCharterGrant, auditResource string) bool {
+	auditResource = strings.TrimSpace(auditResource)
+	if auditResource == "" {
+		return true
+	}
+	for _, resource := range cleanStringSet(grant.Resources) {
+		if charteredResourceGrantMatches(resource, auditResource) {
+			return true
+		}
+	}
+	return false
+}
+
+func charteredResourceGrantMatches(grant, auditResource string) bool {
+	grant = strings.TrimSpace(grant)
+	auditResource = strings.TrimSpace(auditResource)
+	if grant == "" || auditResource == "" {
+		return false
+	}
+	if grant == auditResource {
+		return true
+	}
+	parsedGrant, err := resuri.Parse(grant)
+	if err != nil {
+		return false
+	}
+	if parsedAudit, err := resuri.Parse(auditResource); err == nil {
+		return parsedGrant.DeploymentID == parsedAudit.DeploymentID &&
+			parsedGrant.Kind == parsedAudit.Kind &&
+			parsedGrant.ID == parsedAudit.ID &&
+			parsedGrant.Fragment == parsedAudit.Fragment
+	}
+	return localAuditResourceMatchesGrant(parsedGrant, auditResource)
+}
+
+func localAuditResourceMatchesGrant(grant resuri.Parsed, auditResource string) bool {
+	switch grant.Kind {
+	case resuri.KindJob:
+		return auditResource == "job:"+grant.ID || strings.HasPrefix(auditResource, "job:"+grant.ID+":")
+	case resuri.KindChannel:
+		return auditResource == "channel:"+grant.ID
+	case resuri.KindMailbox:
+		return auditResource == "inbox:"+grant.ID || auditResource == "mailbox:"+grant.ID
+	case resuri.KindInstance:
+		return auditResource == "instance:"+grant.ID
+	case resuri.KindCharter:
+		return auditResource == "charter:"+grant.ID
+	case resuri.KindQueue:
+		return auditResource == "queue:"+grant.ID
+	case resuri.KindOutbox:
+		return auditResource == "outbox:"+grant.ID
+	case resuri.KindLock:
+		return auditResource == "lock:"+grant.ID
+	case resuri.KindProject:
+		return auditResource == "project:"+grant.ID || auditResource == "deployment:"+grant.ID
+	default:
+		return false
+	}
 }
 
 func (a *authorityAuditor) audit(r *http.Request, verb, resource string, fallback origin.Envelope) error {

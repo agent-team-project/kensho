@@ -51,6 +51,23 @@ func TestParseTokensRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestParseTokenValueAcceptsIntegralJSONNumber(t *testing.T) {
+	got, err := ParseTokenValue(float64(60), "budget_tokens")
+	if err != nil {
+		t.Fatalf("ParseTokenValue(float64): %v", err)
+	}
+	if got != 60 {
+		t.Fatalf("ParseTokenValue(float64) = %d, want 60", got)
+	}
+	for _, raw := range []any{float64(1.5), float64(-1)} {
+		t.Run("reject", func(t *testing.T) {
+			if _, err := ParseTokenValue(raw, "budget_tokens"); err == nil {
+				t.Fatalf("ParseTokenValue(%v) succeeded, want error", raw)
+			}
+		})
+	}
+}
+
 func TestCrossedLevelsSkipsSentAndDefaults(t *testing.T) {
 	got := CrossedLevels(85, 100, nil, []int{50})
 	if want := []int{80}; !reflect.DeepEqual(got, want) {

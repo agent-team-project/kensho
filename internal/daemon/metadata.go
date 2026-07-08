@@ -35,6 +35,9 @@ type Metadata struct {
 	SpecURI             string          `json:"spec_uri,omitempty"`
 	DeploymentURI       string          `json:"deployment_uri,omitempty"`
 	DeploymentParentURI string          `json:"deployment_parent_uri,omitempty"`
+	Chartered           bool            `json:"chartered,omitempty"`
+	CharterURI          string          `json:"charter_uri,omitempty"`
+	CapabilityURI       string          `json:"capability_uri,omitempty"`
 	Agent               string          `json:"agent"`
 	Job                 string          `json:"job,omitempty"`
 	JobURI              string          `json:"job_uri,omitempty"`

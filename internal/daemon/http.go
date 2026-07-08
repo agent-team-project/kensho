@@ -438,6 +438,76 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, read)
 	})
 
+	mux.HandleFunc("/v1/team/spawn", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !dynamicTeamSpawnEnabled() {
+			writeError(w, http.StatusNotImplemented, dynamicTeamSpawnDisabledMessage)
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		var body TeamSpawnRequest
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		actor := auditor.originForRequest(r, body.Origin)
+		// V1 admits top-level creators here. Chartered-child nested spawns are
+		// deferred until #223 reconciles this local team resource with agt:// grants.
+		if !authorize(w, r, "team.spawn", "team:"+body.Name, actor) {
+			return
+		}
+		body.Origin = actor
+		result, err := events.SpawnTeam(body)
+		if err != nil {
+			if errors.Is(err, ErrDynamicTeamSpawnDisabled) {
+				writeError(w, http.StatusNotImplemented, dynamicTeamSpawnDisabledMessage)
+				return
+			}
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
+	mux.HandleFunc("/v1/team/charters/", func(w http.ResponseWriter, r *http.Request) {
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		id, verb, ok := splitTeamCharterPath(r.URL.Path)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "expected /v1/team/charters/{id} or /v1/team/charters/{id}/reap")
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && verb == "":
+			charter, err := ReadTeamCharter(m.daemonRoot, id)
+			if err != nil {
+				writeError(w, http.StatusNotFound, resourceReadNotFound(err).Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, charter)
+		case r.Method == http.MethodPost && verb == "reap":
+			if !authorize(w, r, "team.reap", "charter:"+id, origin.Envelope{}) {
+				return
+			}
+			charter, err := events.ReapTeamCharter(id)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, charter)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	})
+
 	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -1312,6 +1382,29 @@ func splitQueuePath(path string) (id, action string, ok bool) {
 		action = parts[1]
 	}
 	return decoded, action, true
+}
+
+func splitTeamCharterPath(path string) (id, verb string, ok bool) {
+	const prefix = "/v1/team/charters/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", "", false
+	}
+	rest := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	if rest == "" {
+		return "", "", false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) > 2 {
+		return "", "", false
+	}
+	decoded, err := url.PathUnescape(parts[0])
+	if err != nil || strings.TrimSpace(decoded) == "" {
+		return "", "", false
+	}
+	if len(parts) == 2 {
+		verb = parts[1]
+	}
+	return decoded, verb, true
 }
 
 type reconcileResponse struct {

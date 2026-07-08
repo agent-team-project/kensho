@@ -322,6 +322,15 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 		if uri := payloadString(payload, "state_uri"); uri != "" {
 			dst.StateURI = uri
 		}
+		if payloadReferencesTeamCharter(payload) {
+			dst.Chartered = true
+			if uri := payloadString(payload, "charter_uri"); uri != "" {
+				dst.CharterURI = uri
+			}
+			if uri := payloadString(payload, "capability_uri"); uri != "" {
+				dst.CapabilityURI = uri
+			}
+		}
 	}
 	current := *meta
 	if latest, err := ReadMetadata(r.mgr.daemonRoot, meta.Instance); err == nil && latest.PID == meta.PID {
@@ -478,7 +487,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -503,12 +512,12 @@ func (r *EventResolver) backfillDispatchPayloadResourceURIs(inst *topology.Insta
 		return
 	}
 	deployment, _ := resource.DeploymentFromTeamDir(r.teamDir)
-	deploymentID := strings.TrimSpace(deployment.ID)
+	deploymentID := deploymentIDForDispatchPayload(payload, deployment)
 	if deploymentID == "" {
 		return
 	}
-	payloadSetStringIfEmpty(payload, "deployment_uri", deployment.URI)
-	payloadSetStringIfEmpty(payload, "deployment_parent_uri", deployment.ParentURI)
+	payloadSetStringIfEmpty(payload, "deployment_uri", resource.DeploymentURI(deploymentID))
+	payloadSetStringIfEmpty(payload, "deployment_parent_uri", deploymentParentURIForDispatchPayload(deploymentID, deployment))
 	payloadSetStringIfEmpty(payload, "instance_uri", resource.InstanceURI(deploymentID, instance))
 	declared := instance
 	if inst != nil && strings.TrimSpace(inst.Name) != "" {
@@ -528,6 +537,21 @@ func (r *EventResolver) backfillDispatchPayloadResourceURIs(inst *topology.Insta
 	}
 	payloadSetStringIfEmpty(payload, "workspace_uri", workspaceURI)
 	payloadSetStringIfEmpty(payload, "state_uri", resource.StateURI(deploymentID, instance))
+}
+
+func deploymentIDForDispatchPayload(payload map[string]any, fallback resource.Deployment) string {
+	if parsed, err := resource.Parse(payloadString(payload, "deployment_uri")); err == nil {
+		return strings.TrimSpace(parsed.DeploymentID)
+	}
+	return strings.TrimSpace(fallback.ID)
+}
+
+func deploymentParentURIForDispatchPayload(deploymentID string, fallback resource.Deployment) string {
+	fallbackID := strings.TrimSpace(fallback.ID)
+	if deploymentID == "" || deploymentID == fallbackID {
+		return strings.TrimSpace(fallback.ParentURI)
+	}
+	return strings.TrimSpace(fallback.URI)
 }
 
 func payloadSetStringIfEmpty(payload map[string]any, key, value string) {
@@ -663,7 +687,7 @@ func originContextEnv(env origin.Envelope) []string {
 		out = append(out, "AGENT_TEAM_PROJECT="+env.Project)
 	}
 	if env.DeploymentURI != "" {
-		out = append(out, "AGENT_TEAM_DEPLOYMENT_URI="+env.DeploymentURI)
+		out = append(out, "AGENT_TEAM_ORIGIN_DEPLOYMENT_URI="+env.DeploymentURI)
 	}
 	if env.Team != "" {
 		out = append(out, "AGENT_TEAM_TEAM="+env.Team)
@@ -742,6 +766,9 @@ func dispatchContextEnv(payload map[string]any, branch, worktreePath string) []s
 	}{
 		{"deployment_uri", "AGENT_TEAM_DEPLOYMENT_URI"},
 		{"deployment_parent_uri", "AGENT_TEAM_DEPLOYMENT_PARENT_URI"},
+		{"charter_uri", "AGENT_TEAM_CHARTER_URI"},
+		{"child_deployment_uri", "AGENT_TEAM_CHILD_DEPLOYMENT_URI"},
+		{"capability_uri", "AGENT_TEAM_CAPABILITY_URI"},
 		{"instance_uri", "AGENT_TEAM_INSTANCE_URI"},
 		{"spec_uri", "AGENT_TEAM_SPEC_URI"},
 		{"workspace_uri", "AGENT_TEAM_WORKSPACE_URI"},
@@ -764,14 +791,95 @@ type ephemeralRuntime struct {
 // authorityForInstance resolves the closed-world verb allowlist baked into the
 // generated shim. enforce is true only when topology explicitly opts into
 // authority enforcement; audit mode keeps the shim pass-through.
-func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool) {
+func (r *EventResolver) authorityForInstance(agentName, instance string) (allow []string, enforce bool, strict bool) {
 	r.mu.Lock()
 	topo := r.topo
 	r.mu.Unlock()
 	if topo == nil || topo.Authority == nil || !topo.Authority.Enforced() {
+		return nil, false, false
+	}
+	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true, false
+}
+
+func (r *EventResolver) runtimeAuthorityForInstance(agentName, instance string, payload map[string]any) (allow []string, enforce bool, strict bool) {
+	if allow, ok := r.charterAuthorityForPayload(instance, payload); ok {
+		return allow, true, true
+	}
+	if r.payloadRequiresCharterAuthority(instance, payload) {
+		return nil, true, true
+	}
+	return r.authorityForInstance(agentName, instance)
+}
+
+func (r *EventResolver) charterAuthorityForPayload(instance string, payload map[string]any) ([]string, bool) {
+	if payload == nil || r == nil || r.mgr == nil {
 		return nil, false
 	}
-	return topo.AuthorityAllowlistForInstance(instance, strings.TrimSpace(agentName)), true
+	charterID := charterIDFromURI(payloadString(payload, "charter_uri"))
+	if charterID == "" {
+		return nil, false
+	}
+	charter, err := ReadTeamCharter(r.mgr.daemonRoot, charterID)
+	if err != nil || charter == nil {
+		return nil, false
+	}
+	if teamCharterTerminal(charter.State) {
+		return nil, false
+	}
+	if strings.TrimSpace(charter.Instance) != strings.TrimSpace(instance) {
+		return nil, false
+	}
+	active, err := ReadTeamCharterByInstance(r.mgr.daemonRoot, instance)
+	if err != nil || active == nil || active.ID != charter.ID {
+		return nil, false
+	}
+	if capabilityURI := payloadString(payload, "capability_uri"); capabilityURI != "" && capabilityURI != charter.Authority.CapabilityURI {
+		return nil, false
+	}
+	if deploymentURI := payloadString(payload, "deployment_uri"); deploymentURI != "" && deploymentURI != charter.ChildDeploymentURI {
+		return nil, false
+	}
+	return grantedVerbsFromAuthority(charter.Authority), true
+}
+
+func (r *EventResolver) payloadRequiresCharterAuthority(instance string, payload map[string]any) bool {
+	if payloadReferencesTeamCharter(payload) {
+		return true
+	}
+	if r == nil || r.mgr == nil || strings.TrimSpace(instance) == "" {
+		return false
+	}
+	if marker, err := readCharteredInstanceMarker(r.mgr.daemonRoot, instance); err == nil && marker.Chartered {
+		return true
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	if _, err := ReadTeamCharterByInstance(r.mgr.daemonRoot, instance); err == nil {
+		return true
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	return false
+}
+
+func payloadReferencesTeamCharter(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	if payloadString(payload, "charter_uri") != "" ||
+		payloadString(payload, "capability_uri") != "" ||
+		payloadString(payload, "child_deployment_uri") != "" {
+		return true
+	}
+	return payloadString(payload, "relationship") == childDeploymentRelationshipEphemeralTeam
+}
+
+func charterIDFromURI(uri string) string {
+	parsed, err := resource.Parse(strings.TrimSpace(uri))
+	if err != nil || parsed.Kind != resource.KindCharter {
+		return ""
+	}
+	return parsed.ID
 }
 
 func (r *EventResolver) prepareEphemeralRuntime(inst *topology.Instance, name string) (*ephemeralRuntime, error) {
@@ -932,10 +1040,11 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 			return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: symlink skill %s: %w", name, err)
 		}
 	}
-	authorityAllow, authorityEnforce := r.authorityForInstance(agentName, instance)
+	authorityAllow, authorityEnforce, authorityStrict := r.runtimeAuthorityForInstance(agentName, instance, payload)
 	shimBinDir, err := runtimeshim.InstallWithOptions(runtimeDir, skillPaths, runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
+		StrictAuthority:    authorityStrict,
 	})
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, fmt.Errorf("event runtime: %w", err)
