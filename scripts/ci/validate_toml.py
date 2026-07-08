@@ -19,7 +19,6 @@ def collect() -> list[Path]:
     paths: list[Path] = [
         REPO_ROOT / ".agent_team" / "config.toml",
         REPO_ROOT / ".agent_team" / "instances.toml",
-        TEMPLATE_ROOT / "config.toml.example",
         TEMPLATE_ROOT / "template.toml",
         TEMPLATE_ROOT / "instances.toml.tmpl",
     ]

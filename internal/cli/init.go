@@ -32,7 +32,6 @@ var templateAuxFiles = map[string]bool{
 	template.ManifestFileName:  true,
 	template.LockFileName:      true,
 	template.CacheMetaFileName: true,
-	"config.toml.example":      true, // legacy, retained for back-compat
 }
 
 func newInitCmd() *cobra.Command {
