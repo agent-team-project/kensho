@@ -74,7 +74,7 @@ git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
 
-agent-team init --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands
@@ -117,9 +117,12 @@ agent-team init \
 Move a Linear card or GitHub Project item into the configured agent column
 (`Ready for Agent` by default) to dispatch the default ticket-to-PR pipeline.
 The bundled template defaults to the slim consumer profile: manager, worker,
-reviewer, and the ticket-to-PR pipeline. Use `agent-team init --profile full`
-when you explicitly want the full self-dogfood topology with release, docs,
-comms, quality, sentinel, and product-verifier loops.
+reviewer, and the ticket-to-PR pipeline. `agent-team init --minimal` selects
+that path explicitly, and `agent-team init --minimal --dry-run ...` previews the
+template, profile, and PM provider before writing `.agent_team/`. Use
+`agent-team init --profile full` when you explicitly want the full self-dogfood
+topology with release, docs, comms, quality, sentinel, and product-verifier
+loops.
 
 For a no-LLM local orchestration walkthrough, run the fake-runtime demo from the
 source checkout:

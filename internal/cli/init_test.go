@@ -292,6 +292,115 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 	}
 }
 
+func TestInit_MinimalAliasRendersSlimProfile(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"init", "--target", tmp, "--minimal", "--no-input"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init --minimal: %v\nstderr: %s", err, errOut.String())
+	}
+
+	cfg, err := os.ReadFile(filepath.Join(tmp, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := string(cfg); !strings.Contains(body, `profile = "slim"`) {
+		t.Fatalf("--minimal config missing slim profile:\n%s", body)
+	}
+	for _, rel := range []string{
+		".agent_team/agents/manager/agent.md",
+		".agent_team/agents/worker/agent.md",
+		".agent_team/agents/reviewer/agent.md",
+	} {
+		if _, err := os.Stat(filepath.Join(tmp, rel)); err != nil {
+			t.Errorf("--minimal missing %s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		".agent_team/agents/ticket-manager",
+		".agent_team/agents/auditor",
+		".agent_team/skills/release",
+		".agent_team/skills/sentinel",
+	} {
+		if _, err := os.Stat(filepath.Join(tmp, rel)); !os.IsNotExist(err) {
+			t.Errorf("--minimal should not render %s (stat err=%v)", rel, err)
+		}
+	}
+}
+
+func TestInit_MinimalAliasConflictsWithFullProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "profile flag",
+			args: []string{"init", "--target", t.TempDir(), "--minimal", "--profile", "full", "--no-input"},
+			want: `--minimal cannot be combined with --profile "full"`,
+		},
+		{
+			name: "profile set",
+			args: []string{"init", "--target", t.TempDir(), "--minimal", "--set", "template.profile=full", "--no-input"},
+			want: `--minimal conflicts with --set template.profile="full"`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errOut)
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("init unexpectedly succeeded\nstdout: %s", out.String())
+			}
+			if !strings.Contains(errOut.String(), tc.want) {
+				t.Fatalf("stderr missing %q:\n%s", tc.want, errOut.String())
+			}
+		})
+	}
+}
+
+func TestInit_DryRunPreviewsTemplateProfileAndProvider(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init", "--target", tmp,
+		"--minimal",
+		"--dry-run",
+		"--set", "pm.provider=github",
+		"--set", "github.owner=acme",
+		"--set", "github.repo=widgets",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init --dry-run: %v\nstderr: %s", err, errOut.String())
+	}
+	body := out.String()
+	for _, want := range []string{
+		"would vendor team into",
+		"template: default 1.0.0 (bundled)",
+		"profile: slim - External-consumer starter",
+		"pm provider: github",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dry-run output missing %q:\n%s", want, body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".agent_team")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not write .agent_team (stat err=%v)", err)
+	}
+}
+
 func TestInit_WorkerPushVerifyHelperRendered(t *testing.T) {
 	tmp := initBundledTemplateForTest(t)
 	helperPath := filepath.Join(tmp, ".agent_team", "agents", "worker", "scripts", "git-push-verify.sh")

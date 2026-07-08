@@ -9,7 +9,7 @@ mkdir my-app && cd my-app
 git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
-agent-team init --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands
@@ -35,8 +35,10 @@ both `[pm].provider` and legacy `[team].pm_tool` in ticketless mode. In that
 mode, the durable job kickoff is the work item. The generated
 `.agent_team/config.toml` starts with a first-run checklist showing the selected
 template profile, PM provider, provider keys required now, and optional sections
-that can stay blank. Commit `.agent_team/` before dispatching worktree-backed
-jobs; Git needs an initial `HEAD` to create worker worktrees.
+that can stay blank. `--minimal` makes the slim consumer profile explicit, and
+adding `--dry-run` to the same command previews the template, profile, and PM
+provider before writing files. Commit `.agent_team/` before dispatching
+worktree-backed jobs; Git needs an initial `HEAD` to create worker worktrees.
 
 `agent-team daemon start --json` includes the loopback `http_url` for the local
 daemon API and embedded dashboard. Open `<http_url>/ui/` from the same machine

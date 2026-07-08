@@ -1763,12 +1763,13 @@ Vendor a starter team template into the current repo (creates .agent_team/).
 Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled
 default template is used. Its default `slim` profile is a consumer starter: manager + worker +
 reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /
-prod-watch loops omitted. Pass `--profile full` (or `--set template.profile=full`) to render
+prod-watch loops omitted. Pass `--minimal` to choose that starter explicitly. Pass
+`--profile full` (or `--set template.profile=full`) to render
 the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and
 scheduled governance loops. Refs can be local paths, cached refs, or git refs such as
 github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-only init. `--set k=v`
-supplies template parameters; `--no-input` fails (rather than prompting) when required parameters
-have no value.
+supplies template parameters; `--dry-run` previews the selected template/profile/provider before
+writing files; `--no-input` fails (rather than prompting) when required parameters have no value.
 
 ```text
 agent-team init [<ref>] [flags]
@@ -1782,6 +1783,7 @@ Flags:
       --force              Overwrite existing .agent_team/ files (config.toml is never overwritten).
       --format string      Render the init result with a Go template, e.g. '{{.TeamDir}} {{.Kind}}'.
       --json               Emit machine-readable JSON on success.
+      --minimal            Render the slim external-consumer profile (alias for --profile slim).
       --no-input           Fail with a clear error if required parameters are missing instead of prompting.
       --profile slim       Template profile to render, e.g. slim or `full` for the bundled template.
       --set stringArray    Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.

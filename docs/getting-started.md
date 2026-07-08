@@ -89,7 +89,7 @@ cd /tmp/agent-team-demo
 git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
-agent-team init --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 ```
@@ -110,6 +110,10 @@ The generated `.agent_team/config.toml` starts with a first-run checklist. It
 names the rendered template profile, the active PM provider, the provider keys
 required for that mode, and optional sections that can stay blank until you need
 them. In ticketless mode, no Linear or GitHub keys are required.
+`--minimal` names the slim external-consumer profile explicitly; fresh
+`agent-team init` uses the same profile by default. Add `--dry-run` to the same
+command before writing files when you want to confirm the template, profile, and
+PM provider that init will render.
 
 `doctor --commands` prints the next safe operator commands when something is
 missing. A valid fresh repo usually suggests starting the daemon and previewing

@@ -41,6 +41,7 @@ func newInitCmd() *cobra.Command {
 		forceFlag    bool
 		templateFlag string
 		profileFlag  string
+		minimalFlag  bool
 		setFlags     []string
 		noInputFlag  bool
 		jsonOut      bool
@@ -55,12 +56,13 @@ func newInitCmd() *cobra.Command {
 		Long: "Vendor a template into the current repo (creates .agent_team/). With no ref, the bundled\n" +
 			"default template is used. Its default `slim` profile is a consumer starter: manager + worker +\n" +
 			"reviewer, core provider skills, and the ticket_to_pr pipeline, with schedules and sentinel /\n" +
-			"prod-watch loops omitted. Pass `--profile full` (or `--set template.profile=full`) to render\n" +
+			"prod-watch loops omitted. Pass `--minimal` to choose that starter explicitly. Pass\n" +
+			"`--profile full` (or `--set template.profile=full`) to render\n" +
 			"the self-dogfood topology with ticket-manager, platform/quality/release/docs/comms teams, and\n" +
 			"scheduled governance loops. Refs can be local paths, cached refs, or git refs such as\n" +
 			"github.com/acme/eng-team@v1.0.0. Pass `--template empty` for a scaffold-only init. `--set k=v`\n" +
-			"supplies template parameters; `--no-input` fails (rather than prompting) when required parameters\n" +
-			"have no value.",
+			"supplies template parameters; `--dry-run` previews the selected template/profile/provider before\n" +
+			"writing files; `--no-input` fails (rather than prompting) when required parameters have no value.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
@@ -93,6 +95,7 @@ func newInitCmd() *cobra.Command {
 				force:      forceFlag,
 				kind:       templateFlag,
 				profile:    profileFlag,
+				minimal:    minimalFlag,
 				ref:        ref,
 				setStrings: setFlags,
 				noInput:    noInputFlag,
@@ -109,6 +112,7 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&forceFlag, "force", false, "Overwrite existing .agent_team/ files (config.toml is never overwritten).")
 	cmd.Flags().StringVar(&templateFlag, "template", "default", "`default` (uses the supplied/bundled template ref) or `empty` (scaffold only, no manifest).")
 	cmd.Flags().StringVar(&profileFlag, "profile", "", "Template profile to render, e.g. `slim` or `full` for the bundled template.")
+	cmd.Flags().BoolVar(&minimalFlag, "minimal", false, "Render the slim external-consumer profile (alias for --profile slim).")
 	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "Set a template parameter, e.g. --set linear.team_id=<uuid>. Repeatable.")
 	cmd.Flags().BoolVar(&noInputFlag, "no-input", false, "Fail with a clear error if required parameters are missing instead of prompting.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview init without writing .agent_team/.")
@@ -124,6 +128,7 @@ type initConfig struct {
 	force      bool
 	kind       string // "default" or "empty"
 	profile    string // convenience alias for --set template.profile=<value>
+	minimal    bool   // convenience alias for --set template.profile=slim
 	ref        string // template ref ("" = bundled when kind=default)
 	setStrings []string
 	noInput    bool
@@ -141,6 +146,8 @@ type initResult struct {
 	TemplateName    string `json:"template_name,omitempty"`
 	TemplateVersion string `json:"template_version,omitempty"`
 	Profile         string `json:"profile,omitempty"`
+	ProfileDesc     string `json:"profile_description,omitempty"`
+	PMProvider      string `json:"pm_provider,omitempty"`
 	ContentHash     string `json:"content_hash,omitempty"`
 	ConfigPath      string `json:"config_path"`
 	LockPath        string `json:"lock_path,omitempty"`
@@ -219,7 +226,12 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 	}
 	result.ContentHash = hash
 
-	setStrings, err := initSetStringsWithProfile(cfg.setStrings, cfg.profile)
+	effectiveProfile, profileSource, err := initEffectiveProfile(cfg.profile, cfg.minimal)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
+		return exitErr(2)
+	}
+	setStrings, err := initSetStringsWithProfile(cfg.setStrings, effectiveProfile, profileSource)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return exitErr(2)
@@ -236,6 +248,8 @@ func runInit(cmd *cobra.Command, cfg initConfig) error {
 		return err
 	}
 	result.Profile = selectedTemplateProfile(resolved)
+	result.ProfileDesc = selectedTemplateProfileDescription(rt.Manifest, result.Profile)
+	result.PMProvider = selectedPMProvider(resolved)
 
 	if cfg.dryRun {
 		return renderInitResult(cmd.OutOrStdout(), result, cfg)
@@ -295,7 +309,7 @@ func renderInitResult(w io.Writer, result initResult, cfg initConfig) error {
 		return err
 	}
 	if cfg.dryRun {
-		fmt.Fprintf(w, "would vendor team into %s\n", result.TeamDir)
+		printInitDryRunPreview(w, result)
 	}
 	return nil
 }
@@ -308,6 +322,9 @@ func initApplyCommandArgs(cfg initConfig, result initResult) []string {
 	args = append(args, "--target", result.Target)
 	if cfg.kind != "default" {
 		args = append(args, "--template", cfg.kind)
+	}
+	if cfg.minimal {
+		args = append(args, "--minimal")
 	}
 	if cfg.profile != "" {
 		args = append(args, "--profile", cfg.profile)
@@ -324,7 +341,48 @@ func initApplyCommandArgs(cfg initConfig, result initResult) []string {
 	return args
 }
 
-func initSetStringsWithProfile(raw []string, profile string) ([]string, error) {
+func printInitDryRunPreview(w io.Writer, result initResult) {
+	fmt.Fprintf(w, "would vendor team into %s\n", result.TeamDir)
+	if result.Empty {
+		return
+	}
+	if result.TemplateName != "" {
+		label := result.TemplateName
+		if result.TemplateVersion != "" {
+			label += " " + result.TemplateVersion
+		}
+		if result.Ref != "" {
+			label += " (" + result.Ref + ")"
+		}
+		fmt.Fprintf(w, "template: %s\n", label)
+	}
+	if result.Profile != "" {
+		if result.ProfileDesc != "" {
+			fmt.Fprintf(w, "profile: %s - %s\n", result.Profile, result.ProfileDesc)
+		} else {
+			fmt.Fprintf(w, "profile: %s\n", result.Profile)
+		}
+	}
+	if result.PMProvider != "" {
+		fmt.Fprintf(w, "pm provider: %s\n", result.PMProvider)
+	}
+}
+
+func initEffectiveProfile(profile string, minimal bool) (string, string, error) {
+	profile = strings.TrimSpace(profile)
+	if minimal {
+		if profile != "" && profile != "slim" {
+			return "", "", fmt.Errorf("--minimal cannot be combined with --profile %q", profile)
+		}
+		return "slim", "--minimal", nil
+	}
+	if profile == "" {
+		return "", "", nil
+	}
+	return profile, "--profile", nil
+}
+
+func initSetStringsWithProfile(raw []string, profile, source string) ([]string, error) {
 	profile = strings.TrimSpace(profile)
 	if profile == "" {
 		return raw, nil
@@ -337,11 +395,22 @@ func initSetStringsWithProfile(raw []string, profile string) ([]string, error) {
 		}
 		value := strings.TrimPrefix(s, key+"=")
 		if value != profile {
-			return nil, fmt.Errorf("--profile %q conflicts with --set %s=%q", profile, key, value)
+			return nil, fmt.Errorf("%s conflicts with --set %s=%q", initProfileSourceLabel(source, profile), key, value)
 		}
 		return out, nil
 	}
 	return append(out, key+"="+profile), nil
+}
+
+func initProfileSourceLabel(source, profile string) string {
+	switch source {
+	case "--minimal":
+		return "--minimal"
+	case "--profile":
+		return fmt.Sprintf("--profile %q", profile)
+	default:
+		return fmt.Sprintf("template profile %q", profile)
+	}
 }
 
 func resolveAbsTarget(target string) (string, error) {
@@ -611,6 +680,25 @@ func selectedTemplateProfileExcludes(m *template.Manifest, resolved template.Tre
 		return nil, fmt.Errorf("template profile %q is not declared", profile)
 	}
 	return decl.Exclude, nil
+}
+
+func selectedTemplateProfileDescription(m *template.Manifest, profile string) string {
+	if m == nil || profile == "" || len(m.Profiles) == 0 {
+		return ""
+	}
+	decl, ok := m.Profiles[profile]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(decl.Description)
+}
+
+func selectedPMProvider(resolved template.Tree) string {
+	value, ok := resolved.GetDotted("pm.provider")
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 // renderInto walks the template root and writes each entry into teamDir.
