@@ -333,6 +333,7 @@ func TestClient_StartInstanceWithFreshOption(t *testing.T) {
 	var payload struct {
 		Instance string `json:"instance"`
 		Fresh    bool   `json:"fresh"`
+		Force    bool   `json:"force"`
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/start" {
@@ -358,11 +359,11 @@ func TestClient_StartInstanceWithFreshOption(t *testing.T) {
 		teamDir: t.TempDir(),
 	}
 
-	if err := c.StartInstanceWithOptions("mgr", true); err != nil {
+	if err := c.StartInstanceWithOptions("mgr", true, true); err != nil {
 		t.Fatalf("start fresh: %v", err)
 	}
-	if payload.Instance != "mgr" || !payload.Fresh {
-		t.Fatalf("payload = %+v, want fresh start for mgr", payload)
+	if payload.Instance != "mgr" || !payload.Fresh || !payload.Force {
+		t.Fatalf("payload = %+v, want forced fresh start for mgr", payload)
 	}
 }
 

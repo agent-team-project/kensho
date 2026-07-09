@@ -2031,6 +2031,7 @@ Flags:
       --attach               Follow the selected instance log after starting or resuming. Requires exactly one selected instance.
       --commands             With --dry-run, print the matching instance up apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview planned start/resume actions without changing daemon state.
+      --force                With --fresh, stop a running instance before launching fresh.
       --format string        Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --fresh                Bypass managed resume and launch a fresh declared instance.
       --json                 Emit machine-readable JSON.
@@ -8398,6 +8399,7 @@ Flags:
       --attach                   Follow the selected instance log after starting or resuming. Requires exactly one selected instance.
       --commands                 With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                  Preview planned start/resume actions without changing daemon state.
+      --force                    With --fresh, stop a running instance before launching fresh.
       --format string            Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
       --fresh                    Bypass managed resume and launch a fresh declared instance.
       --json                     Emit machine-readable JSON.

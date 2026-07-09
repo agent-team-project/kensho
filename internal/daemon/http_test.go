@@ -616,6 +616,66 @@ description = "Recoverable Claude manager."
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestHTTP_StartFreshForceRestartsRunning(t *testing.T) {
+	t.Setenv("AGENT_TEAM_RUNTIME", "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	initial, err := m.Dispatch(DispatchInput{
+		Agent:         "manager",
+		Name:          "mgr",
+		Workspace:     t.TempDir(),
+		Runtime:       "claude",
+		RuntimeBinary: "claude",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	resp := mustPost(t, srv.URL+"/v1/start", `{"instance":"mgr","fresh":true,"force":true}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("forced start fresh: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		SessionResumed bool `json:"session_resumed"`
+		FreshFallback  bool `json:"fresh_fallback"`
+		PID            int  `json:"pid"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode forced start fresh response: %v", err)
+	}
+	if body.SessionResumed || !body.FreshFallback || body.PID == initial.PID {
+		t.Fatalf("forced start fresh response = %+v, initial pid=%d", body, initial.PID)
+	}
+	if got := fake.callCount(); got != 2 {
+		t.Fatalf("spawn calls after forced fresh = %d, want 2", got)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("forced fresh should not use --resume: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("forced fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestHTTP_RestartResumesSession(t *testing.T) {
 	claudeConfigDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)

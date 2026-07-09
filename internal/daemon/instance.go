@@ -194,6 +194,7 @@ type StartOptions struct {
 	DisallowFreshFallback    bool
 	AllowFreshWithoutSession bool
 	ForceFresh               bool
+	Force                    bool
 }
 
 // RestartOptions controls the stop half of a restart. By default restart
@@ -1158,6 +1159,13 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	}
 	if t.meta.Status == StatusRunning {
 		if PidLiveCheck(t.meta.PID) {
+			if opts.ForceFresh && opts.Force {
+				m.mu.Unlock()
+				if _, err := m.StopWithOptions(instance, StopOptions{Force: true}); err != nil {
+					return nil, fmt.Errorf("start: force fresh stop: %w", err)
+				}
+				return m.StartWithOptions(instance, opts)
+			}
 			out := *t.meta
 			m.mu.Unlock()
 			return &out, nil

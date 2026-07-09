@@ -1570,6 +1570,74 @@ description = "Recoverable Claude manager."
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestInstance_StartClaudeForceFreshForceRestartsRunning(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	initial, err := m.Dispatch(DispatchInput{
+		Agent:         "manager",
+		Name:          "mgr",
+		Workspace:     workspace,
+		Runtime:       string(runtimebin.KindClaude),
+		RuntimeBinary: "claude",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if got := fake.callCount(); got != 1 {
+		t.Fatalf("spawn calls after dispatch = %d, want 1", got)
+	}
+
+	same, err := m.StartWithOptions("mgr", StartOptions{ForceFresh: true})
+	if err != nil {
+		t.Fatalf("fresh without force: %v", err)
+	}
+	if same.PID != initial.PID || same.FreshFallback {
+		t.Fatalf("fresh without force metadata = %+v, want existing running pid %d", same, initial.PID)
+	}
+	if got := fake.callCount(); got != 1 {
+		t.Fatalf("spawn calls after idempotent fresh = %d, want 1", got)
+	}
+
+	fresh, err := m.StartWithOptions("mgr", StartOptions{ForceFresh: true, Force: true})
+	if err != nil {
+		t.Fatalf("forced fresh: %v", err)
+	}
+	if fresh.Status != StatusRunning || !fresh.FreshFallback || fresh.PID == initial.PID {
+		t.Fatalf("forced fresh metadata = %+v, want running fresh replacement", fresh)
+	}
+	if got := fake.callCount(); got != 2 {
+		t.Fatalf("spawn calls after forced fresh = %d, want 2", got)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("forced fresh should not use stale resume args: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("forced fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+	if _, err := os.Stat(promptFile); err != nil {
+		t.Fatalf("forced fresh prompt file: %v", err)
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestInstance_InterruptNoSessionRefusesWithoutForce(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	root := t.TempDir()

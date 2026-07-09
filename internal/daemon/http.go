@@ -254,6 +254,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		}
 		meta, err := m.StartWithOptions(body.Instance, StartOptions{
 			ForceFresh: body.Fresh || body.Force,
+			Force:      body.Force,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
