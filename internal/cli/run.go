@@ -396,7 +396,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if err != nil {
 		return err
 	}
-	cleanupLaunchRoot := true
+	cleanupLaunchRoot := !daemonDispatch
 	defer func() {
 		if cleanupLaunchRoot {
 			_ = os.RemoveAll(launchRoot)
@@ -404,6 +404,9 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	}()
 
 	skillsRoot := filepath.Join(launchRoot, ".claude", "skills")
+	if err := os.RemoveAll(skillsRoot); err != nil {
+		return fmt.Errorf("reset skills root: %w", err)
+	}
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		return fmt.Errorf("create skills root: %w", err)
 	}
@@ -581,15 +584,11 @@ func prepareRunLaunchRoot(stateDir string, daemonDispatch bool) (string, []strin
 		}
 		return dir, nil, nil
 	}
-	parent := filepath.Join(stateDir, "runtime")
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return "", nil, fmt.Errorf("create runtime launch parent: %w", err)
+	dir := filepath.Join(stateDir, "runtime")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, fmt.Errorf("create runtime dir: %w", err)
 	}
-	dir, err := os.MkdirTemp(parent, "launch-")
-	if err != nil {
-		return "", nil, fmt.Errorf("create runtime launch dir: %w", err)
-	}
-	return dir, []string{dir}, nil
+	return dir, nil, nil
 }
 
 func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook, otelLaunch runtimeotel.Launch) ([]string, string, error) {

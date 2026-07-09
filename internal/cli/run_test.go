@@ -1666,20 +1666,20 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 	if !ok {
 		t.Fatalf("detached dispatch args missing --add-dir value: %v", args)
 	}
-	wantTeamDir := teamDir
-	if eval, err := filepath.EvalSymlinks(teamDir); err == nil {
-		wantTeamDir = eval
+	wantAddDir := filepath.Join(teamDir, "state", "manager", "runtime")
+	if eval, err := filepath.EvalSymlinks(wantAddDir); err == nil {
+		wantAddDir = eval
 	}
-	wantLaunchPrefix := filepath.Join(wantTeamDir, "state", "manager", "runtime", "launch-")
-	if !strings.HasPrefix(addDir, wantLaunchPrefix) {
-		t.Fatalf("add-dir = %q, want per-launch state dir under %q", addDir, wantLaunchPrefix)
+	if addDir != wantAddDir {
+		t.Fatalf("add-dir = %q, want persistent runtime dir %q", addDir, wantAddDir)
 	}
 	promptFile, ok := argValue(args, "--append-system-prompt-file")
 	if !ok {
 		t.Fatalf("detached dispatch args missing prompt file value: %v", args)
 	}
-	if filepath.Dir(promptFile) != addDir {
-		t.Fatalf("prompt file = %q, want inside add-dir %q", promptFile, addDir)
+	wantPromptFile := filepath.Join(wantAddDir, "system_prompt.md")
+	if promptFile != wantPromptFile {
+		t.Fatalf("prompt file = %q, want %q", promptFile, wantPromptFile)
 	}
 	promptBody, err := os.ReadFile(promptFile)
 	if err != nil {
@@ -1693,8 +1693,12 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 	}
 
 	stopAndWaitForTest(t, mgr, "manager")
-	if _, err := os.Stat(addDir); !os.IsNotExist(err) {
-		t.Fatalf("launch dir after daemon reap err=%v, want not exist", err)
+	afterReap, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("prompt file should persist after daemon reap: %v", err)
+	}
+	if string(afterReap) != string(promptBody) {
+		t.Fatalf("prompt file changed after reap")
 	}
 }
 

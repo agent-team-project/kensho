@@ -635,12 +635,21 @@ func TestHTTP_InterruptResumesSession(t *testing.T) {
 	if !foundResume {
 		t.Errorf("expected --resume %s, got: %v", disp.SessionID, args)
 	}
+	resumePrompt, ok := argValue(args, "-p")
+	if !ok {
+		t.Fatalf("resume args missing -p mailbox prompt: %v", args)
+	}
+	for _, want := range []string{kickoffMailboxHeading, "From: ops", "hard steer"} {
+		if !strings.Contains(resumePrompt, want) {
+			t.Fatalf("resume prompt missing %q: %q", want, resumePrompt)
+		}
+	}
 	messages, err := ReadUnacked(root, "mgr")
 	if err != nil {
 		t.Fatalf("read mailbox: %v", err)
 	}
-	if len(messages) != 1 || messages[0].Body != "hard steer" || messages[0].From != "ops" {
-		t.Fatalf("mailbox = %+v, want delivered interrupt message", messages)
+	if len(messages) != 0 {
+		t.Fatalf("mailbox = %+v, want interrupt message delivered to resume prompt", messages)
 	}
 	events, err := ListLifecycleEvents(root)
 	if err != nil {

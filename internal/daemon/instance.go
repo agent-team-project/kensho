@@ -961,8 +961,9 @@ func (m *InstanceManager) Interrupt(instance string, opts InterruptOptions) (*In
 	}
 	delivered := 0
 	truncated := false
-	if metadataRuntimeKind(&base) == runtimebin.KindCodex {
-		prompt, count, wasTruncated, err := m.codexInterruptResumePrompt(instance)
+	switch metadataRuntimeKind(&base) {
+	case runtimebin.KindCodex, runtimebin.KindClaude:
+		prompt, count, wasTruncated, err := m.interruptResumePrompt(instance)
 		if err != nil {
 			return nil, err
 		}
@@ -1020,7 +1021,7 @@ func (m *InstanceManager) interruptResumePreflight(instance string, base Metadat
 	return nil
 }
 
-func (m *InstanceManager) codexInterruptResumePrompt(instance string) (string, int, bool, error) {
+func (m *InstanceManager) interruptResumePrompt(instance string) (string, int, bool, error) {
 	unread, err := ReadUnacked(m.daemonRoot, instance)
 	if err != nil {
 		return "", 0, false, fmt.Errorf("interrupt: read mailbox: %w", err)
@@ -1187,6 +1188,21 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 		m.mu.Unlock()
 		return nil, fmt.Errorf("start: launch env: %w", err)
 	}
+	brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("start: brief: %w", err)
+	}
+	if baseRuntime == runtimebin.KindClaude {
+		if err := m.ensureClaudeResumePrompt(instance, base, brief); err != nil {
+			if opts.DisallowFreshFallback {
+				m.mu.Unlock()
+				return nil, fmt.Errorf("start: resume preflight failed: %w", err)
+			}
+			m.mu.Unlock()
+			return m.resumeFallbackFresh(instance, &base, err, opts.ResumePrompt)
+		}
+	}
 	if err := managedResumePreflight(base, env); err != nil {
 		if opts.DisallowFreshFallback {
 			m.mu.Unlock()
@@ -1194,11 +1210,6 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 		}
 		m.mu.Unlock()
 		return m.resumeFallbackFresh(instance, &base, err, opts.ResumePrompt)
-	}
-	brief, err := InstanceBriefLaunchText(filepath.Dir(m.daemonRoot), instance)
-	if err != nil {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("start: brief: %w", err)
 	}
 	stdin := ""
 	if brief != "" && baseRuntime == runtimebin.KindClaude {
@@ -1224,7 +1235,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	if bin == "" {
 		bin = runtimebin.DefaultBinaryForKind(baseRuntime)
 	}
-	args := managedResumeArgs(baseRuntime, bin, base.SessionID)
+	args := managedResumeArgs(baseRuntime, bin, base.SessionID, opts.ResumePrompt)
 	if baseRuntime == runtimebin.KindCodex && len(otelCodexArgs) > 0 {
 		// Codex exporter selection/config live in argv, not env — a resumed
 		// child needs the CURRENT config's -c otel.* args like a dispatch does.
@@ -1275,14 +1286,18 @@ func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
 	return kind == runtimebin.KindClaude || kind == runtimebin.KindCodex
 }
 
-func managedResumeArgs(kind runtimebin.Kind, bin, sessionID string) []string {
+func managedResumeArgs(kind runtimebin.Kind, bin, sessionID, resumePrompt string) []string {
 	if kind == runtimebin.KindCodex {
 		args := []string{bin, "exec"}
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, "resume", sessionID, "-")
 		return args
 	}
-	return []string{bin, "--resume", sessionID}
+	args := []string{bin, "--resume", sessionID}
+	if strings.TrimSpace(resumePrompt) != "" {
+		args = append(args, "-p", resumePrompt)
+	}
+	return args
 }
 
 func codexManagedResumeStdin(brief, resumePrompt string) string {
@@ -1299,6 +1314,88 @@ func codexManagedResumeStdin(brief, resumePrompt string) string {
 	// `codex exec resume <id> -` requires a non-empty stdin prompt; an empty
 	// brief (ad-hoc instance, no daemon-owned state yet) must not fail resume.
 	return "Resumed by agent-teamd. Run `inbox check` for pending messages, then continue your work."
+}
+
+func (m *InstanceManager) ensureClaudeResumePrompt(instance string, meta Metadata, brief string) error {
+	teamDir := filepath.Dir(m.daemonRoot)
+	stateDir := filepath.Join(teamDir, "state", instance)
+	runtimeDir := filepath.Join(stateDir, "runtime")
+	stablePromptFile := filepath.Join(runtimeDir, "system_prompt.md")
+
+	paths := []string{stablePromptFile}
+	hasPromptSnapshot := false
+	if snapshot, err := ReadInstanceLaunchEnv(m.daemonRoot, instance); err == nil {
+		if snapPrompt := launchArgValue(snapshot.Args, "--append-system-prompt-file"); snapPrompt != "" {
+			hasPromptSnapshot = true
+			if !filepath.IsAbs(snapPrompt) || !pathWithin(filepath.Clean(snapPrompt), filepath.Clean(runtimeDir)) {
+				return fmt.Errorf("claude resume prompt file %s is outside persistent runtime dir %s", snapPrompt, runtimeDir)
+			}
+			paths = appendUniquePath(paths, snapPrompt)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("read launch env: %w", err)
+	}
+	if !hasPromptSnapshot {
+		if _, err := os.Stat(stablePromptFile); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("stat prompt file: %w", err)
+		}
+	}
+
+	agentName := strings.TrimSpace(meta.Agent)
+	if agentName == "" {
+		return errors.New("metadata has no agent recorded")
+	}
+	agent, err := loader.LoadAgent(filepath.Join(teamDir, "agents", agentName), teamDir)
+	if err != nil {
+		return fmt.Errorf("load agent %q: %w", agentName, err)
+	}
+	stateRel, err := filepath.Rel(filepath.Dir(teamDir), stateDir)
+	if err != nil {
+		stateRel = stateDir
+	}
+	kickoff := fmt.Sprintf(
+		"You are the `%s` instance of the `%s` agent.\n"+
+			"Your state dir is `%s` (absolute: `%s`).\n\n"+
+			"--- agent prompt ---\n\n%s",
+		instance, agentName, filepath.ToSlash(stateRel), stateDir, agent.Prompt,
+	)
+	if strings.TrimSpace(brief) != "" {
+		kickoff = brief + "\n\n--- runtime kickoff ---\n\n" + kickoff
+	}
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create prompt dir: %w", err)
+		}
+		if err := os.WriteFile(path, []byte(kickoff), 0o644); err != nil {
+			return fmt.Errorf("write prompt file: %w", err)
+		}
+	}
+	return nil
+}
+
+func launchArgValue(args []string, name string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			return strings.TrimSpace(args[i+1])
+		}
+	}
+	return ""
+}
+
+func appendUniquePath(paths []string, path string) []string {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" {
+		return paths
+	}
+	for _, existing := range paths {
+		if filepath.Clean(existing) == path {
+			return paths
+		}
+	}
+	return append(paths, path)
 }
 
 func managedResumePreflight(meta Metadata, env []string) error {

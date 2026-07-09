@@ -1119,6 +1119,227 @@ func TestInstance_InterruptCodexResumesSameSessionWithMailboxPrompt(t *testing.T
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestInstance_StartClaudeRegeneratesPersistentPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	sessionID := "session-claude-prompt"
+	now := time.Now().UTC()
+	stateDir := filepath.Join(teamDir, "state", "mgr")
+	runtimeDir := filepath.Join(stateDir, "runtime")
+	promptFile := filepath.Join(runtimeDir, "system_prompt.md")
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindClaude),
+		RuntimeBinary: "claude",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+		Bin: "claude",
+		Args: []string{
+			"claude", "--session-id", sessionID,
+			"--agents", "{}",
+			"--add-dir", runtimeDir,
+			"--append-system-prompt-file", promptFile,
+			"-p", "bring up",
+		},
+		Dir:        workspace,
+		Env:        []string{"MARKER=dispatch"},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	resumed, err := m.Start("mgr")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if resumed.Status != StatusRunning || resumed.SessionID != sessionID {
+		t.Fatalf("resumed metadata = %+v", resumed)
+	}
+	if got, want := fake.lastCall(), []string{"claude", "--resume", sessionID}; !stringSlicesEqual(got, want) {
+		t.Fatalf("resume args = %v, want %v", got, want)
+	}
+	body, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("read regenerated prompt: %v", err)
+	}
+	for _, want := range []string{"# Instance brief: mgr", "--- runtime kickoff ---", "You are the `mgr` instance of the `manager` agent."} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("regenerated prompt missing %q:\n%s", want, string(body))
+		}
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_InterruptClaudeResumesWithMailboxPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	sessionID := "session-claude-interrupt"
+	now := time.Now().UTC()
+	stateDir := filepath.Join(teamDir, "state", "mgr")
+	runtimeDir := filepath.Join(stateDir, "runtime")
+	promptFile := filepath.Join(runtimeDir, "system_prompt.md")
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindClaude),
+		RuntimeBinary: "claude",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     sessionID,
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+		Bin: "claude",
+		Args: []string{
+			"claude", "--session-id", sessionID,
+			"--agents", "{}",
+			"--add-dir", runtimeDir,
+			"--append-system-prompt-file", promptFile,
+			"-p", "bring up",
+		},
+		Dir:        workspace,
+		Env:        []string{"MARKER=dispatch"},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	result, err := m.Interrupt("mgr", InterruptOptions{From: "ops", Body: "please answer this consult"})
+	if err != nil {
+		t.Fatalf("interrupt: %v", err)
+	}
+	if result.Metadata == nil || result.Metadata.SessionID != sessionID {
+		t.Fatalf("interrupt metadata = %+v, want same session %s", result.Metadata, sessionID)
+	}
+	args := fake.lastCall()
+	if len(args) < 5 || args[0] != "claude" || args[1] != "--resume" || args[2] != sessionID || args[3] != "-p" {
+		t.Fatalf("resume args = %v, want claude --resume %s -p <mailbox>", args, sessionID)
+	}
+	if !strings.Contains(args[4], kickoffMailboxHeading) || !strings.Contains(args[4], "From: ops") || !strings.Contains(args[4], "please answer this consult") {
+		t.Fatalf("resume prompt missing mailbox message:\n%s", args[4])
+	}
+	if result.Message == nil || result.Message.ID == "" || result.Delivered != 1 {
+		t.Fatalf("interrupt result = %+v", result)
+	}
+	unread, err := ReadUnacked(root, "mgr")
+	if err != nil {
+		t.Fatalf("read unacked: %v", err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("interrupt mailbox should have been delivered to resume prompt, unread=%+v", unread)
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_StartClaudeTransientPromptFallsBackFresh(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:       "mgr",
+		Agent:          "manager",
+		Runtime:        string(runtimebin.KindClaude),
+		RuntimeBinary:  "claude",
+		Workspace:      workspace,
+		PID:            123,
+		SessionID:      "old-session",
+		StartedAt:      now,
+		StoppedAt:      now,
+		Status:         StatusStopped,
+		ResumeCount:    1,
+		FreshFallbacks: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	transientPrompt := filepath.Join(t.TempDir(), "agent-team-1153246528", "system_prompt.md")
+	if err := WriteInstanceLaunchEnv(root, "mgr", &LaunchEnv{
+		Bin: "claude",
+		Args: []string{
+			"claude", "--session-id", "old-session",
+			"--agents", "{}",
+			"--add-dir", filepath.Dir(transientPrompt),
+			"--append-system-prompt-file", transientPrompt,
+			"-p", "bring up",
+		},
+		Dir:        workspace,
+		Env:        []string{"MARKER=dispatch"},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	fresh, err := m.Start("mgr")
+	if err != nil {
+		t.Fatalf("start fallback: %v", err)
+	}
+	if fresh.Status != StatusRunning || !fresh.FreshFallback || fresh.FreshFallbacks != 1 || fresh.ResumeCount != 2 {
+		t.Fatalf("fresh fallback metadata = %+v", fresh)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("fresh fallback should not use stale resume args: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if body, err := os.ReadFile(promptFile); err != nil {
+		t.Fatalf("fresh fallback prompt file: %v", err)
+	} else if !strings.Contains(string(body), "You are the `mgr` instance of the `manager` agent.") {
+		t.Fatalf("fresh fallback prompt missing kickoff:\n%s", string(body))
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestInstance_InterruptNoSessionRefusesWithoutForce(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "codex")
 	root := t.TempDir()
