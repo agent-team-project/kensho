@@ -108,6 +108,8 @@ function collectResourceURIs(instances, jobs) {
     "URI",
     "deployment_uri",
     "DeploymentURI",
+    "outcome_uri",
+    "OutcomeURI",
     "job_uri",
     "JobURI",
     "instance_uri",
@@ -417,6 +419,10 @@ function jobResourceData(resources, job) {
   return resourceData(resources, field(job, "uri", "URI", "job_uri", "JobURI"));
 }
 
+function jobOutcomeData(resources, job) {
+  return resourceData(resources, field(job, "outcome_uri", "OutcomeURI"));
+}
+
 function matchingJobInstance(job, step, instances) {
   const names = [
     field(step, "instance", "Instance"),
@@ -459,8 +465,8 @@ function primaryJobStep(job, data) {
   );
 }
 
-function primaryStepRun(job, data, step) {
-  const runs = asArray(firstField(telemetrySources([data, job]), "step_runs", "StepRuns"));
+function primaryStepRun(job, outcomeData, step) {
+  const runs = asArray(firstField(telemetrySources([outcomeData]), "step_runs", "StepRuns"));
   if (!runs.length) {
     return null;
   }
@@ -476,13 +482,20 @@ function primaryStepRun(job, data, step) {
 
 function jobTelemetry(job, resources, instances) {
   const data = jobResourceData(resources, job);
+  const outcomeData = jobOutcomeData(resources, job);
   const step = primaryJobStep(job, data);
-  const stepRun = primaryStepRun(job, data, step);
+  const stepRun = primaryStepRun(job, outcomeData, step);
   const instance = matchingJobInstance(job, step, instances) || {};
   const instanceData = resourceData(resources, field(instance, "uri", "URI", "instance_uri", "InstanceURI"));
   const target = firstField([stepRun, step, job, data, instance], "target", "Target", "implementation_agent", "ImplementationAgent", "agent", "Agent");
   const agent = firstField([stepRun, instanceData, instance, step, job, data], "agent", "Agent", "target", "Target");
-  return modelTierFromSources([stepRun, data, job, step, instanceData, instance, { target, agent }]);
+  const reported = modelTierFromSources([stepRun, outcomeData]);
+  const runtimeFallback = modelTierFromSources([stepRun, outcomeData, data, job, step, instanceData, instance, { target, agent }]);
+  return {
+    runtime: reported.runtime || runtimeFallback.runtime,
+    model: reported.model,
+    tier: reported.tier,
+  };
 }
 
 function addCount(map, key, count = 1) {
@@ -577,14 +590,20 @@ function parseBounceClasses(kickoff) {
 
 function bounceClassesForJob(job, resources) {
   const data = jobResourceData(resources, job);
-  const sources = telemetrySources([data, job]);
-  const explicit = countMapFromValue(firstField(sources, "bounce_classes", "BounceClasses", "bounceClasses"));
+  const outcomeData = jobOutcomeData(resources, job);
+  const reportedSources = telemetrySources([outcomeData]);
+  const explicit = countMapFromValue(firstField(reportedSources, "bounce_classes", "BounceClasses", "bounceClasses"));
   if (explicit.size) {
     return explicit;
   }
-  const bounces = countMapFromValue(firstField(sources, "bounces", "Bounces"));
+  const bounces = countMapFromValue(firstField(reportedSources, "bounces", "Bounces"));
   if (bounces.size) {
     return bounces;
+  }
+  const sources = telemetrySources([data, job]);
+  const fallback = countMapFromValue(firstField(sources, "bounce_classes", "BounceClasses", "bounceClasses"));
+  if (fallback.size) {
+    return fallback;
   }
   return parseBounceClasses(field(data, "kickoff", "Kickoff"));
 }

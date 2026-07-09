@@ -21,7 +21,9 @@ import (
 	"github.com/agent-team-project/agent-team/internal/intake"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/outcomes"
 	"github.com/agent-team-project/agent-team/internal/pmprovider"
+	"github.com/agent-team-project/agent-team/internal/resource"
 	"github.com/agent-team-project/agent-team/internal/runtimeotel"
 	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 	"github.com/agent-team-project/agent-team/internal/topology"
@@ -417,7 +419,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, marshalJobs(jobs))
+		writeJSON(w, http.StatusOK, marshalJobs(teamDir, jobs))
 	})
 
 	mux.HandleFunc("/v1/resources", func(w http.ResponseWriter, r *http.Request) {
@@ -1132,6 +1134,7 @@ func daemonStartedAt(teamDir string) time.Time {
 type jobListEntry struct {
 	ID                  string          `json:"id"`
 	URI                 string          `json:"uri,omitempty"`
+	OutcomeURI          string          `json:"outcome_uri,omitempty"`
 	DeploymentURI       string          `json:"deployment_uri,omitempty"`
 	DeploymentParentURI string          `json:"deployment_parent_uri,omitempty"`
 	Ticket              string          `json:"ticket"`
@@ -1157,8 +1160,10 @@ type jobListEntry struct {
 	UpdatedAt           time.Time       `json:"updated_at"`
 }
 
-func marshalJobs(jobs []*jobstore.Job) []jobListEntry {
+func marshalJobs(teamDir string, jobs []*jobstore.Job) []jobListEntry {
 	out := make([]jobListEntry, 0, len(jobs))
+	deployment, _ := resource.DeploymentFromTeamDir(teamDir)
+	deploymentID := strings.TrimSpace(deployment.ID)
 	for _, j := range jobs {
 		if j == nil {
 			continue
@@ -1166,6 +1171,7 @@ func marshalJobs(jobs []*jobstore.Job) []jobListEntry {
 		out = append(out, jobListEntry{
 			ID:                  j.ID,
 			URI:                 j.URI,
+			OutcomeURI:          outcomeURIForJob(teamDir, deploymentID, j),
 			DeploymentURI:       j.DeploymentURI,
 			DeploymentParentURI: j.DeploymentParentURI,
 			Ticket:              j.Ticket,
@@ -1192,6 +1198,16 @@ func marshalJobs(jobs []*jobstore.Job) []jobListEntry {
 		})
 	}
 	return out
+}
+
+func outcomeURIForJob(teamDir, deploymentID string, j *jobstore.Job) string {
+	if j == nil || strings.TrimSpace(teamDir) == "" || strings.TrimSpace(deploymentID) == "" {
+		return ""
+	}
+	if _, err := os.Stat(outcomes.RecordPath(teamDir, j.ID)); err != nil {
+		return ""
+	}
+	return resource.OutcomeURI(deploymentID, j.ID)
 }
 
 func buildHandshakeHandler(next http.Handler, daemonBuild buildinfo.Info, logOut io.Writer) http.Handler {

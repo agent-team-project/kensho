@@ -21,6 +21,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/feedback"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/outcomes"
 	"github.com/agent-team-project/agent-team/internal/resource"
 )
 
@@ -176,11 +177,42 @@ func TestHTTP_ResourceReadJobAndStep(t *testing.T) {
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
+	if err := outcomes.WriteRecord(teamDir, &outcomes.Record{
+		Version:       1,
+		JobID:         "squ-124",
+		Status:        "done",
+		Runtime:       "codex",
+		Model:         "gpt-5",
+		Tier:          "T1",
+		BounceClasses: map[string]int{"capability": 2},
+		StepRuns: []outcomes.StepRunRecord{{
+			ID:      "implement",
+			Target:  "worker",
+			Runtime: "codex",
+			Model:   "gpt-5",
+			Tier:    "T1",
+		}},
+		RecordedAt: now,
+	}); err != nil {
+		t.Fatalf("write outcome: %v", err)
+	}
 	m := NewInstanceManager(DaemonRoot(teamDir), nil)
 	srv := httptest.NewServer(Handler(m, nil, nil, teamDir))
 	defer srv.Close()
 
-	resp := mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.JobURI("dep", "squ-124")))
+	resp := mustGet(t, srv.URL+"/v1/jobs")
+	var jobs []struct {
+		ID         string `json:"id"`
+		OutcomeURI string `json:"outcome_uri"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		t.Fatalf("decode jobs: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != "squ-124" || jobs[0].OutcomeURI != resource.OutcomeURI("dep", "squ-124") {
+		t.Fatalf("jobs outcome URI = %+v", jobs)
+	}
+
+	resp = mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.JobURI("dep", "squ-124")))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("job read status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
 	}
@@ -213,6 +245,36 @@ func TestHTTP_ResourceReadJobAndStep(t *testing.T) {
 	}
 	if stepBody.Fragment != "step=implement" || stepBody.Data["id"] != "implement" || stepBody.Data["target"] != "worker" {
 		t.Fatalf("step resource = %+v", stepBody)
+	}
+
+	resp = mustGet(t, srv.URL+"/v1/resources?uri="+url.QueryEscape(resource.OutcomeURI("dep", "squ-124")))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("outcome read status: got %d, body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	var outcomeBody struct {
+		URI  string `json:"uri"`
+		Kind string `json:"kind"`
+		ID   string `json:"id"`
+		Data struct {
+			JobID         string         `json:"job_id"`
+			Model         string         `json:"model"`
+			Tier          string         `json:"tier"`
+			BounceClasses map[string]int `json:"bounce_classes"`
+			StepRuns      []struct {
+				ID    string `json:"id"`
+				Model string `json:"model"`
+				Tier  string `json:"tier"`
+			} `json:"step_runs"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&outcomeBody); err != nil {
+		t.Fatalf("decode outcome read: %v", err)
+	}
+	if outcomeBody.URI != resource.OutcomeURI("dep", "squ-124") || outcomeBody.Kind != resource.KindOutcome || outcomeBody.ID != "squ-124" {
+		t.Fatalf("outcome resource identity = %+v", outcomeBody)
+	}
+	if outcomeBody.Data.JobID != "squ-124" || outcomeBody.Data.Model != "gpt-5" || outcomeBody.Data.Tier != "T1" || outcomeBody.Data.BounceClasses["capability"] != 2 || len(outcomeBody.Data.StepRuns) != 1 {
+		t.Fatalf("outcome resource data = %+v", outcomeBody.Data)
 	}
 }
 

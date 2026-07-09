@@ -207,6 +207,7 @@ async function loadApp(fixtures) {
 test("job telemetry reports runtime-only jobs as unknown model/tier and reads outcome classes", async () => {
   const missingURI = "agt://dep/job/runtime-only";
   const reportedURI = "agt://dep/job/reported";
+  const reportedOutcomeURI = "agt://dep/outcome/reported";
   const workerURI = "agt://dep/instance/platform-worker-runtime-only";
   const reviewerURI = "agt://dep/instance/platform-reviewer-reported";
   const fixtures = {
@@ -224,6 +225,7 @@ test("job telemetry reports runtime-only jobs as unknown model/tier and reads ou
       {
         id: "reported",
         uri: reportedURI,
+        outcome_uri: reportedOutcomeURI,
         ticket: "UI-telemetry-org-polish",
         implementation_agent: "worker",
         instance: "platform-reviewer-reported",
@@ -282,13 +284,26 @@ test("job telemetry reports runtime-only jobs as unknown model/tier and reads ou
           id: "reported",
           data: {
             id: "reported",
-            outcome: {
-              runtime: "claude",
-              model: "claude-sonnet-5",
-              tier: "T2",
-              step_runs: [{ id: "implement", target: "worker", agent: "worker", runtime: "claude", model: "claude-sonnet-5", tier: "T2" }],
-              bounce_classes: { capability: 2, scope: 1 },
-            },
+            steps: [{ id: "implement", target: "worker", instance: "platform-reviewer-reported", status: "done" }],
+            usage: { records: [{ agent: "worker", runtime: "claude" }] },
+          },
+        },
+      ],
+      [
+        reportedOutcomeURI,
+        {
+          uri: reportedOutcomeURI,
+          kind: "outcome",
+          id: "reported",
+          data: {
+            version: 1,
+            job_id: "reported",
+            status: "done",
+            runtime: "claude",
+            model: "claude-sonnet-5",
+            tier: "T2",
+            step_runs: [{ id: "implement", target: "worker", agent: "worker", runtime: "claude", model: "claude-sonnet-5", tier: "T2" }],
+            bounce_classes: { capability: 2, scope: 1 },
           },
         },
       ],
@@ -299,6 +314,7 @@ test("job telemetry reports runtime-only jobs as unknown model/tier and reads ou
 
   const { context, document } = await loadApp(fixtures);
   const resources = await context.loadResources(fixtures.instances, fixtures.jobs);
+  assert.equal(resources.data.has(reportedOutcomeURI), true);
   const runtimeOnly = context.jobTelemetry(fixtures.jobs[0], resources, fixtures.instances);
   const reported = context.jobTelemetry(fixtures.jobs[1], resources, fixtures.instances);
 

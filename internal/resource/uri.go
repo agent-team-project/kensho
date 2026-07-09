@@ -21,6 +21,7 @@ const (
 	KindProject    = "project"
 	KindInstance   = "instance"
 	KindJob        = "job"
+	KindOutcome    = "outcome"
 	KindWorkspace  = "workspace"
 	KindState      = "state"
 	KindLog        = "log"
@@ -117,6 +118,10 @@ func InstanceURI(deploymentID, instance string) string {
 
 func JobURI(deploymentID, jobID string) string {
 	return URI(deploymentID, KindJob, jobID)
+}
+
+func OutcomeURI(deploymentID, jobID string) string {
+	return URI(deploymentID, KindOutcome, jobID)
 }
 
 func StepURI(deploymentID, jobID, stepID string) string {
