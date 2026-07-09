@@ -305,6 +305,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.goWithPanicReason("schedules", func() { d.events.RunSchedules(runCtx) })
 		d.goWithPanicReason("budget queue drains", func() { d.events.RunBudgetQueueDrains(runCtx) })
 		d.goWithPanicReason("concurrency queue drains", func() { d.events.RunConcurrencyQueueDrains(runCtx) })
+		d.goWithPanicReason("manager wake sweeps", func() { d.events.RunManagerWakeSweeps(runCtx) })
 	}
 	if topo != nil {
 		notifications, err := loadNotificationConfig(d.cfg.TeamDir)
