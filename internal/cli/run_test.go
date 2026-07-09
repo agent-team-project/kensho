@@ -1129,7 +1129,7 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	defer cleanup()
 	defer func() {
 		for _, meta := range mgr.List() {
-			if meta.Instance == "manager" {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
 				stopAndWaitForTest(t, mgr, "manager")
 				return
 			}
@@ -1620,7 +1620,7 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 	defer cleanup()
 	defer func() {
 		for _, meta := range mgr.List() {
-			if meta.Instance == "manager" {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
 				stopAndWaitForTest(t, mgr, "manager")
 				return
 			}
@@ -1662,8 +1662,39 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 			t.Fatalf("detached dispatch args missing %s: %v", want, args)
 		}
 	}
+	addDir, ok := argValue(args, "--add-dir")
+	if !ok {
+		t.Fatalf("detached dispatch args missing --add-dir value: %v", args)
+	}
+	wantTeamDir := teamDir
+	if eval, err := filepath.EvalSymlinks(teamDir); err == nil {
+		wantTeamDir = eval
+	}
+	wantLaunchPrefix := filepath.Join(wantTeamDir, "state", "manager", "runtime", "launch-")
+	if !strings.HasPrefix(addDir, wantLaunchPrefix) {
+		t.Fatalf("add-dir = %q, want per-launch state dir under %q", addDir, wantLaunchPrefix)
+	}
+	promptFile, ok := argValue(args, "--append-system-prompt-file")
+	if !ok {
+		t.Fatalf("detached dispatch args missing prompt file value: %v", args)
+	}
+	if filepath.Dir(promptFile) != addDir {
+		t.Fatalf("prompt file = %q, want inside add-dir %q", promptFile, addDir)
+	}
+	promptBody, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("prompt file should outlive run command return: %v", err)
+	}
+	if !strings.Contains(string(promptBody), "You are the `manager` instance of the `manager` agent.") {
+		t.Fatalf("prompt file missing kickoff body:\n%s", string(promptBody))
+	}
 	if !containsEnvPrefix(env, "AGENT_TEAM_INSTANCE=manager") {
 		t.Fatalf("detached dispatch env missing AGENT_TEAM_INSTANCE: %v", env)
+	}
+
+	stopAndWaitForTest(t, mgr, "manager")
+	if _, err := os.Stat(addDir); !os.IsNotExist(err) {
+		t.Fatalf("launch dir after daemon reap err=%v, want not exist", err)
 	}
 }
 

@@ -203,6 +203,7 @@ type dispatchPayload struct {
 	Args                []string `json:"args,omitempty"`
 	Env                 []string `json:"env,omitempty"`
 	Stdin               string   `json:"stdin,omitempty"`
+	CleanupPaths        []string `json:"cleanup_paths,omitempty"`
 }
 
 type dispatchResponse struct {

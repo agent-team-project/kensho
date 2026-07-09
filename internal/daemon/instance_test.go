@@ -369,6 +369,43 @@ func TestInstance_DispatchPersistsMetadata(t *testing.T) {
 	waitForStatusNot(t, m, "worker-squ-1", StatusRunning)
 }
 
+func TestInstance_DispatchCleansLaunchPathsAfterReap(t *testing.T) {
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	launchDir := filepath.Join(teamDir, "state", "worker-launch-cleanup", "runtime", "launch-test")
+	if err := os.MkdirAll(launchDir, 0o755); err != nil {
+		t.Fatalf("mkdir launch dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(launchDir, "system_prompt.md"), []byte("prompt"), 0o644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:        "worker",
+		Name:         "worker-launch-cleanup",
+		Prompt:       "hello",
+		Workspace:    t.TempDir(),
+		CleanupPaths: []string{launchDir},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if st, err := os.Stat(launchDir); err != nil || !st.IsDir() {
+		t.Fatalf("launch dir should exist while process runs: %v", err)
+	}
+
+	if _, err := m.Stop("worker-launch-cleanup"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if err := m.WaitForReaper("worker-launch-cleanup", 5*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	if _, err := os.Stat(launchDir); !os.IsNotExist(err) {
+		t.Fatalf("launch dir after reap err=%v, want not exist", err)
+	}
+}
+
 func TestInstance_DispatchPersistsLaunchEnvSnapshot(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(2 * time.Second)
