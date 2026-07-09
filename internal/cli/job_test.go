@@ -2632,6 +2632,74 @@ func TestJobCreateDryRunContractTrailerDistinguishesExplicitEpic(t *testing.T) {
 	}
 }
 
+func TestPipelineRunCreatesTicketToPRContract(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ticket  string
+		epic    string
+		kickoff string
+		want    string
+		wantID  string
+	}{
+		{
+			name:    "explicit epic advances",
+			ticket:  "https://github.com/agent-team-project/kensho/issues/324",
+			epic:    "agent-team-project/kensho#324",
+			kickoff: "Required PR trailer: `Advances #324`\n\n## Contract\n\nAC1. Worker kickoff rendering includes a fixed contract section.",
+			want:    "Advances #324|1",
+			wantID:  "AC1",
+		},
+		{
+			name:    "ordinary issue closes",
+			ticket:  "https://github.com/agent-team-project/kensho/issues/42",
+			kickoff: "Implement ordinary issue without restating trailer.",
+			want:    "Closes #42|0",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			initInto(t, tmp)
+
+			args := []string{
+				"pipeline", "run", "ticket_to_pr", tc.ticket,
+				"--repo", tmp,
+				"--kickoff", tc.kickoff,
+				"--format", "{{if .Contract}}{{.Contract.Trailer}}|{{len .Contract.Criteria}}{{else}}<nil>{{end}}",
+			}
+			if tc.epic != "" {
+				args = append(args, "--epic", tc.epic)
+			}
+			cmd := NewRootCmd()
+			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("pipeline run: %v\nstderr=%s", err, stderr.String())
+			}
+			if got := strings.TrimSpace(out.String()); got != tc.want {
+				t.Fatalf("contract preview = %q, want %q", got, tc.want)
+			}
+			stored, err := job.Read(filepath.Join(tmp, ".agent_team"), job.IDFromInput(tc.ticket))
+			if err != nil {
+				t.Fatalf("read stored job: %v", err)
+			}
+			if stored.DeliveryContract != "ticket_to_pr" {
+				t.Fatalf("delivery contract = %q, want ticket_to_pr", stored.DeliveryContract)
+			}
+			if stored.Contract == nil {
+				t.Fatal("stored contract is nil")
+			}
+			if stored.Contract.Trailer+"|"+strconv.Itoa(len(stored.Contract.Criteria)) != tc.want {
+				t.Fatalf("stored contract = %+v, want %s", stored.Contract, tc.want)
+			}
+			if tc.wantID != "" && stored.Contract.Criteria[0].ID != tc.wantID {
+				t.Fatalf("criterion id = %q, want %q", stored.Contract.Criteria[0].ID, tc.wantID)
+			}
+		})
+	}
+}
+
 func TestJobCreateFromTicketURLUsesTicketSlugID(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

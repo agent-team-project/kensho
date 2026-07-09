@@ -6031,6 +6031,11 @@ func runPipelineJobCreate(cmd *cobra.Command, teamDir, pipelineName, ticket stri
 	j.Pipeline = pipelineDef.Name
 	j.Steps = jobStepsFromPipeline(pipelineDef)
 	job.SetImplementationAgentFromSteps(j)
+	j.DeliveryContract = daemon.DeliveryArtifactContract(j)
+	j.Contract = job.CompileContract(j, job.ContractCompileOptions{
+		Text:         j.Kickoff,
+		ExplicitEpic: opts.Epic,
+	})
 	j.LastEvent = "created"
 	j.LastStatus = "created"
 	if _, err := os.Stat(job.Path(teamDir, j.ID)); err == nil {
