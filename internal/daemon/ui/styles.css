@@ -322,6 +322,104 @@ button:disabled {
   white-space: nowrap;
 }
 
+.org-view {
+  display: grid;
+}
+
+.org-role {
+  border-top: 1px solid var(--line);
+}
+
+.org-role:first-child {
+  border-top: 0;
+}
+
+.org-role-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--panel-alt);
+}
+
+.org-role-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.org-role-counts,
+.org-row-state,
+.org-instance-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.org-role-body {
+  display: grid;
+}
+
+.org-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.org-row:first-child {
+  border-top: 0;
+}
+
+.org-row-main,
+.org-instance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.org-lane-title,
+.org-instance-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.org-lane-title strong,
+.org-instance-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.org-lane-title span,
+.org-instance-copy span,
+.org-idle,
+.org-more {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.org-row-details {
+  display: grid;
+  gap: 7px;
+}
+
+.org-instance {
+  padding-left: 10px;
+  border-left: 3px solid var(--line);
+}
+
+.org-empty {
+  padding: 18px 16px;
+  color: var(--muted);
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -469,5 +567,22 @@ tbody tr:last-child td {
   .auto-refresh,
   button {
     width: 100%;
+  }
+
+  .org-role-heading,
+  .org-row-main,
+  .org-instance {
+    grid-template-columns: 1fr;
+  }
+
+  .org-role-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .org-role-counts,
+  .org-row-state,
+  .org-instance-state {
+    justify-content: flex-start;
   }
 }
