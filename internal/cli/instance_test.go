@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1481,6 +1482,111 @@ description = "Persistent manager."
 	}), " ")
 	if got := strings.TrimSpace(startOut.String()); got != wantStartCommand {
 		t.Fatalf("start --fresh --force --dry-run --commands = %q, want %q", got, wantStartCommand)
+	}
+}
+
+func TestInstanceUpFreshLaunchPersistsPromptFile(t *testing.T) {
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-fresh-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent = "manager"
+runtime = "claude"
+description = "Persistent manager."
+`)
+
+	base := fakeSpawnerForTest(t, 2*time.Second)
+	var (
+		mu       sync.Mutex
+		gotArgs  []string
+		gotEnv   []string
+		gotSpace string
+	)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		gotEnv = append([]string(nil), env...)
+		gotSpace = workspace
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
+				stopAndWaitForTest(t, mgr, "manager")
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up --fresh --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []lifecycleActionResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode instance up json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "fresh" || rows[0].Instance != "manager" || rows[0].Status != string(daemon.StatusRunning) || rows[0].PID == 0 {
+		t.Fatalf("instance up result = %+v, want one running fresh manager", rows)
+	}
+
+	mu.Lock()
+	args := append([]string(nil), gotArgs...)
+	env := append([]string(nil), gotEnv...)
+	workspace := gotSpace
+	mu.Unlock()
+	wantWorkspace := tmp
+	if eval, err := filepath.EvalSymlinks(tmp); err == nil {
+		wantWorkspace = eval
+	}
+	if workspace != wantWorkspace {
+		t.Fatalf("workspace = %q, want %q", workspace, wantWorkspace)
+	}
+	runtimeDir := filepath.Join(teamDir, "state", "manager", "runtime")
+	if eval, err := filepath.EvalSymlinks(runtimeDir); err == nil {
+		runtimeDir = eval
+	}
+	addDir, ok := argValue(args, "--add-dir")
+	if !ok || filepath.Clean(addDir) != filepath.Clean(runtimeDir) {
+		t.Fatalf("add-dir = %q, %v; want persistent runtime dir %q in args %v", addDir, ok, runtimeDir, args)
+	}
+	promptFile, ok := argValue(args, "--append-system-prompt-file")
+	wantPromptFile := filepath.Join(runtimeDir, "system_prompt.md")
+	if !ok || filepath.Clean(promptFile) != filepath.Clean(wantPromptFile) {
+		t.Fatalf("prompt file = %q, %v; want %q in args %v", promptFile, ok, wantPromptFile, args)
+	}
+	wantStateDir := filepath.Dir(runtimeDir)
+	if !containsEnvPrefix(env, "AGENT_TEAM_STATE_DIR="+wantStateDir) {
+		t.Fatalf("spawn env missing manager state dir: %v", env)
+	}
+
+	promptBody, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("prompt file should outlive instance up command return: %v", err)
+	}
+	if !strings.Contains(string(promptBody), "You are the `manager` instance of the `manager` agent.") {
+		t.Fatalf("prompt file missing kickoff body:\n%s", string(promptBody))
+	}
+
+	stopAndWaitForTest(t, mgr, "manager")
+	afterReap, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("prompt file should persist after daemon reap: %v", err)
+	}
+	if string(afterReap) != string(promptBody) {
+		t.Fatalf("prompt file changed after daemon reap")
 	}
 }
 
