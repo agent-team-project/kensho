@@ -49,6 +49,14 @@
         <strong id="activeJobCount">0</strong>
       </article>
       <article>
+        <span class="metric-label">Model Tiers</span>
+        <strong id="modelTierCount">0</strong>
+      </article>
+      <article>
+        <span class="metric-label">Bounce Classes</span>
+        <strong id="bounceClassCount">0</strong>
+      </article>
+      <article>
         <span class="metric-label">Pipelines</span>
         <strong id="pipelineCount">0</strong>
       </article>
@@ -97,6 +105,7 @@
                 <th>Name</th>
                 <th>Agent</th>
                 <th>Status</th>
+                <th>Model/Tier</th>
                 <th>Job</th>
               </tr>
             </thead>
@@ -118,11 +127,53 @@
                 <th>Ticket</th>
                 <th>Status</th>
                 <th>Pipeline</th>
+                <th>Model/Tier</th>
+                <th>Bounces</th>
                 <th>Instance</th>
               </tr>
             </thead>
             <tbody id="jobsBody"></tbody>
           </table>
+        </div>
+      </article>
+
+      <article class="panel panel-wide">
+        <div class="panel-heading">
+          <h2>Model / Bounce Telemetry</h2>
+          <span id="telemetryUpdated">-</span>
+        </div>
+        <div class="telemetry-grid">
+          <section class="telemetry-section">
+            <h3>Model Tiers</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Model/Tier</th>
+                    <th>Jobs</th>
+                    <th>Active</th>
+                    <th>Bounces</th>
+                  </tr>
+                </thead>
+                <tbody id="modelTierBody"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="telemetry-section">
+            <h3>Bounce Classes</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th>Bounces</th>
+                    <th>Jobs</th>
+                  </tr>
+                </thead>
+                <tbody id="bounceClassBody"></tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </article>
 
