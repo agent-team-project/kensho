@@ -33,10 +33,7 @@ func lifecycleMetadataCanManagedResume(meta *daemon.Metadata) bool {
 	if !lifecycleMetadataSupportsManagedResume(meta) {
 		return false
 	}
-	if lifecycleMetadataRuntimeKind(meta) == runtimebin.KindCodex {
-		return strings.TrimSpace(meta.SessionID) != ""
-	}
-	return true
+	return strings.TrimSpace(meta.SessionID) != ""
 }
 
 func lifecycleUnsupportedResumeDetail(meta *daemon.Metadata) string {

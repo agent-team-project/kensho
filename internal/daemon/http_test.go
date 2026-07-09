@@ -510,14 +510,17 @@ func TestHTTP_DispatchPassesStdin(t *testing.T) {
 }
 
 func TestHTTP_StartResumesSession(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	srv := httptest.NewServer(Handler(m, nil, nil, ""))
 	defer srv.Close()
 
+	workspace := t.TempDir()
 	resp := mustPost(t, srv.URL+"/v1/dispatch",
-		`{"agent":"manager","name":"mgr","workspace":"`+t.TempDir()+`"}`)
+		`{"agent":"manager","name":"mgr","workspace":"`+workspace+`"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("dispatch: %d %s", resp.StatusCode, readBody(t, resp))
 	}
@@ -525,6 +528,7 @@ func TestHTTP_StartResumesSession(t *testing.T) {
 		SessionID string `json:"session_id"`
 	}
 	json.NewDecoder(resp.Body).Decode(&disp)
+	writeClaudeSession(t, claudeConfigDir, workspace, disp.SessionID)
 
 	// Stop and wait for finalisation.
 	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
@@ -551,15 +555,139 @@ func TestHTTP_StartResumesSession(t *testing.T) {
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestHTTP_StartFreshBypassesResume(t *testing.T) {
+	t.Setenv("AGENT_TEAM_RUNTIME", "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       "claude",
+		RuntimeBinary: "claude",
+		Workspace:     t.TempDir(),
+		PID:           123,
+		SessionID:     "resume-session",
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := mustPost(t, srv.URL+"/v1/start", `{"instance":"mgr","fresh":true}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start fresh: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		SessionResumed bool `json:"session_resumed"`
+		FreshFallback  bool `json:"fresh_fallback"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode start fresh response: %v", err)
+	}
+	if body.SessionResumed || !body.FreshFallback {
+		t.Fatalf("start fresh response = %+v, want fresh fallback without resume", body)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("fresh start should not use --resume: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestHTTP_StartFreshForceRestartsRunning(t *testing.T) {
+	t.Setenv("AGENT_TEAM_RUNTIME", "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	initial, err := m.Dispatch(DispatchInput{
+		Agent:         "manager",
+		Name:          "mgr",
+		Workspace:     t.TempDir(),
+		Runtime:       "claude",
+		RuntimeBinary: "claude",
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	resp := mustPost(t, srv.URL+"/v1/start", `{"instance":"mgr","fresh":true,"force":true}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("forced start fresh: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		SessionResumed bool `json:"session_resumed"`
+		FreshFallback  bool `json:"fresh_fallback"`
+		PID            int  `json:"pid"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode forced start fresh response: %v", err)
+	}
+	if body.SessionResumed || !body.FreshFallback || body.PID == initial.PID {
+		t.Fatalf("forced start fresh response = %+v, initial pid=%d", body, initial.PID)
+	}
+	if got := fake.callCount(); got != 2 {
+		t.Fatalf("spawn calls after forced fresh = %d, want 2", got)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("forced fresh should not use --resume: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("forced fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestHTTP_RestartResumesSession(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	srv := httptest.NewServer(Handler(m, nil, nil, ""))
 	defer srv.Close()
 
+	workspace := t.TempDir()
 	resp := mustPost(t, srv.URL+"/v1/dispatch",
-		`{"agent":"manager","name":"mgr","workspace":"`+t.TempDir()+`"}`)
+		`{"agent":"manager","name":"mgr","workspace":"`+workspace+`"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("dispatch: %d %s", resp.StatusCode, readBody(t, resp))
 	}
@@ -567,6 +695,7 @@ func TestHTTP_RestartResumesSession(t *testing.T) {
 		SessionID string `json:"session_id"`
 	}
 	json.NewDecoder(resp.Body).Decode(&disp)
+	writeClaudeSession(t, claudeConfigDir, workspace, disp.SessionID)
 
 	resp = mustPost(t, srv.URL+"/v1/restart", `{"instance":"mgr","timeout_ms":10000}`)
 	if resp.StatusCode != http.StatusOK {
@@ -593,14 +722,17 @@ func TestHTTP_RestartResumesSession(t *testing.T) {
 }
 
 func TestHTTP_InterruptResumesSession(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	srv := httptest.NewServer(Handler(m, nil, nil, ""))
 	defer srv.Close()
 
+	workspace := t.TempDir()
 	resp := mustPost(t, srv.URL+"/v1/dispatch",
-		`{"agent":"manager","name":"mgr","workspace":"`+t.TempDir()+`"}`)
+		`{"agent":"manager","name":"mgr","workspace":"`+workspace+`"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("dispatch: %d %s", resp.StatusCode, readBody(t, resp))
 	}
@@ -608,6 +740,7 @@ func TestHTTP_InterruptResumesSession(t *testing.T) {
 		SessionID string `json:"session_id"`
 	}
 	json.NewDecoder(resp.Body).Decode(&disp)
+	writeClaudeSession(t, claudeConfigDir, workspace, disp.SessionID)
 
 	resp = mustPost(t, srv.URL+"/v1/interrupt", `{"to":"mgr","from":"ops","body":"hard steer"}`)
 	if resp.StatusCode != http.StatusOK {

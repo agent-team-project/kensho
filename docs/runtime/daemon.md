@@ -120,7 +120,7 @@ Representative endpoints:
 | `GET /v1/topology` | Loaded topology snapshot |
 | `GET /v1/resources?uri=...` | Read one canonical `agt://` resource envelope |
 | `POST /v1/dispatch` | Spawn or resume an instance |
-| `POST /v1/start` | Resume stopped instance |
+| `POST /v1/start` | Resume stopped instance, or launch declared fresh with `{"fresh":true}` |
 | `POST /v1/stop` | Stop instance |
 | `POST /v1/restart` | Restart instance |
 | `POST /v1/remove` | Remove metadata/state |

@@ -58,7 +58,7 @@ as the output directory instead.
 | Command | Purpose |
 | --- | --- |
 | `agent-team run <agent>` | Launch an agent directly or through daemon with `--detach`; use `--runtime` for one-off runtime selection, except Docker which is daemon-dispatch only |
-| `agent-team start [instances...]` | Start/resume persistent or selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
+| `agent-team start [instances...]` | Start/resume persistent or selected instances; add `--fresh` to bypass managed resume and launch a fresh declared instance, or `--dry-run --commands` to print the matching apply command |
 | `agent-team stop [instances...]` | Stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team kill [instances...]` | Force-stop selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
 | `agent-team restart [instances...]` | Restart/resume selected instances; add `--dry-run --commands` to print the matching apply command when the preview has actionable work |
@@ -68,7 +68,7 @@ as the output directory instead.
 | `agent-team stats` | Show CPU/RSS data |
 | `agent-team attach <instance>` | Interactive runtime resume handoff; `exec` is a Docker-like alias; add `--dry-run --commands` to print the safe apply command or unmanaged resume/log fallbacks |
 | `agent-team wait [instances...]` | Wait for lifecycle or phase conditions; add `--dry-run --commands` to print the scoped replay command for the selected instances |
-| `agent-team instance up\|down\|rm` | Namespaced lifecycle controls; add `--dry-run --commands` to print matching `instance` apply commands for actionable previews |
+| `agent-team instance up\|down\|rm` | Namespaced lifecycle controls; `instance up --fresh` bypasses managed resume for a declared persistent instance; add `--dry-run --commands` to print matching `instance` apply commands |
 | `agent-team rm [instances...]` | Remove state and metadata; add `--dry-run --commands` to print the matching remove command when the preview has actionable work |
 | `agent-team prune` | Remove finished old metadata/state; add `--dry-run --commands` to print the matching prune apply command when the preview has actionable work |
 

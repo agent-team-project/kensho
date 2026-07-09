@@ -1480,6 +1480,8 @@ func newInstanceUpCmd() *cobra.Command {
 		staleOnly     bool
 		runtimeStale  bool
 		unhealthyOnly bool
+		fresh         bool
+		force         bool
 		wait          bool
 		timeout       time.Duration
 		dryRun        bool
@@ -1532,6 +1534,8 @@ func newInstanceUpCmd() *cobra.Command {
 				Stale:         staleOnly,
 				RuntimeStale:  runtimeStale,
 				Unhealthy:     unhealthyOnly,
+				Fresh:         fresh,
+				Force:         force,
 				Wait:          wait,
 				Timeout:       timeout,
 				DryRun:        dryRun,
@@ -1554,6 +1558,8 @@ func newInstanceUpCmd() *cobra.Command {
 					Stale:         staleOnly,
 					RuntimeStale:  runtimeStale,
 					Unhealthy:     unhealthyOnly,
+					Fresh:         fresh,
+					Force:         force,
 					Prompt:        prompt,
 					PromptSet:     cmd.Flags().Changed("prompt"),
 					PromptFile:    promptFile,
@@ -1576,6 +1582,8 @@ func newInstanceUpCmd() *cobra.Command {
 	c.Flags().BoolVar(&staleOnly, "stale", false, "Only start or resume instances whose status.toml is stale.")
 	c.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only start or resume running instances whose recorded runtime PID is no longer live.")
 	c.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only start or resume instances that are crashed, status-stale, or runtime-stale.")
+	c.Flags().BoolVar(&fresh, "fresh", false, "Bypass managed resume and launch a fresh declared instance.")
+	c.Flags().BoolVar(&force, "force", false, "With --fresh, stop a running instance before launching fresh.")
 	c.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.")
 	c.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview planned start/resume actions without changing daemon state.")
@@ -1603,6 +1611,8 @@ type instanceUpOptions struct {
 	Stale          bool
 	RuntimeStale   bool
 	Unhealthy      bool
+	Fresh          bool
+	Force          bool
 	Wait           bool
 	Timeout        time.Duration
 	DryRun         bool
@@ -1697,6 +1707,14 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 	}
 	if opts.Unhealthy && len(names) > 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --unhealthy cannot be combined with instance names.")
+		return exitErr(2)
+	}
+	if opts.Fresh && len(names) == 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --fresh requires explicit instance names.")
+		return exitErr(2)
+	}
+	if opts.Force && !opts.Fresh {
+		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team: --force requires --fresh.")
 		return exitErr(2)
 	}
 	if opts.Timeout < 0 {
@@ -1899,6 +1917,9 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 	for _, lt := range targets {
 		if opts.DryRun {
 			result := dryRunStartResultWithDaemonState(lt, daemonRunning)
+			if opts.Fresh {
+				result = dryRunFreshStartResult(lt, opts.Force)
+			}
 			results = append(results, result)
 			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary && !opts.Commands {
 				renderLifecycleDryRun(out, result)
@@ -1913,16 +1934,76 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 				Status:   string(daemon.StatusRunning),
 				Detail:   "already running",
 			}
-			if lt.meta != nil {
+			if opts.Fresh {
+				if opts.Force {
+					if lt.declared == nil || lt.declared.Ephemeral {
+						result.Action = lifecycleActionUnsupported
+						result.Status = lifecycleTargetStatusKey(lt)
+						result.Detail = "--fresh requires a declared persistent instance"
+						result.Error = ""
+					} else if err := dc.StartInstanceWithOptions(lt.name, true, true); err != nil {
+						result.Action = "error"
+						result.Status = "error"
+						result.Error = err.Error()
+					} else {
+						result.Action = "fresh"
+						result.Status = ""
+						result.Detail = ""
+					}
+				} else {
+					result.Action = "error"
+					result.Status = "error"
+					result.Detail = "stop running instance before --fresh or pass --force"
+					result.Error = fmt.Sprintf("instance %q is running; stop it before --fresh or pass --force", lt.name)
+				}
+			}
+			if lt.meta != nil && result.Action != "fresh" {
 				result.PID = lt.meta.PID
 			}
 			results = append(results, result)
 			if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
-				fmt.Fprintf(out, "  skip   %-20s already running\n", lt.name)
+				switch result.Action {
+				case "error":
+					fmt.Fprintf(out, "  error  %-20s %s\n", lt.name, result.Error)
+				case lifecycleActionUnsupported:
+					fmt.Fprintf(out, "  %-7s %-20s %s\n", result.Action, lt.name, result.Detail)
+				case "fresh":
+					fmt.Fprintf(out, "  fresh  %-20s %s\n", lt.name, lt.agent)
+				default:
+					fmt.Fprintf(out, "  skip   %-20s already running\n", lt.name)
+				}
 			}
 			continue
 		}
 		if lt.meta != nil {
+			if opts.Fresh {
+				if lt.declared == nil || lt.declared.Ephemeral {
+					result := lifecycleActionResult{
+						Action:   lifecycleActionUnsupported,
+						Instance: lt.name,
+						Agent:    lt.agent,
+						Status:   lifecycleTargetStatusKey(lt),
+						Detail:   "--fresh requires a declared persistent instance",
+					}
+					results = append(results, result)
+					if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+						fmt.Fprintf(out, "  %-7s %-20s %s\n", result.Action, lt.name, result.Detail)
+					}
+					continue
+				}
+				if err := dc.StartInstanceWithOptions(lt.name, true, opts.Force); err != nil {
+					results = append(results, lifecycleActionResult{Action: "error", Instance: lt.name, Agent: lt.agent, Status: "error", Error: err.Error()})
+					if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+						fmt.Fprintf(out, "  error  %-20s %v\n", lt.name, err)
+					}
+					continue
+				}
+				results = append(results, lifecycleActionResult{Action: "fresh", Instance: lt.name, Agent: lt.agent})
+				if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
+					fmt.Fprintf(out, "  fresh  %-20s %s\n", lt.name, lt.agent)
+				}
+				continue
+			}
 			if !lifecycleMetadataCanManagedResume(lt.meta) {
 				result := lifecycleTargetUnsupportedResumeResult(lt)
 				results = append(results, result)
@@ -1958,9 +2039,13 @@ func runInstanceUpWithOptions(cmd *cobra.Command, target, prompt string, names [
 			}
 			continue
 		}
-		results = append(results, lifecycleActionResult{Action: "start", Instance: lt.name, Agent: lt.agent})
+		action := "start"
+		if opts.Fresh {
+			action = "fresh"
+		}
+		results = append(results, lifecycleActionResult{Action: action, Instance: lt.name, Agent: lt.agent})
 		if !opts.JSON && !opts.Quiet && opts.Format == nil && !opts.Summary {
-			fmt.Fprintf(out, "  start  %-20s %s\n", lt.name, lt.agent)
+			fmt.Fprintf(out, "  %-6s %-20s %s\n", action, lt.name, lt.agent)
 		}
 	}
 	if opts.DryRun {
@@ -2138,6 +2223,7 @@ type lifecycleCommandOptions struct {
 	PromptSet       bool
 	PromptFile      string
 	PromptFileSet   bool
+	Fresh           bool
 	Force           bool
 	Remove          bool
 	Timeout         time.Duration
@@ -2159,7 +2245,7 @@ func renderLifecycleActionCommands(w fmtWriter, rows []lifecycleActionResult, op
 func lifecycleActionResultsHaveApplyCommand(rows []lifecycleActionResult) bool {
 	for _, row := range rows {
 		switch row.Action {
-		case "start", "resume", "restart":
+		case "start", "resume", "restart", "fresh":
 			return true
 		}
 	}
@@ -2205,6 +2291,9 @@ func lifecycleApplyCommandArgs(opts lifecycleCommandOptions) []string {
 	}
 	if opts.PromptFileSet {
 		args = append(args, "--prompt-file", opts.PromptFile)
+	}
+	if opts.Fresh {
+		args = append(args, "--fresh")
 	}
 	if opts.Force {
 		args = append(args, "--force")
@@ -2455,6 +2544,33 @@ func dryRunStartResultWithDaemonState(target lifecycleTarget, daemonRunning bool
 		result.Action = "skip"
 		result.Status = string(daemon.StatusRunning)
 		result.Detail = "already running"
+	}
+	return result
+}
+
+func dryRunFreshStartResult(target lifecycleTarget, force bool) lifecycleActionResult {
+	result := lifecycleActionResult{
+		Action:   "fresh",
+		Instance: target.name,
+		Agent:    target.agent,
+		Status:   lifecycleTargetStatusKey(target),
+		Detail:   "would start fresh",
+		DryRun:   true,
+	}
+	if target.meta != nil {
+		result.PID = target.meta.PID
+	}
+	if target.running() {
+		if !force {
+			result.Action = lifecycleActionUnsupported
+			result.Status = string(daemon.StatusRunning)
+			result.Detail = "stop running instance before --fresh or pass --force"
+		}
+		return result
+	}
+	if target.declared == nil || target.declared.Ephemeral {
+		result.Action = lifecycleActionUnsupported
+		result.Detail = "--fresh requires a declared persistent instance"
 	}
 	return result
 }

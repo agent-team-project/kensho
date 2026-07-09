@@ -35,6 +35,15 @@ func TestLifecycleHelpShowsTopLevelStartStop(t *testing.T) {
 	}
 }
 
+func TestLifecycleMetadataCanManagedResumeRequiresClaudeSessionID(t *testing.T) {
+	if lifecycleMetadataCanManagedResume(&daemon.Metadata{Runtime: string(runtimebin.KindClaude)}) {
+		t.Fatalf("Claude metadata without a session id should not be resumable")
+	}
+	if !lifecycleMetadataCanManagedResume(&daemon.Metadata{Runtime: string(runtimebin.KindClaude), SessionID: "session-claude"}) {
+		t.Fatalf("Claude metadata with a session id should be resumable")
+	}
+}
+
 func TestLifecycleAliasesResolve(t *testing.T) {
 	cmd := NewRootCmd()
 	cases := map[string]string{
@@ -605,17 +614,19 @@ func TestStartDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusStopped,
-		PID:      123,
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    daemon.StatusStopped,
+		PID:       123,
+		SessionID: "sid-manager",
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
 	}
 	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "ticket-manager",
-		Agent:    "ticket-manager",
-		Status:   daemon.StatusRunning,
+		Instance:  "ticket-manager",
+		Agent:     "ticket-manager",
+		Status:    daemon.StatusRunning,
+		SessionID: "sid-ticket-manager",
 	}); err != nil {
 		t.Fatalf("write ticket-manager metadata: %v", err)
 	}
@@ -659,8 +670,8 @@ func TestStartDryRunPhaseFilterUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusStopped},
-		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusStopped},
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusStopped, SessionID: "sid-manager"},
+		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusStopped, SessionID: "sid-ticket-manager"},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -705,8 +716,8 @@ func TestStartFilterOnlyDryRunUsesMetadataWithoutTopology(t *testing.T) {
 	}
 	root := daemon.DaemonRoot(teamDir)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "stopped", Agent: "worker", Status: daemon.StatusStopped},
-		{Instance: "running", Agent: "worker", Status: daemon.StatusRunning},
+		{Instance: "stopped", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-stopped"},
+		{Instance: "running", Agent: "worker", Status: daemon.StatusRunning, SessionID: "sid-running"},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -737,8 +748,8 @@ func TestStartLatestDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	root := daemon.DaemonRoot(teamDir)
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-2 * time.Hour)},
-		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-5 * time.Minute)},
+		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-old", StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-new", StartedAt: now.Add(-5 * time.Minute)},
 		{Instance: "running-newer", Agent: "worker", Status: daemon.StatusRunning, StartedAt: now.Add(-1 * time.Minute)},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
@@ -770,9 +781,9 @@ func TestStartLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	root := daemon.DaemonRoot(teamDir)
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-3 * time.Hour)},
-		{Instance: "mid", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-2 * time.Hour)},
-		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-1 * time.Hour)},
+		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-old", StartedAt: now.Add(-3 * time.Hour)},
+		{Instance: "mid", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-mid", StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-new", StartedAt: now.Add(-1 * time.Hour)},
 		{Instance: "running-newer", Agent: "worker", Status: daemon.StatusRunning, StartedAt: now.Add(-30 * time.Minute)},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
@@ -960,8 +971,8 @@ func TestRestartStaleDryRunTargetsOnlyStaleInstances(t *testing.T) {
 	now := time.Now()
 	old := now.Add(-staleAfter - time.Minute)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: old},
-		{Instance: "worker", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), SessionID: "sid-manager", StartedAt: old},
+		{Instance: "worker", Agent: "worker", Status: daemon.StatusRunning, PID: os.Getpid(), SessionID: "sid-worker", StartedAt: now},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -1002,9 +1013,9 @@ func TestStartUnhealthyDryRunTargetsCrashedAndStaleInstances(t *testing.T) {
 	now := time.Now()
 	old := now.Add(-staleAfter - time.Minute)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusStopped, PID: 101, StartedAt: old},
-		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusStopped, PID: 202, StartedAt: now},
-		{Instance: "worker", Agent: "worker", Status: daemon.StatusCrashed, PID: 303, StartedAt: old},
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusStopped, PID: 101, SessionID: "sid-manager", StartedAt: old},
+		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusStopped, PID: 202, SessionID: "sid-ticket-manager", StartedAt: now},
+		{Instance: "worker", Agent: "worker", Status: daemon.StatusCrashed, PID: 303, SessionID: "sid-worker", StartedAt: old},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -1125,9 +1136,9 @@ func TestRestartUnhealthyDryRunTargetsCrashedAndStaleInstances(t *testing.T) {
 	now := time.Now()
 	old := now.Add(-staleAfter - time.Minute)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: old},
-		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusRunning, PID: os.Getpid(), StartedAt: now},
-		{Instance: "worker", Agent: "worker", Status: daemon.StatusCrashed, PID: 303, StartedAt: old},
+		{Instance: "manager", Agent: "manager", Status: daemon.StatusRunning, PID: os.Getpid(), SessionID: "sid-manager", StartedAt: old},
+		{Instance: "ticket-manager", Agent: "ticket-manager", Status: daemon.StatusRunning, PID: os.Getpid(), SessionID: "sid-ticket-manager", StartedAt: now},
+		{Instance: "worker", Agent: "worker", Status: daemon.StatusCrashed, PID: 303, SessionID: "sid-worker", StartedAt: old},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -1944,6 +1955,7 @@ func TestStopKillRestartDryRunCommandsPrintApplyCommands(t *testing.T) {
 		Runtime:   string(runtimebin.KindClaude),
 		Status:    daemon.StatusRunning,
 		PID:       os.Getpid(),
+		SessionID: "sid-manager",
 		StartedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("write manager metadata: %v", err)
@@ -2700,10 +2712,11 @@ func TestRestartDryRunSummaryJSONCountsStartsAndRestarts(t *testing.T) {
 	writePlanShapeTopologyFixture(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusStopped,
-		PID:      321,
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    daemon.StatusStopped,
+		PID:       321,
+		SessionID: "sid-manager",
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -2731,10 +2744,11 @@ func TestRestartDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusStopped,
-		PID:      321,
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    daemon.StatusStopped,
+		PID:       321,
+		SessionID: "sid-manager",
 	}); err != nil {
 		t.Fatalf("write metadata: %v", err)
 	}
@@ -2839,9 +2853,10 @@ func TestRestartFilterOnlyDryRunUsesMetadataWithoutTopology(t *testing.T) {
 		{name: "blocked", phase: "blocked"},
 	} {
 		if err := daemon.WriteMetadata(root, &daemon.Metadata{
-			Instance: item.name,
-			Agent:    "worker",
-			Status:   daemon.StatusStopped,
+			Instance:  item.name,
+			Agent:     "worker",
+			Status:    daemon.StatusStopped,
+			SessionID: "sid-" + item.name,
 		}); err != nil {
 			t.Fatalf("write metadata %s: %v", item.name, err)
 		}
@@ -2872,8 +2887,8 @@ func TestRestartLatestDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	root := daemon.DaemonRoot(teamDir)
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-2 * time.Hour)},
-		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-5 * time.Minute)},
+		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-old", StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-new", StartedAt: now.Add(-5 * time.Minute)},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -2904,9 +2919,9 @@ func TestRestartLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	root := daemon.DaemonRoot(teamDir)
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	for _, meta := range []*daemon.Metadata{
-		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-3 * time.Hour)},
-		{Instance: "mid", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-2 * time.Hour)},
-		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, StartedAt: now.Add(-1 * time.Hour)},
+		{Instance: "old", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-old", StartedAt: now.Add(-3 * time.Hour)},
+		{Instance: "mid", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-mid", StartedAt: now.Add(-2 * time.Hour)},
+		{Instance: "new", Agent: "worker", Status: daemon.StatusStopped, SessionID: "sid-new", StartedAt: now.Add(-1 * time.Hour)},
 	} {
 		if err := daemon.WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write metadata %s: %v", meta.Instance, err)
@@ -3138,7 +3153,7 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	resume := dryRunStartResult(lifecycleTarget{
 		name:  "manager",
 		agent: "manager",
-		meta:  &daemon.Metadata{Status: daemon.StatusStopped, PID: 123},
+		meta:  &daemon.Metadata{Status: daemon.StatusStopped, PID: 123, SessionID: "sid-manager"},
 	})
 	if resume.Action != "resume" || resume.Status != "stopped" || resume.Detail != "would resume" || resume.PID != 123 || !resume.DryRun {
 		t.Fatalf("resume dry-run = %+v, want stopped resume preview", resume)
@@ -3202,7 +3217,7 @@ func TestDryRunStartAndRestartResults(t *testing.T) {
 	restart := dryRunRestartResult(lifecycleTarget{
 		name:  "manager",
 		agent: "manager",
-		meta:  &daemon.Metadata{Status: daemon.StatusRunning, PID: 789},
+		meta:  &daemon.Metadata{Status: daemon.StatusRunning, PID: 789, SessionID: "sid-manager"},
 	})
 	if restart.Action != "restart" || restart.Status != "running" || restart.Detail != "would restart" || restart.PID != 789 || !restart.DryRun {
 		t.Fatalf("restart dry-run = %+v, want restart preview", restart)

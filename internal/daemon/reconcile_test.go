@@ -143,6 +143,8 @@ func TestReconcile_PidLiveCheckReportsZero(t *testing.T) {
 func TestReconcileWithTopology_RestartPolicyMatrix(t *testing.T) {
 	teamDir := restartFixtureTeamDir(t)
 	root := DaemonRoot(teamDir)
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	now := time.Now().UTC()
@@ -155,6 +157,7 @@ func TestReconcileWithTopology_RestartPolicyMatrix(t *testing.T) {
 		{Instance: "failure-nonzero", Agent: "manager", Workspace: t.TempDir(), Status: StatusExited, ExitCode: &exit1, SessionID: "sid-failure-nonzero", StartedAt: now},
 		{Instance: "always-clean", Agent: "manager", Workspace: t.TempDir(), Status: StatusExited, ExitCode: &exit0, SessionID: "sid-always-clean", StartedAt: now},
 	} {
+		writeClaudeSession(t, claudeConfigDir, meta.Workspace, meta.SessionID)
 		if err := WriteMetadata(root, meta); err != nil {
 			t.Fatalf("write %s: %v", meta.Instance, err)
 		}

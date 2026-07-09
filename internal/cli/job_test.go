@@ -9011,6 +9011,8 @@ func TestJobLifecycleCommandsValidation(t *testing.T) {
 }
 
 func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-start-")
 	if err != nil {
 		t.Fatal(err)
@@ -9022,9 +9024,11 @@ func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
 	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()
-	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-63", Workspace: tmp}); err != nil {
+	meta, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-63", Workspace: tmp})
+	if err != nil {
 		t.Fatalf("dispatch worker: %v", err)
 	}
+	writeClientClaudeSession(t, claudeConfigDir, tmp, meta.SessionID)
 	stopAndWaitForTest(t, mgr, "worker-squ-63")
 	t.Cleanup(func() {
 		meta, err := daemon.ReadMetadata(root, "worker-squ-63")
@@ -9090,6 +9094,8 @@ func TestJobStartResumesOwningInstanceAndMarksJobRunning(t *testing.T) {
 }
 
 func TestJobStartResumesExplicitStepInstanceAndMarksStepRunning(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-start-step-")
 	if err != nil {
 		t.Fatal(err)
@@ -9101,9 +9107,11 @@ func TestJobStartResumesExplicitStepInstanceAndMarksStepRunning(t *testing.T) {
 	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()
-	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-163-implement", Workspace: tmp}); err != nil {
+	meta, err := mgr.Dispatch(daemon.DispatchInput{Agent: "worker", Name: "worker-squ-163-implement", Workspace: tmp})
+	if err != nil {
 		t.Fatalf("dispatch worker: %v", err)
 	}
+	writeClientClaudeSession(t, claudeConfigDir, tmp, meta.SessionID)
 	stopAndWaitForTest(t, mgr, "worker-squ-163-implement")
 	t.Cleanup(func() {
 		meta, err := daemon.ReadMetadata(root, "worker-squ-163-implement")

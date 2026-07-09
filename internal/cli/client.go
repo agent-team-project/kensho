@@ -1039,7 +1039,18 @@ func (c *daemonClient) ExtendInstance(instance string, by time.Duration, actor s
 // instance via `claude --resume <session-id>`. Used by `start` / `instance up`
 // and by interactive `attach` to re-adopt the instance after the user exits.
 func (c *daemonClient) StartInstance(instance string) error {
-	body, _ := json.Marshal(map[string]string{"instance": instance})
+	return c.StartInstanceWithOptions(instance, false, false)
+}
+
+func (c *daemonClient) StartInstanceWithOptions(instance string, fresh bool, force bool) error {
+	payload := map[string]any{"instance": instance}
+	if fresh {
+		payload["fresh"] = true
+	}
+	if force {
+		payload["force"] = true
+	}
+	body, _ := json.Marshal(payload)
 	resp, err := c.hc.Post(c.baseURL+"/v1/start", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("daemon: start: %w", err)

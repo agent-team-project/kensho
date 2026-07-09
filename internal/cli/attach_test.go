@@ -118,8 +118,11 @@ func captureAttachExec(t *testing.T, rc error) (*attachCapture, func()) {
 }
 
 func TestAttach_StopsAndResumes(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 	env := newAttachTestEnv(t)
 	meta := env.dispatchOne(t, "manager")
+	writeClientClaudeSession(t, claudeConfigDir, env.target, meta.SessionID)
 
 	cap, restore := captureAttachExec(t, nil)
 	defer restore()
