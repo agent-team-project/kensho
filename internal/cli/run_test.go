@@ -367,7 +367,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	if err := json.Unmarshal([]byte(cap.agentsJSON), &agents); err != nil {
 		t.Fatalf("invalid --agents JSON: %v", err)
 	}
-	wantAgents := []string{"auditor", "comms", "manager", "reviewer", "ticket-manager", "verifier", "worker"}
+	wantAgents := []string{"advisor", "auditor", "comms", "manager", "reviewer", "ticket-manager", "verifier", "worker"}
 	got := make([]string, 0, len(agents))
 	for k := range agents {
 		got = append(got, k)

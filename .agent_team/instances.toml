@@ -367,16 +367,41 @@ task = "Run the org-review skill: analyze outcomes, spend, capacity, feedback, a
 
 [instances.org-review]
 agent        = "manager"
+runtime      = "claude"
+model        = "claude-fable-5"
 token_budget = "15M"
 time_budget  = "45m"
 ephemeral    = true
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description  = "Scheduled org review: outcomes/spend/capacity/feedback -> strategic improvement tickets."
+description  = "Scheduled org review on Fable 5: outcomes/spend/capacity/feedback -> strategic improvement tickets."
 
 [[instances.org-review.triggers]]
 event      = "schedule"
 match.name = "org-review"
 match.kind = "org_review"
+
+# The advisor: a persistent, top-level reasoning consultant on Fable 5 (a Claude
+# model, so runtime = "claude"). NOT a worker — it does not implement code. Kai
+# (and, through Kai, James) consults it on genuinely hard calls: architecture,
+# recurring-bug root-cause, strategy, disambiguating advisory intent, sanity-
+# checking big/irreversible decisions. Reached via `agent-team send advisor
+# "<question>"` or an agent.dispatch(target=advisor); it reasons and replies to
+# the caller's inbox. Persistent (ephemeral = false) with a durable state dir so
+# it accumulates context across consultations. Advisory only — in no pipeline.
+[instances.advisor]
+agent        = "advisor"
+runtime      = "claude"
+model        = "claude-fable-5"
+ephemeral    = false
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
+description  = "Persistent Fable-5 reasoning consultant — the council of one Kai escalates hard calls to."
+
+[[instances.advisor.triggers]]
+event = "user_invocation"
+
+[[instances.advisor.triggers]]
+event        = "agent.dispatch"
+match.target = "advisor"
 
 
 # The sentinel loop: every six hours, check the post-merge public surface that
