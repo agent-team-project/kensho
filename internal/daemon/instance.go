@@ -213,6 +213,7 @@ type RestartOptions struct {
 // a managed stop+resume of the same runtime session.
 type InterruptOptions struct {
 	From    string
+	ReplyTo string
 	Body    string
 	Force   bool
 	Timeout time.Duration
@@ -952,9 +953,10 @@ func (m *InstanceManager) Interrupt(instance string, opts InterruptOptions) (*In
 		from = "(cli)"
 	}
 	msg := &Message{
-		From: from,
-		Body: body,
-		TS:   time.Now().UTC(),
+		From:    from,
+		ReplyTo: strings.TrimSpace(opts.ReplyTo),
+		Body:    body,
+		TS:      time.Now().UTC(),
 	}
 	if err := AppendMessage(m.daemonRoot, instance, msg); err != nil {
 		return nil, fmt.Errorf("interrupt: mailbox: %w", err)

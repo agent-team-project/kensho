@@ -318,6 +318,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		var body struct {
 			To            string `json:"to"`
 			From          string `json:"from"`
+			ReplyTo       string `json:"reply_to"`
 			Body          string `json:"body"`
 			Force         bool   `json:"force"`
 			TimeoutMillis int64  `json:"timeout_ms"`
@@ -343,6 +344,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		}
 		result, err := m.Interrupt(body.To, InterruptOptions{
 			From:    body.From,
+			ReplyTo: body.ReplyTo,
 			Body:    body.Body,
 			Force:   body.Force,
 			Timeout: time.Duration(body.TimeoutMillis) * time.Millisecond,
@@ -590,9 +592,10 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			return
 		}
 		var body struct {
-			To   string `json:"to"`
-			From string `json:"from"`
-			Body string `json:"body"`
+			To      string `json:"to"`
+			From    string `json:"from"`
+			ReplyTo string `json:"reply_to"`
+			Body    string `json:"body"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -618,7 +621,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		if !authorize(w, r, "inbox.send", "inbox:"+body.To, origin.Envelope{Instance: body.From}) {
 			return
 		}
-		msg := &Message{From: body.From, To: body.To, Body: body.Body, TS: time.Now().UTC()}
+		msg := &Message{From: body.From, To: body.To, ReplyTo: strings.TrimSpace(body.ReplyTo), Body: body.Body, TS: time.Now().UTC()}
 		if err := AppendMessage(m.daemonRoot, body.To, msg); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -399,8 +399,8 @@ func (c *daemonClient) Events(ctx context.Context, follow bool, tailLines int) (
 	return resp.Body, nil
 }
 
-func (c *daemonClient) SendMessage(to, from, body string) (*messageResponse, error) {
-	payload, err := json.Marshal(map[string]string{"to": to, "from": from, "body": body})
+func (c *daemonClient) SendMessage(to, from, body, replyTo string) (*messageResponse, error) {
+	payload, err := json.Marshal(map[string]string{"to": to, "from": from, "body": body, "reply_to": replyTo})
 	if err != nil {
 		return nil, err
 	}
@@ -447,8 +447,8 @@ func (c *daemonClient) FeedbackDeliver(input feedback.DeliverInput) (*feedbackDe
 	return &out, nil
 }
 
-func (c *daemonClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
-	payload, err := json.Marshal(map[string]any{"to": to, "from": from, "body": body, "force": force})
+func (c *daemonClient) InterruptMessage(to, from, body, replyTo string, force bool) (*messageResponse, error) {
+	payload, err := json.Marshal(map[string]any{"to": to, "from": from, "body": body, "reply_to": replyTo, "force": force})
 	if err != nil {
 		return nil, err
 	}

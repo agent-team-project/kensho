@@ -105,10 +105,11 @@ type BriefPipeline struct {
 }
 
 type BriefMessage struct {
-	ID   string `json:"id"`
-	From string `json:"from,omitempty"`
-	Body string `json:"body"`
-	TS   string `json:"ts,omitempty"`
+	ID      string `json:"id"`
+	From    string `json:"from,omitempty"`
+	ReplyTo string `json:"reply_to,omitempty"`
+	Body    string `json:"body"`
+	TS      string `json:"ts,omitempty"`
 }
 
 type BriefChannel struct {
@@ -498,7 +499,7 @@ func briefMessageRows(messages []*Message) []BriefMessage {
 		if msg == nil {
 			continue
 		}
-		row := BriefMessage{ID: msg.ID, From: msg.From, Body: msg.Body}
+		row := BriefMessage{ID: msg.ID, From: msg.From, ReplyTo: msg.ReplyTo, Body: msg.Body}
 		if !msg.TS.IsZero() {
 			row.TS = msg.TS.Format(time.RFC3339)
 		}
@@ -695,7 +696,11 @@ func renderBriefMessages(b *strings.Builder, title string, messages []BriefMessa
 		return
 	}
 	for _, msg := range messages {
-		fmt.Fprintf(b, "- %s from %s at %s: %s\n", msg.ID, emptyBriefDash(msg.From), emptyBriefDash(msg.TS), oneLine(msg.Body))
+		replyTo := ""
+		if strings.TrimSpace(msg.ReplyTo) != "" {
+			replyTo = " reply-to " + msg.ReplyTo
+		}
+		fmt.Fprintf(b, "- %s from %s%s at %s: %s\n", msg.ID, emptyBriefDash(msg.From), replyTo, emptyBriefDash(msg.TS), oneLine(msg.Body))
 	}
 }
 

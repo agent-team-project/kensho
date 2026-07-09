@@ -278,7 +278,7 @@ agent-team team snapshot <team> [--events N|-1] [--schedule-limit N] [--no-redac
 agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--format '{{.Instance}} {{if .Runtime}}{{.Runtime.Lifecycle}}{{end}}'] [--json]
                                   # runtime metadata + state/status/topology detail; reads persisted runtime metadata if the daemon is down
 agent-team wait [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--until terminal|running|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json] # wait for lifecycle or work-phase condition; uses persisted metadata if daemon is down
-agent-team send [<instance>] <message...> [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--from user] [--allow-missing] [--dry-run] [--format '{{.To}} {{.ID}}'] [--json]
+agent-team send [<instance>] <message...> [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--from user] [--reply-to manager] [--allow-missing] [--dry-run] [--format '{{.To}} {{.ID}}'] [--json]
                                   # append a message to one instance mailbox or a filtered set; phase/stale/runtime-stale/unhealthy selectors use current metadata
 agent-team channels
                                   # list pub/sub channels; reads local channel state if the daemon is down
@@ -328,7 +328,7 @@ Decide at implementation time; either keeps the public surface identical.
 | `.agent_team/daemon/agent-teamd.log` | daemon (gitignored) | Stdout/stderr from a `--detach`'d daemon. Distinct from per-instance child logs. |
 | `.agent_team/daemon/<instance>/meta.json` | daemon (gitignored) | Per-instance disk-durable record (PID, session ID, status, started_at, etc.). Source of truth on reconcile. |
 | `.agent_team/daemon/<instance>/child.log` | daemon (gitignored) | Stdout/stderr from the runtime subprocess for this instance. Codex `--json` dispatches also write their JSONL stream here for session capture. Streamed by `/v1/logs/{id}` (SQU-29). |
-| `.agent_team/daemon/<instance>/mailbox.jsonl` | daemon (gitignored) | Append-only JSONL message inbox. One `{id, from, to, body, ts}` per line. Written by `POST /v1/message` (SQU-29); read by the bundled `inbox` skill. |
+| `.agent_team/daemon/<instance>/mailbox.jsonl` | daemon (gitignored) | Append-only JSONL message inbox. One `{id, from, to, reply_to?, body, ts}` per line. Written by `POST /v1/message` (SQU-29); read by the bundled `inbox` skill. |
 | `.agent_team/daemon/<instance>/mailbox-cursor.txt` | daemon (gitignored) | Highest-acked message ID. Updated by `inbox ack <id>` for the next unread message or `inbox ack --all`; consulted by `inbox check` to decide what is unread. |
 | `.agent_team/state/<instance>/daemon.token` | daemon/runtime (gitignored) | 0600 bearer token file for that instance's loopback HTTP calls. The runtime receives only this path via `AGENT_TEAM_DAEMON_TOKEN_FILE`, never the token value. |
 

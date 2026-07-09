@@ -596,6 +596,7 @@ type inboxMessageRow struct {
 	ID       string    `json:"id"`
 	From     string    `json:"from"`
 	To       string    `json:"to"`
+	ReplyTo  string    `json:"reply_to,omitempty"`
 	Body     string    `json:"body"`
 	TS       time.Time `json:"ts"`
 	Unread   bool      `json:"unread"`
@@ -923,14 +924,15 @@ func runInboxShow(stdout, stderr io.Writer, teamDir, instance string, opts inbox
 		return nil
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tUNREAD\tAGE\tFROM\tMESSAGE")
+	fmt.Fprintln(tw, "ID\tUNREAD\tAGE\tFROM\tREPLY_TO\tMESSAGE")
 	now := time.Now()
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%t\t%s\t%s\t%s\t%s\n",
 			row.ID,
 			row.Unread,
 			inboxAge(now, row.TS),
 			emptyDash(row.From),
+			emptyDash(row.ReplyTo),
 			compactInboxBody(row.Body, 96),
 		)
 	}
@@ -1410,6 +1412,7 @@ func inboxMessageRows(instance string, messages []*daemon.Message, cursor string
 			ID:       msg.ID,
 			From:     msg.From,
 			To:       msg.To,
+			ReplyTo:  msg.ReplyTo,
 			Body:     msg.Body,
 			TS:       msg.TS,
 			Unread:   unread,

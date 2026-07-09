@@ -201,6 +201,9 @@ func formatKickoffMailbox(messages []*Message, maxBytes int) (section string, de
 			at = msg.TS.UTC().Format(time.RFC3339)
 		}
 		fmt.Fprintf(&full, "%d. From: %s", delivered, from)
+		if replyTo := strings.TrimSpace(msg.ReplyTo); replyTo != "" {
+			fmt.Fprintf(&full, " (reply-to: %s)", replyTo)
+		}
 		if at != "" {
 			fmt.Fprintf(&full, " at %s", at)
 		}

@@ -15,26 +15,29 @@ import (
 )
 
 type fakeSendClient struct {
-	metas            []*daemon.Metadata
-	instanceCalls    int
-	sentTo           string
-	sentFrom         string
-	sentBody         string
-	interruptedTo    string
-	interruptedFrom  string
-	interruptedBody  string
-	interruptedForce bool
-	sends            []sendCall
-	messageResp      *messageResponse
-	messageSendErr   error
-	interruptResp    *messageResponse
-	interruptErr     error
+	metas              []*daemon.Metadata
+	instanceCalls      int
+	sentTo             string
+	sentFrom           string
+	sentReplyTo        string
+	sentBody           string
+	interruptedTo      string
+	interruptedFrom    string
+	interruptedReplyTo string
+	interruptedBody    string
+	interruptedForce   bool
+	sends              []sendCall
+	messageResp        *messageResponse
+	messageSendErr     error
+	interruptResp      *messageResponse
+	interruptErr       error
 }
 
 type sendCall struct {
-	to   string
-	from string
-	body string
+	to      string
+	from    string
+	replyTo string
+	body    string
 }
 
 func sendTestTopology(names ...string) *topology.Topology {
@@ -45,16 +48,30 @@ func sendTestTopology(names ...string) *topology.Topology {
 	return topo
 }
 
+func writeSendAdvisorTopology(t *testing.T, root string) {
+	t.Helper()
+	body := `[instances.advisor]
+agent = "advisor"
+
+[instances.manager]
+agent = "manager"
+`
+	if err := os.WriteFile(filepath.Join(root, ".agent_team", "instances.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write advisor topology: %v", err)
+	}
+}
+
 func (f *fakeSendClient) Instances() ([]*daemon.Metadata, error) {
 	f.instanceCalls++
 	return f.metas, nil
 }
 
-func (f *fakeSendClient) SendMessage(to, from, body string) (*messageResponse, error) {
+func (f *fakeSendClient) SendMessage(to, from, body, replyTo string) (*messageResponse, error) {
 	f.sentTo = to
 	f.sentFrom = from
+	f.sentReplyTo = replyTo
 	f.sentBody = body
-	f.sends = append(f.sends, sendCall{to: to, from: from, body: body})
+	f.sends = append(f.sends, sendCall{to: to, from: from, replyTo: replyTo, body: body})
 	if f.messageSendErr != nil {
 		return nil, f.messageSendErr
 	}
@@ -64,9 +81,10 @@ func (f *fakeSendClient) SendMessage(to, from, body string) (*messageResponse, e
 	return &messageResponse{Delivered: true, ID: "msg-1", TS: time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)}, nil
 }
 
-func (f *fakeSendClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
+func (f *fakeSendClient) InterruptMessage(to, from, body, replyTo string, force bool) (*messageResponse, error) {
 	f.interruptedTo = to
 	f.interruptedFrom = from
+	f.interruptedReplyTo = replyTo
 	f.interruptedBody = body
 	f.interruptedForce = force
 	if f.interruptErr != nil {
@@ -127,6 +145,64 @@ func TestSendDeclaredStoppedInstanceQueuesByDefault(t *testing.T) {
 	}
 	if !body.Delivered || body.Note != daemon.MailboxDeclaredQueuedNote {
 		t.Fatalf("send json = %+v, want declared queue note", body)
+	}
+}
+
+func TestSendAdvisorDefaultCLISenderRequiresDurableReply(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeSendAdvisorTopology(t, tmp)
+
+	cmd := NewRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	stderr := &bytes.Buffer{}
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"send", "advisor", "--target", tmp, "--message", "which path should we take"})
+	err := cmd.Execute()
+	var code ExitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Fatalf("err = %v, want exit 2", err)
+	}
+	if !strings.Contains(stderr.String(), "advisor consults need a durable reply mailbox") ||
+		!strings.Contains(stderr.String(), "--reply-to manager") {
+		t.Fatalf("stderr = %q, want durable reply instruction", stderr.String())
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(filepath.Join(tmp, ".agent_team")), "advisor")
+	if err != nil {
+		t.Fatalf("read advisor messages: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("advisor messages = %+v, want none", messages)
+	}
+}
+
+func TestSendAdvisorReplyToDurableMailbox(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	writeSendAdvisorTopology(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"send", "advisor", "--target", tmp, "--reply-to", "manager", "--message", "which path should we take", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("send advisor --reply-to: %v\nstderr=%s", err, stderr.String())
+	}
+	var body sendJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("decode send json: %v\nbody=%s", err, out.String())
+	}
+	if !body.Delivered || body.To != "advisor" || body.From != "(cli)" || body.ReplyTo != "manager" || body.ID == "" {
+		t.Fatalf("send json = %+v, want durable reply target", body)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "advisor")
+	if err != nil {
+		t.Fatalf("read advisor mailbox: %v", err)
+	}
+	if len(messages) != 1 || messages[0].From != "(cli)" || messages[0].ReplyTo != "manager" || messages[0].Body != "which path should we take" {
+		t.Fatalf("messages = %+v, want operator message with durable reply target", messages)
 	}
 }
 

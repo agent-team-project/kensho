@@ -45,10 +45,12 @@ def main() -> int:
         print()
         for m in msgs:
             sender = m.get("from") or "(unknown)"
+            reply_to = str(m.get("reply_to") or "").strip()
             ts = m.get("ts") or ""
             mid = m.get("id") or "(no-id)"
             body = m.get("body") or ""
-            print(f"[{mid}] from {sender}  ({ts})")
+            suffix = f" reply-to {reply_to}" if reply_to else ""
+            print(f"[{mid}] from {sender}{suffix}  ({ts})")
             for line in body.splitlines() or [""]:
                 print(f"   {line}")
             print()

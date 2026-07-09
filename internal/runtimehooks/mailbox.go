@@ -213,9 +213,12 @@ def format_messages(messages):
     ]
     for index, msg in enumerate(messages, 1):
         sender = str(msg.get("from", "")).strip() or "unknown"
+        reply_to = str(msg.get("reply_to", "")).strip()
         msg_id = str(msg.get("id", "")).strip()
         ts = str(msg.get("ts", "")).strip()
         header = f"{index}. From: {sender}"
+        if reply_to:
+            header += f" (reply-to: {reply_to})"
         if ts:
             header += f" at {ts}"
         if msg_id:

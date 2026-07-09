@@ -8229,6 +8229,7 @@ Flags:
       --message string        Message text to send.
       --message-file string   Read message text from a file, or '-' for stdin.
       --phase strings         Send to daemon-known instances currently in this work phase: planning, implementing, awaiting_review, blocked, idle, done, or unknown. Can repeat or comma-separate.
+      --reply-to string       Durable instance mailbox the recipient should use for replies.
       --runtime strings       Send to daemon-known instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.
       --runtime-stale         Send to daemon-known running instances whose recorded runtime PID is no longer live.
       --stale                 Send to daemon-known instances whose status.toml is stale.

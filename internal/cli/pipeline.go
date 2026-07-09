@@ -9912,7 +9912,7 @@ func unblockPipelineJobs(teamDir, pipeline string, client sendClient, stepFilter
 			results = append(results, result)
 			continue
 		}
-		response, err := client.SendMessage(result.Instance, from, message)
+		response, err := client.SendMessage(result.Instance, from, message, "")
 		if err != nil {
 			return nil, err
 		}

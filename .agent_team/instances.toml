@@ -386,10 +386,12 @@ match.kind = "org_review"
 # model, so runtime = "claude"). NOT a worker — it does not implement code. Kai
 # (and, through Kai, James) consults it on genuinely hard calls: architecture,
 # recurring-bug root-cause, strategy, disambiguating advisory intent, sanity-
-# checking big/irreversible decisions. Reached via `agent-team send advisor
-# "<question>"` or an agent.dispatch(target=advisor); it reasons and replies to
-# the caller's inbox. Persistent (ephemeral = false) with a durable state dir so
-# it accumulates context across consultations. Advisory only — in no pipeline.
+# checking big/irreversible decisions. Agents can reach it with `inbox send
+# advisor "<question>"`; operator CLI consults must provide a durable reply
+# mailbox, e.g. `agent-team send advisor --reply-to manager "<question>"`.
+# It replies to `reply-to` when present, otherwise to the caller's durable
+# inbox. Persistent (ephemeral = false) with a durable state dir so it
+# accumulates context across consultations. Advisory only — in no pipeline.
 [instances.advisor]
 agent        = "advisor"
 runtime      = "claude"

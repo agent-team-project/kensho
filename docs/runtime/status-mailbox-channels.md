@@ -69,6 +69,14 @@ Agent-side skills can read messages from the instance inbox.
 
 Messages are stored locally so they can be inspected or delivered even when a runtime process restarts.
 
+When a reply should go to a specific durable mailbox, include `--reply-to <instance>`.
+Operator CLI consults to the advisor require this because the default sender
+`(cli)` is not a durable inbox after the command exits:
+
+```sh
+agent-team send advisor --reply-to manager "Should we accept this architecture trade-off?"
+```
+
 For a hard steer to a running daemon-managed instance, use:
 
 ```sh

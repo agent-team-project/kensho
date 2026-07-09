@@ -28,6 +28,18 @@ instances. `job send`, `pipeline send`, and `team send` keep the recipient set
 tied to durable work ownership, which is usually safer than naming instances by
 hand.
 
+Use `--reply-to <instance>` when the recipient should answer somewhere other
+than the sender identity. This is required for operator CLI consults to the
+advisor because the default sender `(cli)` is not a durable mailbox after the
+operator command exits:
+
+```sh
+agent-team send advisor --reply-to manager "Should we accept this architecture trade-off?"
+```
+
+The advisor replies to the `reply-to` mailbox. Without a durable reply target,
+`agent-team send advisor ...` refuses instead of letting a response disappear.
+
 Messages live under the daemon state, so `inbox`, `overview`, `next`,
 `monitor`, `snapshot`, `job snapshot`, `pipeline snapshot`, and team-scoped
 views can show unread counts even when the runtime is not attached.

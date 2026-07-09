@@ -24,6 +24,7 @@ func newSendCmd() *cobra.Command {
 	var (
 		target        string
 		from          string
+		replyTo       string
 		message       string
 		messageFile   string
 		all           bool
@@ -88,6 +89,7 @@ func newSendCmd() *cobra.Command {
 			}
 			opts := sendOptions{
 				From:           from,
+				ReplyTo:        replyTo,
 				All:            all,
 				Latest:         latest,
 				Limit:          last,
@@ -174,6 +176,8 @@ func newSendCmd() *cobra.Command {
 						RepoSet:        scope.Set,
 						From:           from,
 						FromSet:        cmd.Flags().Changed("from"),
+						ReplyTo:        replyTo,
+						ReplyToSet:     cmd.Flags().Changed("reply-to"),
 						Message:        message,
 						MessageSet:     cmd.Flags().Changed("message"),
 						MessageFile:    messageFile,
@@ -212,6 +216,8 @@ func newSendCmd() *cobra.Command {
 					RepoSet:        scope.Set,
 					From:           from,
 					FromSet:        cmd.Flags().Changed("from"),
+					ReplyTo:        replyTo,
+					ReplyToSet:     cmd.Flags().Changed("reply-to"),
 					Message:        message,
 					MessageSet:     cmd.Flags().Changed("message"),
 					MessageFile:    messageFile,
@@ -230,6 +236,7 @@ func newSendCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
+	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Durable instance mailbox the recipient should use for replies.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Send to every daemon-known instance.")
@@ -317,6 +324,7 @@ func readMessageFile(fileValue, fileFlagName string) ([]byte, error) {
 
 type sendOptions struct {
 	From            string
+	ReplyTo         string
 	All             bool
 	Latest          bool
 	Limit           int
@@ -345,8 +353,8 @@ func (o sendOptions) selectingSet() bool {
 
 type sendClient interface {
 	Instances() ([]*daemon.Metadata, error)
-	SendMessage(to, from, body string) (*messageResponse, error)
-	InterruptMessage(to, from, body string, force bool) (*messageResponse, error)
+	SendMessage(to, from, body, replyTo string) (*messageResponse, error)
+	InterruptMessage(to, from, body, replyTo string, force bool) (*messageResponse, error)
 }
 
 func sendClientForTeamDir(teamDir string) (sendClient, error) {
@@ -368,11 +376,12 @@ func (c localSendClient) Instances() ([]*daemon.Metadata, error) {
 	return daemon.ListMetadata(c.daemonRoot)
 }
 
-func (c localSendClient) SendMessage(to, from, body string) (*messageResponse, error) {
+func (c localSendClient) SendMessage(to, from, body, replyTo string) (*messageResponse, error) {
 	msg := &daemon.Message{
-		From: from,
-		Body: body,
-		TS:   time.Now().UTC(),
+		From:    from,
+		ReplyTo: strings.TrimSpace(replyTo),
+		Body:    body,
+		TS:      time.Now().UTC(),
 	}
 	if err := daemon.AppendMessage(c.daemonRoot, to, msg); err != nil {
 		return nil, err
@@ -384,7 +393,7 @@ func (c localSendClient) SendMessage(to, from, body string) (*messageResponse, e
 	}, nil
 }
 
-func (c localSendClient) InterruptMessage(to, from, body string, force bool) (*messageResponse, error) {
+func (c localSendClient) InterruptMessage(to, from, body, replyTo string, force bool) (*messageResponse, error) {
 	return nil, errors.New("agent-team send: --interrupt requires a running daemon")
 }
 
@@ -394,6 +403,7 @@ type sendJSON struct {
 	DryRun      bool      `json:"dry_run,omitempty"`
 	To          string    `json:"to"`
 	From        string    `json:"from"`
+	ReplyTo     string    `json:"reply_to,omitempty"`
 	ID          string    `json:"id"`
 	TS          time.Time `json:"ts"`
 	Note        string    `json:"note,omitempty"`
@@ -406,6 +416,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 	if from == "" {
 		from = "(cli)"
 	}
+	replyTo := strings.TrimSpace(opts.ReplyTo)
 	if to == "" {
 		fmt.Fprintln(stderr, "agent-team send: instance is required.")
 		return exitErr(2)
@@ -427,8 +438,12 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 		}
 		target = resolved
 	}
+	if err := validateSendReplyPath(client, target, to, from, replyTo, opts.Topology); err != nil {
+		fmt.Fprintf(stderr, "agent-team send: %v\n", err)
+		return exitErr(2)
+	}
 	if opts.DryRun {
-		row := sendDryRunRow(to, from)
+		row := sendDryRunRow(to, from, replyTo)
 		row.Interrupted = opts.Interrupt
 		row.Note = target.Note
 		if opts.JSON {
@@ -446,9 +461,9 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 	}
 	var res *messageResponse
 	if opts.Interrupt {
-		res, err = client.InterruptMessage(to, from, body, opts.Force)
+		res, err = client.InterruptMessage(to, from, body, replyTo, opts.Force)
 	} else {
-		res, err = client.SendMessage(to, from, body)
+		res, err = client.SendMessage(to, from, body, replyTo)
 	}
 	if err != nil {
 		return err
@@ -459,6 +474,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 			Interrupted: opts.Interrupt || res.Interrupted,
 			To:          to,
 			From:        from,
+			ReplyTo:     replyTo,
 			ID:          res.ID,
 			TS:          res.TS,
 			Note:        firstNonEmpty(res.Note, target.Note),
@@ -469,6 +485,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 		Interrupted: opts.Interrupt || res.Interrupted,
 		To:          to,
 		From:        from,
+		ReplyTo:     replyTo,
 		ID:          res.ID,
 		TS:          res.TS,
 		Note:        firstNonEmpty(res.Note, target.Note),
@@ -521,16 +538,27 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 	if from == "" {
 		from = "(cli)"
 	}
+	replyTo := strings.TrimSpace(opts.ReplyTo)
+	for _, targetName := range targets {
+		resolved, err := resolveSendTarget(client, targetName, opts.Topology)
+		if err != nil {
+			return err
+		}
+		if err := validateSendReplyPath(client, resolved, targetName, from, replyTo, opts.Topology); err != nil {
+			fmt.Fprintf(stderr, "agent-team send: %v\n", err)
+			return exitErr(2)
+		}
+	}
 	rows := make([]sendJSON, 0, len(targets))
 	for _, target := range targets {
 		if opts.DryRun {
-			rows = append(rows, sendDryRunRow(target, from))
+			rows = append(rows, sendDryRunRow(target, from, replyTo))
 			if !opts.JSON && opts.Format == nil {
 				fmt.Fprintf(stdout, "  would-send   %-20s\n", target)
 			}
 			continue
 		}
-		res, err := client.SendMessage(target, from, body)
+		res, err := client.SendMessage(target, from, body, replyTo)
 		if err != nil {
 			return err
 		}
@@ -538,6 +566,7 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 			Delivered: res.Delivered,
 			To:        target,
 			From:      from,
+			ReplyTo:   replyTo,
 			ID:        res.ID,
 			TS:        res.TS,
 		}
@@ -555,12 +584,13 @@ func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, bod
 	return nil
 }
 
-func sendDryRunRow(to, from string) sendJSON {
+func sendDryRunRow(to, from, replyTo string) sendJSON {
 	return sendJSON{
 		Delivered: false,
 		DryRun:    true,
 		To:        to,
 		From:      from,
+		ReplyTo:   replyTo,
 		TS:        time.Now().UTC(),
 	}
 }
@@ -595,6 +625,8 @@ type scopedSendApplyCommandOptions struct {
 	RepoSet        bool
 	From           string
 	FromSet        bool
+	ReplyTo        string
+	ReplyToSet     bool
 	Message        string
 	MessageSet     bool
 	MessageFile    string
@@ -640,6 +672,9 @@ func scopedSendApplyCommandArgs(opts scopedSendApplyCommandOptions) []string {
 	}
 	if opts.FromSet && strings.TrimSpace(opts.From) != "" {
 		args = append(args, "--from", opts.From)
+	}
+	if opts.ReplyToSet && strings.TrimSpace(opts.ReplyTo) != "" {
+		args = append(args, "--reply-to", opts.ReplyTo)
 	}
 	if messageSet {
 		args = append(args, "--message", opts.Message)
@@ -860,6 +895,50 @@ func resolveSendTarget(client sendClient, to string, topo *topology.Topology) (d
 		return daemon.MailboxTargetResolution{}, err
 	}
 	return daemon.ResolveMailboxTarget(metas, topo, to), nil
+}
+
+func validateSendReplyPath(client sendClient, target daemon.MailboxTargetResolution, to, from, replyTo string, topo *topology.Topology) error {
+	replyTo = strings.TrimSpace(replyTo)
+	from = strings.TrimSpace(from)
+	if replyTo != "" {
+		if err := validateDurableSendReplyTarget(client, replyTo, topo); err != nil {
+			return err
+		}
+	}
+	if !sendTargetNeedsDurableReply(target, to) {
+		return nil
+	}
+	effective := replyTo
+	if effective == "" {
+		effective = from
+	}
+	if strings.TrimSpace(effective) == "" || strings.EqualFold(strings.TrimSpace(effective), "(cli)") {
+		return errors.New(`advisor consults need a durable reply mailbox; rerun with --reply-to <instance> (for example: agent-team send advisor --reply-to manager "<question>")`)
+	}
+	return validateDurableSendReplyTarget(client, effective, topo)
+}
+
+func sendTargetNeedsDurableReply(target daemon.MailboxTargetResolution, to string) bool {
+	return strings.EqualFold(strings.TrimSpace(target.Agent), "advisor") ||
+		strings.EqualFold(strings.TrimSpace(to), "advisor")
+}
+
+func validateDurableSendReplyTarget(client sendClient, target string, topo *topology.Topology) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return errors.New("--reply-to requires a non-empty instance")
+	}
+	if strings.EqualFold(target, "(cli)") {
+		return errors.New(`reply target "(cli)" is not durable; use --reply-to with a daemon-known or declared instance`)
+	}
+	resolved, err := resolveSendTarget(client, target, topo)
+	if err != nil {
+		return err
+	}
+	if !resolved.Valid() {
+		return fmt.Errorf("--reply-to target %q is not known to the daemon or declared in instances.toml", target)
+	}
+	return nil
 }
 
 func sendNoteSuffix(note string) string {

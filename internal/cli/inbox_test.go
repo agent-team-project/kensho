@@ -193,7 +193,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
 	for _, msg := range []*daemon.Message{
 		{ID: "msg-1", From: "tester", Body: "first", TS: now},
-		{ID: "msg-2", From: "tester", Body: "second", TS: now.Add(time.Minute)},
+		{ID: "msg-2", From: "tester", ReplyTo: "manager", Body: "second", TS: now.Add(time.Minute)},
 	} {
 		if err := daemon.AppendMessage(root, "worker", msg); err != nil {
 			t.Fatalf("append message %s: %v", msg.ID, err)
@@ -211,8 +211,16 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &messages); err != nil {
 		t.Fatalf("decode unread messages: %v\nbody=%s", err, stdout)
 	}
-	if len(messages) != 1 || messages[0].ID != "msg-2" || !messages[0].Unread {
+	if len(messages) != 1 || messages[0].ID != "msg-2" || messages[0].ReplyTo != "manager" || !messages[0].Unread {
 		t.Fatalf("unread messages = %+v", messages)
+	}
+
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread")
+	if err != nil {
+		t.Fatalf("inbox show unread table: %v\nstderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "REPLY_TO") || !strings.Contains(stdout, "manager") {
+		t.Fatalf("inbox show table = %q, want reply target", stdout)
 	}
 
 	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--commands")

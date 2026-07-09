@@ -20,11 +20,12 @@ import (
 // in `<daemon-root>/<instance>/mailbox.jsonl`. Append-only — `inbox ack` does
 // not delete; it advances the cursor file.
 type Message struct {
-	ID   string    `json:"id"`
-	From string    `json:"from"`
-	To   string    `json:"to"`
-	Body string    `json:"body"`
-	TS   time.Time `json:"ts"`
+	ID      string    `json:"id"`
+	From    string    `json:"from"`
+	To      string    `json:"to"`
+	ReplyTo string    `json:"reply_to,omitempty"`
+	Body    string    `json:"body"`
+	TS      time.Time `json:"ts"`
 }
 
 const MailboxDeclaredQueuedNote = "declared but not running; queued for next spawn/resume"
@@ -33,6 +34,7 @@ type MailboxTargetResolution struct {
 	Known       bool
 	Declared    bool
 	Running     bool
+	Agent       string
 	Note        string
 	Suggestions []string
 }
@@ -50,10 +52,16 @@ func ResolveMailboxTarget(metas []*Metadata, topo *topology.Topology, target str
 		}
 		out.Known = true
 		out.Running = meta.Status == StatusRunning
+		out.Agent = strings.TrimSpace(meta.Agent)
 		break
 	}
-	if topo != nil && topo.Find(target) != nil {
-		out.Declared = true
+	if topo != nil {
+		if inst := topo.Find(target); inst != nil {
+			out.Declared = true
+			if strings.TrimSpace(out.Agent) == "" {
+				out.Agent = strings.TrimSpace(inst.Agent)
+			}
+		}
 	}
 	if out.Declared && !out.Running {
 		out.Note = MailboxDeclaredQueuedNote

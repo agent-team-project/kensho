@@ -5,7 +5,7 @@ description: Read pending messages from your daemon-managed mailbox and ack them
 
 # Daemon-mode inbox
 
-When `agent-teamd` is running, cross-instance messages go through it: a sender POSTs `/v1/message {to, from, body}`, the daemon appends the message to your `mailbox.jsonl`, and you read it via this skill. The skill is a thin wrapper around `<state-dir>/../../../daemon/<your-instance>/mailbox.jsonl` — the file is the contract.
+When `agent-teamd` is running, cross-instance messages go through it: a sender POSTs `/v1/message {to, from, body, reply_to?}`, the daemon appends the message to your `mailbox.jsonl`, and you read it via this skill. The skill is a thin wrapper around `<state-dir>/../../../daemon/<your-instance>/mailbox.jsonl` — the file is the contract.
 
 In Claude Code's tmux team mode (no daemon, `~/.claude/teams/` populated) the existing `SendMessage` tool is the right channel — it surfaces messages as native conversation events. The inbox skill is the daemon-mode equivalent for cases where Claude Code's tmux team isn't in play.
 
@@ -27,6 +27,8 @@ inbox send <to> <body>      # POST /v1/message — convenience for sending
 ```
 
 `inbox send` exists so any agent can talk back to a teammate without learning the curl-over-unix-socket dance. The daemon's `/v1/message` endpoint is the source of truth; the skill is a wrapper.
+
+If a message is printed with `reply-to <instance>`, send replies to that durable mailbox instead of assuming the `from` value is itself reachable. Operator-originated messages may have `from (cli)` plus a durable `reply-to`.
 
 Ack is intentionally ordered. The mailbox stores one cursor, so `inbox ack <id>` only succeeds for the next unread message; it refuses to skip earlier unread messages. Handle messages in the order printed by `inbox check`, or use `inbox ack --all` only after you have dealt with every current message.
 
