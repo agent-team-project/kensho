@@ -673,10 +673,56 @@ def check_daemon_lifecycle(binary: Path, target: Path) -> list[str]:
     socket_dir = Path(tempfile.mkdtemp(prefix="agt-smoke-d-", dir="/tmp"))
     fake_bin = Path(tempfile.mkdtemp(prefix="agt-smoke-bin-", dir="/tmp"))
     fake_claude = fake_bin / "claude"
-    fake_claude.write_text("#!/bin/sh\necho \"fake claude invoked: $*\"\nexec sleep 60\n")
+    fake_claude.write_text(
+        """#!/bin/sh
+set -eu
+
+session=""
+mode=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "--session-id" ]; then
+        session="$arg"
+        mode="start"
+        prev=""
+        continue
+    fi
+    if [ "$prev" = "--resume" ]; then
+        session="$arg"
+        mode="resume"
+        prev=""
+        continue
+    fi
+    case "$arg" in
+        --session-id|--resume)
+            prev="$arg"
+            ;;
+    esac
+done
+
+config_dir="${CLAUDE_CONFIG_DIR:-${HOME:-.}/.claude}"
+workspace="$(pwd -P 2>/dev/null || pwd)"
+encoded="$(printf '%s' "$workspace" | sed 's/[^[:alnum:]]/-/g')"
+if [ -n "$session" ]; then
+    session_file="$config_dir/projects/$encoded/$session.jsonl"
+    if [ "$mode" = "resume" ] && [ ! -f "$session_file" ]; then
+        echo "No conversation found with session ID: $session" >&2
+        exit 1
+    fi
+    if [ "$mode" = "start" ]; then
+        mkdir -p "$(dirname "$session_file")"
+        printf '{}\\n' >> "$session_file"
+    fi
+fi
+
+echo "fake claude invoked: $*"
+exec sleep 60
+"""
+    )
     fake_claude.chmod(0o755)
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+    env["CLAUDE_CONFIG_DIR"] = str(socket_dir / "claude-config")
     try:
         r = subprocess.run(
             [str(binary), "--help"],
